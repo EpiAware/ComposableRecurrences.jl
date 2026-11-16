@@ -587,6 +587,7 @@ const DOCS_BLOCKS = [
             ("bvd_pre_zones", "NoAdjoint") => "plain AD",
             ("bvd_pre_zones", "loop") => "hand loop",
             ("bvd_pre_zones", "handrule") => "hand rules",
+            ("bvd_pre_zones", "short input") => "short input",
         ],
     ),
     (

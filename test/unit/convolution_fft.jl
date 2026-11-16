@@ -25,6 +25,10 @@
             end
         end
     end
+    # A series that ends before the call's last time reads zeros after it.
+    ks, Xs = rand(rng, 6), rand(rng, 3, 10)
+    @test Convolution(ks; method = CR.FFTMethod())(Xs; stop = 40) ≈
+        Convolution(ks)(hcat(Xs, zeros(3, 30)))
     # The lag-0 weight alone, an empty kernel, and a kernel far longer than
     # the series and its history.
     fft = CR.FFTMethod()

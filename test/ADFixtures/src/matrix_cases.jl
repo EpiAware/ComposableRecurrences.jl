@@ -1618,6 +1618,13 @@ if isfile(BVD_HANDRULE)
         kernel[(first_lag + 1):end] .= w
         return wrap(Convolution(kernel))(before)
     end
+    # The days before `t0` alone, with `stop` past their end: the call reads
+    # zeros after them and sums only the outputs their lags reach.
+    function _bvd_pre_zones_short(wrap, w, I, t0, first_lag)
+        kernel = zeros(eltype(w), length(w) + first_lag)
+        kernel[(first_lag + 1):end] .= w
+        return wrap(Convolution(kernel))(I[:, 1:(t0 - 1)]; stop = size(I, 2))
+    end
     function _bvd_pre_zones_hand(kernel)
         return function (wrap, w, I, t0, first_lag)
             return kernel(collect(I), collect(w), t0, first_lag)
@@ -1830,6 +1837,10 @@ if isfile(BVD_HANDRULE)
         (T = 227, L = 35, S = 4), (T = 227, L = 45, S = 4),
         (T = 209, L = 35, S = 7),
     ]
+    push!(
+        BASELINES["bvd_pre_zones"],
+        "short input" => z -> _bvd_pre_zones(_bvd_pre_zones_short)(identity, z),
+    )
     # The backend's timing call, 161 grid days with a 45-lag PMF, and its
     # model's 202 grid days with a 50-lag PMF.
     TIERS["docs"].bycase["bvd_window_weights"] = [

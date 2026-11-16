@@ -864,6 +864,14 @@ end
     @test pullback_matches(Convolution(g), X, true, nothing, rand(rng, S, 5), 3, nothing)
     @test pullback_matches(Convolution(g), X, true, nothing, nothing, 2, 5)
     @test pullback_matches(Convolution(PerStratum(rand(rng, S, D))), X, true, nothing, nothing, 1, nothing)
+    # A series that ends before the call's last time, in the layout of the
+    # input and through the buffer.
+    xs, Xs = rand(rng, 4), rand(rng, S, 4)
+    @test pullback_matches(Convolution(g), xs, true, nothing, nothing, 1, T)
+    @test pullback_matches(Convolution(g), Xs, true, nothing, nothing, 1, T)
+    @test pullback_matches(Convolution(g), Xs, rand(rng, S, T), rand(rng, T), nothing, 1, T)
+    @test pullback_matches(Convolution(g), Xs, true, nothing, rand(rng, S, 2), 3, T)
+    @test pullback_matches(Convolution(TimeVarying(rand(rng, D, T))), Xs, true, nothing, nothing, 2, T)
     for start in (1, 4)
         c = Convolution(TimeVarying(PerStratum(rand(rng, S, D, T))))
         @test pullback_matches(c, X, true, nothing, rand(rng, S, 3), start, nothing)

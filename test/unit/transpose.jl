@@ -93,6 +93,11 @@ end
     @test c'(x; start = 2, stop = 1) == Float64[]
     @test transpose(Convolution([1.0, 1.0]))(x; tail = [8.0], stop = 4) ==
         [3.0, 6.0, 12.0, 8.0]
+    # Past the series and tail the series is zero, so the outputs that read
+    # only those times are zero.
+    t = transpose(Convolution([1.0, 1.0]))
+    @test t(x; tail = [8.0], stop = 6) == [3.0, 6.0, 12.0, 8.0, 0.0, 0.0]
+    @test t(x; start = 5, stop = 6) == [0.0, 0.0]
     # The method of the convolution does not change the transpose.
     g = [0.5, 0.3, 0.2]
     d = Convolution(g; method = CR.Direct())

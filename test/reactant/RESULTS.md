@@ -55,6 +55,8 @@ Total run time 20.5 min, timeout 600 s a case.
 | Convolution ragged kernel truncated at the horizon | error: StackOverflowError | error: StackOverflowError |
 | Convolution ragged kernel of views into the parameters | error: StackOverflowError | error: StackOverflowError |
 | Convolution with gain and add | works (2.8 s / 7.4 µs) | works (0.9 s / 9.5 µs) |
+| Convolution of a series that ends before the outputs | works (45.9 s / 6.1 µs) | works (3.4 s / 8.9 µs) |
+| Convolution of a short series with gain, add and history | works (4.2 s / 7.0 µs) | works (1.0 s / 11.0 µs) |
 | Convolution lag contributions | error: MethodError in `_contribute!` | error: MethodError in `_contribute!` |
 | Convolution transpose of a Primary kernel with a tail | works (4.3 s / 40.3 µs) | works (1.3 s / 37.9 µs) |
 | Recurrence ragged Primary kernel | error: ErrorException in `_ragged` | error: ErrorException in `_ragged` |
@@ -221,6 +223,10 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Convolution ragged kernel of views into the parameters | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | StackOverflowError: |
 | registry | Convolution with gain and add | forward | cpu | 12 | works | 1.3e-16 | 2.8 | 7.4 | 1.7 |  |  |
 | registry | Convolution with gain and add | reverse | cpu | 12 | works | 1.5e-15 | 0.9 | 9.5 | 27.8 |  |  |
+| registry | Convolution of a series that ends before the outputs | forward | cpu | 12 | works | 5.6e-15 | 45.9 | 6.1 | 1.0 |  |  |
+| registry | Convolution of a series that ends before the outputs | reverse | cpu | 12 | works | 8.2e-15 | 3.4 | 8.9 | 6.3 |  |  |
+| registry | Convolution of a short series with gain, add and history | forward | cpu | 12 | works | 0.0e+00 | 4.2 | 7.0 | 1.0 |  |  |
+| registry | Convolution of a short series with gain, add and history | reverse | cpu | 12 | works | 9.7e-15 | 1.0 | 11.0 | 44.9 |  |  |
 | registry | Convolution lag contributions | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _contribute! | MethodError: no method matching _at(::Reactant.TracedRNumber{Float64}, ::Int64, ::Int64) The function `_at` exists, but no method is defined for this combinatio |
 | registry | Convolution lag contributions | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _contribute! | MethodError: no method matching _at(::Reactant.TracedRNumber{Float64}, ::Int64, ::Int64) The function `_at` exists, but no method is defined for this combinatio |
 | registry | Convolution transpose of a Primary kernel with a tail | forward | cpu | 12 | works | 7.8e-16 | 4.3 | 40.3 | 0.7 |  |  |

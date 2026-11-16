@@ -190,7 +190,8 @@ Called as `c(x; gain = 1, add, history = nothing, start = 1, stop)`, the
 call covers the absolute times `start:stop`:
 
   - `x`: the inputs, length `T` or `S × T`, read at absolute time `t`. The
-    inputs before `start` come from `x` itself.
+    inputs before `start` come from `x` itself, and the inputs after its
+    end are zero.
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
     `S × T`, read at time `t`; one when left out.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
@@ -200,6 +201,10 @@ call covers the absolute times `start:stop`:
   - `start`: the first time; `1` by default.
   - `stop`: the last time; by default the common length of the
     time-indexed inputs (`x`, `gain`, `add`).
+    It may pass the end of `x`, but `gain` and `add` must cover it.
+    Only the outputs that a lag of `x` reaches are summed, so an input
+    that is zero from some time on can be passed up to that time, as in
+    `c(x[:, 1:(t0 - 1)]; stop = T)`.
 
 The output has the layout of `x` and length `stop - start + 1`.
 
@@ -325,12 +330,12 @@ function _run_forward(c::Convolution, x, gain, add, history, start, stop)
     Tp, S, m, stop = _check_conv(kernel, x, gain, add, history, start, stop)
     fft = _fft_path(_method(c), kernel, Tp, x, stop - start + 1)
     if !fft && _in_layout(Tp, kernel, x, history, start)
-        Y = _layout_sums(Tp, kernel, x, stop)
+        Y, xr, r = _layout_sums(Tp, kernel, x, stop)
         # Unscaled, the output is `Y` itself: the reverse pass reads `Y`
         # only for a gain's cotangent, so a caller may change the output.
         out = _unscaled(gain, add) ? Y :
             _affine_layout!(similar(Y), Y, gain, add)
-        return out, _LayoutCache(_tape(gain), add, x, Y, false)
+        return out, _LayoutCache(_tape(gain), add, xr, Y, false, r, _extent(x))
     end
     Y, X, o = if fft
         _fft_buffers(Tp, kernel, x, history, m, S, start, stop, gain, add)
@@ -348,7 +353,7 @@ function _primal(c::Convolution, x, gain, add, history, start, stop)
         return _finish(Y, x, gain, add, start)
     end
     if _in_layout(Tp, kernel, x, history, start)
-        Y = _layout_sums(Tp, kernel, x, stop)
+        Y = first(_layout_sums(Tp, kernel, x, stop))
         return _unscaled(gain, add) ? Y : _affine_layout!(Y, Y, gain, add)
     end
     path = _conv_path(Tp, kernel, x)
@@ -398,14 +403,16 @@ end
 
 # Stratum `k`'s outputs, each one dot of the kernel with its window: lags
 # up to `t - 1` read `x`, older ones the history, and lags before the
-# history read zeros. The call's checks fix every shape and the caller
-# requires one-based indices, so the loops read without bounds checks.
+# history, or after the end of `x`, read zeros.
+# The call's checks fix every shape and the caller requires one-based
+# indices, so the loops read without bounds checks.
 function _gather_body!(k, out, kernel, x, history, gain, add, m, start)
     L = _nlags(kernel)
+    e = _extent(x)
     for j in 1:size(out, ndims(out))
         t = start + j - 1
         acc = zero(eltype(out))
-        @inbounds for d in 0:(min(L, t) - 1)
+        @inbounds for d in max(0, t - e):(min(L, t) - 1)
             acc += _lagweight(kernel, k, d, t) * _at(x, k, t - d)
         end
         acc = _add_history(acc, kernel, history, k, t, L, m)
@@ -434,17 +441,50 @@ function _in_layout(
     return start == 1 && _current().ex isa Serial
 end
 
-# The lag sums of the first `n` times of `x`.
+# The lag sums `Y` of times 1 to `n`, with the inputs they read and the
+# number `r` of times summed. Inputs after the end of `x` are zero, so only
+# the first `min(n, extent + L - 1)` times can be nonzero: `r` covers them
+# (all `n` for a series short enough to gather), they are summed from `x`
+# and zeros by the passes the full series would take, and the later times
+# stay zero.
 function _layout_sums(::Type{Tp}, c, x::Vector, n) where {Tp}
     Y = zeros(Tp, n)
-    _convolve_series!(Y, c, reshape(x, :, 1), 1, 0, 1)
-    return Y
+    xr, r = _summed_inputs(c, x, n)
+    if r == n
+        _convolve_series!(Y, c, reshape(xr, :, 1), 1, 0, 1)
+    else
+        Yr = zeros(Tp, r)
+        _convolve_series!(Yr, c, reshape(xr, :, 1), 1, 0, 1, n)
+        copyto!(Y, Yr)
+    end
+    return Y, xr, r
 end
 function _layout_sums(::Type{Tp}, c, x::Matrix, n) where {Tp}
     Y = zeros(Tp, size(x, 1), n)
-    _convolve_shifted!(Y, c, x, size(x, 1))
-    return Y
+    xr, r = _summed_inputs(c, x, n)
+    if r == n
+        _convolve_shifted!(Y, c, xr, size(x, 1))
+    else
+        Yr = zeros(Tp, size(x, 1), r)
+        _convolve_shifted!(Yr, c, xr, size(x, 1))
+        copyto!(Y, Yr)
+    end
+    return Y, xr, r
 end
+# `x` itself when it covers time `n`; otherwise `x` then zeros up to the
+# last time its inputs reach. A series short enough to gather groups its
+# outputs by its own length, so it is summed in full to keep each sum's
+# order.
+function _summed_inputs(c, x, n)
+    e = _extent(x)
+    e >= n && return x, n
+    r = _short_slice(n, length(c)) ? n : min(n, e + length(c) - 1)
+    xr = _zeros_to(x, r)
+    copyto!(xr, x)
+    return xr, r
+end
+_zeros_to(x::Vector, r) = zeros(eltype(x), r)
+_zeros_to(x::Matrix, r) = zeros(eltype(x), size(x, 1), r)
 
 # `Y[i] += c[d + 1] x[i - s d]` for every lag `d` and entry `i > s d`, in
 # blocks of four lags as `_convolve_series!` takes them: the entries every
@@ -502,13 +542,17 @@ struct _LayoutCache{G, A, X, Y}
     x::X
     Y::Y
     fft::Bool
+    # The times summed, and the times the caller's `x` covers; `x` above
+    # holds the inputs to time `r`, zeros after the caller's last.
+    r::Int
+    e::Int
 end
 # A cache that holds `x` keeps a copy of it when the AD backend may
 # overwrite `x` before the reverse pass; any other cache holds no input.
 _keep_inputs(cache, overwritten::Bool) = cache
 function _keep_inputs(c::_LayoutCache, overwritten::Bool)
     overwritten || return c
-    return _LayoutCache(c.gain, c.add, copy(c.x), c.Y, c.fft)
+    return _LayoutCache(c.gain, c.add, copy(c.x), c.Y, c.fft, c.r, c.e)
 end
 
 # The reverse pass in the layout of `x`, the transpose of the forward pass:
@@ -522,11 +566,25 @@ function pullback!(grads, c::Convolution, ::Run, cache::_LayoutCache)
         _scale_back_layout(ḡ, ā, grads.y, Y, gain)
     k̄ = cotangent(grads.piece, :kernel)
     s = _nstrata(x)
-    N = length(Ȳ)
     s == 0 && return nothing
-    checkbounds(x, 1:N)
-    x̄ === nothing || checkbounds(x̄, 1:N)
-    _shifted_back!(x̄, k̄, c.kernel, x, Ȳ, s, min(length(c.kernel), N ÷ s))
+    (; r, e) = cache
+    L = min(length(c.kernel), r)
+    if e >= r
+        N = length(Ȳ)
+        checkbounds(x, 1:N)
+        x̄ === nothing || checkbounds(x̄, 1:N)
+        _shifted_back!(x̄, k̄, c.kernel, x, Ȳ, s, L)
+    else
+        # Only the first `r` times were summed, from `x` and zeros: the
+        # later outputs read no input, and the zeros take no cotangent.
+        # The back pass writes a cotangent for every summed input, zeros
+        # included, so it takes one over all `r` times, and plain copies
+        # keep the native loops on plain arrays.
+        N = s * r
+        x̄r = x̄ === nothing ? nothing : zeros(eltype(x̄), size(x))
+        _shifted_back!(x̄r, k̄, c.kernel, x, Ȳ[1:N], s, L)
+        x̄ === nothing || (view(x̄, 1:(s * e)) .+= view(x̄r, 1:(s * e)))
+    end
     return nothing
 end
 
@@ -676,9 +734,13 @@ function _check_conv(kernel, x, gain, add, history, start, stop)
     _check_kernel_strata(kernel, S)
     _check_strata(:gain, gain, S)
     _check_strata(:add, add, S)
-    stop = _stop(
-        stop, (:x => _extent(x), :gain => _extent(gain), :add => _extent(add))
-    )
+    # An explicit `stop` may pass the end of `x`, whose later inputs are
+    # zero; the gain and add input must still cover it.
+    stop = stop === nothing ?
+        _stop(
+            stop,
+            (:x => _extent(x), :gain => _extent(gain), :add => _extent(add))
+        ) : _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
     start >= 1 || throw(ArgumentError("start ($start) must be at least 1"))
     stop >= start - 1 || throw(
         ArgumentError("stop ($stop) is before start ($start)")
@@ -785,14 +847,17 @@ function _check_primary_history(::TimeVarying{Primary}, history)
     )
 end
 
-# Load the inputs at times `lo` to `stop` into buffer rows `m + lo` on.
+# Load the inputs at times `lo` to `stop` into buffer rows `m + lo` on; the
+# rows past the end of `x` keep the buffer's zeros.
 function _load_input!(X, x::AbstractVector, m, stop, lo = 1)
     f = max(lo, 1)
+    stop = min(stop, _extent(x))
     X[(m + f):(m + stop), 1] .= view(x, f:stop)
     return X
 end
 function _load_input!(X, x::AbstractMatrix, m, stop, lo = 1)
     f = max(lo, 1)
+    stop = min(stop, _extent(x))
     X[(m + f):(m + stop), :] .= transpose(view(x, :, f:stop))
     return X
 end
@@ -803,6 +868,7 @@ end
 # The bounds are checked once, so the loops read without bounds checks.
 function _load_input!(X::Array, x::AbstractVector, m, stop, lo = 1)
     f = max(lo, 1)
+    stop = min(stop, _extent(x))
     f > stop && return X
     checkbounds(X, (m + f):(m + stop), 1)
     checkbounds(x, f:stop)
@@ -813,6 +879,7 @@ function _load_input!(X::Array, x::AbstractVector, m, stop, lo = 1)
 end
 function _load_input!(X::Array, x::AbstractMatrix, m, stop, lo = 1)
     f = max(lo, 1)
+    stop = min(stop, _extent(x))
     f > stop && return X
     checkbounds(X, (m + f):(m + stop), :)
     checkbounds(x, axes(X, 2), f:stop)
@@ -833,9 +900,13 @@ end
 # once and its sum stays in registers. Up to three kernel lengths of
 # outputs pay more in per-lag loop overhead than the passes save, so they
 # gather four outputs at a time.
-function _convolve_series!(y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start)
+function _convolve_series!(
+        y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start, n = length(y)
+    )
     T = length(y)
-    _short_slice(T, length(c)) && return _gather4!(y, c, X, k, m, start)
+    # The choice of passes follows the length `n` of the whole series, of
+    # which `y` may be the first part, so each output takes the same sums.
+    _short_slice(n, length(c)) && return _gather4!(y, c, X, k, m, start)
     o = m + start - 1
     nb = length(c) ÷ 4
     for b in 0:(nb - 1)
@@ -858,7 +929,7 @@ function _convolve_series!(y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start)
     end
     return y
 end
-function _convolve_series!(y, c, X, k, m, start)
+function _convolve_series!(y, c, X, k, m, start, n = length(y))
     for j in eachindex(y)
         y[j] = _lag_dot(c, X, k, m + start + j - 1)
     end
@@ -1098,10 +1169,14 @@ end
 # times of the history and `x` from time `max(1 - o, 1)` on.
 function _add_window!(x̄, h̄, X̄, o, m, stop)
     n = max(o, 0)
-    _add_rows!(x̄, X̄, o, max(1 - o, 1), stop)
+    _add_rows!(x̄, X̄, o, max(1 - o, 1), _within(x̄, stop))
     _add_rows!(h̄, X̄, n - m, m - n + 1, m)
     return nothing
 end
+
+# The last time of `stop` that the input of cotangent `x̄` has.
+_within(::Nothing, stop) = stop
+_within(x̄, stop) = min(stop, _extent(x̄))
 
 # Add buffer rows `o + f` to `o + n` into entries `f` to `n` of the
 # public-layout cotangent `x̄`.

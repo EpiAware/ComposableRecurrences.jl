@@ -439,7 +439,12 @@ end
     @test_throws ArgumentError Convolution(TimeVarying(ones(2, 3, 4)))
     @test_throws ArgumentError Convolution(nothing)
     @test_throws ArgumentError Convolution(ones(3))(TimeVarying(ones(5)))
-    @test_throws DimensionMismatch Convolution(ones(3))(ones(5); stop = 6)
+    # `stop` may pass the end of `x`, but not of the gain or add input.
+    @test_throws DimensionMismatch Convolution(ones(3))(ones(5); add = ones(5), stop = 6)
+    @test_throws "add covers 5 times, fewer than stop = 6" Convolution(ones(3))(
+        ones(5); add = ones(5), stop = 6
+    )
+    @test_throws DimensionMismatch Convolution(ones(3))(ones(5); gain = ones(5), stop = 6)
     @test_throws DimensionMismatch Convolution(ones(3))(ones(2, 5); history = ones(3, 2))
     @test_throws "history is 3×2 Matrix{Float64} but x is 2×5" Convolution(ones(3))(
         ones(2, 5); history = ones(3, 2)
@@ -575,6 +580,66 @@ end
     @test_throws MethodError CR.contributions(conv, X; add = 1.0)
     @test_throws ArgumentError CR.contributions(Convolution(TimeVarying(Ct, P)), X; history = H)
     @test_throws DimensionMismatch CR.contributions(conv, X; gain = rand(rng, 3, T))
+end
+
+@testitem "Convolution: inputs after the end of x are zero" setup = [Reference] begin
+    using ComposableRecurrences, Random
+    using ForwardDiff: Dual
+    const CR = ComposableRecurrences
+    rng = Xoshiro(73)
+    S, T = 3, 20
+    padded(x, n) = x isa AbstractVector ? vcat(x, zeros(eltype(x), n - length(x))) :
+        hcat(x, zeros(eltype(x), size(x, 1), n - size(x, 2)))
+    # Every path against the same call on the series padded with zeros:
+    # equal to the bit, since each output takes the same sums.
+    kernels = (
+        rand(rng, 4), rand(rng, 9), PerStratum(rand(rng, S, 4)),
+        TimeVarying(rand(rng, 4, T)), TimeVarying(rand(rng, 4, T), CR.Primary()),
+    )
+    for k in kernels, e in (0, 1, 3, 15), vec in (true, false)
+        vec && k isa PerStratum && continue
+        c = Convolution(k)
+        x = vec ? rand(rng, e) : rand(rng, S, e)
+        h = vec ? rand(rng, 2) : rand(rng, S, 2)
+        calls = [
+            (;), (; gain = 0.7, add = 1.5),
+            (; gain = rand(rng, T), add = rand(rng, T)), (; start = 3),
+        ]
+        k isa TimeVarying{CR.Primary} ||
+            push!(calls, (; history = h), (; history = h, start = 2, gain = 0.3))
+        for kw in calls
+            @test c(x; stop = T, kw...) == c(padded(x, T); stop = T, kw...)
+            @test CR.NoAdjoint(c)(x; stop = T, kw...) ==
+                c(padded(x, T); stop = T, kw...)
+            # Numbers that gather rather than fill a buffer.
+            xd = Dual.(x, 1.0)
+            @test c(xd; stop = T, kw...) == c(padded(xd, T); stop = T, kw...)
+            @test c(big.(x); stop = T, kw...) == c(padded(big.(x), T); stop = T, kw...)
+        end
+    end
+    # Series short enough to gather their outputs in fours, where the
+    # grouping follows the series length.
+    rng2 = Xoshiro(2)
+    g, x = rand(rng2, 4), rand(rng2, 7)
+    @test Convolution(g)(x; stop = 11) == Convolution(g)(padded(x, 11))
+    for L in (3, 4, 5), e in 0:(3L), n in (e + 1):(3L + 2), vec in (true, false)
+        c = Convolution(rand(rng, L))
+        x = vec ? rand(rng, e) : rand(rng, S, e)
+        @test c(x; stop = n) == c(padded(x, n))
+    end
+    # Outputs no lag of `x` reaches are the add input alone.
+    x = rand(rng, S, 3)
+    y = Convolution(rand(rng, 4))(x; add = 2.0, stop = T)
+    @test all(==(2.0), y[:, 7:end])
+    @test Convolution(rand(rng, 4))(zeros(S, 0); stop = 5) == zeros(S, 5)
+    # The lag contributions read the same zeros.
+    c = Convolution(rand(rng, 4))
+    @test CR.contributions(c, x; stop = T) == CR.contributions(c, padded(x, T); stop = T)
+    # A series zero after day `t0`, passed up to that day.
+    I_bar, t0 = rand(rng, S, T), 8
+    masked = copy(I_bar)
+    masked[:, t0:end] .= 0
+    @test c(I_bar[:, 1:(t0 - 1)]; stop = T) == c(masked)
 end
 
 @testitem "Convolution: an offset gain or add is refused" begin
