@@ -1728,9 +1728,12 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         p = [1.1 + _noise(d, seed) for d in 1:L]
         return p ./ sum(p)
     end
-    # The backend's production inputs: admissions peaking mid-run, deaths
+    # The backend's production shapes: admissions peaking mid-run, deaths
     # and recoveries delayed from them, rule-outs delayed from the non-case
     # admissions, and a confirmation hazard that rises and falls weekly.
+    # Discharges are 0.8 of admissions, not all of them, so no pool drains
+    # to its floor at zero, where the port and the hand loop break the tie
+    # on opposite sides.
     function _bvd_occupancy(run)
         return function (wrap, z::Size)
             (; T) = z
@@ -1753,9 +1756,9 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
             A_bg = @. 30 * exp(-((days - T / 2) / 30)^2) + 2.0
             θ = _flat(
                 A_bvd, A_bg,
-                BVDRef.convolve_delay(0.4 .* A_bvd, _occ_delay(15, 41)),
-                BVDRef.convolve_delay(0.6 .* A_bvd, _occ_delay(20, 42)),
-                BVDRef.convolve_delay(A_bg, _occ_delay(8, 43)), [0.02],
+                BVDRef.convolve_delay(0.3 .* A_bvd, _occ_delay(15, 41)),
+                BVDRef.convolve_delay(0.5 .* A_bvd, _occ_delay(20, 42)),
+                BVDRef.convolve_delay(0.8 .* A_bg, _occ_delay(8, 43)), [0.02],
                 @. 0.1 + 0.3 * abs(sin(days / 7))
             )
             return f, θ
