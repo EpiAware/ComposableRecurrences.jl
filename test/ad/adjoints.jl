@@ -435,12 +435,23 @@
     # Every operator `test_adjoint` checks, as `(name, op, args, rtol)`: the
     # registry's, then the extras. An extra with single-precision values
     # carries the single-precision marker as a fourth element, as a registry
-    # entry does (see `ADFixtures.rule_rtol`).
-    function adjoint_cases()
+    # entry does (see `ADFixtures.rule_rtol`). With `slice = (k, n)`, only
+    # the `k`th of `n` slices of them (see `ADFixtures.take_slice`).
+    function adjoint_cases(; slice = nothing)
         extras = map(extra_cases()) do case
             (case[1], case[2], case[3], ADFixtures.rule_rtol(case))
         end
-        return [registry_cases(); extras]
+        return ADFixtures.take_slice([registry_cases(); extras], slice)
+    end
+
+    # Runs `test_adjoint` on slice `k` of `ADFixtures.ADJOINT_SLICES` of the
+    # operators, for the backend named `name`.
+    function test_adjoint_slice(name, backend, k)
+        for case in adjoint_cases(; slice = (k, ADFixtures.ADJOINT_SLICES))
+            rtol = last(case)
+            test_adjoint_case(name, backend, case; rtol, atol = rtol)
+        end
+        return nothing
     end
 
     # Runs `check()` in a testset named `label`, for the backend named
@@ -684,24 +695,43 @@ end
     @test only(failing) isa Test.Broken
 end
 
-@testitem "Mooncake: test_adjoint on one operator of each kind" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
+# One item per slice of the operators and backend; the fixtures item in
+# scenarios.jl checks that there is one for each of
+# `ADFixtures.ADJOINT_SLICES`, and the item after them that the slices cover
+# every operator once.
+@testitem "Mooncake: test_adjoint on one operator of each kind (slice 1 of 2)" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
     using ADTypes: AutoMooncake
     import Mooncake
-    for case in adjoint_cases()
-        rtol = last(case)
-        test_adjoint_case(
-            "Mooncake reverse", AutoMooncake(; config = nothing), case; rtol, atol = rtol
-        )
-    end
+    test_adjoint_slice("Mooncake reverse", AutoMooncake(; config = nothing), 1)
 end
 
-# Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme: test_adjoint on one operator of each kind" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
+@testitem "Mooncake: test_adjoint on one operator of each kind (slice 2 of 2)" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
+    using ADTypes: AutoMooncake
+    import Mooncake
+    test_adjoint_slice("Mooncake reverse", AutoMooncake(; config = nothing), 2)
+end
+
+# Tagged `compat_floor`, so the Threads workflow runs them on Julia 1.11.
+@testitem "Enzyme: test_adjoint on one operator of each kind (slice 1 of 2)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
     using ADTypes: AutoEnzyme
     import Enzyme, EnzymeTestUtils
-    for case in adjoint_cases()
-        rtol = last(case)
-        test_adjoint_case("Enzyme reverse", AutoEnzyme(), case; rtol, atol = rtol)
+    test_adjoint_slice("Enzyme reverse", AutoEnzyme(), 1)
+end
+
+@testitem "Enzyme: test_adjoint on one operator of each kind (slice 2 of 2)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [AdjointCases] begin
+    using ADTypes: AutoEnzyme
+    import Enzyme, EnzymeTestUtils
+    test_adjoint_slice("Enzyme reverse", AutoEnzyme(), 2)
+end
+
+# Both reverse backends take the same slices, so one job checks them.
+@testitem "The test_adjoint slices cover every operator once" tags = [:ad, :enzyme_reverse] setup = [AdjointCases] begin
+    n = ADFixtures.ADJOINT_SLICES
+    cases = adjoint_cases()
+    slices = [ADFixtures.take_slice(eachindex(cases), (k, n)) for k in 1:n]
+    @test sort(reduce(vcat, slices)) == collect(eachindex(cases))
+    for (k, idx) in enumerate(slices)
+        @test first.(adjoint_cases(; slice = (k, n))) == first.(cases[idx])
     end
 end
 

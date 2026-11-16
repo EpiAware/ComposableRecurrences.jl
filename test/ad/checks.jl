@@ -32,7 +32,12 @@
     # in the backend's plain set (`test_rule_fires`). If a gradient throws,
     # no pass runs, so a scenario that expects the rule fails, or is broken,
     # on the count as well.
-    function test_gradients(name; category::Symbol, rules_fire::Bool = false)
+    # With `slice = (k, n)`, only the `k`th of `n` slices of the scenarios
+    # of each precision is checked (see `ADFixtures.take_slice`).
+    function test_gradients(
+            name; category::Symbol, rules_fire::Bool = false,
+            slice::Union{Nothing, Tuple{Int, Int}} = nothing
+        )
         backend = only(b.backend for b in ADFixtures.backends() if b.name == name)
         skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
         plain = get(ADFixtures.backend_plain_scenarios(), name, Set{String}())
@@ -42,7 +47,7 @@
         )
         for precision in (:double, :single)
             rtol = ADFixtures.gradient_rtol(precision)
-            scenario_kwargs = (; category, precision, backend = name)
+            scenario_kwargs = (; category, precision, backend = name, slice)
             EpiAwarePackageTools.test_working_backend(
                 ADFixtures, name; rtol, atol = 0.0, scenario_kwargs
             )
@@ -62,6 +67,15 @@
             end
         end
         return nothing
+    end
+
+    # Runs slice `k` of `ADFixtures.REVERSE_SLICES` of the registry checks
+    # for the reverse-mode backend named `name`, with its rule checks.
+    function test_reverse_slice(name, k)
+        return test_gradients(
+            name; category = :marginal, rules_fire = true,
+            slice = (k, ADFixtures.REVERSE_SLICES)
+        )
     end
 
     # Whether the gradients of the scenario named `name` ran the analytic

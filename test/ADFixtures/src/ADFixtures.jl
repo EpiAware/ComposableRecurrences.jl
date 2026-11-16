@@ -2814,7 +2814,7 @@ const _PRECISIONS = (:all, :double, :single)
 """
     scenarios(;
         with_reference = false, category = :marginal, precision = :all,
-        backend = nothing
+        backend = nothing, slice = nothing
     )
 
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
@@ -2831,10 +2831,12 @@ that backend by design (see `backend_plain_scenarios`) keeps no twin there,
 since the twin would take the same plain path as its scenario.
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
+`slice` keeps one slice of the selection (see `take_slice`).
 """
 function scenarios(;
         with_reference::Bool = false, category::Symbol = :marginal,
-        precision::Symbol = :all, backend::Union{Nothing, String} = nothing
+        precision::Symbol = :all, backend::Union{Nothing, String} = nothing,
+        slice::Union{Nothing, Tuple{Int, Int}} = nothing
     )
     category in _CATEGORIES || throw(
         ArgumentError(
@@ -2854,12 +2856,49 @@ function scenarios(;
         (category === :marginal || !twin) && !(twin && base in plain) &&
             (precision === :all || single == (precision === :single))
     end
-    return map(twins) do (name, f, θ0, _)
+    return map(take_slice(twins, slice)) do (name, f, θ0, _)
         θ = θ0()
         DIT.Scenario{:gradient, :out}(
             f, θ; name, res1 = with_reference ? _reference(f, θ) : nothing
         )
     end
+end
+
+"""
+    take_slice(xs, slice)
+
+Every `n`th entry of `xs` from the `k`th, for `slice = (k, n)`; all of `xs`
+for `nothing`.
+"""
+take_slice(xs, ::Nothing) = xs
+function take_slice(xs, slice::Tuple{Int, Int})
+    k, n = slice
+    1 <= k <= n || throw(
+        ArgumentError("slice $k of $n: choose a slice from 1 to $n")
+    )
+    return xs[k:n:end]
+end
+
+# The slices of the reverse-mode gradient items and of the `test_adjoint`
+# items, one `@testitem` per slice and backend (see `slice_items`).
+const REVERSE_SLICES = 4
+const ADJOINT_SLICES = 2
+
+"""
+    slice_items(file, call)
+
+The slices each backend's items in the test file `file` (in `test/ad`) run,
+read from the calls `call("<backend>", ..., k)` in it, as a `Dict` from the
+backend's name to its sorted slice numbers.
+"""
+function slice_items(file, call)
+    src = read(joinpath(dirname(@__DIR__), "..", "ad", file), String)
+    pattern = Regex(call * raw"""\("([^"]+)"[^\n]*?(\d+)\)\s*$""", "m")
+    out = Dict{String, Vector{Int}}()
+    for m in eachmatch(pattern, src)
+        push!(get!(out, m[1], Int[]), parse(Int, m[2]))
+    end
+    return Dict(k => sort(v) for (k, v) in out)
 end
 
 """
