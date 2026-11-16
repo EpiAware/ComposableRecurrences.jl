@@ -21,8 +21,16 @@ const SUITE = BenchmarkGroup()
 # keep BenchmarkTools' default sample count: a lower cap raises the minimum
 # of the fastest entries and widens its spread between runs.
 # `gctrial = false` drops the full garbage collections before each entry.
-# With every AD backend loaded the heap is large, each collection takes
-# seconds, and the minimum time reported is not sensitive to it.
+# With every AD backend loaded the heap is large and each collection takes
+# seconds. A full collection would not steady the entries that allocate,
+# such as the primal `Evaluation` cases, as their samples pay the heap's
+# state: with a heap of a few GiB most samples of
+# `tv_piecewise_secondary_k5` take 4 to 6 µs, and in some runs a few
+# percent take 1.6 µs, its time on a small heap. Their minimum moves with
+# whether a run catches those samples, by up to 2.5 times between runs of
+# the same code, while their median moves by about a tenth. A per-sample
+# incremental collection removes the fast samples but leaves a few hundred
+# samples or fewer, so the entries keep this setting.
 
 # BenchmarkTools runs full garbage collections (`gcscrub`) before every
 # group it tunes or runs, whatever the entries set. The AD grid has a group
