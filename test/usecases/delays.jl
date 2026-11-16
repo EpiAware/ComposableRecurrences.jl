@@ -124,17 +124,21 @@ end
     @test ReferenceAD.gradient(y -> sum(wa .* aggregate(y)), Y) ≈ ∇ref
 
     # BVD's `bin_increments`: sums over the windows between report days, an
-    # empty window giving zero. The running total, read once at the report
-    # days and differenced. The days here lie in `1:n`; the reference also
-    # clamps a day of 0 or one past the end, which this form would not.
+    # empty window giving zero and a day of 0 or past the end clamped.
+    # `window_sums` takes them directly; the running total read at the report
+    # days and differenced gives the same for days in `1:n`.
+    for days in ([3, 7, 7, 10, 12], [0, 3, 7, 7, 10, 15])
+        refb = B.bin_increments(Y, days)
+        wb = range(0.5, 2.0; length = length(days))
+        ∇refb = ReferenceAD.gradient(y -> sum(wb .* B.bin_increments(y, days)), Y)
+        bins(Y) = ComposableRecurrences.window_sums(Y, days)
+        @test bins(Y) ≈ refb
+        @test ReferenceAD.gradient(y -> sum(wb .* bins(y)), Y) ≈ ∇refb
+    end
     days = [3, 7, 7, 10, 12]
-    refb = B.bin_increments(Y, days)
-    wb = range(0.5, 2.0; length = length(days))
-    ∇refb = ReferenceAD.gradient(y -> sum(wb .* B.bin_increments(y, days)), Y)
-    function bins(Y)
+    function total_bins(Y)
         s = Recurrence([1.0])(1.0; history = [0.0], add = Y)[days]
         return diff(vcat(zero(eltype(s)), s))
     end
-    @test bins(Y) ≈ refb
-    @test ReferenceAD.gradient(y -> sum(wb .* bins(y)), Y) ≈ ∇refb
+    @test total_bins(Y) ≈ B.bin_increments(Y, days)
 end

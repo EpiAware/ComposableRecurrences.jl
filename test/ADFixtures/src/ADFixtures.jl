@@ -1960,6 +1960,25 @@ push!(
     ),
 )
 
+# Sums over windows of each series: along the rows of strata × time, and
+# down the columns of time × strata, with an empty window and an end past
+# the series. Through the operator behind `window_sums`, so a scenario can
+# wrap it.
+_WindowSums(ends, n, dims) = ComposableRecurrences._WindowSums(ends, n, dims)
+const WINDOW_ENDS = [2, 5, 5, 9, T + 2]
+const WWR = [cos(a + 0.5 * v) for a in 1:S, v in eachindex(WINDOW_ENDS)]
+function _window_sums(w, θ)
+    X = exp.(reshape(θ, S, T))
+    rows = w(_WindowSums(WINDOW_ENDS, T, 2))(X)
+    down = w(_WindowSums(WINDOW_ENDS, T, 1))(permutedims(X))
+    return sum(WWR .* rows) + sum(permutedims(WWR) .* down .^ 2)
+end
+
+push!(
+    _SCENARIOS,
+    ("Window sums of each series, either way round", _window_sums, () -> vec(LOGR)),
+)
+
 """
     supports(features...)
 
@@ -2131,6 +2150,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Kernel weights of a survival against a delay and calendar hazard" =>
         (:Survival, :_KernelWeights),
     "Recurrence kernel shortened by a survival" => (:Survival,),
+    "Window sums of each series, either way round" => (:window_sums,),
 )
 
 # A `NoAdjoint` twin compares the analytic adjoint with plain AD of the same

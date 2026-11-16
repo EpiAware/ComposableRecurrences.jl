@@ -1,7 +1,7 @@
 # Hand-written reference kernels in the style of the BVDOutbreakSize
 # backend, timed by the benchmark matrix (cases `bvd_renewal`, `bvd_patches`,
-# `bvd_delay`, `bvd_zones`, `bvd_two_clock`, `bvd_abscond`, `bvd_onset` and
-# `bvd_bins`) against the package's operators.
+# `bvd_delay`, `bvd_zones`, `bvd_two_clock`, `bvd_abscond`, `bvd_onset`,
+# `bvd_bins` and `bvd_bin_rows`) against the package's operators.
 #
 # The forward loops follow `test/usecases/references/bvd.jl`. The reverse
 # passes are hand-written Mooncake rules, as the backend writes its own, so
@@ -10,9 +10,13 @@
 # rules, differentiated by the backend itself. The rules are Mooncake rules
 # only: Enzyme differentiates the loops in both arms.
 #
-# The loops and rules were written in this repository, not copied. The
-# loops follow `references/bvd.jl`, a frozen copy of BVDOutbreakSize at
-# commit 95be3b22, and neither is kept in step with BVDOutbreakSize.
+# The loops and rules were written in this repository, not copied, except
+# `bvd_bin_loop`, `bin_rows_loop` and `bin_row_increments`'s rule, which are
+# BVDOutbreakSize's `bin_increments` and `bin_row_increments`
+# (`src/models/observations.jl` L18-L50 and `src/mooncake_rules.jl` L43-L49
+# and L123-L150 at commit 73c575bd) with the loops renamed. The other loops
+# follow `references/bvd.jl`, a frozen copy of BVDOutbreakSize at commit
+# 95be3b22, and none is kept in step with BVDOutbreakSize.
 #
 # Included by `test/ADFixtures/src/matrix_cases.jl` inside `MatrixCases`.
 module BVDHandRule
@@ -24,7 +28,8 @@ using LinearAlgebra: axpy!, dot, mul!
 export renewal_loop, patch_loop, delay_loop, zone_loop, bin_loop,
     renewal_infections, patch_infections, convolve_delay, zone_infections,
     bin_increments, two_clock_loop, abscond_loop, onset_table_loop,
-    two_clock_confirmed, abscond_thinned_flows, onset_report_cdf_table
+    two_clock_confirmed, abscond_thinned_flows, onset_report_cdf_table,
+    bin_rows_loop, bin_row_increments
 
 # ---- forward loops ----------------------------------------------------------
 
@@ -876,6 +881,87 @@ function Mooncake.rrule!!(
         return NoRData(), NoRData(), NoRData()
     end
     return CoDual(y, ȳ), bin_increments_pb
+end
+
+# BVD's `bin_increments`, renamed: the sum of `daily` over the days of each
+# bin, the first from day 1, each later one from the day after the last.
+function bvd_bin_loop(
+        daily::AbstractVector,
+        days::AbstractVector{<:Integer}
+    )
+    n = length(daily)
+    out = Vector{eltype(daily)}(undef, length(days))
+    ## Concrete zero for empty bins, dispatched on the runtime element type
+    ## so it works when the container has widened to `Vector{Any}` in predict
+    ## mode (`zero(eltype(daily))` would call `zero(::Type{Any})` and error).
+    zfill = isempty(daily) ? zero(eltype(daily)) : zero(@inbounds daily[begin])
+    prev = 0
+    @inbounds for (i, d) in enumerate(days)
+        hi = clamp(Int(d), 0, n)
+        lo = clamp(prev, 0, n)
+        out[i] = hi > lo ? sum(@view daily[(lo + 1):hi]) : zfill
+        prev = hi
+    end
+    return out
+end
+
+@doc raw"""
+    bin_rows_loop(M, days)
+
+Each row of `M` binned to the vintage days `days` by `bvd_bin_loop`, as a
+`(size(M, 1) × length(days))` matrix: BVD's `bin_row_increments`,
+```math
+y_{p,i} = \sum_{t = d_{i-1} + 1}^{d_i} M_{p,t}, \qquad d_0 = 0,
+```
+with the days clamped to the grid.
+"""
+function bin_rows_loop(
+        M::AbstractMatrix, days::AbstractVector{<:Integer}
+    )
+    out = Matrix{eltype(M)}(undef, size(M, 1), length(days))
+    @inbounds for p in axes(M, 1)
+        out[p, :] = bvd_bin_loop(M[p, :], days)
+    end
+    return out
+end
+
+"`bin_rows_loop` with the backend's hand-written Mooncake rule."
+bin_row_increments(M, days) = bin_rows_loop(M, days)
+
+Mooncake.@is_primitive(
+    Mooncake.MinimalCtx,
+    Tuple{
+        typeof(bin_row_increments), Matrix{<:Mooncake.IEEEFloat},
+        Vector{<:Integer},
+    },
+)
+
+function Mooncake.rrule!!(
+        ::CoDual{typeof(bin_row_increments)},
+        M::CoDual{<:Matrix{<:Mooncake.IEEEFloat}},
+        days::CoDual{<:Vector{<:Integer}}
+    )
+    Mp = primal(M)
+    dp = primal(days)
+    M̄ = tangent(M)
+    y = bin_row_increments(Mp, dp)
+    ȳ = zero(y)
+    function bin_row_increments_pullback!!(::NoRData)
+        ## Each bin is a sum over its days, so every day in bin `i` takes
+        ## that bin's cotangent.
+        n = size(Mp, 2)
+        prev = 0
+        @inbounds for (i, d) in enumerate(dp)
+            hi = clamp(Int(d), 0, n)
+            lo = clamp(prev, 0, n)
+            for t in (lo + 1):hi, p in axes(Mp, 1)
+                M̄[p, t] += ȳ[p, i]
+            end
+            prev = hi
+        end
+        return NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(y, ȳ), bin_row_increments_pullback!!
 end
 
 end # module BVDHandRule

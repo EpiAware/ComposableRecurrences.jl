@@ -1005,6 +1005,7 @@ pending_cases() = Tuple{String, String}[]
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "bvd_patch" => (:_kernel_movement,),
+    "bvd_bin_rows" => (:window_sums,),
     "bvd_patches_call" => (:_kernel_movement, :_WithTrace),
     "zone_allocate" => (:Allocate,),
     "strata_routes" => (:_Routes,),
@@ -1593,6 +1594,35 @@ if isfile(BVD_HANDRULE)
     end
     _bvd_bins_hand(kernel) = (wrap, daily, days) -> kernel(daily, days)
 
+    # BVD's `bin_row_increments`: each of `S` patch series binned to vintage
+    # days, the first bin from day 1. `L` picks the days: daily from day
+    # `T ÷ 2` for `L = 1`, every `L` days for a larger `L`, and the backend's
+    # province vintage days, 138 of them up to day 268, for `L = 0`. The
+    # package arm is `window_sums` along each row.
+    _BVD_PROVINCE_DAYS = vcat(
+        123:133, 135, 137:147, 149:153, 155:165, 168:232, 234:262, 264:268
+    )
+    function _bvd_bin_days(T, L)
+        L == 0 && return filter(<=(T), _BVD_PROVINCE_DAYS)
+        L == 1 && return collect((T ÷ 2):T)
+        return collect(L:L:T)
+    end
+    function _bvd_bin_rows(run)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            days = _bvd_bin_days(T, L)
+            W = _weights(S, length(days))
+            f = function (θ)
+                return sum(W .* run(wrap, reshape(θ, S, T), days))
+            end
+            return f, vec([1.0 + 0.5 * _noise(t, 3 + p) for p in 1:S, t in 1:T])
+        end
+    end
+    function _bvd_bin_rows_rule(wrap, M, days)
+        return wrap(CR._WindowSums(days, size(M, 2), 2))(M)
+    end
+    _bvd_bin_rows_hand(kernel) = (wrap, M, days) -> kernel(collect(M), days)
+
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
                 "bvd_renewal", "BVD renewal_infections: seeded hazard depletion",
@@ -1637,6 +1667,11 @@ if isfile(BVD_HANDRULE)
                 _bvd_bins, _bvd_bins_rule, _bvd_bins_hand,
                 (BVD.bin_loop, BVD.bin_increments), [1],
             ),
+            (
+                "bvd_bin_rows", "BVD bin_row_increments: each row's window sums",
+                _bvd_bin_rows, _bvd_bin_rows_rule, _bvd_bin_rows_hand,
+                (BVD.bin_rows_loop, BVD.bin_row_increments), [8],
+            ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
         BASELINES[name] = [
@@ -1650,6 +1685,13 @@ if isfile(BVD_HANDRULE)
     end
     # Weekly and 30-day bins over the backend's 220 days.
     TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
+    # The backend's rule timing, 8 patches over 260 days with daily vintages
+    # from day 130; 11 patches over its model's 268 days, weekly; and its
+    # province vintage days over 268 days.
+    TIERS["docs"].bycase["bvd_bin_rows"] = [
+        (T = 260, L = 1, S = 8), (T = 268, L = 7, S = 11),
+        (T = 268, L = 0, S = 8),
+    ]
     # The backend's call shape against the same loops, which read the series
     # over the seed's days too and return those days first.
     _renewal_call_hand(kernel) = (wrap, g, seed, R, N) -> kernel(R, collect(g), seed, N)
