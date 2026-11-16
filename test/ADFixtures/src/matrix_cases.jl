@@ -1621,7 +1621,7 @@ if isfile(BVD_HANDRULE)
     function _bvd_bin_rows_rule(wrap, M, days)
         return wrap(CR._WindowSums(days, size(M, 2), 2))(M)
     end
-    _bvd_bin_rows_hand(kernel) = (wrap, M, days) -> kernel(collect(M), days)
+    _bvd_bin_rows_hand(kernel) = (wrap, M, days) -> kernel(M, days)
 
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
@@ -1668,7 +1668,8 @@ if isfile(BVD_HANDRULE)
                 (BVD.bin_loop, BVD.bin_increments), [1],
             ),
             (
-                "bvd_bin_rows", "BVD bin_row_increments: each row's window sums",
+                "bvd_bin_rows",
+                "BVD bin_row_increments: each row's window sums",
                 _bvd_bin_rows, _bvd_bin_rows_rule, _bvd_bin_rows_hand,
                 (BVD.bin_rows_loop, BVD.bin_row_increments), [8],
             ),

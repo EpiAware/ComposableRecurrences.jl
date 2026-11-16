@@ -24,7 +24,11 @@
         @test CR.window_sums(x, ends) ≈ direct(x, ends)
     end
     @test CR.window_sums(x, Int[]) == Float64[]
+    # Literal sums, independent of `direct`: an end at 0 and past the series,
+    # and an end that goes back.
     @test CR.window_sums(x, [2, 5, 5, 8]) ≈ [1.3, 2.7, 0.0, 3.6]
+    @test CR.window_sums(x, [0, 4, 20]) ≈ [0.0, 3.0, 10.8]
+    @test CR.window_sums(x, [6, 4, 9]) ≈ [5.1, 0.0, 6.0]
     # A matrix sums each series: along the rows by default, down the columns
     # with `dims = 1`.
     X = [sin(p + t) + 2.0 for p in 1:3, t in 1:12]

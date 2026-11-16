@@ -1976,7 +1976,10 @@ end
 
 push!(
     _SCENARIOS,
-    ("Window sums of each series, either way round", _window_sums, () -> vec(LOGR)),
+    (
+        "Window sums of each series, either way round", _window_sums,
+        () -> vec(LOGR),
+    ),
 )
 
 """
