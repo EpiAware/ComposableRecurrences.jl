@@ -1662,12 +1662,14 @@ if isfile(BVD_HANDRULE)
     # The model's use of those weights: the expected reports of `S` zones in
     # each vintage window, `I * weights` for the zones' daily infections `I`
     # (zones by days). The package arm never builds the weights. It
-    # convolves the zones' series with the PMF and sums each window's days,
-    # in `_window_sums`, the one place a faster window-sum spelling goes.
+    # convolves the zones' series with the PMF and sums each window's days.
+    # Two windows close before the first grid day, as the backend's rows give
+    # for vintages before its start, and are empty.
     function _bvd_window_reports(run)
         return function (wrap, z::Size)
             (; T, L, S) = z
             starts, stops = _bvd_window_rows(T)
+            starts, stops = [1; 1; starts], [-50; 0; stops]
             W = _weights(S, length(starts))
             f = function (θ)
                 p, I = _unpack(θ, (L,), (S, T))
