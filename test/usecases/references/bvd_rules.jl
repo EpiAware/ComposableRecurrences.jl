@@ -1,6 +1,6 @@
 # A verbatim copy of the BVDOutbreakSize.jl Mooncake rules for
-# `accumulate_occupancy`, `abscond_thinned_flows` and `two_clock_confirmed`,
-# on the reference forward passes in `bvd.jl`.
+# `accumulate_occupancy`, `abscond_thinned_flows`, `two_clock_confirmed` and
+# `patch_infections`, on the reference forward passes in `bvd.jl`.
 #
 # Source: https://github.com/epiforecasts/BVDOutbreakSize at commit 73c575bd,
 # src/mooncake_rules.jl, at the lines given above each rule; the occupancy
@@ -9,15 +9,16 @@
 #
 # It is kept apart from `bvd.jl` so that the use-case tests, which load
 # `bvd.jl`, do not need Mooncake. The benchmark matrix includes both, after
-# `bvd.jl`, for the `handrule` arms of `bvd_occupancy`, `bvd_abscond_port`
-# and `bvd_two_clock_port`.
+# `bvd.jl`, for the `handrule` arms of `bvd_occupancy`, `bvd_abscond_port`,
+# `bvd_two_clock_port` and `bvd_patches_port`.
 module BVDReferenceRules
 
 import Mooncake
 using Mooncake: CoDual, NoRData, primal, tangent
 using ..BVDReference: accumulate_occupancy, _accumulate_occupancy,
     _OCC_UNCONF, _OCC_DENOM, _OCC_BVD, _OCC_BG, _OCC_CONF_X, _OCC_CONF_HI,
-    _OCC_SUSP, abscond_thinned_flows, two_clock_confirmed
+    _OCC_SUSP, abscond_thinned_flows, two_clock_confirmed, patch_infections,
+    patch_infections_with_state, _patch_force, _patch_outflow
 
 # src/mooncake_rules.jl L776-L898
 Mooncake.@is_primitive(
@@ -308,6 +309,123 @@ function Mooncake.rrule!!(
         return NoRData(), NoRData(), NoRData(), NoRData()
     end
     return CoDual(O, Ō), two_clock_confirmed_pullback!!
+end
+
+# The rule for `patch_infections`, on the reference forward pass in
+# `bvd.jl`, which matches 73c575bd's.
+# src/mooncake_rules.jl L64-L72
+Mooncake.@is_primitive(
+    Mooncake.MinimalCtx,
+    Tuple{
+        typeof(patch_infections), Matrix{<:Mooncake.IEEEFloat},
+        Vector{<:Mooncake.IEEEFloat}, Matrix{<:Mooncake.IEEEFloat},
+        Matrix{<:Mooncake.IEEEFloat}, Matrix{<:Mooncake.IEEEFloat},
+        Vector{<:Mooncake.IEEEFloat},
+    },
+)
+
+# src/mooncake_rules.jl L1358-L1459
+function Mooncake.rrule!!(
+        ::CoDual{typeof(patch_infections)},
+        Rt::CoDual{<:Matrix{<:Mooncake.IEEEFloat}},
+        g::CoDual{<:Vector{<:Mooncake.IEEEFloat}},
+        seeds::CoDual{<:Matrix{<:Mooncake.IEEEFloat}},
+        K::CoDual{<:Matrix{<:Mooncake.IEEEFloat}},
+        ε::CoDual{<:Matrix{<:Mooncake.IEEEFloat}},
+        N::CoDual{<:Vector{<:Mooncake.IEEEFloat}}
+    )
+    Rp = primal(Rt)
+    gp = primal(g)
+    Kp = primal(K)
+    εp = primal(ε)
+    Np = primal(N)
+    seedsp = primal(seeds)
+    R̄ = tangent(Rt)
+    ḡ = tangent(g)
+    s̄ = tangent(seeds)
+    K̄ = tangent(K)
+    ε̄ = tangent(ε)
+    N̄ = tangent(N)
+    np, n = size(Rp)
+    L = size(seedsp, 2)
+    st = patch_infections_with_state(Rp, gp, seedsp, Kp, εp, Np)
+    y = (; st.infections, st.importation)
+    out = Mooncake.zero_fcodual(y)
+    Ī = tangent(out).infections
+    Ā = tangent(out).importation
+    I, S, rate = st.infections, st.susceptible, st.rate
+    function patch_infections_pullback!!(::NoRData)
+        Tf = eltype(I)
+        outflow = _patch_outflow(Tf, Kp, np)
+        ## Each day's force and generated infections are rebuilt from the
+        ## forward infections rather than stored. The walk runs backwards so
+        ## a day's adjoint is complete before it is pushed onto earlier days,
+        ## and it accumulates into a copy since `Ī` is Mooncake's buffer.
+        acc = copy(Ī)
+        force = zeros(Tf, np)
+        gen = zeros(Tf, np)
+        ḡen = zeros(Tf, np)
+        ōut = zeros(Tf, np)
+        ȳ = zeros(Tf, np)
+        S̄ = zeros(Tf, np)
+        @inbounds for t in n:-1:(L + 1)
+            kmax = min(t - 1, length(gp))
+            for p in 1:np
+                f = _patch_force(I, gp, p, t)
+                force[p] = f
+                gen[p] = Rp[p, t] * f
+                ḡen[p] = zero(Tf)
+            end
+            ## Depletion, as in the single-patch rule, on the rate
+            ## `x = y / N[p]` with `y` the force after the transfer.
+            for p in 1:np
+                x = rate[p, t]
+                e = exp(-x)
+                x̄ = e * S[p, t - 1] * (acc[p, t] - S̄[p])
+                S̄[p] = -acc[p, t] * expm1(-x) + S̄[p] * e
+                ȳ[p] = x̄ / Np[p]
+                N̄[p] -= x̄ * x / Np[p]
+            end
+            ## y[p] = (1 - ε[p, t] outflow[p]) gen[p] + arrivals[p], and
+            ## the importation output is arrivals[p] alone.
+            for p in 1:np
+                a = ȳ[p]
+                ā = a + Ā[p, t]
+                ḡen[p] += a * (one(Tf) - εp[p, t] * outflow[p])
+                ε̄[p, t] -= a * outflow[p] * gen[p]
+                ōut[p] -= a * εp[p, t] * gen[p]
+                for q in 1:np
+                    q == p && continue
+                    ε̄[q, t] += ā * Kp[p, q] * gen[q]
+                    K̄[p, q] += ā * εp[q, t] * gen[q]
+                    ḡen[q] += ā * εp[q, t] * Kp[p, q]
+                end
+            end
+            for p in 1:np
+                R̄[p, t] += ḡen[p] * force[p]
+                f̄ = ḡen[p] * Rp[p, t]
+                for s in 1:kmax
+                    acc[p, t - s] += f̄ * gp[s]
+                    ḡ[s] += f̄ * I[p, t - s]
+                end
+            end
+        end
+        @inbounds for q in 1:np, r in 1:np
+            r == q && continue
+            K̄[r, q] += ōut[q]
+        end
+        ## Each pool after the seed is `N[p] − Σ seeds[p, :]`.
+        m = min(L, n)
+        @inbounds for p in 1:np
+            live = Np[p] - sum(view(seedsp, p, 1:m)) > zero(Tf)
+            live && (N̄[p] += S̄[p])
+            for j in 1:m
+                s̄[p, j] += acc[p, j] - (live ? S̄[p] : zero(Tf))
+            end
+        end
+        return ntuple(_ -> NoRData(), 7)
+    end
+    return out, patch_infections_pullback!!
 end
 
 end

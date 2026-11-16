@@ -2059,20 +2059,79 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
             return f, θ
         end
     end
-    for (name, description, loss, rule, hand) in (
+    # BVD's patch renewal as the port spells it at b4d4c602 (src/renewal.jl
+    # L393-L428): redistribution and a depletion over the patches, seeded,
+    # with the arrivals recorded by the run, and the outputs from the
+    # port's own fill and rule.
+    function _bvd_patches_port(wrap, Rt_matrix, g, seeds_matrix, K, epsilon, N)
+        np, n = size(Rt_matrix)
+        L = size(seeds_matrix, 2)
+        Tp = promote_type(
+            eltype(Rt_matrix), eltype(g), eltype(seeds_matrix), eltype(K),
+            eltype(epsilon), float(eltype(N))
+        )
+        pool0 = [BVDRef._pool_after_seed(N[p], view(seeds_matrix, p, :)) for p in 1:np]
+        modifiers = (
+            CR.Redistribute(K, epsilon),
+            CR.Depletion(PerStratum(N); pools = (S = PerStratum(pool0),)),
+        )
+        renewal = wrap(Recurrence(g; modifiers))
+        (; y, trace) = renewal(
+            Rt_matrix; history = seeds_matrix, start = L + 1, record = (:trace,)
+        )
+        run = convert(Matrix{Tp}, y)::Matrix{Tp}
+        arrivals = convert(Matrix{Tp}, first(trace.modifiers))::Matrix{Tp}
+        return BVDPort.patch_outputs(seeds_matrix, run, arrivals)
+    end
+    function _bvd_patches_port_hand(wrap, Rt_matrix, g, seeds_matrix, K, epsilon, N)
+        return BVDRef.patch_infections(
+            collect(Rt_matrix), collect(g), collect(seeds_matrix), collect(K),
+            collect(epsilon), N
+        )
+    end
+    # `S` patches over `T` days after `L` seed days, the backend's call shape.
+    function _bvd_patches_infections(run)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            Wi = vec(_weights(S, L + T))
+            Wm = vec(_weights(S + 1, L + T)[2:end, :])
+            N0 = fill(1.0e5, S)
+            f = function (θ)
+                g, Km, logh, logR, ε = _unpack(
+                    θ, (L,), (S, S), (S, L), (S, L + T), (S, L + T)
+                )
+                y = run(wrap, exp.(logR), g, exp.(logh), Km, ε, N0)
+                return dot(Wi, vec(y.infections)) + dot(Wm, vec(y.importation))
+            end
+            θ = _flat(
+                _gi(L), 0.05 .* (ones(S, S) .- I(S)), fill(log(5.0), S, L),
+                [0.2 + 0.1 * _noise(t, k + 11) for k in 1:S, t in 1:(L + T)],
+                [0.3 + 0.1 * _noise(t, k + 12) for k in 1:S, t in 1:(L + T)]
+            )
+            return f, θ
+        end
+    end
+    for (name, description, loss, rule, hand, strata) in (
             (
                 "bvd_abscond_port",
                 "BVD abscond_thinned_flows as the port spells it",
                 _bvd_abscond_flows, _bvd_abscond_port, _bvd_abscond_port_hand,
+                [1],
             ),
             (
                 "bvd_two_clock_port",
                 "BVD two_clock_confirmed as the port spells it",
                 _bvd_two_clock_confirmed, _bvd_two_clock_port,
-                _bvd_two_clock_port_hand,
+                _bvd_two_clock_port_hand, [1],
+            ),
+            (
+                "bvd_patches_port",
+                "BVD patch_infections as the port spells it",
+                _bvd_patches_infections, _bvd_patches_port,
+                _bvd_patches_port_hand, [3, 11],
             ),
         )
-        push!(CASES, Case(name, description, loss(rule), [1], false))
+        push!(CASES, Case(name, description, loss(rule), strata, false))
         BASELINES[name] = ["handrule" => z -> loss(hand)(identity, z)]
         push!(TIERS["realistic"].cases, name)
     end
