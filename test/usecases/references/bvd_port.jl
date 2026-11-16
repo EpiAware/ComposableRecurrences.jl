@@ -201,7 +201,8 @@ function Mooncake.rrule!!(
     return out, abscond_inputs_pullback!!
 end
 
-# src/mooncake_rules.jl L1240-L1261
+# src/mooncake_rules.jl L1239-L1261
+## `x` then `m` copies of its last value: the padded days' adjoints all
 ## land on that last value.
 Mooncake.@is_primitive(
     Mooncake.MinimalCtx,

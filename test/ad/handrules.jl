@@ -231,7 +231,9 @@ end
             Tuple{typeof(R.two_clock_confirmed), V, V, V},
             Tuple{typeof(R.patch_infections), M, V, M, M, M, V},
         )
-        @test Mooncake.is_primitive(Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, world)
+        @test Mooncake.is_primitive(
+            Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, world
+        )
     end
     backend = AutoMooncake(; config = nothing)
     for (name, S) in (
