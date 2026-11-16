@@ -494,6 +494,23 @@ function _conv_gain(w, θ)
     return sum(WS .* y)
 end
 
+# A series that ends before the outputs (`short_conv`): the inputs after its
+# end are zero, so only the outputs its lags reach are summed.
+const T_SHORT = T ÷ 2
+function _short_conv(w, θ)
+    g, X = _unpack(θ, (L,), (S, T_SHORT))
+    return sum(WS .* w(Convolution(g))(X; stop = T))
+end
+# The same with a gain, an add input, a history and a later start, which
+# load into a buffer.
+function _short_conv_buffered(w, θ)
+    g, logρ, A, X, H = _unpack(θ, (L,), (S, T), (T,), (S, T_SHORT), (S, 2))
+    y = w(Convolution(g))(
+        X; gain = exp.(logρ), add = A, history = H, start = 2, stop = T
+    )
+    return sum(WS[:, 2:end] .* y)
+end
+
 # A reporting triangle (`triangle`): each input's delay pmf, of its own time,
 # spread over the lags, scaled by one ascertainment.
 const WT = [cos(a + d * t) for a in 1:S, d in 1:L, t in 1:T]
@@ -1661,6 +1678,15 @@ const _SCENARIOS = [
         () -> _flat(G0, LOGR, W1, 1 .+ LOGR, ones(S, 2)),
     ),
     (
+        "Convolution of a series that ends before the outputs", _short_conv,
+        () -> _flat(G0, 1 .+ LOGR[:, 1:T_SHORT]),
+    ),
+    (
+        "Convolution of a short series with gain, add and history",
+        _short_conv_buffered,
+        () -> _flat(G0, LOGR, W1, 1 .+ LOGR[:, 1:T_SHORT], ones(S, 2)),
+    ),
+    (
         "Convolution lag contributions", _triangle,
         () -> _flat(fill(0.25, L, T), 1 .+ LOGR, [0.4]),
     ),
@@ -2116,6 +2142,10 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     # Gain and add on a convolution came with `contributions`.
     "Convolution with gain and add" => (:contributions,),
     "Convolution lag contributions" => (:contributions,),
+    # A series shorter than the call came with `_summed_inputs`.
+    "Convolution of a series that ends before the outputs" => (:_summed_inputs,),
+    "Convolution of a short series with gain, add and history" =>
+        (:_summed_inputs,),
     "Convolution long kernel by the automatic method" => (:Auto,),
     "Convolution wide-range series by the automatic method" => (:Auto,),
     "Convolution epidemic curve by the automatic method" => (:Auto,),

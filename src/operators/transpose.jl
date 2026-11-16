@@ -32,7 +32,9 @@ the absolute times `start:stop`:
     `S × m`); later values are zero. A series extended by its last value
     is `tail = fill(x[end], L - 1)`.
   - `start`: the first time; `1` by default.
-  - `stop`: the last time, at most `n + m`; `n` by default.
+  - `stop`: the last time; `n` by default. It may pass `n + m`: the
+    series is zero there, so an output that reads only those times is
+    zero.
 
 The output has the layout of `x` and length `stop - start + 1`.
 A `Primary()` kernel covers times up to `stop`, and any other
@@ -96,12 +98,12 @@ end
 function _run_forward(t::_TransposedConvolution, x, tail, start, stop)
     kernel = t.c.kernel
     Tp, S, n, stop, last = _check_transpose(kernel, x, tail, start, stop)
-    A = _zeros(x, Tp, last - start + 1, S)
+    A = _zeros(x, Tp, max(last - start + 1, 0), S)
     _load_input!(A, x, 1 - start, min(n, last), start)
     tail === nothing ||
         _load_input!(A, tail, n + 1 - start, last - n, start - n)
     o = 1 - clamp(start - _nlags(kernel) + 1, 1, last + 1)
-    Z = _zeros(x, Tp, o + last, S)
+    Z = _zeros(x, Tp, o + max(last, stop), S)
     _transpose_back!(Z, nothing, kernel, Z, A, o, start)
     out = _public(Z, (o + start):(o + stop), x)
     return out, (; A, n, o, start, stop, last)
@@ -114,7 +116,7 @@ function pullback!(grads, t::_TransposedConvolution, ::Run, cache)
     (; A, n, o, start, stop, last) = cache
     x̄, t̄ = grads.args
     kernel = t.c.kernel
-    Z̄ = _zeros(A, eltype(A), o + last, size(A, 2))
+    Z̄ = _zeros(A, eltype(A), o + max(last, stop), size(A, 2))
     _load_input!(Z̄, grads.y, o + start - 1, stop - start + 1)
     Ā = zero(A)
     _with_executor(_convolve!, Ā, kernel, Z̄, o, start)
@@ -161,11 +163,8 @@ function _check_transpose(kernel, x, tail, start, stop)
     stop >= start - 1 || throw(
         ArgumentError("stop ($stop) is before start ($start)")
     )
-    stop <= n + m || throw(
-        DimensionMismatch(
-            "x and tail cover $(n + m) times, fewer than stop = $stop"
-        )
-    )
+    # Times past the end of `x` and `tail` read zeros, so outputs that read
+    # only those are zero.
     last = min(stop + _nlags(kernel) - 1, n + m)
     # A `Primary()` kernel's column is the time of the output; any other's is
     # the time it reads.
