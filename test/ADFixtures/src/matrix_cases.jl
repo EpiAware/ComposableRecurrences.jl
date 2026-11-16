@@ -1542,6 +1542,35 @@ if isfile(BVD_HANDRULE)
         return (wrap, z0, γ, nu) -> kernel(collect(z0), collect(γ), nu)
     end
 
+    # BVD's `bin_increments`: sums of a positive daily series over the
+    # windows between report days, `L` days apart, the last window cut at the
+    # series' end. The package arm is the running-total recipe of the
+    # window-aggregation use case: a unit lag-1 `Recurrence`, differenced at
+    # the window ends. Only the registered sizes check the arms agree; there
+    # the last window is always cut, and an empty window gives zero in all
+    # three, as each reads the days clamped to the series.
+    function _bvd_bins(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            days = collect(L:L:(T + L - 1))
+            W = _weights(length(days))
+            f = function (θ)
+                return sum(W .* run(wrap, exp.(θ), days))
+            end
+            return f, [log(50.0) + 0.5 * _noise(t, 14) for t in 1:T]
+        end
+    end
+    function _bvd_bins_rule(wrap, daily, days)
+        total = vcat(
+            zero(eltype(daily)),
+            wrap(Recurrence([1.0]))(1.0; history = [0.0], add = daily)
+        )
+        hi = min.(days, length(daily))
+        lo = vcat(0, hi[1:(end - 1)])
+        return total[hi .+ 1] .- total[lo .+ 1]
+    end
+    _bvd_bins_hand(kernel) = (wrap, daily, days) -> kernel(daily, days)
+
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
                 "bvd_renewal", "BVD renewal_infections: seeded hazard depletion",
@@ -1581,6 +1610,11 @@ if isfile(BVD_HANDRULE)
                 _bvd_onset, _bvd_onset_rule, _bvd_onset_hand,
                 (BVD.onset_table_loop, BVD.onset_report_cdf_table), [1],
             ),
+            (
+                "bvd_bins", "BVD bin_increments: window sums as a running total",
+                _bvd_bins, _bvd_bins_rule, _bvd_bins_hand,
+                (BVD.bin_loop, BVD.bin_increments), [1],
+            ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
         BASELINES[name] = [
@@ -1592,6 +1626,8 @@ if isfile(BVD_HANDRULE)
         push!(TIERS["docs"].cases, name)
         TIERS["docs"].bycase[name] = [(T = 200, L = 20), (T = 400, L = 60)]
     end
+    # Weekly and 30-day bins over the backend's 220 days.
+    TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
     # The backend's call shape against the same loops, which read the series
     # over the seed's days too and return those days first.
     _renewal_call_hand(kernel) = (wrap, g, seed, R, N) -> kernel(R, collect(g), seed, N)
