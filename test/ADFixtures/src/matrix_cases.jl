@@ -1630,6 +1630,48 @@ if isfile(BVD_HANDRULE)
         end
     end
 
+    # The model's use of those weights: the expected reports of `S` zones in
+    # each vintage window, `I * weights` for the zones' daily infections `I`
+    # (zones by days). The package arm never builds the weights. It
+    # convolves the zones' series with the PMF and sums each window's days,
+    # in `_window_sums`, the one place a faster window-sum spelling goes.
+    function _bvd_window_reports(run)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            starts, stops = _bvd_window_rows(T)
+            W = _weights(S, length(starts))
+            f = function (θ)
+                p, I = _unpack(θ, (L,), (S, T))
+                return sum(W .* run(wrap, p, I, starts, stops))
+            end
+            I0 = [10.0 + 8.0 * _noise(t, 30 + k) for k in 1:S, t in 1:T]
+            return f, _flat(_gi(L), I0)
+        end
+    end
+    function _bvd_window_reports_rule(wrap, f, I, starts, stops)
+        return _window_sums(wrap(Convolution(f))(I), starts, stops)
+    end
+    # The sums of `y` (strata by days) over the days `starts[v]:stops[v]`,
+    # read from a running total. Windows that tile the days from day 1 read
+    # it once, at the window ends; others read it at both ends. Assumes
+    # `stops[v] <= size(y, 2)` and `starts[v] <= stops[v] + 1`.
+    function _window_sums(y, starts, stops)
+        total = cumsum(y; dims = 2)
+        tiles = first(starts) == 1 &&
+            all(starts[v] == stops[v - 1] + 1 for v in 2:length(starts))
+        if tiles
+            s = total[:, stops]
+            return hcat(s[:, 1:1], s[:, 2:end] .- s[:, 1:(end - 1)])
+        end
+        padded = hcat(zeros(eltype(total), size(total, 1)), total)
+        return padded[:, stops .+ 1] .- padded[:, starts]
+    end
+    function _bvd_window_reports_hand(kernel)
+        return function (wrap, f, I, starts, stops)
+            return collect(I) * kernel(collect(f), starts, stops, size(I, 2))
+        end
+    end
+
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
                 "bvd_renewal", "BVD renewal_infections: seeded hazard depletion",
@@ -1681,6 +1723,13 @@ if isfile(BVD_HANDRULE)
                 _bvd_window_weights_hand,
                 (BVD.zone_window_loop, BVD.zone_window_weights), [1],
             ),
+            (
+                "bvd_window_reports",
+                "BVD zone_binned_operator: window sums of convolved zones",
+                _bvd_window_reports, _bvd_window_reports_rule,
+                _bvd_window_reports_hand,
+                (BVD.zone_window_loop, BVD.zone_window_weights), [5, 11],
+            ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
         BASELINES[name] = [
@@ -1697,6 +1746,9 @@ if isfile(BVD_HANDRULE)
     # The backend's timing call, 161 grid days with a 45-lag PMF, and its
     # model's 202 grid days with a 50-lag PMF.
     TIERS["docs"].bycase["bvd_window_weights"] = [
+        (T = 161, L = 45), (T = 202, L = 50),
+    ]
+    TIERS["docs"].bycase["bvd_window_reports"] = [
         (T = 161, L = 45), (T = 202, L = 50),
     ]
     # The backend's call shape against the same loops, which read the series
