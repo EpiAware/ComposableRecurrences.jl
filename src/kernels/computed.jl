@@ -53,8 +53,7 @@ function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
     return Y
 end
 # Cohort `τ`'s weights for each stratum in `kw`, read from its walk, times
-# its input. Behind a call, so this loop's code leaves the one-stratum
-# loop's as it was.
+# its input. Kept out of line, so the one-stratum loop compiles without it.
 @noinline function _add_strata!(Y, xr, sc, X, kw, τ, i0, imax, m, start)
     for k in kw
         xk = @inbounds X[m + τ, k]
