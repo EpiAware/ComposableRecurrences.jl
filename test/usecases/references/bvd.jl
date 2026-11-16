@@ -196,9 +196,8 @@ function accumulate_occupancy(
     )
 end
 
-# The branch flags `_accumulate_occupancy` records with `Val(true)`, from
-# the same block (src/models/observations.jl L1929-L1935 at 73c575bd,
-# unchanged since 95be3b22).
+# The branch flags `_accumulate_occupancy` records with `Val(true)`.
+# src/models/observations.jl L1929-L1935 at 73c575bd
 const _OCC_UNCONF = 0x01
 const _OCC_DENOM = 0x02
 const _OCC_BVD = 0x04

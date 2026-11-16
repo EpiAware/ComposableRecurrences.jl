@@ -1645,10 +1645,7 @@ end
 # three pools carried forward by one `Depletion`, with share flows,
 # admissions and rule-outs as counts, and two discharge drains that split
 # each day's discharges by the previous day's pools (`Derived` over
-# `Recent(1)` reads), then a floor. Against the backend's own hand loop:
-# `loop` without its rule, and `handrule` with its Mooncake rule, both
-# copied verbatim in `test/usecases/references`. Skipped where those files
-# are absent (a copied fixture package).
+# `Recent(1)` reads), then a floor.
 const BVD_REFERENCES = joinpath(
     @__DIR__, "..", "..", "usecases", "references"
 )
@@ -1669,6 +1666,8 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
     _occ_conf_left(u, c, h, o) = c + h * u - o
     # Each true-case pool's discharges: its share, plus the other pool's
     # overshoot below zero, so the total true-case stock takes the floor.
+    # Both drains take the port's one argument tuple, so the first takes
+    # `A` and `κ` without reading them.
     function _occ_unconf_discharges(b, u, c, A, h, κ)
         oc = _occ_conf_share(b, u, c)
         return (b - oc) + max(-_occ_conf_left(u, c, h, oc), zero(oc))
@@ -1736,10 +1735,11 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         return function (wrap, z::Size)
             (; T) = z
             # One weight vector per output, built outside the loss, and `dot`
-            # rather than a broadcast sum: under Mooncake, slicing the
-            # weights and summing broadcasts in the loss cost several times
-            # the backend's rule, which every arm would pay.
-            W1, W2, W3, W4, W5 = (_weights(5, T)[k, :] for k in 1:5)
+            # rather than a broadcast sum: at T 220 Mooncake's loss overhead
+            # is about 38 µs a call this way against 96 µs with row slices
+            # and broadcast sums, beside the backend's rule's 8 µs.
+            Wm = _weights(5, T)
+            W1, W2, W3, W4, W5 = (Wm[k, :] for k in 1:5)
             f = function (θ)
                 A_bvd, A_bg, deaths, recover, ruleout, κ, h = _unpack(
                     θ, (T,), (T,), (T,), (T,), (T,), (1,), (T,)
