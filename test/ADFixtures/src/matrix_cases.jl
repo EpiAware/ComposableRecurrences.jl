@@ -1505,6 +1505,48 @@ if isfile(BVD_HANDRULE)
             "handrule" => z -> loss(hand(kernels[2]))(identity, z),
         ]
     end
+    # BVD's `bin_increments`: sums of a positive daily series over the
+    # windows between report days, `L` days apart, the last window cut at the
+    # series' end. The package arm is the running-total recipe of the
+    # window-aggregation use case: a unit lag-1 `Recurrence`, differenced at
+    # the window ends.
+    function _bvd_bins(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            days = collect(L:L:(T + L - 1))
+            W = _weights(length(days))
+            f = function (θ)
+                return sum(W .* run(wrap, exp.(θ), days))
+            end
+            return f, [log(50.0) + 0.5 * _noise(t, 14) for t in 1:T]
+        end
+    end
+    function _bvd_bins_rule(wrap, daily, days)
+        total = vcat(
+            zero(eltype(daily)),
+            wrap(Recurrence([1.0]))(1.0; history = [0.0], add = daily)
+        )
+        hi = min.(days, length(daily))
+        lo = vcat(0, hi[1:(end - 1)])
+        return total[hi .+ 1] .- total[lo .+ 1]
+    end
+    _bvd_bins_hand(kernel) = (wrap, daily, days) -> kernel(daily, days)
+    push!(
+        CASES,
+        Case(
+            "bvd_bins", "BVD bin_increments: window sums as a running total",
+            _bvd_bins(_bvd_bins_rule), [1], false
+        )
+    )
+    BASELINES["bvd_bins"] = [
+        "loop" => z -> _bvd_bins(_bvd_bins_hand(BVD.bin_loop))(identity, z),
+        "handrule" => z -> _bvd_bins(_bvd_bins_hand(BVD.bin_increments))(identity, z),
+    ]
+    push!(TIERS["realistic"].cases, "bvd_bins")
+    # Weekly and 30-day bins over the backend's 220 days.
+    push!(TIERS["docs"].cases, "bvd_bins")
+    TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
+
     # The patch movement built as an `S × S × T` array before the run, the
     # form `Redistribute(K, ε)` is timed against: the package reads it lazily
     # from the kernel and the intensity.

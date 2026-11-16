@@ -1,6 +1,6 @@
 # Hand-written reference kernels in the style of the BVDOutbreakSize
 # backend, timed by the benchmark matrix (cases `bvd_renewal`, `bvd_patches`,
-# `bvd_delay` and `bvd_zones`) against the package's operators.
+# `bvd_delay`, `bvd_zones` and `bvd_bins`) against the package's operators.
 #
 # The forward loops follow `test/usecases/references/bvd.jl`. The reverse
 # passes are hand-written Mooncake rules, as the backend writes its own, so
@@ -20,8 +20,9 @@ import Mooncake
 using Mooncake: CoDual, NoRData, primal, tangent
 using LinearAlgebra: axpy!, dot, mul!
 
-export renewal_loop, patch_loop, delay_loop, zone_loop, renewal_infections,
-    patch_infections, convolve_delay, zone_infections
+export renewal_loop, patch_loop, delay_loop, zone_loop, bin_loop,
+    renewal_infections, patch_infections, convolve_delay, zone_infections,
+    bin_increments
 
 # ---- forward loops ----------------------------------------------------------
 
@@ -174,6 +175,28 @@ function delay_loop(x::AbstractVector, delay::AbstractVector)
         axpy!(delay[d], view(x, 1:(n - d + 1)), view(y, d:n))
     end
     return y
+end
+
+@doc raw"""
+    bin_loop(daily, days)
+
+The sums of `daily` over the windows between report days `days`, each
+window from the day after the last report to its own report day, an empty
+window giving zero.
+"""
+function bin_loop(daily::AbstractVector, days::AbstractVector{<:Integer})
+    n = length(daily)
+    out = zeros(eltype(daily), length(days))
+    prev = 0
+    for (i, d) in enumerate(days)
+        hi = clamp(d, 0, n)
+        lo = clamp(prev, 0, n)
+        for t in (lo + 1):hi
+            out[i] += daily[t]
+        end
+        prev = hi
+    end
+    return out
 end
 
 @doc raw"""
@@ -563,6 +586,37 @@ function _zone_back!(
     mul!(W̄, transpose(V̄), st.u .* transpose(ε), 1.0, 1.0)
     mul!(B̄, transpose(H̄), st.u .* transpose(ow), 1.0, 1.0)
     return nothing
+end
+
+"`bin_loop` with a hand-written Mooncake rule."
+bin_increments(daily, days) = bin_loop(daily, days)
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Tuple{typeof(bin_increments), _Vec, Vector{Int}}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(bin_increments)}, daily::CoDual{_Vec},
+        days::CoDual{Vector{Int}}
+    )
+    xp, dp = primal(daily), primal(days)
+    y = bin_loop(xp, dp)
+    ȳ = zero(y)
+    # Each day in a window takes that window's cotangent.
+    function bin_increments_pb(::NoRData)
+        x̄ = tangent(daily)
+        n = length(xp)
+        prev = 0
+        for (i, d) in enumerate(dp)
+            hi = clamp(d, 0, n)
+            lo = clamp(prev, 0, n)
+            for t in (lo + 1):hi
+                x̄[t] += ȳ[i]
+            end
+            prev = hi
+        end
+        return NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(y, ȳ), bin_increments_pb
 end
 
 end # module BVDHandRule
