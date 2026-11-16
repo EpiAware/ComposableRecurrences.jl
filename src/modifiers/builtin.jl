@@ -1001,20 +1001,29 @@ function pullback!(
         e = _intensity(E, b, t)
         w = e * v[b]
         d = v̄[b]
-        # The diagonal is read only when the state's cotangent asks for it.
-        xe = iszero(d) ? zero(w * d) : -d * v[b] * e
         c = zero(eltype(v̄))
         o = zero(eltype(K))
-        for a in axes(K, 1)
-            c += K[a, b] * s̄[a]
-            o += K[a, b]
-            add_cotangent!(K̄, w * (s̄[a] - s̄[b]) - xe, a, b)
+        # The diagonal is read only when the state's cotangent asks for it.
+        if iszero(d)
+            for a in axes(K, 1)
+                c += K[a, b] * s̄[a]
+                o += K[a, b]
+                add_cotangent!(K̄, w * (s̄[a] - s̄[b]), a, b)
+            end
+            v̄[b] = e * c + (1 - e * o) * s̄[b]
+            ē = v[b] * (c - o * s̄[b])
+        else
+            xe = -d * v[b] * e
+            for a in axes(K, 1)
+                c += K[a, b] * s̄[a]
+                o += K[a, b]
+                add_cotangent!(K̄, w * (s̄[a] - s̄[b]) - xe, a, b)
+            end
+            add_cotangent!(K̄, xe, b, b)
+            diag = -(1 - e * o + K[b, b] * e) * d
+            v̄[b] = diag + e * c + (1 - e * o) * s̄[b]
+            ē = v[b] * (c - o * s̄[b]) - d * v[b] * (K[b, b] - o)
         end
-        add_cotangent!(K̄, xe, b, b)
-        diag = iszero(d) ? zero(c) : -(1 - e * o + K[b, b] * e) * d
-        v̄[b] = diag + e * c + (1 - e * o) * s̄[b]
-        ē = v[b] * (c - o * s̄[b])
-        iszero(d) || (ē += -d * v[b] * (K[b, b] - o))
         _add_intensity!(Ē, E, ē, b, t)
     end
     fill!(s̄, zero(eltype(s̄)))
