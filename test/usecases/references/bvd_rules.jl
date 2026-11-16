@@ -1,16 +1,14 @@
-# A verbatim copy of the BVDOutbreakSize.jl Mooncake rules for
-# `accumulate_occupancy`, `abscond_thinned_flows`, `two_clock_confirmed` and
-# `patch_infections`, on the reference forward passes in `bvd.jl`.
+# A verbatim copy of the BVDOutbreakSize.jl Mooncake rules for the backend
+# kernels the benchmark matrix times, on the reference forward passes in
+# `bvd.jl`.
 #
 # Source: https://github.com/epiforecasts/BVDOutbreakSize at commit 73c575bd,
-# src/mooncake_rules.jl, at the lines given above each rule; the occupancy
-# rule is unchanged since 95be3b22. The code is unchanged; the module wrapper
-# and imports stand in for that file's own.
+# src/mooncake_rules.jl, at the lines given above each rule. The code is
+# unchanged; the module wrapper and imports stand in for that file's own.
 #
 # It is kept apart from `bvd.jl` so that the use-case tests, which load
 # `bvd.jl`, do not need Mooncake. The benchmark matrix includes both, after
-# `bvd.jl`, for the `handrule` arms of `bvd_occupancy`, `bvd_abscond_port`,
-# `bvd_two_clock_port` and `bvd_patches_port`.
+# `bvd.jl`, for the `handrule` arms of the backend cases.
 module BVDReferenceRules
 
 import Mooncake
