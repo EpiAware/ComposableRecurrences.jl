@@ -1,19 +1,8 @@
-# A computed kernel's weights walked one cohort at a time, as a
-# hand-written loop does, for the calls that read each weight once (a
-# convolution, `kernel_weights`). A cohort's walk goes forward along its
-# lags once, each `Survival` carrying its survival from one lag to the next
-# as a value, in a tuple that mirrors the kernel, and keeping it and its
-# hazard per lag. Its weights are then read from those, lag by lag, for
-# each stratum in turn. So no block of weights is held, and no loop over
-# the strata sits inside the chain of products.
-#
-# The reverse pass walks the cohort forward again, adds the cotangents of
-# its weights for each stratum, then goes back along its lags once. Each
-# `Survival` carries the cotangent of its survival from the current lag on
-# as a value: at a lag, the cotangent its parent added joins it, the share
-# `-s_{i-1} a` goes to its hazard at the same lag, and `a (1 - η_i)` goes on
-# to the lag before. A `Survival` is read once per lag, by its parent, so
-# its cotangent at a lag is whole once its parent's is added.
+# A computed kernel's weights for the calls that read each weight once (a
+# convolution, `kernel_weights`): one walk per cohort along its lags, each
+# `Survival` carrying its survival as state in a tuple that mirrors the
+# kernel. The reverse pass walks the cohort again, then goes back along
+# its lags once.
 
 # Each `Survival`'s survival `S`, hazard `H` and added cotangent `P` at each
 # lag index of the cohort walked: vectors of the lags, or for `S` and `H`
@@ -246,6 +235,11 @@ _first_mirror(::Nothing) = nothing
 _first_mirror(ā::Tuple) = first(ā)
 _tail_mirrors(::Nothing) = nothing
 _tail_mirrors(ā::Tuple) = Base.tail(ā)
+# A `Survival` carries `a`, the cotangent of its survival from the current
+# lag on. At lag index `i` the cotangent its parent added joins it,
+# `-s_{i-1} a` goes to its hazard at the same lag, and `a (1 - η_i)` goes on
+# to the lag before. Its parent reads it once per lag, so `a` is whole once
+# the parent's share is added.
 @inline _walk_back(::Nothing, x::Survival, sc, a, k, i, τ, l) = a
 @inline function _walk_back(x̄, x::Survival, sc, a, k, i, τ, l)
     h̄ = cotangent(x̄, :hazard)
@@ -286,8 +280,10 @@ function _walk_fill!(
         imax = _imax(τ, L, o, last)
         scj = _walk_column(sc, _walk_index(sc, g, τ, n))
         kw = _walk_strata(x, ks, k0)
+        # One stratum writes each weight as its lag is walked. Several read
+        # the finished walk, so no strata loop sits inside the chain of
+        # products.
         if length(kw) == 1
-            # One stratum: each weight is written as its lag is walked.
             k1 = first(kw)
             scw = keep isa Val{true} ? scj : _no_record(scj)
             _walk_cohort!(x, scw, k0, τ, o, imax, T) do i, l, st
@@ -295,8 +291,6 @@ function _walk_fill!(
                 @inbounds _set_weight!(K, w1, k1, i, τ)
             end
         else
-            # Several: a loop over the strata inside the walk would hold up
-            # its chain of products, so each reads the walk after it.
             _walk_cohort!(x, scj, k0, τ, o, imax, T)
             for k in kw, i in 1:imax
                 w = @inbounds _value(x, scj, k, i, τ, i - 1 + o, 1)
@@ -321,7 +315,7 @@ function _walk_weights_back!(x̄, kernel::_ComputedKernel, K̄, o, last, sc)
     T = eltype(K̄)
     ks = _weights_strata(K̄)
     n = size(K̄, ndims(K̄))
-    kept = n > 1 && _walk_kept(sc)
+    kept = _walk_kept(sc)
     for (g, k0) in enumerate(_walk_groups(x, ks)), τ in 1:n
         imax = _imax(τ, L, o, last)
         scj = _walk_column(sc, _walk_index(sc, g, τ, n))

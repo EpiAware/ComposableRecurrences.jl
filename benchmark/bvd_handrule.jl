@@ -272,12 +272,11 @@ end
 @doc raw"""
     two_clock_loop(A, h, S)
 
-Admissions confirmed by a hazard and still present: cohort ``u`` lands on
-day ``u + d`` with weight ``S_{d+1} (1 - P_{u,d})``, where
-``P_{u,d} = \prod_{j=1}^{d} (1 - h_{u+j})``,
+Admissions confirmed by hazard `h` and still present (`S`):
 
 ```math
-O_t = \sum_{d=0}^{\min(L, t) - 1} A_{t-d} S_{d+1} (1 - P_{t-d,d}).
+O_t = \sum_{d=0}^{\min(L, t) - 1} A_{t-d} S_{d+1}
+    \Bigl(1 - \prod_{j=1}^{d} (1 - h_{t-d+j})\Bigr).
 ```
 """
 function two_clock_loop(A::AbstractVector, h::AbstractVector, S::AbstractVector)
@@ -300,13 +299,17 @@ end
 @doc raw"""
     abscond_loop(adm, pmf, κ, h)
 
-Discharges thinned by absconding, two flows sharing one cohort survival:
-cohort ``t`` of flow ``k`` lands on day ``t + d`` with weight
-``\mathrm{pmf}_{d+1,k} V_d``, where ``U_d = \prod_{j=1}^{d}(1 - h_{t+j-1})``
-is the share not yet confirmed and
-``V_d = \prod_{j=1}^{d} (1 - κ U_j)`` the share not absconded. `adm` is
-days × flows and `pmf` lags × flows, the shorter flow's padded with zeros.
-Returns days × flows.
+Discharges by flow (days × flows) thinned by absconding.
+`adm` is days × flows and `pmf` lags × flows, the shorter flow's padded with
+zeros.
+Cohort ``t`` is unconfirmed after ``d`` days with probability
+``U_{t,d} = \prod_{j=1}^{d} (1 - h_{t+j-1})``, and has not absconded with
+probability ``V_{t,d} = \prod_{j=1}^{d} (1 - κ U_{t,j})``:
+
+```math
+\mathrm{out}_{s,k} = \sum_{t + d = s} \mathrm{adm}_{t,k} \,
+    \mathrm{pmf}_{d+1,k} V_{t,d}.
+```
 """
 function abscond_loop(adm::AbstractMatrix, pmf::AbstractMatrix, κ::Real, h)
     n, nf = size(adm)
@@ -335,14 +338,13 @@ _logistic(x) = inv(one(x) + exp(-x))
 @doc raw"""
     onset_table_loop(logit_h0, γ, nu)
 
-The report-delay CDF of each onset date ``k = 1, \dots, nu``: with the
-hazard ``η_{j,k} = \mathrm{logistic}(\mathrm{logit\_h0}_j + γ_{k+j-1})``,
+The report-delay CDF of each onset date ``k = 1, \dots, nu``, with `γ`
+covering the days up to `nu + length(logit_h0) - 1`:
 
 ```math
-F_{j,k} = 1 - \prod_{i=1}^{j} (1 - η_{i,k}).
+F_{j,k} = 1 - \prod_{i=1}^{j}
+    \bigl(1 - \mathrm{logistic}(\mathrm{logit\_h0}_i + γ_{k+i-1})\bigr).
 ```
-
-`γ` covers the days up to `nu + length(logit_h0) - 1`.
 """
 function onset_table_loop(
         logit_h0::AbstractVector, γ::AbstractVector, nu::Integer
@@ -361,6 +363,9 @@ function onset_table_loop(
 end
 
 # ---- the same loops with hand-written Mooncake rules ------------------------
+
+# Each rule is a primitive for `Float64` arguments only (`_Vec`, `_Mat`); other
+# element types take Mooncake through the loop.
 
 "`renewal_loop` with a hand-written Mooncake rule."
 renewal_infections(Rt, g, seed, N) = renewal_loop(Rt, g, seed, N)

@@ -2341,6 +2341,20 @@ end
     return nothing
 end
 
+"""
+The values rescaled so that they sum to `total[t]`, with `total` held as a
+vector over time and indexed by the step.
+"""
+struct Renorm{A}
+    total::A
+end
+@in_place function ComposableRecurrences.forward!(
+        m::Renorm, ::ComposableRecurrences.Step, v, s, t
+    )
+    v .*= m.total[t] / sum(v)
+    return nothing
+end
+
 function _whole_step_scalars(w, θ)
     logh, logR, p = _unpack(θ, (S, L), (S, T), (2,))
     r = Recurrence(G0; coupling = K0, modifiers = (ZoneMix(p[1], p[2]),))
@@ -2350,6 +2364,16 @@ end
 function _whole_step_array(w, θ)
     logh, logR, a = _unpack(θ, (S, L), (S, T), (S,))
     r = Recurrence(G0; modifiers = (StrataScale(a), ZoneMix(0.2, 0.5)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# A whole-step modifier without a `pullback!` that reads one entry of a
+# vector over time each step: the local derivative seeds that entry rather
+# than all of them.
+function _whole_step_reads(w, θ)
+    logh, logR, logtot = _unpack(θ, (S, L), (S, T), (T,))
+    r = Recurrence(G0; coupling = K0, modifiers = (Renorm(exp.(logtot)),))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
@@ -2384,8 +2408,9 @@ end
 # zero, run from an empty history, so the first step's values sit at the
 # tie. The local derivative must take the branch the step takes: the other
 # divides zero by zero.
-# Its 61 parameters send the call to plain AD (`backend_plain_scenarios`);
-# the five-step balance below keeps the local step at the tie.
+# Without `_reads_fewer` its 61 parameters send the call to plain AD
+# (`backend_plain_scenarios`); the five-step balance below keeps the local
+# step at the tie there too.
 "A bed occupancy balance over four pools, each field typed."
 struct OccupancyBalance{A, B, D, R, O, K, H}
     A_bvd::A
@@ -2438,9 +2463,10 @@ function _occupancy(w, θ)
     return sum(WO .* (view(Y, 1, :) .+ view(Y, 2, :) .+ view(Y, 3, :)))
 end
 
-# The same balance over its first five steps: its local derivative seeds 39
-# inputs, within two passes of dual numbers, so on Mooncake the call takes
-# the rule and the local step meets the tie end to end.
+# The same balance over its first five steps: without `_reads_fewer`, its
+# local derivative seeds every array entry, 39 inputs, within two passes of
+# dual numbers, so on Mooncake the call takes the rule and the local step
+# meets the tie end to end.
 const TS = 5
 const OCC0_SHORT = _flat(A_BVD[1:TS], [0.1], CONF_HAZARD[1:TS])
 const A_BG_SHORT, DEATHS_SHORT, RECOVER_SHORT, RULEOUT_SHORT, WO_SHORT =
@@ -2505,6 +2531,10 @@ push!(
         () -> _flat(zeros(S, L), LOGR, [0.9, 1.0, 1.1]),
     ),
     (
+        "Recurrence whole-step modifier reading a vector by time", _whole_step_reads,
+        () -> _flat(zeros(S, L), LOGR, [log(3.0) + 0.1 * sin(t) for t in 1:T]),
+    ),
+    (
         "Recurrence checked at the call", _unchecked_parts,
         () -> _flat(zeros(S, L), LOGR, [0.3], [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
     ),
@@ -2543,6 +2573,7 @@ _REQUIRES["Recurrence checked at the call"] = (:_check_now,)
 # The local derivative of a whole-step modifier.
 _REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
+_REQUIRES["Recurrence whole-step modifier reading a vector by time"] = (:_reads_fewer,)
 # The local derivatives took the step's branch at a tie later.
 _REQUIRES["Recurrence whole-step modifier branching at a tie (occupancy)"] =
     (:_StepDuals, :local_ties)
@@ -2845,17 +2876,21 @@ Per-backend scenario names whose call takes plain AD by design, so the
 analytic reverse pass does not run: a coupling's local derivative in two
 passes of dual numbers is a rule on Mooncake only, and one in more than two
 passes is plain AD on every backend.
-The occupancy balance's whole-step modifier seeds its four values, its four
-states and its 61 parameters, more than two passes; over five steps it seeds
-39, within two.
+The occupancy balance's whole-step modifier reads one entry of each of its
+six arrays a step, so with `_reads_fewer` it seeds 15 inputs, one pass,
+and takes the rule on both backends.
+Without it, it seeds its four values, its four states and its 61
+parameters, more than two passes; over five steps it seeds 39, within two.
 """
 function backend_plain_scenarios()
+    coupling = "Recurrence user coupling across 30 strata"
+    supports(:_reads_fewer) && return Dict(
+        "Enzyme reverse" => Set([coupling]), "Mooncake reverse" => Set{String}()
+    )
     occupancy = "Recurrence whole-step modifier branching at a tie (occupancy)"
     short = "Recurrence whole-step modifier branching at a tie over five steps (occupancy)"
     return Dict(
-        "Enzyme reverse" => Set(
-            ["Recurrence user coupling across 30 strata", occupancy, short]
-        ),
+        "Enzyme reverse" => Set([coupling, occupancy, short]),
         "Mooncake reverse" => Set([occupancy]),
     )
 end
