@@ -2,8 +2,9 @@
 # own Mooncake rules: `occupancy_outputs`, the outputs of the occupancy
 # balance from its three pools, and `abscond_inputs`, `hold_last` and
 # `split_rows`, the fills and splits around the abscond-thinned flows and
-# the two-clock confirmed stock, and `patch_outputs`, the outputs of the
-# patch renewal from its seeds, run and arrivals.
+# the two-clock confirmed stock, `patch_outputs`, the outputs of the patch
+# renewal from its seeds, run and arrivals, and `onset_offsets`, the
+# calendar offsets the onset report table reads.
 #
 # Source: https://github.com/epiforecasts/BVDOutbreakSize at commit b4d4c602
 # (epiforecasts/BVDOutbreakSize#1152), src/models/observations.jl,
@@ -12,8 +13,8 @@
 # those files' own, and comments stand in for the docstrings.
 #
 # The benchmark matrix includes it for the package arms of `bvd_occupancy`,
-# `bvd_abscond_port`, `bvd_two_clock_port` and `bvd_patches_port`, which
-# spell those kernels as that port does.
+# `bvd_abscond_port`, `bvd_two_clock_port`, `bvd_patches_port` and
+# `bvd_onset_port`, which spell those kernels as that port does.
 module BVDPort
 
 import Mooncake
@@ -295,6 +296,39 @@ function Mooncake.rrule!!(
         return NoRData(), NoRData(), NoRData(), NoRData()
     end
     return out, patch_outputs_pullback!!
+end
+
+# src/models/observations.jl L3532-L3539
+function onset_offsets(γ::AbstractVector, off::Integer, m::Integer)
+    ng = length(γ)
+    y = Vector{eltype(γ)}(undef, m)
+    @inbounds for t in 1:m
+        y[t] = γ[clamp(t + off, 1, ng)]
+    end
+    return y
+end
+
+# src/mooncake_rules.jl L1217-L1237
+## The clamped offset read: each day's adjoint lands on the offset it read.
+Mooncake.@is_primitive(
+    Mooncake.MinimalCtx,
+    Tuple{typeof(onset_offsets), Vector{<:Mooncake.IEEEFloat}, Integer, Integer}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(onset_offsets)}, γ::CoDual, off::CoDual, m::CoDual
+    )
+    γp, op, mp = primal(γ), primal(off), primal(m)
+    out = zero_fcodual(onset_offsets(γp, op, mp))
+    ȳ = tangent(out)
+    function onset_offsets_pullback!!(::NoRData)
+        γ̄ = tangent(γ)
+        ng = length(γp)
+        @inbounds for t in 1:mp
+            γ̄[clamp(t + op, 1, ng)] += ȳ[t]
+        end
+        return ntuple(_ -> NoRData(), 4)
+    end
+    return out, onset_offsets_pullback!!
 end
 
 end

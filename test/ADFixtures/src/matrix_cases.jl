@@ -2112,6 +2112,44 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
             return f, θ
         end
     end
+    # BVD's onset report-delay CDF table as the port spells it at b4d4c602
+    # (src/models/observations.jl L3505-L3521): the internal
+    # `kernel_weights` of one minus a survival whose hazard is the logistic
+    # of a delay effect plus a calendar offset, read through the port's own
+    # offset fill and rule.
+    _onset_logistic_sum(a, b) = BVDRef.logistic(a + b)
+    function _bvd_onset_port(wrap, logit_h0, γ, grid_start, u_lo, u_hi)
+        T = promote_type(eltype(logit_h0), eltype(γ))
+        nu = max(Int(u_hi) - Int(u_lo) + 1, 0)
+        D, ng = length(logit_h0), length(γ)
+        (nu == 0 || D == 0) && return zeros(T, D, nu)
+        γk = BVDPort.onset_offsets(γ, Int(u_lo) - Int(grid_start), nu + D - 1)
+        hazard = Derived(_onset_logistic_sum, logit_h0, TimeVarying(γk))
+        kernel = TimeVarying(1 - CR.Survival(hazard), CR.Primary())
+        return wrap(CR._KernelWeights(kernel))(nu)
+    end
+    function _bvd_onset_port_hand(wrap, logit_h0, γ, grid_start, u_lo, u_hi)
+        return BVDRef.onset_report_cdf_table(
+            collect(logit_h0), collect(γ), grid_start, u_lo, u_hi
+        )
+    end
+    # `T` onset dates and `L` report delays, the calendar effect covering
+    # every day the table reads.
+    function _bvd_onset_table(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = vec(_weights(L, T))
+            f = function (θ)
+                z0, gc = _unpack(θ, (L,), (T + L - 1,))
+                return dot(W, vec(run(wrap, z0, gc, 1, 1, T)))
+            end
+            θ = _flat(
+                [-3.0 + 0.5 * _noise(j, 37) for j in 1:L],
+                [0.2 * _noise(t, 38) for t in 1:(T + L - 1)]
+            )
+            return f, θ
+        end
+    end
     for (name, description, loss, rule, hand, strata) in (
             (
                 "bvd_abscond_port",
@@ -2130,6 +2168,11 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
                 "BVD patch_infections as the port spells it",
                 _bvd_patches_infections, _bvd_patches_port,
                 _bvd_patches_port_hand, [3, 11],
+            ),
+            (
+                "bvd_onset_port",
+                "BVD onset_report_cdf_table as the port spells it",
+                _bvd_onset_table, _bvd_onset_port, _bvd_onset_port_hand, [1],
             ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
