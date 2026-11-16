@@ -1617,7 +1617,9 @@ if isfile(BVD_HANDRULE)
         return wrap(Convolution(kernel))(before)
     end
     function _bvd_pre_zones_hand(kernel)
-        return (wrap, w, I, t0, first_lag) -> kernel(collect(I), collect(w), t0, first_lag)
+        return function (wrap, w, I, t0, first_lag)
+            return kernel(collect(I), collect(w), t0, first_lag)
+        end
     end
 
     for (name, description, loss, rule, hand, kernels, strata) in (
@@ -1683,9 +1685,11 @@ if isfile(BVD_HANDRULE)
     end
     # Weekly and 30-day bins over the backend's 220 days.
     TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
-    # The backend's four patches over 227 days, with its two kernel lengths.
+    # The backend's four patches over 227 days, with its two kernel lengths,
+    # and the seven patches over 209 days of the downstream kernel table.
     TIERS["docs"].bycase["bvd_pre_zones"] = [
         (T = 227, L = 35, S = 4), (T = 227, L = 45, S = 4),
+        (T = 209, L = 35, S = 7),
     ]
     # The backend's call shape against the same loops, which read the series
     # over the seed's days too and return those days first.

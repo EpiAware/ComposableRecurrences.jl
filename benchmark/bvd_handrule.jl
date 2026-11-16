@@ -223,7 +223,8 @@ y_{p,t} = \sum_{s} w_{s - \ell + 1} \bar I_{p, t - s},
 function zone_pre_loop(I_bar::AbstractMatrix, w::AbstractVector, t0, first_lag)
     np, n = size(I_bar)
     out = zeros(promote_type(eltype(I_bar), eltype(w)), np, n)
-    for t in 1:n, s in _pre_lags(t, length(w), t0, first_lag), p in 1:np
+    @inbounds for t in 1:n, s in _pre_lags(t, length(w), t0, first_lag),
+            p in 1:np
         out[p, t] += w[s - first_lag + 1] * I_bar[p, t - s]
     end
     return out
@@ -909,10 +910,13 @@ function Mooncake.rrule!!(
 end
 
 "`zone_pre_loop` with a hand-written Mooncake rule."
-zone_pre_convolution(I_bar, w, t0, first_lag) = zone_pre_loop(I_bar, w, t0, first_lag)
+function zone_pre_convolution(I_bar, w, t0, first_lag)
+    return zone_pre_loop(I_bar, w, t0, first_lag)
+end
 
 Mooncake.@is_primitive(
-    Mooncake.DefaultCtx, Tuple{typeof(zone_pre_convolution), _Mat, _Vec, Int, Int}
+    Mooncake.DefaultCtx,
+    Tuple{typeof(zone_pre_convolution), _Mat, _Vec, Int, Int}
 )
 function Mooncake.rrule!!(
         ::CoDual{typeof(zone_pre_convolution)}, I_bar::CoDual{_Mat},
@@ -925,7 +929,8 @@ function Mooncake.rrule!!(
     function zone_pre_convolution_pb(::NoRData)
         Ī, w̄ = tangent(I_bar), tangent(w)
         np, n = size(Ip)
-        for t in 1:n, s in _pre_lags(t, length(wp), t0p, lag), p in 1:np
+        @inbounds for t in 1:n, s in _pre_lags(t, length(wp), t0p, lag),
+                p in 1:np
             i = s - lag + 1
             w̄[i] += ȳ[p, t] * Ip[p, t - s]
             Ī[p, t - s] += ȳ[p, t] * wp[i]
