@@ -223,6 +223,7 @@ end
     import ForwardDiff, Mooncake
 
     R = MC.BVDRef
+    P = MC.BVDPort
     V = Vector{Float64}
     M = Matrix{Float64}
     world = Base.get_world_counter()
@@ -231,6 +232,12 @@ end
             Tuple{typeof(R.two_clock_confirmed), V, V, V},
             Tuple{typeof(R.patch_infections), M, V, M, M, M, V},
             Tuple{typeof(R.onset_report_cdf_table), V, V, Int, Int, Int},
+            # The port's own helpers, so a rule arm times the code it names.
+            Tuple{typeof(P.occupancy_outputs), M, Float64},
+            Tuple{typeof(P.abscond_inputs), V, V, V, V, V},
+            Tuple{typeof(P.hold_last), V, Int},
+            Tuple{typeof(P.split_rows), M},
+            Tuple{typeof(P.patch_outputs), M, M, M},
         )
         @test Mooncake.is_primitive(
             Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, world

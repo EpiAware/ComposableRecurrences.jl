@@ -1,20 +1,11 @@
 # A verbatim copy of the BVDOutbreakSize.jl port's helpers that carry their
-# own Mooncake rules: `occupancy_outputs`, the outputs of the occupancy
-# balance from its three pools, and `abscond_inputs`, `hold_last` and
-# `split_rows`, the fills and splits around the abscond-thinned flows and
-# the two-clock confirmed stock, `patch_outputs`, the outputs of the patch
-# renewal from its seeds, run and arrivals, and `onset_offsets`, the
-# calendar offsets the onset report table reads.
+# own Mooncake rules, for the package arms of the benchmark matrix's port
+# cases.
 #
 # Source: https://github.com/epiforecasts/BVDOutbreakSize at commit b4d4c602
-# (epiforecasts/BVDOutbreakSize#1152), src/models/observations.jl,
-# src/renewal.jl and src/mooncake_rules.jl, at the lines given above each
-# piece. The code is unchanged; the module wrapper and imports stand in for
-# those files' own, and comments stand in for the docstrings.
-#
-# The benchmark matrix includes it for the package arms of `bvd_occupancy`,
-# `bvd_abscond_port`, `bvd_two_clock_port`, `bvd_patches_port` and
-# `bvd_onset_port`, which spell those kernels as that port does.
+# (epiforecasts/BVDOutbreakSize#1152), at the file and lines given above
+# each piece. The code is unchanged; the module wrapper and imports stand in
+# for those files' own, and comments stand in for the docstrings.
 module BVDPort
 
 import Mooncake
