@@ -169,6 +169,41 @@ end
     @test CR.NoAdjoint(c)(A) ≈ c(A)
 end
 
+@testitem "Computed kernels: several strata equal each stratum alone" setup = [WeightsChecks] begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    (; T, L, h) = WeightsChecks
+    W = WeightsChecks
+    # Three strata read one walk per cohort, each stratum's lags from a
+    # contiguous copy; one stratum adds each weight as it is walked. The
+    # arithmetic is the same, so the two agree exactly.
+    P3 = [1.0 / (k + i) for k in 1:3, i in 1:L]
+    X3 = [2.0 + cos(k * t) for k in 1:3, t in 1:T]
+    conv(P, κ, h) = Convolution(TimeVarying(W.nested(P, κ, h), CR.Primary()))
+    alone(P, κ, h, X) = reduce(
+        vcat, [conv(P[k:k, :], κ, h)(X[k:k, :]) for k in axes(P, 1)]
+    )
+    for F in (Float64, Float32)
+        P, X, hF, κ = F.(P3), F.(X3), F.(h), F(0.4)
+        Y = conv(P, κ, hF)(X)
+        @test eltype(Y) == F
+        @test Y == alone(P, κ, hF, X)
+        @test conv(P, κ, hF)(X; start = 7) == alone(P, κ, hF, X)[:, 7:end]
+    end
+    # Dual numbers in the input and the coefficients.
+    D = ForwardDiff.Dual{Nothing}
+    PD = [D(P3[k, i], 1.0, float(k + i)) for k in 1:3, i in 1:L]
+    XD = [D(X3[k, t], 0.5, float(t)) for k in 1:3, t in 1:T]
+    @test conv(PD, 0.4, h)(XD) == alone(PD, 0.4, h, XD)
+    # A coefficient with no strata × lags matrix is used as it is.
+    x = W.confirmed(W.p, h)
+    @test CR._lags_contiguous(x) === x
+    lc = ComposableRecurrences._lags_contiguous
+    contiguous(f, x) = (f(x); @allocated f(x))
+    @test contiguous(lc, x) == 0 skip = Base.JLOptions().code_coverage != 0
+    @test CR._lags_contiguous(W.nested(P3, 0.4, h)).args[1].x == P3
+end
+
 @testitem "Computed kernels: arithmetic lowers to Derived" setup = [WeightsChecks] begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived

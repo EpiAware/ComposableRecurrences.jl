@@ -25,6 +25,7 @@ function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
     T = eltype(Y)
     stop = start + size(Y, 1) - 1
     sc = _walk_scratch(x, T, (L,), Val(false))
+    xr = _lags_contiguous(x)
     ks = axes(Y, 2)
     for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):stop
         imax = _imax(τ, L, 0, stop)
@@ -43,19 +44,49 @@ function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
             end
         else
             # Several: a loop over the strata inside the walk would hold up
-            # its chain of products, so each reads the walk after it.
+            # its chain of products, so each reads the walk after it, its
+            # lags contiguous.
             _walk_cohort!(x, sc, k0, τ, 0, imax, T)
-            for k in kw
-                xk = @inbounds X[m + τ, k]
-                for i in i0:imax
-                    w = @inbounds _value(x, sc, k, i, τ, i - 1, 1)
-                    @inbounds Y[τ + i - start, k] += w * xk
-                end
-            end
+            _add_strata!(Y, xr, sc, X, kw, τ, i0, imax, m, start)
         end
     end
     return Y
 end
+# Cohort `τ`'s weights for each stratum in `kw`, read from its walk, times
+# its input. Behind a call, so this loop's code leaves the one-stratum
+# loop's as it was.
+@noinline function _add_strata!(Y, xr, sc, X, kw, τ, i0, imax, m, start)
+    for k in kw
+        xk = @inbounds X[m + τ, k]
+        @inbounds @simd for i in i0:imax
+            w = _value(xr, sc, k, i, τ, i - 1, 1)
+            Y[τ + i - start, k] += w * xk
+        end
+    end
+    return nothing
+end
+
+# The coefficient `x` with each strata × lags matrix read through a copy
+# that holds each stratum's lags contiguously, for loops that read one
+# stratum's weights lag by lag: read in place, the matrix's lags are a
+# stride apart, which keeps the loop from loading them as a vector.
+# A coefficient with no such matrix is returned as it is, decided from its
+# type, so the call builds nothing.
+_lags_contiguous(x) = x
+function _lags_contiguous(x::PerStratum{<:Matrix})
+    return PerStratum(transpose(permutedims(x.x)))
+end
+function _lags_contiguous(x::Derived)
+    _has_strata_lags(x) || return x
+    return Derived(x.f, map(_lags_contiguous, x.args))
+end
+_strata_lags_type(::Type) = false
+_strata_lags_type(::Type{<:PerStratum{<:Matrix}}) = true
+function _strata_lags_type(::Type{<:Derived{F, A}}) where {F, A}
+    return any(_strata_lags_type, fieldtypes(A))
+end
+# After its helpers: a generator sees only the methods defined before it.
+@generated _has_strata_lags(x) = _strata_lags_type(x)
 
 # Its reverse pass walks each cohort again, adds each input's cotangent and
 # the weights', and takes the weights' back to the coefficients along the
