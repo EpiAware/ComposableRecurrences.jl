@@ -533,6 +533,7 @@ const DOCS_BLOCKS = [
             ("overview", "loop") => "hand loop",
             ("overview", "copy loop") => "hand loop (window copies)",
             ("overview", "accumulate") => "accumulate",
+            ("overview", "handrule") => "hand rules",
         ],
     ),
     (
@@ -581,6 +582,7 @@ const HAND_RULE_CASES = Set(
     [
         "ar", "renewal_depletion", "renewal_imports", "transform",
         "delay_primary", "outcome_chain", "renewal_forecast", "reproduction",
+        "strata_waning", "strata_routes", "ward_flows", "overview",
     ]
 )
 for (block, case, loop) in (

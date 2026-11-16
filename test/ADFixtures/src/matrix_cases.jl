@@ -1911,6 +1911,74 @@ if isfile(TUTORIAL_HANDRULE)
             end
         end
     )
+    _handrule_arm(
+        _case("strata_waning"), function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            N = fill(1.0e5, S)
+            return function (θ)
+                g, logh, logR, doses, σ, ω = _unpack(
+                    θ, (L,), (S, L), (S, T), (S, T), (1,), (S, T)
+                )
+                y = TH.waning_handrule(
+                    collect(g), exp.(logh), exp.(logR), collect(doses),
+                    only(σ), collect(ω), N
+                )
+                return sum(W .* log.(y))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("strata_routes"), function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            K2 = _ring(S)
+            n2 = length(nonzeros(K2))
+            L1 = cld(L, 2)
+            pop = fill(1.0e5, S)
+            return function (θ)
+                K1, g1, v, g2, logh, logR = _unpack(
+                    θ, (S, S), (L1,), (n2,), (L,), (S, L), (S, T)
+                )
+                y = TH.routes_handrule(
+                    collect(K1), collect(g1), collect(v), collect(g2),
+                    exp.(logh), exp.(logR), K2.colptr, K2.rowval, pop
+                )
+                return sum(W .* log.(y))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("ward_flows"), function (z)
+            (; T, S) = z
+            W = _weights(2S, T)
+            return function (θ)
+                adm, confirm, ruleout, discharge, transfer = _unpack(
+                    θ, (2S, T), (S,), (T,), (1,), (S, T)
+                )
+                y = TH.ward_handrule(
+                    collect(adm), collect(confirm), collect(ruleout),
+                    only(discharge), collect(transfer)
+                )
+                return sum(W .* y)
+            end
+        end
+    )
+    _handrule_arm(
+        _case("overview"), function (z)
+            (; T, L, S) = z
+            pop, K = towns()
+            gi, d = overview_gi(L), overview_delay(L)
+            seed = overview_seed(S, L)
+            W = _weights(S, T)
+            return function (θ)
+                y = TH.overview_handrule(
+                    reshape(θ, S, T), seed, gi, K, pop, d
+                )
+                return sum(W .* y)
+            end
+        end
+    )
 end
 
 # A user coupling and a user modifier with per-stratum parameters, each
