@@ -1006,6 +1006,7 @@ pending_cases() = Tuple{String, String}[]
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "bvd_patch" => (:_kernel_movement,),
     "bvd_bin_rows" => (:window_sums,),
+    "bvd_window_reports" => (:window_sums,),
     "bvd_patches_call" => (:_kernel_movement, :_WithTrace),
     "zone_allocate" => (:Allocate,),
     "strata_routes" => (:_Routes,),
@@ -1663,7 +1664,8 @@ if isfile(BVD_HANDRULE)
     # The model's use of those weights: the expected reports of `S` zones in
     # each vintage window, `I * weights` for the zones' daily infections `I`
     # (zones by days). The package arm never builds the weights. It
-    # convolves the zones' series with the PMF and sums each window's days.
+    # convolves the zones' series with the PMF and sums each window's days
+    # with `window_sums`, as the windows tile the days from day 1.
     # Two windows close before the first grid day, as the backend's rows give
     # for vintages before its start, and are empty.
     function _bvd_window_reports(run)
@@ -1681,13 +1683,14 @@ if isfile(BVD_HANDRULE)
         end
     end
     function _bvd_window_reports_rule(wrap, f, I, starts, stops)
-        return _window_sums(wrap(Convolution(f))(I), starts, stops)
+        y = wrap(Convolution(f))(I)
+        return wrap(CR._WindowSums(stops, size(y, 2), 2))(y)
     end
     # The sums of `y` (strata by days) over the days `starts[v]:stops[v]`,
     # read from a running total, a window being empty when it starts after
     # it stops. Days outside `1:size(y, 2)` count as zero. Windows that tile
     # the days from day 1 read the total once, at the window ends; others
-    # read it at both ends.
+    # read it at both ends. The rule arm took this before `window_sums`.
     function _window_sums(y, starts, stops)
         hi = clamp.(stops, 0, size(y, 2))
         lo = clamp.(starts, 1, hi .+ 1)
