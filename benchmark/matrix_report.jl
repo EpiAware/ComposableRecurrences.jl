@@ -581,6 +581,33 @@ const DOCS_BLOCKS = [
         ],
     ),
     (
+        "backend pre-zones", "bvd_pre_zones", "ComposableRecurrences",
+        [
+            ("bvd_pre_zones", "rule") => "ComposableRecurrences",
+            ("bvd_pre_zones", "NoAdjoint") => "plain AD",
+            ("bvd_pre_zones", "loop") => "hand loop",
+            ("bvd_pre_zones", "handrule") => "hand rules",
+        ],
+    ),
+    (
+        "backend window weights", "bvd_window_weights", "ComposableRecurrences",
+        [
+            ("bvd_window_weights", "rule") => "ComposableRecurrences",
+            ("bvd_window_weights", "NoAdjoint") => "plain AD",
+            ("bvd_window_weights", "loop") => "hand loop",
+            ("bvd_window_weights", "handrule") => "hand rules",
+        ],
+    ),
+    (
+        "backend window reports", "bvd_window_reports", "ComposableRecurrences",
+        [
+            ("bvd_window_reports", "rule") => "ComposableRecurrences",
+            ("bvd_window_reports", "NoAdjoint") => "plain AD",
+            ("bvd_window_reports", "loop") => "hand loop",
+            ("bvd_window_reports", "handrule") => "hand rules",
+        ],
+    ),
+    (
         "backend row bins", "bvd_bin_rows", "ComposableRecurrences",
         [
             ("bvd_bin_rows", "rule") => "ComposableRecurrences",

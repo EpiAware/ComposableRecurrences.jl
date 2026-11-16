@@ -1594,6 +1594,116 @@ if isfile(BVD_HANDRULE)
     end
     _bvd_bins_hand(kernel) = (wrap, daily, days) -> kernel(daily, days)
 
+    # BVD's `zone_pre_convolution`: each of `S` patch series convolved with a
+    # kernel whose first entry is lag 1, reading only the days before day 30.
+    # The package arm is the port's spelling: the later days zeroed, then a
+    # `Convolution` with a leading zero in its kernel.
+    function _bvd_pre_zones(run)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            f = function (θ)
+                w, I = _unpack(θ, (L,), (S, T))
+                return sum(W .* run(wrap, w, I, 30, 1))
+            end
+            I0 = [10.0 + 8.0 * _noise(t, 20 + p) for p in 1:S, t in 1:T]
+            return f, _flat(_gi(L), I0)
+        end
+    end
+    function _bvd_pre_zones_rule(wrap, w, I, t0, first_lag)
+        before = copy(I)
+        before[:, t0:end] .= zero(eltype(before))
+        kernel = zeros(eltype(w), length(w) + first_lag)
+        kernel[(first_lag + 1):end] .= w
+        return wrap(Convolution(kernel))(before)
+    end
+    function _bvd_pre_zones_hand(kernel)
+        return function (wrap, w, I, t0, first_lag)
+            return kernel(collect(I), collect(w), t0, first_lag)
+        end
+    end
+
+    # BVD's `zone_window_weights`: what one infection on each of `T` grid days
+    # adds to each vintage window through a delay PMF of `L` lags, lag 0
+    # first. The windows are the backend's: the first runs to day `T - 100`
+    # and the other 100 are single days. The package arm is the port's
+    # spelling: a `Convolution` of each window's indicator in reversed time,
+    # then reversed back and transposed.
+    function _bvd_window_rows(T)
+        stops = collect(max(1, T - 100):T)
+        return [1; stops[1:(end - 1)] .+ 1], stops
+    end
+    function _bvd_window_weights(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            starts, stops = _bvd_window_rows(T)
+            W = _weights(T, length(starts))
+            f = function (θ)
+                return sum(W .* run(wrap, θ, starts, stops, T))
+            end
+            return f, _gi(L)
+        end
+    end
+    function _bvd_window_weights_rule(wrap, f, starts, stops, nd)
+        nv = length(starts)
+        (nv == 0 || nd == 0) && return zeros(eltype(f), nd, nv)
+        windows = [
+            starts[v] <= nd + 1 - j <= stops[v] ? one(eltype(f)) :
+                zero(eltype(f))
+                for v in 1:nv, j in 1:nd
+        ]
+        return permutedims(reverse(wrap(Convolution(f))(windows); dims = 2))
+    end
+    function _bvd_window_weights_hand(kernel)
+        return function (wrap, f, starts, stops, nd)
+            return kernel(collect(f), starts, stops, nd)
+        end
+    end
+
+    # The model's use of those weights: the expected reports of `S` zones in
+    # each vintage window, `I * weights` for the zones' daily infections `I`
+    # (zones by days). The package arm never builds the weights. It
+    # convolves the zones' series with the PMF and sums each window's days.
+    # Two windows close before the first grid day, as the backend's rows give
+    # for vintages before its start, and are empty.
+    function _bvd_window_reports(run)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            starts, stops = _bvd_window_rows(T)
+            starts, stops = [1; 1; starts], [-50; 0; stops]
+            W = _weights(S, length(starts))
+            f = function (θ)
+                p, I = _unpack(θ, (L,), (S, T))
+                return sum(W .* run(wrap, p, I, starts, stops))
+            end
+            I0 = [10.0 + 8.0 * _noise(t, 30 + k) for k in 1:S, t in 1:T]
+            return f, _flat(_gi(L), I0)
+        end
+    end
+    function _bvd_window_reports_rule(wrap, f, I, starts, stops)
+        return _window_sums(wrap(Convolution(f))(I), starts, stops)
+    end
+    # The sums of `y` (strata by days) over the days `starts[v]:stops[v]`,
+    # read from a running total, a window being empty when it starts after
+    # it stops. Days outside `1:size(y, 2)` count as zero. Windows that tile
+    # the days from day 1 read the total once, at the window ends; others
+    # read it at both ends.
+    function _window_sums(y, starts, stops)
+        hi = clamp.(stops, 0, size(y, 2))
+        lo = clamp.(starts, 1, hi .+ 1)
+        total = hcat(zeros(eltype(y), size(y, 1)), cumsum(y; dims = 2))
+        s = total[:, hi .+ 1]
+        tiles = first(lo) == 1 &&
+            all(lo[v] == hi[v - 1] + 1 for v in 2:length(lo))
+        tiles && return hcat(s[:, 1:1], s[:, 2:end] .- s[:, 1:(end - 1)])
+        return s .- total[:, lo]
+    end
+    function _bvd_window_reports_hand(kernel)
+        return function (wrap, f, I, starts, stops)
+            return collect(I) * kernel(collect(f), starts, stops, size(I, 2))
+        end
+    end
+
     # BVD's `bin_row_increments`: each of `S` patch series binned to vintage
     # days, the first bin from day 1. `L` picks the days: daily from day
     # `T ÷ 2` for `L = 1`, every `L` days for a larger `L`, and the backend's
@@ -1668,6 +1778,26 @@ if isfile(BVD_HANDRULE)
                 (BVD.bin_loop, BVD.bin_increments), [1],
             ),
             (
+                "bvd_pre_zones",
+                "BVD zone_pre_convolution: a masked series, a lagged kernel",
+                _bvd_pre_zones, _bvd_pre_zones_rule, _bvd_pre_zones_hand,
+                (BVD.zone_pre_loop, BVD.zone_pre_convolution), [5],
+            ),
+            (
+                "bvd_window_weights",
+                "BVD zone_window_weights: window weights from a delay PMF",
+                _bvd_window_weights, _bvd_window_weights_rule,
+                _bvd_window_weights_hand,
+                (BVD.zone_window_loop, BVD.zone_window_weights), [1],
+            ),
+            (
+                "bvd_window_reports",
+                "BVD zone_binned_operator: window sums of convolved zones",
+                _bvd_window_reports, _bvd_window_reports_rule,
+                _bvd_window_reports_hand,
+                (BVD.zone_window_loop, BVD.zone_window_weights), [5, 11],
+            ),
+            (
                 "bvd_bin_rows",
                 "BVD bin_row_increments: each row's window sums",
                 _bvd_bin_rows, _bvd_bin_rows_rule, _bvd_bin_rows_hand,
@@ -1686,6 +1816,21 @@ if isfile(BVD_HANDRULE)
     end
     # Weekly and 30-day bins over the backend's 220 days.
     TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
+    # The backend's four patches over 227 days, with its two kernel lengths,
+    # and the seven patches over 209 days of the downstream kernel table.
+    TIERS["docs"].bycase["bvd_pre_zones"] = [
+        (T = 227, L = 35, S = 4), (T = 227, L = 45, S = 4),
+        (T = 209, L = 35, S = 7),
+    ]
+    # The backend's timing call, 161 grid days with a 45-lag PMF, and its
+    # model's 202 grid days with a 50-lag PMF.
+    TIERS["docs"].bycase["bvd_window_weights"] = [
+        (T = 161, L = 45), (T = 202, L = 50),
+    ]
+    TIERS["docs"].bycase["bvd_window_reports"] = [
+        (T = 161, L = 45, S = 5), (T = 161, L = 45, S = 11),
+        (T = 202, L = 50, S = 5), (T = 202, L = 50, S = 11),
+    ]
     # The backend's rule timing, 8 patches over 260 days with daily vintages
     # from day 130; 11 patches over its model's 268 days, weekly; and its
     # province vintage days over 268 days.
@@ -1753,6 +1898,7 @@ const BVD_REFERENCES = joinpath(
 if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
     include(joinpath(BVD_REFERENCES, "bvd.jl"))
     include(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
+    include(joinpath(BVD_REFERENCES, "bvd_port.jl"))
     using .BVDReference: BVDReference as BVDRef
 
     # The confirmed share of the day's discharges `b`, off the previous
@@ -1777,6 +1923,12 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         oc = _occ_conf_share(b, u, c)
         return oc + max(-_occ_unconf_left(u, A, h, κ, b - oc), zero(oc))
     end
+    # The port's spelling at epiforecasts/BVDOutbreakSize#1152 b4d4c602
+    # (`accumulate_occupancy`, src/models/observations.jl L2032-L2087): the
+    # abscond shares as `Derived(identity, κ)`, so a rate above one is not
+    # checked, and the outputs from the port's own loop and rule. The pools
+    # are named in place, as the port names them, so the compiler sees the
+    # names as constants.
     function _bvd_occupancy_rule(wrap, A_bvd, A_bg, deaths, recover, ruleout, κ, h)
         n = length(A_bvd)
         T = promote_type(
@@ -1786,12 +1938,13 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         bvd_out = TimeVarying(deaths .+ recover)
         adm = TimeVarying(A_bvd)
         hz = TimeVarying(h)
+        unconf = Recent(1)
         conf = Recent(1; coupling = [0.0 1.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0])
-        args = (bvd_out, Recent(1), conf, adm, hz, κ)
+        args = (bvd_out, unconf, conf, adm, hz, κ)
         flows = CR.Depletion(
             CR.Flow(:unconf => :conf, Derived(identity, hz); form = CR.Share()),
-            CR.Flow(:unconf => 0, κ; form = CR.Share()),
-            CR.Flow(:bg => 0, κ; form = CR.Share()),
+            CR.Flow(:unconf => 0, Derived(identity, κ); form = CR.Share()),
+            CR.Flow(:bg => 0, Derived(identity, κ); form = CR.Share()),
             CR.Flow(0 => :unconf, adm; form = CR.Truncate()),
             CR.Flow(0 => :bg, TimeVarying(A_bg); form = CR.Truncate()),
             CR.Flow(
@@ -1808,12 +1961,7 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         floor_ = CR.Transform(clamp, zero(T), T(Inf))
         r = Recurrence([true]; modifiers = (flows, floor_))
         Y = wrap(r)(; history = zeros(T, 3, 1), stop = n)
-        O_conf = Y[2, :]
-        O_bvd = Y[1, :] .+ O_conf
-        O_bg = Y[3, :]
-        O_susp = Y[1, :] .+ O_bg
-        abscond = κ .* vcat(zero(eltype(Y)), O_susp[1:(end - 1)])
-        return (; demand = O_bvd .+ O_bg, O_bvd, O_conf, O_susp, abscond)
+        return BVDPort.occupancy_outputs(Y, κ)
     end
     function _bvd_occupancy_hand(kernel)
         return function (wrap, A_bvd, A_bg, deaths, recover, ruleout, κ, h)
@@ -1852,14 +2000,17 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
                 return dot(W1, y.demand) + dot(W2, y.O_bvd) + dot(W3, y.O_conf) +
                     dot(W4, y.O_susp) + dot(W5, y.abscond)
             end
+            # Names apart from the loss's own, so its closure captures none of
+            # them: a captured variable assigned after it is boxed, and Enzyme
+            # cannot prove the box read-only.
             days = 1:T
-            A_bvd = @. 20 * exp(-((days - T / 2) / 20)^2) + 0.5
-            A_bg = @. 30 * exp(-((days - T / 2) / 30)^2) + 2.0
+            A0 = @. 20 * exp(-((days - T / 2) / 20)^2) + 0.5
+            B0 = @. 30 * exp(-((days - T / 2) / 30)^2) + 2.0
             θ = _flat(
-                A_bvd, A_bg,
-                BVDRef.convolve_delay(0.3 .* A_bvd, _occ_delay(15, 41)),
-                BVDRef.convolve_delay(0.5 .* A_bvd, _occ_delay(20, 42)),
-                BVDRef.convolve_delay(0.8 .* A_bg, _occ_delay(8, 43)), [0.02],
+                A0, B0,
+                BVDRef.convolve_delay(0.3 .* A0, _occ_delay(15, 41)),
+                BVDRef.convolve_delay(0.5 .* A0, _occ_delay(20, 42)),
+                BVDRef.convolve_delay(0.8 .* B0, _occ_delay(8, 43)), [0.02],
                 @. 0.1 + 0.3 * abs(sin(days / 7))
             )
             return f, θ
@@ -1880,6 +2031,95 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         )(identity, z),
     ]
     push!(TIERS["realistic"].cases, "bvd_occupancy")
+
+    # BVD's abscond-thinned discharge flows and two-clock confirmed stock,
+    # each as the port spells it at epiforecasts/BVDOutbreakSize#1152
+    # b4d4c602 (src/models/observations.jl L1876-L1900 and L2221-L2234),
+    # against the backend's loops (`bvd.jl`) with its Mooncake rules from
+    # 73c575bd (`bvd_rules.jl`). Each builder's inputs have names of their
+    # own, so the loss closure does not capture and box them, which Enzyme
+    # cannot differentiate correctly.
+    function _bvd_abscond_port(wrap, adm1, pmf1, adm2, pmf2, κ, h)
+        (; late, pmfs, adm) = BVDPort.abscond_inputs(adm1, pmf1, adm2, pmf2, h)
+        unconf = CR.Survival(TimeVarying(late); from = 1)
+        kernel = PerStratum(pmfs) * CR.Survival(κ * unconf; from = 1)
+        flows = wrap(Convolution(TimeVarying(kernel, CR.Primary())))(adm)
+        return BVDPort.split_rows(flows)
+    end
+    function _bvd_abscond_port_hand(wrap, adm1, pmf1, adm2, pmf2, κ, h)
+        return BVDRef.abscond_thinned_flows(
+            collect(adm1), collect(pmf1), collect(adm2), collect(pmf2), κ,
+            collect(h)
+        )
+    end
+    # Deaths and recoveries from a true-case admission curve, the recovery
+    # stay the shorter, and a confirmation hazard that rises and falls.
+    function _bvd_abscond_flows(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            L2 = cld(7 * L, 10)
+            Wm = _weights(2, T)
+            W1, W2 = Wm[1, :], Wm[2, :]
+            f = function (θ)
+                a1, p1, a2, p2, k, hz = _unpack(
+                    θ, (T,), (L,), (T,), (L2,), (1,), (T,)
+                )
+                y1, y2 = run(wrap, a1, p1, a2, p2, k[1], hz)
+                return dot(W1, y1) + dot(W2, y2)
+            end
+            days = 1:T
+            A0 = @. 20 * exp(-((days - T / 2) / 20)^2) + 0.5
+            P1 = [exp(-0.1 * d) for d in 0:(L - 1)]
+            P2 = [exp(-0.15 * d) for d in 0:(L2 - 1)]
+            θ = _flat(
+                0.3 .* A0, P1 ./ sum(P1), 0.7 .* A0, P2 ./ sum(P2), [0.02],
+                @. 0.1 + 0.3 * abs(sin(days / 7))
+            )
+            return f, θ
+        end
+    end
+    function _bvd_two_clock_port(wrap, A, h, S)
+        hl = BVDPort.hold_last(h, length(S))
+        confirmed = S * (1 - CR.Survival(TimeVarying(hl); from = 1))
+        return wrap(Convolution(TimeVarying(confirmed, CR.Primary())))(A)
+    end
+    function _bvd_two_clock_port_hand(wrap, A, h, S)
+        return BVDRef.two_clock_confirmed(collect(A), collect(h), collect(S))
+    end
+    function _bvd_two_clock_confirmed(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(T)
+            f = function (θ)
+                a, hz, s = _unpack(θ, (T,), (T,), (L,))
+                return dot(W, run(wrap, a, hz, s))
+            end
+            days = 1:T
+            θ = _flat(
+                @.(20 * exp(-((days - T / 2) / 20)^2) + 0.5),
+                @.(0.1 + 0.3 * abs(sin(days / 7))),
+                [exp(-0.08 * d) for d in 0:(L - 1)]
+            )
+            return f, θ
+        end
+    end
+    for (name, description, loss, rule, hand) in (
+            (
+                "bvd_abscond_port",
+                "BVD abscond_thinned_flows as the port spells it",
+                _bvd_abscond_flows, _bvd_abscond_port, _bvd_abscond_port_hand,
+            ),
+            (
+                "bvd_two_clock_port",
+                "BVD two_clock_confirmed as the port spells it",
+                _bvd_two_clock_confirmed, _bvd_two_clock_port,
+                _bvd_two_clock_port_hand,
+            ),
+        )
+        push!(CASES, Case(name, description, loss(rule), [1], false))
+        BASELINES[name] = ["handrule" => z -> loss(hand)(identity, z)]
+        push!(TIERS["realistic"].cases, name)
+    end
 end
 
 # The tutorials' hand loops with hand-written Mooncake rules: a `handrule`
