@@ -540,10 +540,8 @@ end
 # The output's shadow, sharing the reverse pass's buffer where it can.
 function _shadow_of(op, y, cache)
     dy, c = _shared_shadow(op, y, cache)
-    return dy === nothing ? (_zero_shadow(y), c) : (dy, c)
+    return dy === nothing ? (Enzyme.make_zero(y), c) : (dy, c)
 end
-_zero_shadow(y::Array{<:_IEEEFloat}) = zero(y)
-_zero_shadow(y) = Enzyme.make_zero(y)
 # The pullback compiled on its own for the mirrors' types: inlined into the
 # rule, it ran slower on a coupled run with a modifier.
 @noinline _pullback_call(grads, op, cache) = _run_pullback!(grads, op, cache)
