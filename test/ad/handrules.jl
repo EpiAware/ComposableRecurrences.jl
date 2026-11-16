@@ -172,7 +172,7 @@ end
     end
 end
 
-@testitem "The window-weights case's arms agree at the backend's sizes" tags = [:ad, :mooncake_reverse] begin
+@testitem "The window-weights and window-reports cases' arms agree at the backend's sizes" tags = [:ad, :mooncake_reverse] begin
     using ADFixtures: MatrixCases as MC
     using ADTypes: AutoMooncake
     import DifferentiationInterface as DI
@@ -184,10 +184,13 @@ end
     @test Mooncake.is_primitive(
         Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, Base.get_world_counter()
     )
-    c = only(x for x in MC.CASES if x.name == "bvd_window_weights")
     backend = AutoMooncake(; config = nothing)
-    for (T, L) in ((161, 45), (202, 50), (60, 10))
-        z = MC.Size(; T, L)
+    for (name, S) in (
+                ("bvd_window_weights", 1), ("bvd_window_reports", 5),
+                ("bvd_window_reports", 11),
+            ), (T, L) in ((161, 45), (202, 50), (60, 10))
+        c = only(x for x in MC.CASES if x.name == name)
+        z = MC.Size(; T, L, S)
         loop, θ = MC.build(c, z, "loop")
         ref = ForwardDiff.gradient(loop, θ)
         for arm in ("rule", "NoAdjoint", "handrule")
@@ -197,5 +200,18 @@ end
             prep = DI.prepare_gradient(f, backend, copy(θ))
             @test DI.gradient(f, prep, backend, θ) ≈ ref rtol = 1.0e-10
         end
+    end
+    # Both of the helper's paths, against a plain sum over the days in range:
+    # windows that close before day 1, empty windows, windows past the last
+    # day, and windows that leave gaps.
+    y = [Float64(10k + t) for k in 1:2, t in 1:9]
+    plain(a, b) = [sum(y[k, max(a, 1):min(b, 9)]; init = 0.0) for k in 1:2]
+    for (starts, stops) in (
+            ([1, 3], [2, 9]), ([1, 1, 1, 4], [-2, 0, 3, 9]),
+            ([1, 4, 4, 10, 12], [3, 3, 9, 9, 9]), ([2, 4, 8], [3, 7, 7]),
+            ([5], [9]),
+        )
+        @test MC._window_sums(y, starts, stops) ==
+            reduce(hcat, [plain(a, b) for (a, b) in zip(starts, stops)])
     end
 end
