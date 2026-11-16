@@ -1002,3 +1002,62 @@ end
     @test ForwardDiff.hessian(f, θ, ForwardDiff.HessianConfig(f, θ, nine)) ≈
         ForwardDiff.hessian(f, θ, ForwardDiff.HessianConfig(f, θ, one))
 end
+
+@testitem "Recurrence: a plain call of independent strata runs strata-major and equals the general run" begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    CR = ComposableRecurrences
+    general(r, args...) = first(CR._recur(r, args..., Val(false)))
+    v(Tp, n, s) = Tp[0.2 + 0.5 * abs(sin(3.1 * i + s)) for i in 1:n]
+    m(Tp, a, b, s) = reshape(v(Tp, a * b, s), a, b)
+    for Tp in (Float64, Float32), L in 1:3, S in (2, 5), T in (0, 1, 6),
+            n in (1, L, L + 2), gk in 1:4, ak in 1:3, ck in 1:3
+        g = v(Tp, L, 1)
+        C = (I, Tp(0.9) * I, Diagonal(v(Tp, S, 2)))[ck]
+        r = Recurrence(g; coupling = C)
+        h = m(Tp, S, n, 3) .- Tp(0.4)
+        gain = (true, Tp(0.8), v(Tp, T, 4), m(Tp, S, T, 5))[gk]
+        add = (nothing, v(Tp, T, 6) .- Tp(0.3), m(Tp, S, T, 7))[ak]
+        args = (CR._run_args(r, gain, h, nothing, add, 1)..., T)
+        @test CR._strata_major(Tp, CR.Serial(), r, gain, add, h, nothing, L, S)
+        want = general(r, args...)
+        got = CR._primal(r, args...)
+        @test got == want
+        @test typeof(got) == typeof(want)
+    end
+    # One series, kernels longer than three lags, dual numbers and matrix
+    # couplings take the general run.
+    h = [1.0 2.0; 3.0 4.0]
+    @test !CR._strata_major(
+        Float64, CR.Serial(), Recurrence([0.5]), true, nothing, h[1:1, :],
+        nothing, 1, 1
+    )
+    r4 = Recurrence([0.1, 0.2, 0.3, 0.2])
+    @test !CR._strata_major(
+        Float64, CR.Serial(), r4, true, nothing, h, nothing, 4, 2
+    )
+    Dl = ForwardDiff.Dual{Nothing, Float64, 1}
+    @test !CR._strata_major(
+        Dl, CR.Serial(), Recurrence([0.5]), true, nothing, h, nothing, 1, 2
+    )
+    rc = Recurrence([0.5]; coupling = [0.9 0.1; 0.2 0.8])
+    @test !CR._strata_major(
+        Float64, CR.Serial(), rc, true, nothing, h, nothing, 1, 2
+    )
+    # A call on dual numbers matches the plain values of the run.
+    r = Recurrence([0.6, 0.3])
+    A = [0.1 * (k + t) for k in 1:3, t in 1:7]
+    hs = [1.0 2.0; 3.0 4.0; 5.0 6.0]
+    yd = r(; history = hs, add = ForwardDiff.Dual.(A, 1.0))
+    @test ForwardDiff.value.(yd) == r(; history = hs, add = A)
+    # The strata-major run allocates its one buffer and allocates less than
+    # the general run.
+    r1 = Recurrence([0.7])
+    lvl = reshape(collect(range(-1.0, 1.0; length = 11)), :, 1)
+    Z = [0.01 * sin(k + 2t) for k in 1:11, t in 1:31]
+    args = (CR._run_args(r1, true, lvl, nothing, Z, 1)..., 31)
+    r1(; history = lvl, add = Z)
+    general(r1, args...)
+    @test @allocated(r1(; history = lvl, add = Z)) <
+        @allocated(general(r1, args...))
+    @test @allocated(CR._primal(r1, args...)) <= 2 * sizeof(Float64) * 11 * 32 + 256
+end

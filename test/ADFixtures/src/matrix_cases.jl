@@ -1685,9 +1685,13 @@ if isfile(BVD_HANDRULE)
         )
     )
     BASELINES["bvd_knots"] = ["loop" => z -> _bvd_knots(_bvd_knots_hand)(identity, z)]
-    # Regions by knots at the backend's sizes.
+    # Regions by knots: the backend's production size of 11 regions over 32
+    # knots, and two other sizes.
     push!(TIERS["docs"].cases, "bvd_knots")
-    TIERS["docs"].bycase["bvd_knots"] = [(T = 12, L = 1, S = 10), (T = 20, L = 1, S = 30)]
+    TIERS["docs"].bycase["bvd_knots"] = [
+        (T = 31, L = 1, S = 11), (T = 12, L = 1, S = 10),
+        (T = 20, L = 1, S = 30),
+    ]
     # The backend's call shape against the same loops, which read the series
     # over the seed's days too and return those days first.
     _renewal_call_hand(kernel) = (wrap, g, seed, R, N) -> kernel(R, collect(g), seed, N)

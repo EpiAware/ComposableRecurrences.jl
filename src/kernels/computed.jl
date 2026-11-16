@@ -139,6 +139,16 @@ function _recur(
     Y, H, states, inner = _recur(_with_kernel(r, K), gain, add, h, s0, τ0, stop, cache)
     return Y, H, states, _with_computed(inner, r.kernel, n, sc)
 end
+# A plain call keeps nothing: the weights are filled in blocks and the run
+# returns only its output.
+function _recur(
+        r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop,
+        cache::Val{:primal}
+    )
+    n = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
+    K, _ = _fill_kernel(r.kernel, 1, n, n, Val(false))
+    return _recur(_with_kernel(r, K), gain, add, h, s0, τ0, stop, cache)
+end
 _with_computed(::Nothing, kernel, n, sc) = nothing
 _with_computed(cache, kernel, n, sc) = merge(cache, (; computed = (; kernel, n, sc)))
 _computed(c::NamedTuple) = hasfield(typeof(c), :computed) ? c.computed : nothing
