@@ -1692,7 +1692,8 @@ if isfile(BVD_HANDRULE)
         lo = clamp.(starts, 1, hi .+ 1)
         total = hcat(zeros(eltype(y), size(y, 1)), cumsum(y; dims = 2))
         s = total[:, hi .+ 1]
-        tiles = first(lo) == 1 && all(lo[v] == hi[v - 1] + 1 for v in 2:length(lo))
+        tiles = first(lo) == 1 &&
+            all(lo[v] == hi[v - 1] + 1 for v in 2:length(lo))
         tiles && return hcat(s[:, 1:1], s[:, 2:end] .- s[:, 1:(end - 1)])
         return s .- total[:, lo]
     end
@@ -1791,7 +1792,8 @@ if isfile(BVD_HANDRULE)
         (T = 161, L = 45), (T = 202, L = 50),
     ]
     TIERS["docs"].bycase["bvd_window_reports"] = [
-        (T = 161, L = 45), (T = 202, L = 50),
+        (T = 161, L = 45, S = 5), (T = 161, L = 45, S = 11),
+        (T = 202, L = 50, S = 5), (T = 202, L = 50, S = 11),
     ]
     # The backend's call shape against the same loops, which read the series
     # over the seed's days too and return those days first.
