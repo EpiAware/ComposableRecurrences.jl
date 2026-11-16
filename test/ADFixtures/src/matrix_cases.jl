@@ -1855,6 +1855,7 @@ const BVD_REFERENCES = joinpath(
 if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
     include(joinpath(BVD_REFERENCES, "bvd.jl"))
     include(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
+    include(joinpath(BVD_REFERENCES, "bvd_port.jl"))
     using .BVDReference: BVDReference as BVDRef
 
     # The confirmed share of the day's discharges `b`, off the previous
@@ -1879,6 +1880,12 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         oc = _occ_conf_share(b, u, c)
         return oc + max(-_occ_unconf_left(u, A, h, κ, b - oc), zero(oc))
     end
+    # The port's spelling at epiforecasts/BVDOutbreakSize#1152 b4d4c602
+    # (`accumulate_occupancy`, src/models/observations.jl L2032-L2095): the
+    # abscond shares as `Derived(identity, κ)`, so a rate above one is not
+    # checked, and the outputs from the port's own loop and rule. The pools
+    # are named in place, as the port names them, so the compiler sees the
+    # names as constants.
     function _bvd_occupancy_rule(wrap, A_bvd, A_bg, deaths, recover, ruleout, κ, h)
         n = length(A_bvd)
         T = promote_type(
@@ -1888,12 +1895,13 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         bvd_out = TimeVarying(deaths .+ recover)
         adm = TimeVarying(A_bvd)
         hz = TimeVarying(h)
+        unconf = Recent(1)
         conf = Recent(1; coupling = [0.0 1.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0])
-        args = (bvd_out, Recent(1), conf, adm, hz, κ)
+        args = (bvd_out, unconf, conf, adm, hz, κ)
         flows = CR.Depletion(
             CR.Flow(:unconf => :conf, Derived(identity, hz); form = CR.Share()),
-            CR.Flow(:unconf => 0, κ; form = CR.Share()),
-            CR.Flow(:bg => 0, κ; form = CR.Share()),
+            CR.Flow(:unconf => 0, Derived(identity, κ); form = CR.Share()),
+            CR.Flow(:bg => 0, Derived(identity, κ); form = CR.Share()),
             CR.Flow(0 => :unconf, adm; form = CR.Truncate()),
             CR.Flow(0 => :bg, TimeVarying(A_bg); form = CR.Truncate()),
             CR.Flow(
@@ -1910,12 +1918,7 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         floor_ = CR.Transform(clamp, zero(T), T(Inf))
         r = Recurrence([true]; modifiers = (flows, floor_))
         Y = wrap(r)(; history = zeros(T, 3, 1), stop = n)
-        O_conf = Y[2, :]
-        O_bvd = Y[1, :] .+ O_conf
-        O_bg = Y[3, :]
-        O_susp = Y[1, :] .+ O_bg
-        abscond = κ .* vcat(zero(eltype(Y)), O_susp[1:(end - 1)])
-        return (; demand = O_bvd .+ O_bg, O_bvd, O_conf, O_susp, abscond)
+        return BVDPort.occupancy_outputs(Y, κ)
     end
     function _bvd_occupancy_hand(kernel)
         return function (wrap, A_bvd, A_bg, deaths, recover, ruleout, κ, h)
@@ -1954,14 +1957,17 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
                 return dot(W1, y.demand) + dot(W2, y.O_bvd) + dot(W3, y.O_conf) +
                     dot(W4, y.O_susp) + dot(W5, y.abscond)
             end
+            # Names apart from the loss's own, so its closure captures none of
+            # them: a captured variable assigned after it is boxed, and Enzyme
+            # cannot prove the box read-only.
             days = 1:T
-            A_bvd = @. 20 * exp(-((days - T / 2) / 20)^2) + 0.5
-            A_bg = @. 30 * exp(-((days - T / 2) / 30)^2) + 2.0
+            A0 = @. 20 * exp(-((days - T / 2) / 20)^2) + 0.5
+            B0 = @. 30 * exp(-((days - T / 2) / 30)^2) + 2.0
             θ = _flat(
-                A_bvd, A_bg,
-                BVDRef.convolve_delay(0.3 .* A_bvd, _occ_delay(15, 41)),
-                BVDRef.convolve_delay(0.5 .* A_bvd, _occ_delay(20, 42)),
-                BVDRef.convolve_delay(0.8 .* A_bg, _occ_delay(8, 43)), [0.02],
+                A0, B0,
+                BVDRef.convolve_delay(0.3 .* A0, _occ_delay(15, 41)),
+                BVDRef.convolve_delay(0.5 .* A0, _occ_delay(20, 42)),
+                BVDRef.convolve_delay(0.8 .* B0, _occ_delay(8, 43)), [0.02],
                 @. 0.1 + 0.3 * abs(sin(days / 7))
             )
             return f, θ
