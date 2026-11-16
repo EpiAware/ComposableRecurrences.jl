@@ -581,6 +581,15 @@ const DOCS_BLOCKS = [
         ],
     ),
     (
+        "backend pre-zones", "bvd_pre_zones", "ComposableRecurrences",
+        [
+            ("bvd_pre_zones", "rule") => "ComposableRecurrences",
+            ("bvd_pre_zones", "NoAdjoint") => "plain AD",
+            ("bvd_pre_zones", "loop") => "hand loop",
+            ("bvd_pre_zones", "handrule") => "hand rules",
+        ],
+    ),
+    (
         "backend window weights", "bvd_window_weights", "ComposableRecurrences",
         [
             ("bvd_window_weights", "rule") => "ComposableRecurrences",

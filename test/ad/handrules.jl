@@ -198,7 +198,7 @@ end
             @test θarm == θ
             @test f(θ) ≈ loop(θ)
             prep = DI.prepare_gradient(f, backend, copy(θ))
-            @test DI.gradient(f, prep, backend, θ) ≈ ref rtol = 1.0e-8
+            @test DI.gradient(f, prep, backend, θ) ≈ ref rtol = 1.0e-10
         end
     end
     # Windows that do not tile the days read the running total at both ends.
