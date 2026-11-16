@@ -345,8 +345,7 @@ const _DrawForm = Union{
 const _BuiltPiece = Union{Flow, _DrawForm}
 
 Mooncake.@is_primitive Mooncake.DefaultCtx Mooncake.ReverseMode Tuple{
-    typeof(_depletion), Any, Tuple{Vararg{_BuiltPiece}},
-    Union{Nothing, NamedTuple},
+    typeof(_depletion), Any, Tuple{Vararg{_BuiltPiece}}, Any,
 }
 
 _fd_type(y) = Mooncake.fdata_type(Mooncake.tangent_type(typeof(y)))
