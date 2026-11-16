@@ -528,11 +528,21 @@ end
 
 # ---- effective reproduction number ------------------------------------------
 
+# The renewal sum of stratum `k` at step `t` of a buffer whose first `m`
+# columns are the seed.
+function _renewal_sum(g, y, k, m, t)
+    acc = zero(eltype(y))
+    for l in eachindex(g)
+        acc += g[l] * y[k, m + t - l]
+    end
+    return acc
+end
+
 # The towns' depleted run from the seed's columns, keeping each day's
 # renewal sums `P`, mixed sums `Q` and the pools before the draw.
 function _reproduction_state(g, R, seed, K, pop)
     S, T = size(R)
-    m, L = size(seed, 2), length(g)
+    m = size(seed, 2)
     V = promote_type(
         eltype(g), eltype(R), eltype(seed), eltype(K), eltype(pop)
     )
@@ -544,11 +554,7 @@ function _reproduction_state(g, R, seed, K, pop)
     pool = V.(pop)
     for t in 1:T
         for k in 1:S
-            acc = zero(V)
-            for l in 1:L
-                acc += g[l] * y[k, m + t - l]
-            end
-            P[k, t] = acc
+            P[k, t] = _renewal_sum(g, y, k, m, t)
         end
         for a in 1:S
             q = zero(V)
@@ -563,6 +569,43 @@ function _reproduction_state(g, R, seed, K, pop)
         end
     end
     return (; y, P, Q, pools)
+end
+
+# The reverse of `_reproduction_state` from the last day back. `Ī` holds
+# the cotangents of the draws, seed columns first, and gains those of the
+# seed; `ȳ` is the cotangent of each draw over its mixed sum, or `nothing`.
+function _reproduction_back!(ḡ, R̄, K̄, pop̄, Ī, ȳ, st, g, R, K, pop, m)
+    (; P, Q, pools) = st
+    Y = st.y
+    S, T = size(R)
+    pool̄, q̄ = zeros(S), zeros(S)
+    for t in T:-1:1
+        for a in 1:S
+            q, drawn = Q[a, t], Y[a, m + t]
+            r̄ = ȳ === nothing ? 0.0 : ȳ[a, t] / q
+            d̄ = Ī[a, m + t] + r̄ - pool̄[a]
+            x = R[a, t] * q / pop[a]
+            x̄ = d̄ * pools[a, t] * exp(-x)
+            pool̄[a] -= d̄ * expm1(-x)
+            xn = x̄ / pop[a]
+            R̄[a, t] += xn * q
+            pop̄[a] -= xn * x
+            q̄[a] = xn * R[a, t] - r̄ * drawn / q
+        end
+        for b in 1:S
+            p̄ = 0.0
+            for a in 1:S
+                K̄[a, b] += q̄[a] * P[b, t]
+                p̄ += K[a, b] * q̄[a]
+            end
+            for l in eachindex(g)
+                ḡ[l] += p̄ * Y[b, m + t - l]
+                Ī[b, m + t - l] += p̄ * g[l]
+            end
+        end
+    end
+    pop̄ .+= pool̄
+    return nothing
 end
 
 @doc raw"""
@@ -594,47 +637,13 @@ function Mooncake.rrule!!(
     st = _reproduction_state(gp, Rp, primal(seed), Kp, popp)
     y = st.y[:, (m + 1):end] ./ st.Q
     ȳ = zero(y)
-    # From the last day back: each day's draw takes the output's cotangent
-    # over its mixed sum, the infections' cotangent and the pool's. The draw
-    # reaches the pool before it, `R`, `N` and the mixed sum, which `Kᵀ`
-    # takes back to the renewal sums, and those reach `g` and earlier days.
     function reproduction_handrule_pb(::NoRData)
-        ḡ, R̄, K̄, pop̄ = tangent(g), tangent(R), tangent(K), tangent(pop)
-        seed̄ = tangent(seed)
-        (; P, Q, pools) = st
-        Y = st.y
-        S, T = size(Rp)
-        L = length(gp)
-        Ī = zeros(S, m + T)
-        pool̄ = zeros(S)
-        q̄ = zeros(S)
-        for t in T:-1:1
-            for a in 1:S
-                q, drawn = Q[a, t], Y[a, m + t]
-                r̄ = ȳ[a, t] / q
-                d̄ = Ī[a, m + t] + r̄ - pool̄[a]
-                x = Rp[a, t] * q / popp[a]
-                x̄ = d̄ * pools[a, t] * exp(-x)
-                pool̄[a] -= d̄ * expm1(-x)
-                xn = x̄ / popp[a]
-                R̄[a, t] += xn * q
-                pop̄[a] -= xn * x
-                q̄[a] = xn * Rp[a, t] - r̄ * drawn / q
-            end
-            for b in 1:S
-                p̄ = 0.0
-                for a in 1:S
-                    K̄[a, b] += q̄[a] * P[b, t]
-                    p̄ += Kp[a, b] * q̄[a]
-                end
-                for l in 1:L
-                    ḡ[l] += p̄ * Y[b, m + t - l]
-                    Ī[b, m + t - l] += p̄ * gp[l]
-                end
-            end
-        end
-        pop̄ .+= pool̄
-        seed̄ .+= view(Ī, :, 1:m)
+        Ī = zeros(size(st.y))
+        _reproduction_back!(
+            tangent(g), tangent(R), tangent(K), tangent(pop), Ī, ȳ, st, gp,
+            Rp, Kp, popp, m
+        )
+        tangent(seed) .+= view(Ī, :, 1:m)
         return ntuple(_ -> NoRData(), 6)
     end
     return CoDual(y, ȳ), reproduction_handrule_pb
@@ -642,18 +651,7 @@ end
 
 # ---- leaky vaccination with waning ------------------------------------------
 
-# The renewal sum of stratum `k` at step `t` of a buffer whose first `m`
-# columns are the seed.
-function _sum_back(g, y, k, m, t)
-    acc = zero(eltype(y))
-    for l in eachindex(g)
-        acc += g[l] * y[k, m + t - l]
-    end
-    return acc
-end
-
-# The vaccination tutorial's loop keeping each step's pools before the draw,
-# its renewal sum and the protected pool after waning.
+# The vaccination tutorial's loop, keeping what the reverse pass needs.
 function _waning_state(g, h, R, doses, σ, ω, N)
     S, T = size(R)
     m = size(h, 2)
@@ -667,7 +665,7 @@ function _waning_state(g, h, R, doses, σ, ω, N)
     s2s = zeros(V, S, T)
     sus, pro = V.(N), zeros(V, S)
     for t in 1:T, k in 1:S
-        f = _sum_back(g, y, k, m, t)
+        f = _renewal_sum(g, y, k, m, t)
         F[k, t], sus0[k, t], pro0[k, t] = f, sus[k], pro[k]
         P = sus[k] + σ * pro[k]
         drawn = -P * expm1(-R[k, t] * f / N[k])
@@ -712,10 +710,6 @@ function Mooncake.rrule!!(
     st = _waning_state(gp, hp, Rp, dp, σp, ωp, Np)
     y = st.y[:, (m + 1):end]
     ȳ = zero(y)
-    # Each stratum from the last day back, carrying the cotangents of its
-    # two pools: the cap on the doses takes the branch the step took, then
-    # waning, the draw and the renewal sum, which reaches `g` and earlier
-    # days.
     function waning_handrule_pb(::NoRData)
         ḡ, h̄, R̄, d̄, ω̄, N̄ = tangent(g), tangent(h), tangent(R),
             tangent(doses), tangent(ω), tangent(N)
@@ -772,8 +766,7 @@ end
 
 # ---- dense and sparse routes ------------------------------------------------
 
-# The spatial strata tutorial's loop keeping each step's renewal sums, mixed
-# sums and pools before the draw.
+# The spatial strata tutorial's loop, keeping what the reverse pass needs.
 function _routes_state(K1, g1, v, g2, h, R, colptr, rowval, pop)
     S, T = size(R)
     m = size(h, 2)
@@ -788,8 +781,8 @@ function _routes_state(K1, g1, v, g2, h, R, colptr, rowval, pop)
     pool = V.(pop)
     for t in 1:T
         for k in 1:S
-            P1[k, t] = _sum_back(g1, y, k, m, t)
-            P2[k, t] = _sum_back(g2, y, k, m, t)
+            P1[k, t] = _renewal_sum(g1, y, k, m, t)
+            P2[k, t] = _renewal_sum(g2, y, k, m, t)
         end
         for a in 1:S
             acc = zero(V)
@@ -844,10 +837,6 @@ function Mooncake.rrule!!(
     st = _routes_state(K1p, g1p, vp, g2p, primal(h), Rp, cp, rv, popp)
     y = st.y[:, (m + 1):end]
     ȳ = zero(y)
-    # From the last day back: each draw takes the infections' cotangent and
-    # the pool's, and reaches the pool before it while the floor is not
-    # binding, `R` and the mixed sum, which the two routes take back to
-    # their renewal sums.
     function routes_handrule_pb(::NoRData)
         K̄1, ḡ1, v̄, ḡ2, h̄, R̄, pop̄ = tangent(K1), tangent(g1), tangent(v),
             tangent(g2), tangent(h), tangent(R), tangent(pop)
@@ -861,6 +850,7 @@ function Mooncake.rrule!!(
             for a in 1:S
                 d̄ = Ȳ[a, m + t] - pool̄[a]
                 share = pools[a, t] / popp[a]
+                # While the floor binds, the draw does not reach the pool.
                 floored = 1.0e-6 > share
                 c = floored ? 1.0e-6 : share
                 R̄[a, t] += d̄ * c * Q[a, t]
@@ -946,9 +936,7 @@ function Mooncake.rrule!!(
         primal(discharge), primal(transfer)
     y = ward_handrule(ap, cp, rp, δ, trp)
     ȳ = zero(y)
-    # Each ward from the last day back. The step is cheap, so its values are
-    # recomputed from the output rather than kept; the transfer cap takes
-    # the branch the step took.
+    # The step is cheap, so its values are recomputed from the output.
     function ward_handrule_pb(::NoRData)
         ā, c̄, r̄, t̄ = tangent(adm), tangent(confirm), tangent(ruleout),
             tangent(transfer)
@@ -964,6 +952,7 @@ function Mooncake.rrule!!(
                 con = (t > 1 ? y[S + k, t - 1] : 0.0) + ap[S + k, t]
                 con1 = eδ * con + (1 - stay) * sus
                 s̄1, c̄1 = Ȳ[k, t], Ȳ[S + k, t]
+                # The cap takes the branch `min(transfer, max(con1, 0))` took.
                 t̄r = -c̄1
                 c = 0 > con1 ? 0.0 : con1
                 if c < trp[k, t]
@@ -992,37 +981,6 @@ end
 
 # ---- the getting-started model ----------------------------------------------
 
-# The getting-started page's renewal, keeping each day's renewal sums, mixed
-# sums and pools before the draw.
-function _overview_state(R, seed, gi, K, pop)
-    S, T = size(R)
-    m, L = size(seed, 2), length(gi)
-    V = promote_type(
-        eltype(R), eltype(seed), eltype(gi), eltype(K), eltype(pop)
-    )
-    y = zeros(V, S, m + T)
-    y[:, 1:m] .= seed
-    P, Q, pools = zeros(V, S, T), zeros(V, S, T), zeros(V, S, T)
-    pool = V.(pop)
-    for t in 1:T
-        for s in 1:S
-            P[s, t] = _sum_back(gi, y, s, m, t)
-        end
-        for a in 1:S
-            q = zero(V)
-            for b in 1:S
-                q += K[a, b] * P[b, t]
-            end
-            Q[a, t] = q
-            pools[a, t] = pool[a]
-            h = R[a, t] * q / pop[a]
-            y[a, m + t] = pool[a] * (1 - exp(-h))
-            pool[a] *= exp(-h)
-        end
-    end
-    return (; y, P, Q, pools)
-end
-
 @doc raw"""
     overview_handrule(R, seed, gi, K, pop, d)
 
@@ -1033,20 +991,15 @@ before day ``t``'s draw, then reported after the delay `d`, lag 0 first.
 Returns towns × time.
 """
 function overview_handrule(R, seed, gi, K, pop, d)
-    st = _overview_state(R, seed, gi, K, pop)
+    st = _reproduction_state(gi, R, seed, K, pop)
     return _delay_rows(st.y[:, (size(seed, 2) + 1):end], d)
 end
 
 # The delay `d`, lag 0 first, along each row of `x`.
 function _delay_rows(x, d)
-    S, T = size(x)
-    z = zeros(promote_type(eltype(x), eltype(d)), S, T)
-    for t in 1:T, s in 1:S
-        acc = zero(eltype(z))
-        for i in 1:min(length(d), t)
-            acc += d[i] * x[s, t - i + 1]
-        end
-        z[s, t] = acc
+    z = similar(x, promote_type(eltype(x), eltype(d)))
+    for s in axes(x, 1)
+        z[s, :] .= _delay(d, view(x, s, :))
     end
     return z
 end
@@ -1063,53 +1016,24 @@ function Mooncake.rrule!!(
     Rp, gp, Kp, popp, dp = primal(R), primal(gi), primal(K), primal(pop),
         primal(d)
     m = size(primal(seed), 2)
-    st = _overview_state(Rp, primal(seed), gp, Kp, popp)
+    st = _reproduction_state(gp, Rp, primal(seed), Kp, popp)
     x = st.y[:, (m + 1):end]
     z = _delay_rows(x, dp)
     z̄ = zero(z)
-    # The delay's reverse gives each day's infections their cotangent; then
-    # from the last day back each draw reaches the pool before it, `R`, the
-    # population and the mixed sum, which `Kᵀ` takes back to the renewal
-    # sums, and those reach `gi` and earlier days.
     function overview_handrule_pb(::NoRData)
-        R̄, s̄d, ḡ, K̄, pop̄, d̄ = tangent(R), tangent(seed), tangent(gi),
-            tangent(K), tangent(pop), tangent(d)
-        (; P, Q, pools) = st
-        Y = st.y
         S, T = size(Rp)
-        Ȳ = zeros(S, m + T)
-        for t in 1:T, s in 1:S, i in 1:min(length(dp), t)
-            d̄[i] += z̄[s, t] * x[s, t - i + 1]
-            Ȳ[s, m + t - i + 1] += z̄[s, t] * dp[i]
+        Ī = zeros(S, m + T)
+        for s in 1:S
+            _delay_back!(
+                tangent(d), view(Ī, s, (m + 1):(m + T)), view(z̄, s, :), dp,
+                view(x, s, :)
+            )
         end
-        pool̄, q̄ = zeros(S), zeros(S)
-        for t in T:-1:1
-            for a in 1:S
-                q = Q[a, t]
-                hz = Rp[a, t] * q / popp[a]
-                eh = exp(-hz)
-                d̄r = Ȳ[a, m + t]
-                h̄ = pools[a, t] * eh * (d̄r - pool̄[a])
-                pool̄[a] = d̄r * (1 - eh) + pool̄[a] * eh
-                hn = h̄ / popp[a]
-                R̄[a, t] += hn * q
-                pop̄[a] -= hn * hz
-                q̄[a] = hn * Rp[a, t]
-            end
-            for b in 1:S
-                p̄ = 0.0
-                for a in 1:S
-                    K̄[a, b] += q̄[a] * P[b, t]
-                    p̄ += Kp[a, b] * q̄[a]
-                end
-                for l in eachindex(gp)
-                    ḡ[l] += p̄ * Y[b, m + t - l]
-                    Ȳ[b, m + t - l] += p̄ * gp[l]
-                end
-            end
-        end
-        pop̄ .+= pool̄
-        s̄d .+= view(Ȳ, :, 1:m)
+        _reproduction_back!(
+            tangent(gi), tangent(R), tangent(K), tangent(pop), Ī, nothing,
+            st, gp, Rp, Kp, popp, m
+        )
+        tangent(seed) .+= view(Ī, :, 1:m)
         return ntuple(_ -> NoRData(), 7)
     end
     return CoDual(z, z̄), overview_handrule_pb
