@@ -443,9 +443,10 @@ end
 
 # The lag sums `Y` of times 1 to `n`, with the inputs they read and the
 # number `r` of times summed. Inputs after the end of `x` are zero, so only
-# the first `r = min(n, extent + L - 1)` times can be nonzero: they are
-# summed from `x` and zeros up to time `r`, by the passes the full series
-# would take, and the later times stay zero.
+# the first `min(n, extent + L - 1)` times can be nonzero: `r` covers them
+# (all `n` for a series short enough to gather), they are summed from `x`
+# and zeros by the passes the full series would take, and the later times
+# stay zero.
 function _layout_sums(::Type{Tp}, c, x::Vector, n) where {Tp}
     Y = zeros(Tp, n)
     xr, r = _summed_inputs(c, x, n)
@@ -471,11 +472,13 @@ function _layout_sums(::Type{Tp}, c, x::Matrix, n) where {Tp}
     return Y, xr, r
 end
 # `x` itself when it covers time `n`; otherwise `x` then zeros up to the
-# last time its inputs reach.
+# last time its inputs reach. A series short enough to gather groups its
+# outputs by its own length, so it is summed in full to keep each sum's
+# order.
 function _summed_inputs(c, x, n)
     e = _extent(x)
     e >= n && return x, n
-    r = min(n, e + length(c) - 1)
+    r = _short_slice(n, length(c)) ? n : min(n, e + length(c) - 1)
     xr = _zeros_to(x, r)
     copyto!(xr, x)
     return xr, r

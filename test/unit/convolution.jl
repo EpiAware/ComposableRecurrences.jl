@@ -617,6 +617,16 @@ end
             @test c(big.(x); stop = T, kw...) == c(padded(big.(x), T); stop = T, kw...)
         end
     end
+    # Series short enough to gather their outputs in fours, where the
+    # grouping follows the series length.
+    rng2 = Xoshiro(2)
+    g, x = rand(rng2, 4), rand(rng2, 7)
+    @test Convolution(g)(x; stop = 11) == Convolution(g)(padded(x, 11))
+    for L in (3, 4, 5), e in 0:(3L), n in (e + 1):(3L + 2), vec in (true, false)
+        c = Convolution(rand(rng, L))
+        x = vec ? rand(rng, e) : rand(rng, S, e)
+        @test c(x; stop = n) == c(padded(x, n))
+    end
     # Outputs no lag of `x` reaches are the add input alone.
     x = rand(rng, S, 3)
     y = Convolution(rand(rng, 4))(x; add = 2.0, stop = T)
