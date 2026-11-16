@@ -1881,7 +1881,7 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         return oc + max(-_occ_unconf_left(u, A, h, κ, b - oc), zero(oc))
     end
     # The port's spelling at epiforecasts/BVDOutbreakSize#1152 b4d4c602
-    # (`accumulate_occupancy`, src/models/observations.jl L2032-L2095): the
+    # (`accumulate_occupancy`, src/models/observations.jl L2032-L2087): the
     # abscond shares as `Derived(identity, κ)`, so a rate above one is not
     # checked, and the outputs from the port's own loop and rule. The pools
     # are named in place, as the port names them, so the compiler sees the
