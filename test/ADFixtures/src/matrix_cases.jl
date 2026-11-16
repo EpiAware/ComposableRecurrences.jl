@@ -1593,6 +1593,33 @@ if isfile(BVD_HANDRULE)
     end
     _bvd_bins_hand(kernel) = (wrap, daily, days) -> kernel(daily, days)
 
+    # BVD's `zone_pre_convolution`: each of `S` patch series convolved with a
+    # kernel whose first entry is lag 1, reading only the days before day 30.
+    # The package arm is the port's spelling: the later days zeroed, then a
+    # `Convolution` with a leading zero in its kernel.
+    function _bvd_pre_zones(run)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            f = function (θ)
+                w, I = _unpack(θ, (L,), (S, T))
+                return sum(W .* run(wrap, w, I, 30, 1))
+            end
+            I0 = [10.0 + 8.0 * _noise(t, 20 + p) for p in 1:S, t in 1:T]
+            return f, _flat(_gi(L), I0)
+        end
+    end
+    function _bvd_pre_zones_rule(wrap, w, I, t0, first_lag)
+        before = copy(I)
+        before[:, t0:end] .= zero(eltype(before))
+        kernel = zeros(eltype(w), length(w) + first_lag)
+        kernel[(first_lag + 1):end] .= w
+        return wrap(Convolution(kernel))(before)
+    end
+    function _bvd_pre_zones_hand(kernel)
+        return (wrap, w, I, t0, first_lag) -> kernel(collect(I), collect(w), t0, first_lag)
+    end
+
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
                 "bvd_renewal", "BVD renewal_infections: seeded hazard depletion",
@@ -1637,6 +1664,12 @@ if isfile(BVD_HANDRULE)
                 _bvd_bins, _bvd_bins_rule, _bvd_bins_hand,
                 (BVD.bin_loop, BVD.bin_increments), [1],
             ),
+            (
+                "bvd_pre_zones",
+                "BVD zone_pre_convolution: a masked series, a lagged kernel",
+                _bvd_pre_zones, _bvd_pre_zones_rule, _bvd_pre_zones_hand,
+                (BVD.zone_pre_loop, BVD.zone_pre_convolution), [5],
+            ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
         BASELINES[name] = [
@@ -1650,6 +1683,10 @@ if isfile(BVD_HANDRULE)
     end
     # Weekly and 30-day bins over the backend's 220 days.
     TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
+    # The backend's four patches over 227 days, with its two kernel lengths.
+    TIERS["docs"].bycase["bvd_pre_zones"] = [
+        (T = 227, L = 35, S = 4), (T = 227, L = 45, S = 4),
+    ]
     # The backend's call shape against the same loops, which read the series
     # over the seed's days too and return those days first.
     _renewal_call_hand(kernel) = (wrap, g, seed, R, N) -> kernel(R, collect(g), seed, N)
