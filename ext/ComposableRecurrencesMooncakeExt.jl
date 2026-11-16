@@ -229,13 +229,19 @@ function Mooncake.rrule!!(::CoDual{typeof(_ad)}, args::Vararg{CoDual, N}) where 
         ArgumentError("an operator output with scalar float leaves is not supported")
     )
     ydual = _zero_output(y)
+    return ydual, _ad_closure(args, ps, y, ydual, cache)
+end
+# The pullback, built behind a call that the cache's concrete type picks, so
+# the closure holds a concrete cache rather than the union the forward run
+# returns.
+@noinline function _ad_closure(args, ps, y, ydual, cache)
     function _ad_pullback(::NoRData)
         ms = map(a -> _mc(primal(a), tangent(a)), args)
         grads = (; piece = first(ms), y = _mc(y, tangent(ydual)), args = Base.tail(ms))
         _run_pullback!(grads, first(ps), cache)
         return (NoRData(), map((a, m) -> _rd(primal(a), m), args, ms)...)
     end
-    return ydual, _ad_pullback
+    return _ad_pullback
 end
 
 # The output with a zero cotangent. A float array holds no other arrays, so
