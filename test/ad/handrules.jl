@@ -24,6 +24,15 @@
             Tuple{typeof(TH.reproduction_handrule), V, M, M, M, V},
         "reproduction_pressure" =>
             Tuple{typeof(TH.reproduction_handrule), V, M, M, M, V},
+        "strata_waning" =>
+            Tuple{typeof(TH.waning_handrule), V, M, M, M, Float64, M, V},
+        "strata_routes" => Tuple{
+            typeof(TH.routes_handrule), M, V, V, V, M, M, Vector{Int},
+            Vector{Int}, V,
+        },
+        "ward_flows" =>
+            Tuple{typeof(TH.ward_handrule), M, V, V, Float64, M},
+        "overview" => Tuple{typeof(TH.overview_handrule), M, M, V, M, V, V},
     )
     @test Set(keys(sigs)) == Set(MC.TUTORIAL_HANDRULE_CASES)
     # The report runs without the fixtures, so it keeps its own list of
@@ -79,5 +88,86 @@ end
         @test f(θ) ≈ loop(θ)
         prep = DI.prepare_gradient(f, backend, copy(θ))
         @test DI.gradient(f, prep, backend, θ) ≈ ForwardDiff.gradient(loop, θ) rtol = 1.0e-10
+    end
+end
+
+# The caps on the doses and the transfers and the floor on the share left
+# are branches the matrix's smooth inputs may not reach; each rule is
+# checked on inputs that take both sides of its branch.
+@testitem "The tutorials' hand-written Mooncake rules take both sides of their caps and floor" tags = [:ad, :mooncake_reverse] begin
+    using ADFixtures: MatrixCases as MC
+    using Random: Xoshiro
+    import Mooncake
+
+    TH = MC.TH
+    check(f, args...) = Mooncake.TestUtils.test_rule(
+        Xoshiro(1), f, args...;
+        is_primitive = true, perf_flag = :none, mode = Mooncake.ReverseMode
+    )
+    S, L, T = 3, 4, 12
+    g = [0.4, 0.3, 0.2, 0.1]
+    wave = [sin(a + 0.7t) for a in 1:S, t in 1:T]
+    # Large doses on alternate days empty the susceptible pool.
+    h, R = fill(20.0, S, L), 1.2 .+ 0.2 .* wave
+    doses = [isodd(t) ? 1.0e4 : 5.0 + a for a in 1:S, t in 1:T]
+    ω, N = 0.05 .+ 0.01 .* wave, fill(1.0e3, S)
+    st = TH._waning_state(g, h, R, doses, 0.3, ω, N)
+    @test any(iszero, st.sus0) && any(>(0), st.sus0[:, 2:end])
+    check(TH.waning_handrule, g, h, R, doses, 0.3, ω, N)
+    # A high reproduction number draws the pool below the floor.
+    K2 = MC._ring(S)
+    K1 = [a == b ? 0.6 : 0.2 for a in 1:S, b in 1:S]
+    v, g2 = fill(0.1, length(K2.nzval)), [0.6, 0.4]
+    pop = [300.0, 400.0, 500.0]
+    R2 = 3.0 .+ 0.5 .* wave
+    args = (K1, g, v, g2, h, R2, K2.colptr, K2.rowval, pop)
+    pools = TH._routes_state(args...).pools
+    @test any(pools ./ pop .< 1.0e-6) && any(pools ./ pop .> 1.0e-6)
+    check(TH.routes_handrule, args...)
+    # Large transfers on alternate days empty the confirmed beds.
+    adm = 10.0 .+ 2.0 .* vcat(wave, wave)
+    transfer = [isodd(t) ? 1.0e3 : 0.5 for a in 1:S, t in 1:T]
+    ward = (adm, [0.5, 0.7, 0.9], fill(0.05, T), 0.2, transfer)
+    con = TH.ward_handrule(ward...)[(S + 1):end, :]
+    @test any(iszero, con) && any(>(0), con)
+    check(TH.ward_handrule, ward...)
+end
+
+# The occupancy case's `handrule` arm is the backend's own Mooncake rule, a
+# primitive Mooncake calls. At both realistic sizes every pool stays off its
+# floor after the first day, so the arms meet no tie, and the package,
+# `NoAdjoint` and `handrule` gradients match ForwardDiff on the hand loop.
+@testitem "The occupancy case's arms agree off the pools' floors" tags = [:ad, :mooncake_reverse] begin
+    using ADFixtures: MatrixCases as MC
+    using ADTypes: AutoMooncake
+    import DifferentiationInterface as DI
+    import ForwardDiff, Mooncake
+
+    R = MC.BVDRef
+    V = Vector{Float64}
+    sig = Tuple{typeof(R.accumulate_occupancy), V, V, V, V, V, Float64, V}
+    @test Mooncake.is_primitive(
+        Mooncake.DefaultCtx, Mooncake.ReverseMode, sig, Base.get_world_counter()
+    )
+    inside = R._OCC_UNCONF | R._OCC_DENOM | R._OCC_BVD | R._OCC_BG |
+        R._OCC_CONF_X | R._OCC_SUSP
+    c = only(x for x in MC.CASES if x.name == "bvd_occupancy")
+    backend = AutoMooncake(; config = nothing)
+    for T in (200, 400)
+        z = MC.Size(; T, L = 1)
+        loop, θ = MC.build(c, z, "loop")
+        args = MC._unpack(θ, (T,), (T,), (T,), (T,), (T,), (1,), (T,))
+        _, _, flags = R._accumulate_occupancy(
+            Val(true), map(collect, args[1:5])..., args[6][1], collect(args[7])
+        )
+        @test all(==(inside), flags[2:end])
+        ref = ForwardDiff.gradient(loop, θ)
+        for arm in ("rule", "NoAdjoint", "handrule")
+            f, θarm = MC.build(c, z, arm)
+            @test θarm == θ
+            @test f(θ) ≈ loop(θ)
+            prep = DI.prepare_gradient(f, backend, copy(θ))
+            @test DI.gradient(f, prep, backend, θ) ≈ ref rtol = 1.0e-8
+        end
     end
 end

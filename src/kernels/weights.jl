@@ -219,8 +219,9 @@ end
 # in a scratch tree that mirrors the kernel, and the reverse pass
 # recomputes a block before taking its cotangent back. So no weight is
 # stored past its block; `_fill_kernel` says when a dense kernel keeps every
-# block instead. A call that reads each weight once walks each cohort in
-# turn instead (see `walk.jl`).
+# block. A recurrence and a convolution off the serial executor fill this
+# way; a serial convolution and `kernel_weights` walk each cohort (see
+# `walk.jl`).
 const _BLOCK = 32
 
 # `P` is whether the hazard has a strata axis; without one, row 1 serves all.

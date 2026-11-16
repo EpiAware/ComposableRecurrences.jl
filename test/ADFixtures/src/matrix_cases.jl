@@ -14,11 +14,11 @@ module MatrixCases
 using ComposableRecurrences
 using ComposableRecurrences: Derived, Recent
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
-using LinearAlgebra: I, mul!
+using LinearAlgebra: I, dot, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
     added, clamped, returning_state, returning_trace, resumed
-using ..ADFixtures: AddMean, AddMeanHand, Pool
+using ..ADFixtures: AddMean, AddMeanHand, Pool, Renorm
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -1564,6 +1564,35 @@ if isfile(BVD_HANDRULE)
         return (wrap, z0, γ, nu) -> kernel(collect(z0), collect(γ), nu)
     end
 
+    # BVD's `bin_increments`: sums of a positive daily series over the
+    # windows between report days, `L` days apart, the last window cut at the
+    # series' end. The package arm is the running-total recipe of the
+    # window-aggregation use case: a unit lag-1 `Recurrence`, differenced at
+    # the window ends. Only the registered sizes check the arms agree; there
+    # the last window is always cut, and an empty window gives zero in all
+    # three, as each reads the days clamped to the series.
+    function _bvd_bins(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            days = collect(L:L:(T + L - 1))
+            W = _weights(length(days))
+            f = function (θ)
+                return sum(W .* run(wrap, exp.(θ), days))
+            end
+            return f, [log(50.0) + 0.5 * _noise(t, 14) for t in 1:T]
+        end
+    end
+    function _bvd_bins_rule(wrap, daily, days)
+        total = vcat(
+            zero(eltype(daily)),
+            wrap(Recurrence([1.0]))(1.0; history = [0.0], add = daily)
+        )
+        hi = min.(days, length(daily))
+        lo = vcat(0, hi[1:(end - 1)])
+        return total[hi .+ 1] .- total[lo .+ 1]
+    end
+    _bvd_bins_hand(kernel) = (wrap, daily, days) -> kernel(daily, days)
+
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
                 "bvd_renewal", "BVD renewal_infections: seeded hazard depletion",
@@ -1603,6 +1632,11 @@ if isfile(BVD_HANDRULE)
                 _bvd_onset, _bvd_onset_rule, _bvd_onset_hand,
                 (BVD.onset_table_loop, BVD.onset_report_cdf_table), [1],
             ),
+            (
+                "bvd_bins", "BVD bin_increments: window sums as a running total",
+                _bvd_bins, _bvd_bins_rule, _bvd_bins_hand,
+                (BVD.bin_loop, BVD.bin_increments), [1],
+            ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
         BASELINES[name] = [
@@ -1614,6 +1648,8 @@ if isfile(BVD_HANDRULE)
         push!(TIERS["docs"].cases, name)
         TIERS["docs"].bycase[name] = [(T = 200, L = 20), (T = 400, L = 60)]
     end
+    # Weekly and 30-day bins over the backend's 220 days.
+    TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
     # The backend's call shape against the same loops, which read the series
     # over the seed's days too and return those days first.
     _renewal_call_hand(kernel) = (wrap, g, seed, R, N) -> kernel(R, collect(g), seed, N)
@@ -1661,6 +1697,146 @@ if isfile(BVD_HANDRULE)
     push!(TIERS["realistic"].strata, 11, 64)
     push!(TIERS["docs"].strata, 11)
     REQUIRES["bvd_zones"] = (:_AllocateImports,)
+end
+
+# The BVDOutbreakSize bed occupancy balance as that backend's port spells it:
+# three pools carried forward by one `Depletion`, with share flows,
+# admissions and rule-outs as counts, and two discharge drains that split
+# each day's discharges by the previous day's pools (`Derived` over
+# `Recent(1)` reads), then a floor.
+const BVD_REFERENCES = joinpath(
+    @__DIR__, "..", "..", "usecases", "references"
+)
+if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
+    include(joinpath(BVD_REFERENCES, "bvd.jl"))
+    include(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
+    using .BVDReference: BVDReference as BVDRef
+
+    # The confirmed share of the day's discharges `b`, off the previous
+    # day's unconfirmed and confirmed pools `u` and `c`; the test is asked of
+    # `abs2`, whose derivative at zero is zero, so a dual number does not
+    # break the tie and divide zero by zero.
+    function _occ_conf_share(b, u, c)
+        s = u + c
+        return abs2(s) > zero(s) ? b * (c / s) : zero(b * s)
+    end
+    _occ_unconf_left(u, A, h, κ, o) = u * (1 - κ - h) + A - o
+    _occ_conf_left(u, c, h, o) = c + h * u - o
+    # Each true-case pool's discharges: its share, plus the other pool's
+    # overshoot below zero, so the total true-case stock takes the floor.
+    # Both drains take the port's one argument tuple, so the first takes
+    # `A` and `κ` without reading them.
+    function _occ_unconf_discharges(b, u, c, A, h, κ)
+        oc = _occ_conf_share(b, u, c)
+        return (b - oc) + max(-_occ_conf_left(u, c, h, oc), zero(oc))
+    end
+    function _occ_conf_discharges(b, u, c, A, h, κ)
+        oc = _occ_conf_share(b, u, c)
+        return oc + max(-_occ_unconf_left(u, A, h, κ, b - oc), zero(oc))
+    end
+    function _bvd_occupancy_rule(wrap, A_bvd, A_bg, deaths, recover, ruleout, κ, h)
+        n = length(A_bvd)
+        T = promote_type(
+            eltype(A_bvd), eltype(A_bg), eltype(deaths), eltype(recover),
+            eltype(ruleout), typeof(κ), eltype(h)
+        )
+        bvd_out = TimeVarying(deaths .+ recover)
+        adm = TimeVarying(A_bvd)
+        hz = TimeVarying(h)
+        conf = Recent(1; coupling = [0.0 1.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0])
+        args = (bvd_out, Recent(1), conf, adm, hz, κ)
+        flows = CR.Depletion(
+            CR.Flow(:unconf => :conf, Derived(identity, hz); form = CR.Share()),
+            CR.Flow(:unconf => 0, κ; form = CR.Share()),
+            CR.Flow(:bg => 0, κ; form = CR.Share()),
+            CR.Flow(0 => :unconf, adm; form = CR.Truncate()),
+            CR.Flow(0 => :bg, TimeVarying(A_bg); form = CR.Truncate()),
+            CR.Flow(
+                :unconf => 0, Derived(_occ_unconf_discharges, args...);
+                form = CR.Truncate()
+            ),
+            CR.Flow(
+                :conf => 0, Derived(_occ_conf_discharges, args...);
+                form = CR.Truncate()
+            ),
+            CR.Flow(:bg => 0, TimeVarying(ruleout); form = CR.Truncate());
+            pools = (:unconf, :conf, :bg)
+        )
+        floor_ = CR.Transform(clamp, zero(T), T(Inf))
+        r = Recurrence([true]; modifiers = (flows, floor_))
+        Y = wrap(r)(; history = zeros(T, 3, 1), stop = n)
+        O_conf = Y[2, :]
+        O_bvd = Y[1, :] .+ O_conf
+        O_bg = Y[3, :]
+        O_susp = Y[1, :] .+ O_bg
+        abscond = κ .* vcat(zero(eltype(Y)), O_susp[1:(end - 1)])
+        return (; demand = O_bvd .+ O_bg, O_bvd, O_conf, O_susp, abscond)
+    end
+    function _bvd_occupancy_hand(kernel)
+        return function (wrap, A_bvd, A_bg, deaths, recover, ruleout, κ, h)
+            return kernel(
+                collect(A_bvd), collect(A_bg), collect(deaths), collect(recover),
+                collect(ruleout), κ, collect(h)
+            )
+        end
+    end
+    _occ_loop(args...) = BVDRef._accumulate_occupancy(Val(false), args...)
+    # A delay of `L` days lag 0 first, on the backend's admission shapes.
+    function _occ_delay(L, seed)
+        p = [1.1 + _noise(d, seed) for d in 1:L]
+        return p ./ sum(p)
+    end
+    # The backend's production shapes: admissions peaking mid-run, deaths
+    # and recoveries delayed from them, rule-outs delayed from the non-case
+    # admissions, and a confirmation hazard that rises and falls weekly.
+    # Discharges are 0.8 of admissions, not all of them, so no pool drains
+    # to its floor at zero, where the port and the hand loop break the tie
+    # on opposite sides.
+    function _bvd_occupancy(run)
+        return function (wrap, z::Size)
+            (; T) = z
+            # One weight vector per output, built outside the loss, and `dot`
+            # rather than a broadcast sum: at T 220 Mooncake's loss overhead
+            # is about 38 µs a call this way against 96 µs with row slices
+            # and broadcast sums, beside the backend's rule's 8 µs.
+            Wm = _weights(5, T)
+            W1, W2, W3, W4, W5 = (Wm[k, :] for k in 1:5)
+            f = function (θ)
+                A_bvd, A_bg, deaths, recover, ruleout, κ, h = _unpack(
+                    θ, (T,), (T,), (T,), (T,), (T,), (1,), (T,)
+                )
+                y = run(wrap, A_bvd, A_bg, deaths, recover, ruleout, κ[1], h)
+                return dot(W1, y.demand) + dot(W2, y.O_bvd) + dot(W3, y.O_conf) +
+                    dot(W4, y.O_susp) + dot(W5, y.abscond)
+            end
+            days = 1:T
+            A_bvd = @. 20 * exp(-((days - T / 2) / 20)^2) + 0.5
+            A_bg = @. 30 * exp(-((days - T / 2) / 30)^2) + 2.0
+            θ = _flat(
+                A_bvd, A_bg,
+                BVDRef.convolve_delay(0.3 .* A_bvd, _occ_delay(15, 41)),
+                BVDRef.convolve_delay(0.5 .* A_bvd, _occ_delay(20, 42)),
+                BVDRef.convolve_delay(0.8 .* A_bg, _occ_delay(8, 43)), [0.02],
+                @. 0.1 + 0.3 * abs(sin(days / 7))
+            )
+            return f, θ
+        end
+    end
+    push!(
+        CASES,
+        Case(
+            "bvd_occupancy",
+            "BVD accumulate_occupancy: pools, share and count flows, Derived drains",
+            _bvd_occupancy(_bvd_occupancy_rule), [1], false,
+        ),
+    )
+    BASELINES["bvd_occupancy"] = [
+        "loop" => z -> _bvd_occupancy(_bvd_occupancy_hand(_occ_loop))(identity, z),
+        "handrule" => z -> _bvd_occupancy(
+            _bvd_occupancy_hand(BVDRef.accumulate_occupancy)
+        )(identity, z),
+    ]
+    push!(TIERS["realistic"].cases, "bvd_occupancy")
 end
 
 # The tutorials' hand loops with hand-written Mooncake rules: a `handrule`
@@ -1797,6 +1973,74 @@ if isfile(TUTORIAL_HANDRULE)
             end
         )
     end
+    _handrule_arm(
+        _case("strata_waning"), function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            N = fill(1.0e5, S)
+            return function (θ)
+                g, logh, logR, doses, σ, ω = _unpack(
+                    θ, (L,), (S, L), (S, T), (S, T), (1,), (S, T)
+                )
+                y = TH.waning_handrule(
+                    collect(g), exp.(logh), exp.(logR), collect(doses),
+                    only(σ), collect(ω), N
+                )
+                return sum(W .* log.(y))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("strata_routes"), function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            K2 = _ring(S)
+            n2 = length(nonzeros(K2))
+            L1 = cld(L, 2)
+            pop = fill(1.0e5, S)
+            return function (θ)
+                K1, g1, v, g2, logh, logR = _unpack(
+                    θ, (S, S), (L1,), (n2,), (L,), (S, L), (S, T)
+                )
+                y = TH.routes_handrule(
+                    collect(K1), collect(g1), collect(v), collect(g2),
+                    exp.(logh), exp.(logR), K2.colptr, K2.rowval, pop
+                )
+                return sum(W .* log.(y))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("ward_flows"), function (z)
+            (; T, S) = z
+            W = _weights(2S, T)
+            return function (θ)
+                adm, confirm, ruleout, discharge, transfer = _unpack(
+                    θ, (2S, T), (S,), (T,), (1,), (S, T)
+                )
+                y = TH.ward_handrule(
+                    collect(adm), collect(confirm), collect(ruleout),
+                    only(discharge), collect(transfer)
+                )
+                return sum(W .* y)
+            end
+        end
+    )
+    _handrule_arm(
+        _case("overview"), function (z)
+            (; T, L, S) = z
+            pop, K = towns()
+            gi, d = overview_gi(L), overview_delay(L)
+            seed = overview_seed(S, L)
+            W = _weights(S, T)
+            return function (θ)
+                y = TH.overview_handrule(
+                    reshape(θ, S, T), seed, gi, K, pop, d
+                )
+                return sum(W .* y)
+            end
+        end
+    )
 end
 
 # A user coupling and a user modifier with per-stratum parameters, each
@@ -2081,6 +2325,52 @@ if supports(:_block_local_back)
     )
     for name in ("custom_modifier_blocks", "custom_modifier_blocks_pullback")
         REQUIRES[name] = (:_block_local_back,)
+        for tier in ("smoke", "realistic")
+            push!(TIERS[tier].cases, name)
+        end
+    end
+end
+
+# A whole-step modifier without a `pullback!` that rescales the values to a
+# total read by time from a vector, and the built-in `Allocate` doing the
+# same with one group: the local derivative seeds the one entry each step
+# reads, so its cost does not grow with the number of times.
+if supports(:_reads_fewer)
+    function _renorm_case(build)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            f = function (θ)
+                g, logh, logR, logtot = _unpack(θ, (L,), (S, L), (S, T), (T,))
+                r = Recurrence(g; modifiers = (build(exp.(logtot), S, T),))
+                y = wrap(r)(exp.(logR); history = exp.(logh))
+                return sum(W .* log.(y))
+            end
+            θ = _flat(
+                _gi(L), fill(log(10.0), S, L),
+                [0.05 * _noise(t, k + 14) for k in 1:S, t in 1:T],
+                [log(50.0) + 0.2 * _noise(t, 15) for t in 1:T]
+            )
+            return f, θ
+        end
+    end
+    _renorm_user(tot, S, T) = Renorm(tot)
+    _renorm_builtin(tot, S, T) = CR.Allocate([1:S], TimeVarying(PerStratum(reshape(tot, 1, T))))
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_renorm",
+            "renewal across strata with a user whole-step modifier reading a total by time",
+            _renorm_case(_renorm_user), [5], false,
+        ),
+        Case(
+            "custom_modifier_renorm_allocate",
+            "the same total with the built-in Allocate",
+            _renorm_case(_renorm_builtin), [5], false,
+        ),
+    )
+    for name in ("custom_modifier_renorm", "custom_modifier_renorm_allocate")
+        REQUIRES[name] = (:_reads_fewer,)
         for tier in ("smoke", "realistic")
             push!(TIERS[tier].cases, name)
         end

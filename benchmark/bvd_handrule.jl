@@ -1,6 +1,7 @@
 # Hand-written reference kernels in the style of the BVDOutbreakSize
 # backend, timed by the benchmark matrix (cases `bvd_renewal`, `bvd_patches`,
-# `bvd_delay` and `bvd_zones`) against the package's operators.
+# `bvd_delay`, `bvd_zones`, `bvd_two_clock`, `bvd_abscond`, `bvd_onset` and
+# `bvd_bins`) against the package's operators.
 #
 # The forward loops follow `test/usecases/references/bvd.jl`. The reverse
 # passes are hand-written Mooncake rules, as the backend writes its own, so
@@ -20,10 +21,10 @@ import Mooncake
 using Mooncake: CoDual, NoRData, primal, tangent
 using LinearAlgebra: axpy!, dot, mul!
 
-export renewal_loop, patch_loop, delay_loop, zone_loop, renewal_infections,
-    patch_infections, convolve_delay, zone_infections, two_clock_loop,
-    abscond_loop, onset_table_loop, two_clock_confirmed,
-    abscond_thinned_flows, onset_report_cdf_table
+export renewal_loop, patch_loop, delay_loop, zone_loop, bin_loop,
+    renewal_infections, patch_infections, convolve_delay, zone_infections,
+    bin_increments, two_clock_loop, abscond_loop, onset_table_loop,
+    two_clock_confirmed, abscond_thinned_flows, onset_report_cdf_table
 
 # ---- forward loops ----------------------------------------------------------
 
@@ -179,6 +180,31 @@ function delay_loop(x::AbstractVector, delay::AbstractVector)
 end
 
 @doc raw"""
+    bin_loop(daily, days)
+
+The sums of `daily` over the windows between report days `days`, each
+window from the day after the last report to its own report day, an empty
+window giving zero.
+"""
+function bin_loop(daily::AbstractVector, days::AbstractVector{<:Integer})
+    n = length(daily)
+    out = zeros(eltype(daily), length(days))
+    for i in eachindex(days)
+        for t in _bin_window(days, i, n)
+            out[i] += daily[t]
+        end
+    end
+    return out
+end
+
+# The days of window `i`: from the day after the last report to report day
+# `days[i]`, each clamped to the series of `n` days.
+function _bin_window(days, i, n)
+    lo = i == firstindex(days) ? 0 : clamp(days[i - 1], 0, n)
+    return (lo + 1):clamp(days[i], 0, n)
+end
+
+@doc raw"""
     zone_loop(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
 
 The mixed zone share renewal, from day 1. Each zone's own force is
@@ -272,12 +298,11 @@ end
 @doc raw"""
     two_clock_loop(A, h, S)
 
-Admissions confirmed by a hazard and still present: cohort ``u`` lands on
-day ``u + d`` with weight ``S_{d+1} (1 - P_{u,d})``, where
-``P_{u,d} = \prod_{j=1}^{d} (1 - h_{u+j})``,
+Admissions confirmed by hazard `h` and still present (`S`):
 
 ```math
-O_t = \sum_{d=0}^{\min(L, t) - 1} A_{t-d} S_{d+1} (1 - P_{t-d,d}).
+O_t = \sum_{d=0}^{\min(L, t) - 1} A_{t-d} S_{d+1}
+    \Bigl(1 - \prod_{j=1}^{d} (1 - h_{t-d+j})\Bigr).
 ```
 """
 function two_clock_loop(A::AbstractVector, h::AbstractVector, S::AbstractVector)
@@ -300,13 +325,17 @@ end
 @doc raw"""
     abscond_loop(adm, pmf, κ, h)
 
-Discharges thinned by absconding, two flows sharing one cohort survival:
-cohort ``t`` of flow ``k`` lands on day ``t + d`` with weight
-``\mathrm{pmf}_{d+1,k} V_d``, where ``U_d = \prod_{j=1}^{d}(1 - h_{t+j-1})``
-is the share not yet confirmed and
-``V_d = \prod_{j=1}^{d} (1 - κ U_j)`` the share not absconded. `adm` is
-days × flows and `pmf` lags × flows, the shorter flow's padded with zeros.
-Returns days × flows.
+Discharges by flow (days × flows) thinned by absconding.
+`adm` is days × flows and `pmf` lags × flows, the shorter flow's padded with
+zeros.
+Cohort ``t`` is unconfirmed after ``d`` days with probability
+``U_{t,d} = \prod_{j=1}^{d} (1 - h_{t+j-1})``, and has not absconded with
+probability ``V_{t,d} = \prod_{j=1}^{d} (1 - κ U_{t,j})``:
+
+```math
+\mathrm{out}_{s,k} = \sum_{t + d = s} \mathrm{adm}_{t,k} \,
+    \mathrm{pmf}_{d+1,k} V_{t,d}.
+```
 """
 function abscond_loop(adm::AbstractMatrix, pmf::AbstractMatrix, κ::Real, h)
     n, nf = size(adm)
@@ -335,14 +364,13 @@ _logistic(x) = inv(one(x) + exp(-x))
 @doc raw"""
     onset_table_loop(logit_h0, γ, nu)
 
-The report-delay CDF of each onset date ``k = 1, \dots, nu``: with the
-hazard ``η_{j,k} = \mathrm{logistic}(\mathrm{logit\_h0}_j + γ_{k+j-1})``,
+The report-delay CDF of each onset date ``k = 1, \dots, nu``, with `γ`
+covering the days up to `nu + length(logit_h0) - 1`:
 
 ```math
-F_{j,k} = 1 - \prod_{i=1}^{j} (1 - η_{i,k}).
+F_{j,k} = 1 - \prod_{i=1}^{j}
+    \bigl(1 - \mathrm{logistic}(\mathrm{logit\_h0}_i + γ_{k+i-1})\bigr).
 ```
-
-`γ` covers the days up to `nu + length(logit_h0) - 1`.
 """
 function onset_table_loop(
         logit_h0::AbstractVector, γ::AbstractVector, nu::Integer
@@ -361,6 +389,9 @@ function onset_table_loop(
 end
 
 # ---- the same loops with hand-written Mooncake rules ------------------------
+
+# Each rule is a primitive for `Float64` arguments only (`_Vec`, `_Mat`); other
+# element types take Mooncake through the loop.
 
 "`renewal_loop` with a hand-written Mooncake rule."
 renewal_infections(Rt, g, seed, N) = renewal_loop(Rt, g, seed, N)
@@ -818,6 +849,33 @@ function _onset_back!(z̄, γ̄, F̄, H, S)
         end
     end
     return nothing
+end
+
+"`bin_loop` with a hand-written Mooncake rule."
+bin_increments(daily, days) = bin_loop(daily, days)
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Tuple{typeof(bin_increments), _Vec, Vector{Int}}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(bin_increments)}, daily::CoDual{_Vec},
+        days::CoDual{Vector{Int}}
+    )
+    xp, dp = primal(daily), primal(days)
+    y = bin_loop(xp, dp)
+    ȳ = zero(y)
+    # Each day in a window takes that window's cotangent.
+    function bin_increments_pb(::NoRData)
+        x̄ = tangent(daily)
+        n = length(xp)
+        for i in eachindex(dp)
+            for t in _bin_window(dp, i, n)
+                x̄[t] += ȳ[i]
+            end
+        end
+        return NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(y, ȳ), bin_increments_pb
 end
 
 end # module BVDHandRule
