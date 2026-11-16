@@ -215,3 +215,35 @@ end
             reduce(hcat, [plain(a, b) for (a, b) in zip(starts, stops)])
     end
 end
+
+@testitem "The abscond-flow and two-clock port cases' arms agree with the backend's rules" tags = [:ad, :mooncake_reverse] begin
+    using ADFixtures: MatrixCases as MC
+    using ADTypes: AutoMooncake
+    import DifferentiationInterface as DI
+    import ForwardDiff, Mooncake
+
+    R = MC.BVDRef
+    V = Vector{Float64}
+    world = Base.get_world_counter()
+    for sig in (
+            Tuple{typeof(R.abscond_thinned_flows), V, V, V, V, Float64, V},
+            Tuple{typeof(R.two_clock_confirmed), V, V, V},
+        )
+        @test Mooncake.is_primitive(Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, world)
+    end
+    backend = AutoMooncake(; config = nothing)
+    for name in ("bvd_abscond_port", "bvd_two_clock_port"),
+            (T, L) in ((268, 60), (200, 20), (40, 10))
+        c = only(x for x in MC.CASES if x.name == name)
+        z = MC.Size(; T, L)
+        hand, θ = MC.build(c, z, "handrule")
+        ref = ForwardDiff.gradient(hand, θ)
+        for arm in ("rule", "NoAdjoint", "handrule")
+            f, θarm = MC.build(c, z, arm)
+            @test θarm == θ
+            @test f(θ) ≈ hand(θ)
+            prep = DI.prepare_gradient(f, backend, copy(θ))
+            @test DI.gradient(f, prep, backend, θ) ≈ ref rtol = 1.0e-10
+        end
+    end
+end
