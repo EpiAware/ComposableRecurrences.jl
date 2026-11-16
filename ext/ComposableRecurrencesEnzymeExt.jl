@@ -10,7 +10,8 @@ using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
     _Current, _check_form, _check_now, _check_parts, _check_secondary,
     _convolve_masses!, _convolve_masses_back!, _current, _fft_convolve!,
     _fft_convolve_back!, _fft_convolve_terms!, _flat_groups, _is_leaf,
-    _leaf_paths, _plain_hook, _probe_step_reads, _rebuild_leaves, _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
+    _keep_inputs, _leaf_paths, _plain_hook, _probe_step_reads, _rebuild_leaves,
+    _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
     _spawn_blocks, _spawn_chunks, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
@@ -474,6 +475,14 @@ end
     return :(($(tops...),))
 end
 
+# Whether `ow`, one flag per leaf, marks a leaf of the operator's input,
+# the second argument.
+@generated function _input_overwritten(::Type{X}, ow::Tuple) where {X}
+    idx = findall(p -> first(p) == 2, _leaf_paths(X))
+    isempty(idx) && return false
+    return foldl((a, b) -> :($a || $b), (:(ow[$i]) for i in idx))
+end
+
 # The primal and shadow are typed by the return annotation, which is the
 # inferred return type of `_ADLeaves` and may be abstract.
 function EnzymeRules.augmented_primal(
@@ -486,6 +495,10 @@ function EnzymeRules.augmented_primal(
         _warn_scalar_loss(fieldtype(X, 1), leaves, _any_active_float)
     args = _rebuild_leaves(X, _map_leaves(_val, leaves))
     y, cache = _run_forward(args...)
+    # A cache that holds the input keeps a copy of it when later code may
+    # overwrite it.
+    ow = _input_overwritten(X, Base.tail(EnzymeRules.overwritten(config)))
+    cache = _keep_inputs(cache, ow)
     dy, cache = EnzymeRules.needs_shadow(config) ? _shadow_of(first(args), y, cache) :
         (nothing, cache)
     ret = EnzymeRules.needs_primal(config) ? y : nothing

@@ -181,6 +181,116 @@ end
     end
 end
 
+@testitem "Convolution: a plain call convolves in the layout of its input" tags = [:threads] begin
+    using ComposableRecurrences, Random
+    using Base.ScopedValues: with
+    import ComposableRecurrences as CR
+    # A fixed kernel over a plain array with no history from the first time
+    # convolves in the layout of the input; a zero history takes the
+    # time-first buffer and gives the same output.
+    rng = Xoshiro(41)
+    for S in (0, 1, 3), T in (1, 4, 11), L in (1, 4, 7, 13),
+            vec_in in (false, true)
+        vec_in && S != 1 && continue
+        x = vec_in ? rand(rng, T) : rand(rng, S, T)
+        c = rand(rng, L)
+        h0 = vec_in ? zeros(1) : zeros(S, 1)
+        gs = (true, 0.4, vec_in ? rand(rng, T) : rand(rng, S, T))
+        as = (nothing, vec_in ? rand(rng, T) : rand(rng, S, T))
+        for g in gs, a in as, stop in (T, T - 1)
+            gg = g isa AbstractArray ? (vec_in ? g[1:stop] : g[:, 1:stop]) : g
+            aa = a isa AbstractArray ? (vec_in ? a[1:stop] : a[:, 1:stop]) : a
+            ref = Convolution(c)(x; history = h0, gain = gg, add = aa, stop)
+            @test Convolution(c)(x; gain = gg, add = aa, stop) ≈ ref
+        end
+    end
+    # The call takes the in-layout path and allocates only its output.
+    X, c = rand(rng, 8, 260), rand(rng, 42)
+    conv = Convolution(c)
+    _, cache = CR._run_forward(conv, X, true, nothing, nothing, 1, nothing)
+    @test cache isa CR._LayoutCache
+    conv(X)
+    coverage = Base.JLOptions().code_coverage != 0
+    # Forced bounds checks (`--check-bounds=yes`, as the test runner sets)
+    # keep the lag loops' views on the heap, 3.7 KB on x86-64 and 7.6 KB on
+    # Apple silicon here; the check then rules out a second output-sized
+    # array only.
+    bound = if Base.JLOptions().check_bounds == 1
+        2 * sizeof(X) - 1
+    else
+        sizeof(X) + 256
+    end
+    @test (@allocated conv(X)) <= bound skip = coverage
+    # Loops split across tasks keep the buffer, and agree.
+    @test with(CR.EXECUTOR => CR.Threaded(; min_work = 0)) do
+        conv(X)
+    end ≈ conv(X)
+    # A Float32 call stays Float32.
+    @test eltype(Convolution(Float32.(c))(Float32.(X))) == Float32
+end
+
+@testitem "Convolution: the in-layout rule's reverse pass matches the buffer's" begin
+    using ComposableRecurrences, Random
+    const CR = ComposableRecurrences
+    # The rule's forward and reverse passes, driven without an AD backend: a
+    # call in the layout of its input gives the cotangents of the same call
+    # through the time-first buffer, which a zero history forces.
+    rng = Xoshiro(45)
+    mirror(::Bool) = nothing
+    mirror(::Nothing) = nothing
+    mirror(v::Real) = Ref(zero(v))
+    mirror(v::AbstractArray) = zero(v)
+    value(m::Base.RefValue) = m[]
+    value(m) = m
+    for S in (1, 3), (T, L) in ((9, 4), (5, 9), (12, 7)),
+            vec_in in (false, true), scaled in (false, true),
+            stop in (T, T - 2), wx in (true, false), wk in (true, false)
+        vec_in && S != 1 && continue
+        x = vec_in ? rand(rng, T) : rand(rng, S, T)
+        k = rand(rng, L)
+        shape = vec_in ? (stop,) : (S, stop)
+        gain = scaled ? rand(rng, shape...) : true
+        add = scaled ? rand(rng, shape...) : nothing
+        ȳ = rand(rng, shape...)
+        h0 = vec_in ? zeros(1) : zeros(S, 1)
+        function grads(history)
+            c = Convolution(k)
+            y, cache = CR._run_forward(c, x, gain, add, history, 1, stop)
+            g = (;
+                piece = (; kernel = wk ? zero(k) : nothing), y = ȳ,
+                args = (
+                    wx ? zero(x) : nothing, mirror(gain), mirror(add),
+                    mirror(history),
+                ),
+            )
+            CR.pullback!(g, c, CR.Run(), cache)
+            return y, cache, g
+        end
+        yl, cl, gl = grads(nothing)
+        yb, cb, gb = grads(h0)
+        @test cl isa CR._LayoutCache
+        @test !(cb isa CR._LayoutCache)
+        @test yl ≈ yb
+        wk && @test gl.piece.kernel ≈ gb.piece.kernel
+        wx && @test gl.args[1] ≈ gb.args[1]
+        for i in 2:3
+            gl.args[i] === nothing && continue
+            @test value(gl.args[i]) ≈ value(gb.args[i])
+        end
+    end
+    # A cache that holds its input keeps a copy only when the inputs may be
+    # overwritten; any other cache is returned as it is.
+    x = rand(rng, 2, 6)
+    _, cache = CR._run_forward(
+        Convolution(rand(rng, 3)), x, true, nothing, nothing, 1, nothing
+    )
+    @test CR._keep_inputs(cache, false) === cache
+    kept = CR._keep_inputs(cache, true)
+    @test kept.x == x && kept.x !== x
+    other = (; X = x)
+    @test CR._keep_inputs(other, true) === other
+end
+
 @testitem "Convolution: time-varying kernel indexed by output" setup = [Reference] begin
     using ComposableRecurrences, Random
     rng = Xoshiro(24)

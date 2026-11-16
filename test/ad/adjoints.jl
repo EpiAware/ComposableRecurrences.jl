@@ -1804,6 +1804,44 @@ end
     end
 end
 
+@testitem "A plain convolution call takes the rule in the layout of its input" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
+    using ComposableRecurrences
+    using ADTypes: AutoEnzyme, AutoMooncake
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    using Random: Xoshiro
+    rng = Xoshiro(43)
+    S, T, L = 5, 40, 9
+    x0, c0, W = rand(rng, S, T), rand(rng, L), randn(rng, S, T)
+    g0, a0 = rand(rng, S, T), rand(rng, T)
+    unpack(θ) = θ[1:L], reshape(θ[(L + 1):(L + S * T)], S, T)
+    plain(θ) = sum(W .* Convolution(θ[1:L])(last(unpack(θ))))
+    function scaled(θ)
+        y = Convolution(θ[1:L])(last(unpack(θ)); gain = g0, add = a0)
+        return sum(W .* y)
+    end
+    series(θ) = sum(W[1, :] .* Convolution(θ[1:L])(θ[(L + 1):(L + T)]))
+    # The rule keeps the input itself, so an input that later code
+    # overwrites must reach the reverse pass unchanged.
+    function overwritten(θ)
+        c, x = unpack(θ)
+        y = Convolution(c)(x)
+        x .= 0
+        return sum(W .* y)
+    end
+    θ = vcat(c0, vec(x0))
+    for backend in job_backends(
+                :mooncake_reverse => AutoMooncake(; config = nothing),
+                :enzyme_reverse => AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
+            ),
+            f in (plain, scaled, series, overwritten)
+        @test gradient(f, backend, θ) ≈ ForwardDiff.gradient(f, θ)
+    end
+end
+
 @testitem "Plain-AD note logs once at construction under reverse-mode AD" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
