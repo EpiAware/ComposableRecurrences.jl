@@ -200,10 +200,11 @@ call covers the absolute times `start:stop`:
     has no column for them.
   - `start`: the first time; `1` by default.
   - `stop`: the last time; by default the common length of the
-    time-indexed inputs (`x`, `gain`, `add`). It may pass the end of `x`,
-    but `gain` and `add` must cover it. Only the outputs that a lag of
-    `x` reaches are summed, so an input that is zero from some time on
-    can be passed up to that time, e.g. `c(x[:, 1:(t0 - 1)]; stop = T)`.
+    time-indexed inputs (`x`, `gain`, `add`).
+    It may pass the end of `x`, but `gain` and `add` must cover it.
+    Only the outputs that a lag of `x` reaches are summed, so an input
+    that is zero from some time on can be passed up to that time, as in
+    `c(x[:, 1:(t0 - 1)]; stop = T)`.
 
 The output has the layout of `x` and length `stop - start + 1`.
 
@@ -474,10 +475,12 @@ function _summed_inputs(c, x, n)
     e = _extent(x)
     e >= n && return x, n
     r = min(n, e + length(c) - 1)
-    xr = zeros(eltype(x), size(x)[1:(end - 1)]..., r)
+    xr = _zeros_to(x, r)
     copyto!(xr, x)
     return xr, r
 end
+_zeros_to(x::Vector, r) = zeros(eltype(x), r)
+_zeros_to(x::Matrix, r) = zeros(eltype(x), size(x, 1), r)
 
 # `Y[i] += c[d + 1] x[i - s d]` for every lag `d` and entry `i > s d`, in
 # blocks of four lags as `_convolve_series!` takes them: the entries every

@@ -32,9 +32,9 @@ the absolute times `start:stop`:
     `S × m`); later values are zero. A series extended by its last value
     is `tail = fill(x[end], L - 1)`.
   - `start`: the first time; `1` by default.
-  - `stop`: the last time; `n` by default. It may pass `n + m`: the
-    series is zero there, so an output that reads only those times is
-    zero.
+  - `stop`: the last time; `n` by default.
+    It may pass `n + m`, where the series is zero, so an output that reads
+    only those times is zero.
 
 The output has the layout of `x` and length `stop - start + 1`.
 A `Primary()` kernel covers times up to `stop`, and any other
