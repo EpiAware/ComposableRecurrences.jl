@@ -216,7 +216,7 @@ end
     end
 end
 
-@testitem "The abscond-flow, two-clock and patch port cases' arms agree with the backend's rules" tags = [:ad, :mooncake_reverse] begin
+@testitem "The abscond-flow, two-clock, patch and onset port cases' arms agree with the backend's rules" tags = [:ad, :mooncake_reverse] begin
     using ADFixtures: MatrixCases as MC
     using ADTypes: AutoMooncake
     import DifferentiationInterface as DI
@@ -231,12 +231,14 @@ end
             Tuple{typeof(R.abscond_thinned_flows), V, V, V, V, Float64, V},
             Tuple{typeof(R.two_clock_confirmed), V, V, V},
             Tuple{typeof(R.patch_infections), M, V, M, M, M, V},
+            Tuple{typeof(R.onset_report_cdf_table), V, V, Int, Int, Int},
             # The port's own helpers, so a rule arm times the code it names.
             Tuple{typeof(P.occupancy_outputs), M, Float64},
             Tuple{typeof(P.abscond_inputs), V, V, V, V, V},
             Tuple{typeof(P.hold_last), V, Int},
             Tuple{typeof(P.split_rows), M},
             Tuple{typeof(P.patch_outputs), M, M, M},
+            Tuple{typeof(P.onset_offsets), V, Int, Int},
         )
         @test Mooncake.is_primitive(
             Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, world
@@ -246,6 +248,7 @@ end
     for (name, S) in (
                 ("bvd_abscond_port", 1), ("bvd_two_clock_port", 1),
                 ("bvd_patches_port", 3), ("bvd_patches_port", 11),
+                ("bvd_onset_port", 1),
             ), (T, L) in ((268, 60), (200, 20), (40, 10))
         c = only(x for x in MC.CASES if x.name == name)
         z = MC.Size(; T, L, S)

@@ -289,4 +289,37 @@ function Mooncake.rrule!!(
     return out, patch_outputs_pullback!!
 end
 
+# src/models/observations.jl L3532-L3539
+function onset_offsets(γ::AbstractVector, off::Integer, m::Integer)
+    ng = length(γ)
+    y = Vector{eltype(γ)}(undef, m)
+    @inbounds for t in 1:m
+        y[t] = γ[clamp(t + off, 1, ng)]
+    end
+    return y
+end
+
+# src/mooncake_rules.jl L1217-L1237
+## The clamped offset read: each day's adjoint lands on the offset it read.
+Mooncake.@is_primitive(
+    Mooncake.MinimalCtx,
+    Tuple{typeof(onset_offsets), Vector{<:Mooncake.IEEEFloat}, Integer, Integer}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(onset_offsets)}, γ::CoDual, off::CoDual, m::CoDual
+    )
+    γp, op, mp = primal(γ), primal(off), primal(m)
+    out = zero_fcodual(onset_offsets(γp, op, mp))
+    ȳ = tangent(out)
+    function onset_offsets_pullback!!(::NoRData)
+        γ̄ = tangent(γ)
+        ng = length(γp)
+        @inbounds for t in 1:mp
+            γ̄[clamp(t + op, 1, ng)] += ȳ[t]
+        end
+        return ntuple(_ -> NoRData(), 4)
+    end
+    return out, onset_offsets_pullback!!
+end
+
 end
