@@ -534,9 +534,11 @@ _batches(P, P̄) = false
 _batches(P::Matrix, P̄) = _array_mirror(P̄) isa Matrix
 _batches_spill(spill, r̄) = false
 _batches_spill(r::Redistribute, r̄) = _batches(r.M, cotangent(r̄, :M))
+# Every step's pullback writes its column before `_finish_pass!` reads
+# any, so the buffer starts unset.
 function _batch_columns(H, ::Type{Tp}, P, P̄, S, T) where {Tp}
     _check_dense(_array_mirror(P̄), P)
-    return _zeros(H, Tp, S, T)
+    return similar(H, Tp, S, T)
 end
 
 # After the last step: `P̄ += H̄ Vᵀ` and `M̄ += Ū Vᵀ`, with `H̄` and `Ū` each
