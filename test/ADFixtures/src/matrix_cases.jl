@@ -1659,6 +1659,50 @@ if isfile(BVD_HANDRULE)
         end
     end
 
+    # The model's use of those weights: the expected reports of `S` zones in
+    # each vintage window, `I * weights` for the zones' daily infections `I`
+    # (zones by days). The package arm never builds the weights. It
+    # convolves the zones' series with the PMF and sums each window's days.
+    # Two windows close before the first grid day, as the backend's rows give
+    # for vintages before its start, and are empty.
+    function _bvd_window_reports(run)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            starts, stops = _bvd_window_rows(T)
+            starts, stops = [1; 1; starts], [-50; 0; stops]
+            W = _weights(S, length(starts))
+            f = function (θ)
+                p, I = _unpack(θ, (L,), (S, T))
+                return sum(W .* run(wrap, p, I, starts, stops))
+            end
+            I0 = [10.0 + 8.0 * _noise(t, 30 + k) for k in 1:S, t in 1:T]
+            return f, _flat(_gi(L), I0)
+        end
+    end
+    function _bvd_window_reports_rule(wrap, f, I, starts, stops)
+        return _window_sums(wrap(Convolution(f))(I), starts, stops)
+    end
+    # The sums of `y` (strata by days) over the days `starts[v]:stops[v]`,
+    # read from a running total, a window being empty when it starts after
+    # it stops. Days outside `1:size(y, 2)` count as zero. Windows that tile
+    # the days from day 1 read the total once, at the window ends; others
+    # read it at both ends.
+    function _window_sums(y, starts, stops)
+        hi = clamp.(stops, 0, size(y, 2))
+        lo = clamp.(starts, 1, hi .+ 1)
+        total = hcat(zeros(eltype(y), size(y, 1)), cumsum(y; dims = 2))
+        s = total[:, hi .+ 1]
+        tiles = first(lo) == 1 &&
+            all(lo[v] == hi[v - 1] + 1 for v in 2:length(lo))
+        tiles && return hcat(s[:, 1:1], s[:, 2:end] .- s[:, 1:(end - 1)])
+        return s .- total[:, lo]
+    end
+    function _bvd_window_reports_hand(kernel)
+        return function (wrap, f, I, starts, stops)
+            return collect(I) * kernel(collect(f), starts, stops, size(I, 2))
+        end
+    end
+
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
                 "bvd_renewal", "BVD renewal_infections: seeded hazard depletion",
@@ -1716,6 +1760,13 @@ if isfile(BVD_HANDRULE)
                 _bvd_window_weights_hand,
                 (BVD.zone_window_loop, BVD.zone_window_weights), [1],
             ),
+            (
+                "bvd_window_reports",
+                "BVD zone_binned_operator: window sums of convolved zones",
+                _bvd_window_reports, _bvd_window_reports_rule,
+                _bvd_window_reports_hand,
+                (BVD.zone_window_loop, BVD.zone_window_weights), [5, 11],
+            ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
         BASELINES[name] = [
@@ -1739,6 +1790,10 @@ if isfile(BVD_HANDRULE)
     # model's 202 grid days with a 50-lag PMF.
     TIERS["docs"].bycase["bvd_window_weights"] = [
         (T = 161, L = 45), (T = 202, L = 50),
+    ]
+    TIERS["docs"].bycase["bvd_window_reports"] = [
+        (T = 161, L = 45, S = 5), (T = 161, L = 45, S = 11),
+        (T = 202, L = 50, S = 5), (T = 202, L = 50, S = 11),
     ]
     # The backend's call shape against the same loops, which read the series
     # over the seed's days too and return those days first.
