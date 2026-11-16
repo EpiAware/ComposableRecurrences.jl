@@ -196,6 +196,17 @@ function accumulate_occupancy(
     )
 end
 
+# The branch flags `_accumulate_occupancy` records with `Val(true)`, from
+# the same block (src/models/observations.jl L1929-L1935 at 73c575bd,
+# unchanged since 95be3b22).
+const _OCC_UNCONF = 0x01
+const _OCC_DENOM = 0x02
+const _OCC_BVD = 0x04
+const _OCC_BG = 0x08
+const _OCC_CONF_X = 0x10
+const _OCC_CONF_HI = 0x20
+const _OCC_SUSP = 0x40
+
 # src/models/observations.jl L1943-L2014
 ## The forward balance of `accumulate_occupancy`. With `Val(true)` it also
 ## returns the non-case pool `O_bg` and the branch flags for each day, which

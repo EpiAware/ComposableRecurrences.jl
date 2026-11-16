@@ -14,7 +14,7 @@ module MatrixCases
 using ComposableRecurrences
 using ComposableRecurrences: Derived, Recent
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
-using LinearAlgebra: I, mul!
+using LinearAlgebra: I, dot, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
     added, clamped, returning_state, returning_trace, resumed
@@ -1639,6 +1639,143 @@ if isfile(BVD_HANDRULE)
     push!(TIERS["realistic"].strata, 11, 64)
     push!(TIERS["docs"].strata, 11)
     REQUIRES["bvd_zones"] = (:_AllocateImports,)
+end
+
+# The BVDOutbreakSize bed occupancy balance as that backend's port spells it:
+# three pools carried forward by one `Depletion`, with share flows,
+# admissions and rule-outs as counts, and two discharge drains that split
+# each day's discharges by the previous day's pools (`Derived` over
+# `Recent(1)` reads), then a floor. Against the backend's own hand loop:
+# `loop` without its rule, and `handrule` with its Mooncake rule, both
+# copied verbatim in `test/usecases/references`. Skipped where those files
+# are absent (a copied fixture package).
+const BVD_REFERENCES = joinpath(
+    @__DIR__, "..", "..", "usecases", "references"
+)
+if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
+    include(joinpath(BVD_REFERENCES, "bvd.jl"))
+    include(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
+    using .BVDReference: BVDReference as BVDRef
+
+    # The confirmed share of the day's discharges `b`, off the previous
+    # day's unconfirmed and confirmed pools `u` and `c`; the test is asked of
+    # `abs2`, whose derivative at zero is zero, so a dual number does not
+    # break the tie and divide zero by zero.
+    function _occ_conf_share(b, u, c)
+        s = u + c
+        return abs2(s) > zero(s) ? b * (c / s) : zero(b * s)
+    end
+    _occ_unconf_left(u, A, h, κ, o) = u * (1 - κ - h) + A - o
+    _occ_conf_left(u, c, h, o) = c + h * u - o
+    # Each true-case pool's discharges: its share, plus the other pool's
+    # overshoot below zero, so the total true-case stock takes the floor.
+    function _occ_unconf_discharges(b, u, c, A, h, κ)
+        oc = _occ_conf_share(b, u, c)
+        return (b - oc) + max(-_occ_conf_left(u, c, h, oc), zero(oc))
+    end
+    function _occ_conf_discharges(b, u, c, A, h, κ)
+        oc = _occ_conf_share(b, u, c)
+        return oc + max(-_occ_unconf_left(u, A, h, κ, b - oc), zero(oc))
+    end
+    function _bvd_occupancy_rule(wrap, A_bvd, A_bg, deaths, recover, ruleout, κ, h)
+        n = length(A_bvd)
+        T = promote_type(
+            eltype(A_bvd), eltype(A_bg), eltype(deaths), eltype(recover),
+            eltype(ruleout), typeof(κ), eltype(h)
+        )
+        bvd_out = TimeVarying(deaths .+ recover)
+        adm = TimeVarying(A_bvd)
+        hz = TimeVarying(h)
+        conf = Recent(1; coupling = [0.0 1.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0])
+        args = (bvd_out, Recent(1), conf, adm, hz, κ)
+        flows = CR.Depletion(
+            CR.Flow(:unconf => :conf, Derived(identity, hz); form = CR.Share()),
+            CR.Flow(:unconf => 0, κ; form = CR.Share()),
+            CR.Flow(:bg => 0, κ; form = CR.Share()),
+            CR.Flow(0 => :unconf, adm; form = CR.Truncate()),
+            CR.Flow(0 => :bg, TimeVarying(A_bg); form = CR.Truncate()),
+            CR.Flow(
+                :unconf => 0, Derived(_occ_unconf_discharges, args...);
+                form = CR.Truncate()
+            ),
+            CR.Flow(
+                :conf => 0, Derived(_occ_conf_discharges, args...);
+                form = CR.Truncate()
+            ),
+            CR.Flow(:bg => 0, TimeVarying(ruleout); form = CR.Truncate());
+            pools = (:unconf, :conf, :bg)
+        )
+        floor_ = CR.Transform(clamp, zero(T), T(Inf))
+        r = Recurrence([true]; modifiers = (flows, floor_))
+        Y = wrap(r)(; history = zeros(T, 3, 1), stop = n)
+        O_conf = Y[2, :]
+        O_bvd = Y[1, :] .+ O_conf
+        O_bg = Y[3, :]
+        O_susp = Y[1, :] .+ O_bg
+        abscond = κ .* vcat(zero(eltype(Y)), O_susp[1:(end - 1)])
+        return (; demand = O_bvd .+ O_bg, O_bvd, O_conf, O_susp, abscond)
+    end
+    function _bvd_occupancy_hand(kernel)
+        return function (wrap, A_bvd, A_bg, deaths, recover, ruleout, κ, h)
+            return kernel(
+                collect(A_bvd), collect(A_bg), collect(deaths), collect(recover),
+                collect(ruleout), κ, collect(h)
+            )
+        end
+    end
+    _occ_loop(args...) = BVDRef._accumulate_occupancy(Val(false), args...)
+    # A delay of `L` days lag 0 first, on the backend's admission shapes.
+    function _occ_delay(L, seed)
+        p = [1.1 + _noise(d, seed) for d in 1:L]
+        return p ./ sum(p)
+    end
+    # The backend's production inputs: admissions peaking mid-run, deaths
+    # and recoveries delayed from them, rule-outs delayed from the non-case
+    # admissions, and a confirmation hazard that rises and falls weekly.
+    function _bvd_occupancy(run)
+        return function (wrap, z::Size)
+            (; T) = z
+            # One weight vector per output, built outside the loss, and `dot`
+            # rather than a broadcast sum: under Mooncake, slicing the
+            # weights and summing broadcasts in the loss cost several times
+            # the backend's rule, which every arm would pay.
+            W1, W2, W3, W4, W5 = (_weights(5, T)[k, :] for k in 1:5)
+            f = function (θ)
+                A_bvd, A_bg, deaths, recover, ruleout, κ, h = _unpack(
+                    θ, (T,), (T,), (T,), (T,), (T,), (1,), (T,)
+                )
+                y = run(wrap, A_bvd, A_bg, deaths, recover, ruleout, κ[1], h)
+                return dot(W1, y.demand) + dot(W2, y.O_bvd) + dot(W3, y.O_conf) +
+                    dot(W4, y.O_susp) + dot(W5, y.abscond)
+            end
+            days = 1:T
+            A_bvd = @. 20 * exp(-((days - T / 2) / 20)^2) + 0.5
+            A_bg = @. 30 * exp(-((days - T / 2) / 30)^2) + 2.0
+            θ = _flat(
+                A_bvd, A_bg,
+                BVDRef.convolve_delay(0.4 .* A_bvd, _occ_delay(15, 41)),
+                BVDRef.convolve_delay(0.6 .* A_bvd, _occ_delay(20, 42)),
+                BVDRef.convolve_delay(A_bg, _occ_delay(8, 43)), [0.02],
+                @. 0.1 + 0.3 * abs(sin(days / 7))
+            )
+            return f, θ
+        end
+    end
+    push!(
+        CASES,
+        Case(
+            "bvd_occupancy",
+            "BVD accumulate_occupancy: pools, share and count flows, Derived drains",
+            _bvd_occupancy(_bvd_occupancy_rule), [1], false,
+        ),
+    )
+    BASELINES["bvd_occupancy"] = [
+        "loop" => z -> _bvd_occupancy(_bvd_occupancy_hand(_occ_loop))(identity, z),
+        "handrule" => z -> _bvd_occupancy(
+            _bvd_occupancy_hand(BVDRef.accumulate_occupancy)
+        )(identity, z),
+    ]
+    push!(TIERS["realistic"].cases, "bvd_occupancy")
 end
 
 # The tutorials' hand loops with hand-written Mooncake rules: a `handrule`
