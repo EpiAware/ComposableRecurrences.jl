@@ -780,8 +780,8 @@ end
     flat(x::AbstractArray) = vec(copy(x))
     flat(::Nothing) = Float64[]
     flat(x::NamedTuple) = reduce(vcat, map(flat, values(x)); init = Float64[])
-    for n in (2, 3, 5), per_origin in (true, false), constant in (:none, :K, :E),
-            zero_some in (false, true)
+    for n in (2, 3, 5), per_origin in (true, false),
+            constant in (:none, :K, :E), zero_some in (false, true)
         K = rand(rng, n, n) .* 0.2
         ε = per_origin ? rand(rng, n, 4) .* 0.5 :
             TimeVarying(rand(rng, 4) .* 0.5)
