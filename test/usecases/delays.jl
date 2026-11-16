@@ -124,15 +124,15 @@ end
     @test ReferenceAD.gradient(y -> sum(wa .* aggregate(y)), Y) ≈ ∇ref
 
     # BVD's `bin_increments`: sums over the windows between report days, an
-    # empty window giving zero. The difference of a running total at the
-    # window ends.
+    # empty window giving zero. The running total, read once at the report
+    # days and differenced.
     days = [3, 7, 7, 10, 12]
     refb = B.bin_increments(Y, days)
     wb = range(0.5, 2.0; length = length(days))
     ∇refb = ReferenceAD.gradient(y -> sum(wb .* B.bin_increments(y, days)), Y)
     function bins(Y)
-        total = vcat(zero(eltype(Y)), Recurrence([1.0])(1.0; history = [0.0], add = Y))
-        return total[days .+ 1] .- total[vcat(0, days[1:(end - 1)]) .+ 1]
+        s = Recurrence([1.0])(1.0; history = [0.0], add = Y)[days]
+        return diff(vcat(zero(eltype(s)), s))
     end
     @test bins(Y) ≈ refb
     @test ReferenceAD.gradient(y -> sum(wb .* bins(y)), Y) ≈ ∇refb
