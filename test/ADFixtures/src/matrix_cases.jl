@@ -1881,7 +1881,7 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         return oc + max(-_occ_unconf_left(u, A, h, κ, b - oc), zero(oc))
     end
     # The port's spelling at epiforecasts/BVDOutbreakSize#1152 b4d4c602
-    # (`accumulate_occupancy`, src/models/observations.jl L2032-L2095): the
+    # (`accumulate_occupancy`, src/models/observations.jl L2032-L2087): the
     # abscond shares as `Derived(identity, κ)`, so a rate above one is not
     # checked, and the outputs from the port's own loop and rule. The pools
     # are named in place, as the port names them, so the compiler sees the
@@ -1988,6 +1988,95 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         )(identity, z),
     ]
     push!(TIERS["realistic"].cases, "bvd_occupancy")
+
+    # BVD's abscond-thinned discharge flows and two-clock confirmed stock,
+    # each as the port spells it at epiforecasts/BVDOutbreakSize#1152
+    # b4d4c602 (src/models/observations.jl L1876-L1900 and L2221-L2234),
+    # against the backend's loops (`bvd.jl`) with its Mooncake rules from
+    # 73c575bd (`bvd_rules.jl`). Each builder's inputs have names of their
+    # own, so the loss closure does not capture and box them, which Enzyme
+    # cannot differentiate correctly.
+    function _bvd_abscond_port(wrap, adm1, pmf1, adm2, pmf2, κ, h)
+        (; late, pmfs, adm) = BVDPort.abscond_inputs(adm1, pmf1, adm2, pmf2, h)
+        unconf = CR.Survival(TimeVarying(late); from = 1)
+        kernel = PerStratum(pmfs) * CR.Survival(κ * unconf; from = 1)
+        flows = wrap(Convolution(TimeVarying(kernel, CR.Primary())))(adm)
+        return BVDPort.split_rows(flows)
+    end
+    function _bvd_abscond_port_hand(wrap, adm1, pmf1, adm2, pmf2, κ, h)
+        return BVDRef.abscond_thinned_flows(
+            collect(adm1), collect(pmf1), collect(adm2), collect(pmf2), κ,
+            collect(h)
+        )
+    end
+    # Deaths and recoveries from a true-case admission curve, the recovery
+    # stay the shorter, and a confirmation hazard that rises and falls.
+    function _bvd_abscond_flows(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            L2 = cld(7 * L, 10)
+            Wm = _weights(2, T)
+            W1, W2 = Wm[1, :], Wm[2, :]
+            f = function (θ)
+                a1, p1, a2, p2, k, hz = _unpack(
+                    θ, (T,), (L,), (T,), (L2,), (1,), (T,)
+                )
+                y1, y2 = run(wrap, a1, p1, a2, p2, k[1], hz)
+                return dot(W1, y1) + dot(W2, y2)
+            end
+            days = 1:T
+            A0 = @. 20 * exp(-((days - T / 2) / 20)^2) + 0.5
+            P1 = [exp(-0.1 * d) for d in 0:(L - 1)]
+            P2 = [exp(-0.15 * d) for d in 0:(L2 - 1)]
+            θ = _flat(
+                0.3 .* A0, P1 ./ sum(P1), 0.7 .* A0, P2 ./ sum(P2), [0.02],
+                @. 0.1 + 0.3 * abs(sin(days / 7))
+            )
+            return f, θ
+        end
+    end
+    function _bvd_two_clock_port(wrap, A, h, S)
+        hl = BVDPort.hold_last(h, length(S))
+        confirmed = S * (1 - CR.Survival(TimeVarying(hl); from = 1))
+        return wrap(Convolution(TimeVarying(confirmed, CR.Primary())))(A)
+    end
+    function _bvd_two_clock_port_hand(wrap, A, h, S)
+        return BVDRef.two_clock_confirmed(collect(A), collect(h), collect(S))
+    end
+    function _bvd_two_clock_confirmed(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(T)
+            f = function (θ)
+                a, hz, s = _unpack(θ, (T,), (T,), (L,))
+                return dot(W, run(wrap, a, hz, s))
+            end
+            days = 1:T
+            θ = _flat(
+                @.(20 * exp(-((days - T / 2) / 20)^2) + 0.5),
+                @.(0.1 + 0.3 * abs(sin(days / 7))),
+                [exp(-0.08 * d) for d in 0:(L - 1)]
+            )
+            return f, θ
+        end
+    end
+    for (name, description, loss, rule, hand) in (
+            (
+                "bvd_abscond_port",
+                "BVD abscond_thinned_flows as the port spells it",
+                _bvd_abscond_flows, _bvd_abscond_port, _bvd_abscond_port_hand,
+            ),
+            (
+                "bvd_two_clock_port",
+                "BVD two_clock_confirmed as the port spells it",
+                _bvd_two_clock_confirmed, _bvd_two_clock_port,
+                _bvd_two_clock_port_hand,
+            ),
+        )
+        push!(CASES, Case(name, description, loss(rule), [1], false))
+        BASELINES[name] = ["handrule" => z -> loss(hand)(identity, z)]
+        push!(TIERS["realistic"].cases, name)
+    end
 end
 
 # The tutorials' hand loops with hand-written Mooncake rules: a `handrule`

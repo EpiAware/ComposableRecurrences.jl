@@ -1,15 +1,18 @@
-# A verbatim copy of the BVDOutbreakSize.jl port's `occupancy_outputs` and
-# its Mooncake rule: the outputs of the occupancy balance from its three
-# pools, in one loop with its own reverse pass.
+# A verbatim copy of the BVDOutbreakSize.jl port's helpers that carry their
+# own Mooncake rules: `occupancy_outputs`, the outputs of the occupancy
+# balance from its three pools, and `abscond_inputs`, `hold_last` and
+# `split_rows`, the fills and splits around the abscond-thinned flows and
+# the two-clock confirmed stock.
 #
 # Source: https://github.com/epiforecasts/BVDOutbreakSize at commit b4d4c602
-# (epiforecasts/BVDOutbreakSize#1152), src/models/observations.jl
-# L2088-L2117 and src/mooncake_rules.jl L1280-L1317. The code is unchanged;
-# the module wrapper and imports stand in for those files' own, and a comment
-# stands in for the docstring.
+# (epiforecasts/BVDOutbreakSize#1152), src/models/observations.jl and
+# src/mooncake_rules.jl, at the lines given above each piece. The code is
+# unchanged; the module wrapper and imports stand in for those files' own,
+# and comments stand in for the docstrings.
 #
-# The benchmark matrix includes it for the package arm of `bvd_occupancy`,
-# which spells the balance as that port does.
+# The benchmark matrix includes it for the package arms of `bvd_occupancy`,
+# `bvd_abscond_port` and `bvd_two_clock_port`, which spell those kernels as
+# that port does.
 module BVDPort
 
 import Mooncake
@@ -79,6 +82,165 @@ function Mooncake.rrule!!(
         return NoRData(), NoRData(), κ̄
     end
     return out, occupancy_outputs_pullback!!
+end
+
+# The CR spelling's helpers, each one fill or split with its own reverse
+# rule. src/models/observations.jl L1909-L1942
+function abscond_inputs(
+        adm1::AbstractVector, pmf1::AbstractVector,
+        adm2::AbstractVector, pmf2::AbstractVector,
+        conf_hazard::AbstractVector
+    )
+    n = length(adm1)
+    L1, L2 = length(pmf1), length(pmf2)
+    D = max(L1, L2)
+    T = promote_type(
+        eltype(adm1), eltype(pmf1), eltype(adm2), eltype(pmf2),
+        eltype(conf_hazard)
+    )
+    late = Vector{T}(undef, n + D + 1)
+    late[1] = conf_hazard[1]
+    @inbounds for t in 1:n
+        late[t + 1] = conf_hazard[t]
+    end
+    @inbounds for j in 1:D
+        late[n + 1 + j] = conf_hazard[n]
+    end
+    pmfs = zeros(T, 2, D)
+    @inbounds for j in 1:L1
+        pmfs[1, j] = pmf1[j]
+    end
+    @inbounds for j in 1:L2
+        pmfs[2, j] = pmf2[j]
+    end
+    adm = Matrix{T}(undef, 2, n)
+    @inbounds for t in 1:n
+        adm[1, t] = adm1[t]
+        adm[2, t] = adm2[t]
+    end
+    return (; late, pmfs, adm)
+end
+
+# src/models/observations.jl L1949-L1959
+function hold_last(x::AbstractVector, m::Integer)
+    n = length(x)
+    y = Vector{eltype(x)}(undef, n + m)
+    @inbounds for t in 1:n
+        y[t] = x[t]
+    end
+    @inbounds for j in 1:m
+        y[n + j] = x[n]
+    end
+    return y
+end
+
+# src/models/observations.jl L1966-L1975
+function split_rows(M::AbstractMatrix)
+    n = size(M, 2)
+    r1 = Vector{eltype(M)}(undef, n)
+    r2 = Vector{eltype(M)}(undef, n)
+    @inbounds for t in 1:n
+        r1[t] = M[1, t]
+        r2[t] = M[2, t]
+    end
+    return r1, r2
+end
+
+# src/mooncake_rules.jl L1164-L1215
+## The CR abscond inputs: each filled entry's adjoint goes back to the
+## entry it was copied from. The hazard's first day is read twice and its
+## last day once per padded day. The two admission tangents may alias, so
+## the pullback only adds into them.
+Mooncake.@is_primitive(
+    Mooncake.MinimalCtx,
+    Tuple{
+        typeof(abscond_inputs), Vector{<:Mooncake.IEEEFloat},
+        Vector{<:Mooncake.IEEEFloat}, Vector{<:Mooncake.IEEEFloat},
+        Vector{<:Mooncake.IEEEFloat}, Vector{<:Mooncake.IEEEFloat},
+    }
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(abscond_inputs)}, adm1::CoDual, pmf1::CoDual,
+        adm2::CoDual, pmf2::CoDual, conf_hazard::CoDual
+    )
+    out = zero_fcodual(
+        abscond_inputs(
+            primal(adm1), primal(pmf1), primal(adm2), primal(pmf2),
+            primal(conf_hazard)
+        )
+    )
+    ȳ = tangent(out)
+    function abscond_inputs_pullback!!(::NoRData)
+        ā1, p̄1, ā2, p̄2 = tangent(adm1), tangent(pmf1), tangent(adm2),
+            tangent(pmf2)
+        h̄ = tangent(conf_hazard)
+        n = length(ā1)
+        D = size(ȳ.pmfs, 2)
+        @inbounds begin
+            h̄[1] += ȳ.late[1]
+            for t in 1:n
+                h̄[t] += ȳ.late[t + 1]
+            end
+            for j in 1:D
+                h̄[n] += ȳ.late[n + 1 + j]
+            end
+            for j in eachindex(p̄1)
+                p̄1[j] += ȳ.pmfs[1, j]
+            end
+            for j in eachindex(p̄2)
+                p̄2[j] += ȳ.pmfs[2, j]
+            end
+            for t in 1:n
+                ā1[t] += ȳ.adm[1, t]
+                ā2[t] += ȳ.adm[2, t]
+            end
+        end
+        return ntuple(_ -> NoRData(), 6)
+    end
+    return out, abscond_inputs_pullback!!
+end
+
+# src/mooncake_rules.jl L1239-L1261
+## `x` then `m` copies of its last value: the padded days' adjoints all
+## land on that last value.
+Mooncake.@is_primitive(
+    Mooncake.MinimalCtx,
+    Tuple{typeof(hold_last), Vector{<:Mooncake.IEEEFloat}, Integer}
+)
+function Mooncake.rrule!!(::CoDual{typeof(hold_last)}, x::CoDual, m::CoDual)
+    xp, mp = primal(x), primal(m)
+    out = zero_fcodual(hold_last(xp, mp))
+    ȳ = tangent(out)
+    function hold_last_pullback!!(::NoRData)
+        x̄ = tangent(x)
+        n = length(xp)
+        @inbounds for t in 1:n
+            x̄[t] += ȳ[t]
+        end
+        @inbounds for j in 1:mp
+            x̄[n] += ȳ[n + j]
+        end
+        return NoRData(), NoRData(), NoRData()
+    end
+    return out, hold_last_pullback!!
+end
+
+# src/mooncake_rules.jl L1263-L1278
+Mooncake.@is_primitive(
+    Mooncake.MinimalCtx, Tuple{typeof(split_rows), Matrix{<:Mooncake.IEEEFloat}}
+)
+function Mooncake.rrule!!(::CoDual{typeof(split_rows)}, M::CoDual)
+    out = zero_fcodual(split_rows(primal(M)))
+    r̄1, r̄2 = tangent(out)
+    function split_rows_pullback!!(::NoRData)
+        M̄ = tangent(M)
+        @inbounds for t in axes(M̄, 2)
+            M̄[1, t] += r̄1[t]
+            M̄[2, t] += r̄2[t]
+        end
+        return NoRData(), NoRData()
+    end
+    return out, split_rows_pullback!!
 end
 
 end
