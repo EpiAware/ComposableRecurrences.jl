@@ -171,10 +171,28 @@ end
 # The recurrence has the unit kernel `[1.0]` and no gain, so the value entering the modifiers is ``q_{n-1}``.
 # Its one modifier ``M_1`` is a `Transform` that applies ``G`` with parameters ``\theta = (R, \kappa)``.
 # Here ``R = 1.5``, and the history is ``q_0 = 0``.
+#
+# The `Transform` is also given the partial derivatives of ``G`` in ``s`` and in ``\theta`` as `derivative`.
+# With ``u = 1 + R (1 - s) / \kappa``, they are
+#
+# ```math
+# \frac{\partial G}{\partial s} = \frac{R \, G}{u}, \qquad
+# \frac{\partial G}{\partial R} = -\frac{(1 - s) \, G}{u}, \qquad
+# \frac{\partial G}{\partial \kappa} = G \left(\frac{R (1 - s)}{\kappa u} - \log u\right).
+# ```
+#
+# A gradient's reverse pass uses these.
+# Without them it would evaluate ``G`` on dual numbers at every step, which costs more than the closed form.
 
 G(s, θ) = (1 + θ.R / θ.κ * (1 - s))^(-θ.κ)
+function dG(s, θ)
+    u = 1 + θ.R / θ.κ * (1 - s)
+    y = u^(-θ.κ)
+    return θ.R * y / u, (; R = -(1 - s) * y / u, κ = y * (θ.R * (1 - s) / (θ.κ * u) - log(u)))
+end
 function extinction(θ, n)
-    return Recurrence([1.0]; modifiers = (Transform(G, θ),))(; history = [0.0], stop = n)
+    m = Transform(G, θ; derivative = dG)
+    return Recurrence([1.0]; modifiers = (m,))(; history = [0.0], stop = n)
 end
 
 generations = 30

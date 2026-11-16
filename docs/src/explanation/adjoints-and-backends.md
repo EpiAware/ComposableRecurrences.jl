@@ -44,7 +44,7 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | pointwise modifier with `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through [`param`](@ref ComposableRecurrences.param) | rule, local ForwardDiff step |
 | pointwise modifier with other float arrays, or views of them, that its step indexes, at most 24 entries a step | rule, local ForwardDiff step |
 | pointwise modifier with a `Diagonal`, sparse or other structured float array, or a depletion form with any array parameter | plain AD |
-| whole-step modifier (neither pointwise nor blockwise) with float scalars and float arrays, its values, state and parameters at most 24 | rule, local ForwardDiff step |
+| whole-step modifier (neither pointwise nor blockwise) with float scalars and float arrays, its values, state and parameters at most 24, counting only the entries a step reads for one that reads fewer than its arrays hold | rule, local ForwardDiff step |
 | the same with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
 | the same with more than 48 | plain AD |
 | blockwise modifier with float scalars and `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through `param` at its group | rule, local ForwardDiff step per group |
@@ -99,6 +99,11 @@ Above 24 the local step is slower than plain AD, so such a modifier takes plain 
 A step that reads more at a later time than at the first still gets the right gradient, in passes of 12.
 The local step of a coupling seeds every entry of its float arrays, so they count towards its limit.
 The local step of a whole-step modifier runs its `forward!` on the step's values and state as dual numbers, with every scalar and array entry of its parameters, so all of them count towards its limit.
+A whole-step modifier whose step reads fewer entries of its float arrays than they hold, as `m.total[t]`, seeds only the entries it reads, as a pointwise modifier does, so only those count.
+Each call runs one step at each of the first two times to count them.
+A step that reads a different number at each, as one that sums every entry up to `t` does, seeds every entry instead, so past the limit it takes plain AD.
+A step that reads more only at a later time still gets the right gradient, in more passes.
+This holds for strided float arrays outside `PerStratum` and `TimeVarying`.
 With a second pass it takes the rule on Mooncake and plain AD on Enzyme, where the rule is slower than plain AD.
 Past two passes it takes plain AD on every backend, as a coupling does.
 A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rather than its entries.

@@ -544,6 +544,14 @@ M = I - \operatorname{diag}(\varepsilon \odot o) + K \operatorname{diag}(\vareps
 
 so ``M_{qq} = 1 - \varepsilon_q \sum_{p \ne q} K_{pq}`` whatever the
 diagonal of ``K``, and every column of ``M`` sums to one.
+So the derivative in ``K`` includes that column sum: ``K_{pq}``, for
+``p \ne q``, moves ``M_{pq}`` by ``\varepsilon_q`` and ``M_{qq}`` by
+``-\varepsilon_q``.
+A movement written as ``M_{qq} = 1 - \varepsilon_q``, for a kernel whose
+columns are taken to sum to one, has the same values on such kernels but a
+gradient in ``K`` that differs by a constant down each column.
+The two agree once ``K`` is built so that its columns sum to one, for
+example by a softmax over each column.
 `ε` is one value or a vector over origins, which gives a matrix, or an
 origins × time matrix, which gives an `S × S × T` movement.
 `PerStratum(ε)` and `TimeVarying(PerStratum(E))` are read as the vector and
@@ -861,6 +869,9 @@ function forward!(
     return nothing
 end
 
+# Its trace is its arrivals, the state after each step (the default).
+_trace_is_state(::Redistribute) = true
+
 # The matrix is checked against the strata, and its columns, once, here
 # and on a resumed state, not on every step.
 function forward!(m::Redistribute, ::Init, s, history)
@@ -965,6 +976,49 @@ _add_diag!(M̄, M::AbstractMatrix, x, p, t) = _add_entry!(M̄, M, x, p, p)
 _add_diag!(M̄, M::TimeVarying, x, p, t) = add_cotangent!(cotangent(M̄, :x), x, p, p, t)
 function _add_diag!(M̄, M::TimeVarying{<:Any, <:_Movement}, x, p, t)
     return _add_movement_entry!(cotangent(M̄, :x), M.x, x, p, p, t)
+end
+
+# The same over a movement, fused with its `Pressure` pullback so no entry
+# of `M` is rebuilt from its column sum. It must agree with the general
+# pullback above through `_add_movement_entry!` and that `Pressure` pullback.
+function pullback!(
+        grads, m::Redistribute{<:Any, <:TimeVarying{Secondary, <:_Movement}},
+        ::Step, v, s, t
+    )
+    v̄, s̄ = grads.v, grads.s
+    _stays(m.M) && return (fill!(s̄, zero(eltype(s̄))); nothing)
+    (; K, E) = m.M.x
+    X̄ = cotangent(cotangent(grads.piece, :M), :x)
+    K̄, Ē = cotangent(X̄, :K), cotangent(X̄, :E)
+    # `v̄` holds `s̄′` until its column is done, which reads it for the
+    # diagonal.
+    for p in eachindex(v, v̄, s̄)
+        d = s̄[p]
+        s̄[p] = v̄[p] + d
+        v̄[p] = d
+    end
+    for b in axes(K, 2)
+        e = _intensity(E, b, t)
+        w = e * v[b]
+        d = v̄[b]
+        # The diagonal is read only when the state's cotangent asks for it.
+        xe = iszero(d) ? zero(w * d) : -d * v[b] * e
+        c = zero(eltype(v̄))
+        o = zero(eltype(K))
+        for a in axes(K, 1)
+            c += K[a, b] * s̄[a]
+            o += K[a, b]
+            add_cotangent!(K̄, w * (s̄[a] - s̄[b]) - xe, a, b)
+        end
+        add_cotangent!(K̄, xe, b, b)
+        diag = iszero(d) ? zero(c) : -(1 - e * o + K[b, b] * e) * d
+        v̄[b] = diag + e * c + (1 - e * o) * s̄[b]
+        ē = v[b] * (c - o * s̄[b])
+        iszero(d) || (ē += -d * v[b] * (K[b, b] - o))
+        _add_intensity!(Ē, E, ē, b, t)
+    end
+    fill!(s̄, zero(eltype(s̄)))
+    return nothing
 end
 
 # == Linear steps ==

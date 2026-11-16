@@ -8,7 +8,7 @@
             a -> _linear_ok(a.piece, a.role, a.args),
     ),
     optional = (
-        pointwise = "a vector Step matches the Step on each stratum's view" =>
+        pointwise = "a Step and an Init work stratum by stratum" =>
             a -> _pointwise_ok(a.piece, a.role, a.args),
         blocks = "a vector Step matches the group Step on each group" =>
             a -> _blocks_ok(a.piece, a.role, a.args),
@@ -46,7 +46,12 @@ M(v, s, t)_i = M_i(v_i, s_i, t), \\qquad i = 1, \\dots, S,
 ```
 
 where ``M`` is the modifier, ``v`` and ``s`` its value and state vectors at
-time ``t`` and ``S`` the number of strata; it passes any other modifier.
+time ``t`` and ``S`` the number of strata.
+For `Init()` it checks that a pointwise modifier writes each ``s_k`` from
+stratum ``k`` only: the modifier rebuilt with the parameters it reads at
+stratum ``k`` and time 1, given a history whose other rows differ, writes
+the same ``s_k``.
+It passes any other modifier.
 The optional `blocks` component checks the same for a blockwise modifier
 ([`ComposableRecurrences.blocks`](@ref)), group by group, and passes any
 other modifier.
@@ -163,6 +168,42 @@ function _pointwise_ok(m, ::Step, args)
     end
     forward!(m, Step(), v, s, t)
     return v ≈ first.(pairs) && s ≈ last.(pairs)
+end
+
+# A pointwise modifier's Init writes each stratum's state from that
+# stratum's inputs only: rebuilt with the parameters read at stratum `k`
+# and time 1, and given a history whose other rows differ, it writes the
+# same `s[k]`. The Init derivative is taken stratum by stratum on that
+# promise.
+function _pointwise_ok(m, ::Init, args)
+    _strata_loop(m) || return true
+    s, history = float(copy(args[1])), args[2]
+    forward!(m, Init(), s, history)
+    return all(eachindex(s)) do k
+        sk = zero(s)
+        forward!(_at_stratum(m, k), Init(), sk, _other_rows(history, k, length(s)))
+        sk[k] ≈ s[k]
+    end
+end
+# `m` rebuilt with the parameters it reads at stratum `k` and time 1, or
+# `m` itself when it has other float arrays or cannot be rebuilt.
+function _at_stratum(m, k)
+    _local_params(m) || return m
+    return try
+        first(_rebuild_scalar(m, _param_tuple(m, (k, 1))))
+    catch e
+        e isa Union{MethodError, ArgumentError, TypeError} || rethrow()
+        m
+    end
+end
+# A copy of `history` with every row but `k` changed.
+_other_rows(::Nothing, k, S) = nothing
+function _other_rows(history, k, S)
+    h = float(copy(history))
+    for i in eachindex(IndexLinear(), h)
+        (i - 1) % S + 1 == k || (h[i] = 2 * h[i] + 1)
+    end
+    return h
 end
 
 # == blocks ==

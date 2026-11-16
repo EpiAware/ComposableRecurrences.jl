@@ -213,6 +213,7 @@ _local_pressure!(p̄, C̄, C, args...) = _need_forwarddiff(C)
 _array_pressure(C, args...) = _need_forwarddiff(C)
 _local_form_pullback(grads, form, args...) = _need_forwarddiff(form)
 _init_jacobian(m, args...) = _need_forwarddiff(m)
+_init_strata_back!(m̄, h̄, m, args...) = _need_forwarddiff(m)
 _dual_pressure_buffers(C̄, C, args...) = nothing
 function _need_forwarddiff(piece)
     name = nameof(typeof(piece))
@@ -372,6 +373,10 @@ struct _StepDuals{T, L}
     θ::Vector{T}
     ḡ::Vector{T}
     lanes::L
+    # Whether the step seeds only the entries it reads (`_reads_fewer`),
+    # and how many the last step read: the next step's width.
+    readstep::Bool
+    reads::Base.RefValue{Int}
 end
 _step_duals(m̄, m, args...) = nothing
 _local_step!(m̄, m, args...) = _need_forwarddiff(m)
@@ -380,12 +385,12 @@ _local_step!(m̄, m, args...) = _need_forwarddiff(m)
 # `Recurrence` passes its buffers in `grads.pass`; a direct call makes
 # them.
 function _local_step_back!(grads, m, v, s, t)
-    b = _given_duals(get(grads, :pass, nothing), grads.piece, m, eltype(v))
+    b = _given_duals(get(grads, :pass, nothing), grads.piece, m, eltype(v), length(v))
     _local_step!(grads.piece, m, grads.v, grads.s, v, s, t, b)
     return nothing
 end
-_given_duals(b::_StepDuals, m̄, m, Tp) = b
-_given_duals(::Any, m̄, m, Tp) = _step_duals(m̄, m, Tp)
+_given_duals(b::_StepDuals, m̄, m, Tp, S) = b
+_given_duals(::Any, m̄, m, Tp, S) = _step_duals(m̄, m, Tp, S)
 # The buffers are shared by every step, and read nothing after the last.
 _column(b::_StepDuals, t) = b
 _finish_pass!(m̄, m, R, ::_StepDuals, τ0) = nothing
@@ -475,7 +480,9 @@ _map_entry(::_CopyScalars, x, θ) = (first(θ), Base.tail(θ))
 # `Recurrence` is built, for each part with float scalars.
 function _check_rebuild(x)
     _scalar_params(x) || (_entry_step(x) && _local_params(x)) ||
-        return _strata_loop(x) ? _check_reads(x) : _check_rebuild(Val(false), x)
+        return _strata_loop(x) ? _check_reads(x) :
+        _whole_step(x) && _reads_step(x) ? _check_read_rebuild(x) :
+        _check_rebuild(Val(false), x)
     return _check_rebuild(Val(true), x)
 end
 _check_rebuild(::Val{true}, x) = _check_scalars(x, _param_tuple(x, (1, 1)))
@@ -492,6 +499,11 @@ _check_rebuild(::Val{false}, x) = _check_views(x)
 _check_scalars(x, args...) = nothing
 _check_views(x, args...) = nothing
 _probe_reads(x, args...) = nothing
+_check_read_rebuild(x, args...) = nothing
+# The entries of its float arrays one step of a whole-step modifier over `S`
+# strata reads at time 1: from the dual-number extension, which the local
+# step needs; without it, none.
+_probe_step_reads(m, S, args...) = 0
 _steps(m, md, x) = _scalar_params(m) || (_any_step(md, x); true)
 # One step of a part rebuilt with dual numbers: a pointwise modifier's, a
 # blockwise modifier's first group or a depletion form's.
@@ -583,10 +595,14 @@ end
 # Both scalar walks descend only into structs that hold float scalars.
 _descends(::Union{_CopyScalars, _AddScalars}, x) = _param_tuple(x) !== ()
 
-# Default initial-state pullback: a local forward-mode Jacobian of the Init,
-# skipped for the default zero state and for a zero state cotangent (a
-# modifier whose state never reaches the output), where the Jacobian over
-# the whole history would cost more than the rest of the reverse pass.
+# Default initial-state pullback: a local forward-mode derivative of the
+# Init, skipped for the default zero state and for a zero state cotangent (a
+# modifier whose state never reaches the output), where the derivative in
+# the whole history would cost more than the rest of the reverse pass. A
+# pointwise modifier whose parameters are scalars or read one entry per
+# stratum writes each stratum's state from that stratum's inputs, so its
+# derivative is taken stratum by stratum; any other takes the Jacobian in
+# every parameter and history entry.
 function pullback!(grads, m, ::Init, s, history)
     _default_init(m, s, history) && return nothing
     m̄, s̄, h̄ = grads.piece, grads.s, grads.history
@@ -594,10 +610,19 @@ function pullback!(grads, m, ::Init, s, history)
     P = _nactive(m̄, m)
     nh = h̄ === nothing ? 0 : length(history)
     P + nh == 0 && return nothing
+    _strata_init(m, s, nh) && return _init_strata_back!(m̄, h̄, m, s̄, s, history)
     g = transpose(_init_jacobian(m, s, history, P, nh)) * s̄
     P == 0 || _addparams!(m̄, m, g, 0)
     nh == 0 || (h̄ .+= reshape(view(g, (P + 1):(P + nh)), size(history)))
     return nothing
+end
+
+# Whether the Init derivative of `m` is taken stratum by stratum: a
+# pointwise modifier with scalars or entry parameters, and a history (when
+# differentiated) of one row per stratum.
+function _strata_init(m, s, nh)
+    _strata_loop(m) && _local_params(m) || return false
+    return nh % max(length(s), 1) == 0
 end
 
 # Whether modifier `m` uses the default zero initial state. The method

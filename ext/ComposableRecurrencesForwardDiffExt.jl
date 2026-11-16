@@ -7,16 +7,17 @@ module ComposableRecurrencesForwardDiffExt
 using ComposableRecurrences: ComposableRecurrences, Init, Pressure, Step, forward!,
     param_eltype
 import ComposableRecurrences: _array_pressure, _buffer, _chain, _output, _check_jacobian, _local_step!, _step_duals, _check_scalars, _check_views,
-    _dual_pressure_buffers, _exp_neg, _init_jacobian, _leave, _jacobian_pullback,
+    _dual_pressure_buffers, _exp_neg, _init_jacobian, _init_strata_back!, _leave, _jacobian_pullback,
     _local_form_pullback, _local_pressure!, _pool_power, _primal_type, _primal_value,
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
-    _transform_seeds, _value_pullback, _block_local_back
+    _transform_seeds, _value_pullback, _block_local_back, _probe_step_reads,
+    _check_read_rebuild
 using ComposableRecurrences: _ArrayPressure, _cpu_buffer, _Chained, _IEEEFloat, _INPLACE_BYTES, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
     _rebuilt_params!, _rebuilt_tuple, _reads_kept, _steps, _step, _draw, _scalar_params,
-    _leave_slope, _block_step
+    _leave_slope, _block_step, _reads_fewer, nstate
 using ForwardDiff: ForwardDiff, Dual, value
 using LinearAlgebra: Transpose, transpose
 
@@ -341,12 +342,17 @@ end
 function _step_dual(T, ::Val{N}) where {N}
     return ForwardDiff.Dual{typeof(ForwardDiff.Tag(_local_step!, T)), T, N}
 end
-function _step_duals(m̄, m, ::Type{Tp}) where {Tp}
+# Without the strata count, as a direct call gives, every array entry is
+# seeded through views.
+function _step_duals(m̄, m, ::Type{Tp}, S = nothing) where {Tp}
     T = float(promote_type(Tp, param_eltype(m)))
-    θ = _array_seeds(m̄, m) ? Vector{T}(_params(m)) : T[]
-    lane(N) = (D -> (D[], D[], Vector{D}(undef, length(θ))))(_step_dual(T, N))
+    rd = S !== nothing && _array_seeds(m̄, m) && _reads_fewer(m, S)
+    θ = _array_seeds(m̄, m) && !rd ? Vector{T}(_params(m)) : T[]
+    lane(::Val{N}) where {N} = (
+        D -> (D[], D[], Vector{D}(undef, length(θ)), _Reads{N}())
+    )(_step_dual(T, Val(N)))
     lanes = (lane(Val(4)), lane(Val(8)), lane(Val(12)), lane(Val(_LOCAL_PRESSURE)))
-    return _StepDuals(T[], T[], θ, zero(θ), lanes)
+    return _StepDuals(T[], T[], θ, zero(θ), lanes, rd, Ref(0))
 end
 # The float scalars a pass seeds: those of a differentiated modifier whose
 # parameters are all scalars, as a tuple, so its rebuild allocates nothing;
@@ -354,6 +360,17 @@ end
 _step_scalars(::Nothing, m) = ()
 _step_scalars(m̄, m) = _scalar_params(m) ? _param_tuple(m) : ()
 function _local_step!(m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
+    b.readstep || return _local_step!(Val(false), m̄, m, v̄, s̄, v, s, t, b)
+    θs = _param_tuple(m)
+    # The width covers the reads of the last step; a step that reads more
+    # runs more passes.
+    n = length(v) + length(s) + length(θs) + b.reads[]
+    n <= 4 && return _local_read_step!(Val(4), b.lanes[1], b, θs, m̄, m, v̄, s̄, v, s, t)
+    n <= 8 && return _local_read_step!(Val(8), b.lanes[2], b, θs, m̄, m, v̄, s̄, v, s, t)
+    n <= 12 && return _local_read_step!(Val(12), b.lanes[3], b, θs, m̄, m, v̄, s̄, v, s, t)
+    return _local_read_step!(Val(_LOCAL_PRESSURE), b.lanes[4], b, θs, m̄, m, v̄, s̄, v, s, t)
+end
+function _local_step!(::Val{false}, m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     θs = _step_scalars(m̄, m)
     n = length(v) + length(s) + length(b.θ) + length(θs)
     n <= 4 && return _local_step!(Val(4), b.lanes[1], b, θs, m̄, m, v̄, s̄, v, s, t)
@@ -409,6 +426,111 @@ function _local_step!(
     P == 0 || _addparams!(m̄, m, b.ḡ, 0)
     return nothing
 end
+# The local derivative of a whole-step modifier that reads its float arrays
+# entry by entry (`_reads_step`): the values, the state and the scalars are
+# seeded `N` at a time, then the entries the step reads, in the order it
+# reads them, as the pointwise read step records them (`_ReadArray`). The
+# first pass counts the reads, so the passes cover them all.
+function _local_read_step!(
+        ::Val{N}, lane, b, θs::NTuple{Q, Any}, m̄, m, v̄, s̄, v, s, t
+    ) where {N, Q}
+    vd, sd, _, reads = lane
+    D = eltype(vd)
+    T = eltype(b.v̄)
+    S, R = length(v), length(s)
+    M = S + R + Q
+    resize!(vd, S)
+    resize!(sd, R)
+    copyto!(resize!(b.v̄, S), v̄)
+    copyto!(resize!(b.s̄, R), s̄)
+    fill!(v̄, zero(eltype(v̄)))
+    fill!(s̄, zero(eltype(s̄)))
+    pass, n = 0, M
+    while pass * N < n
+        # Bound afresh each pass, so the seeding closure does not box it.
+        o = pass * N
+        for i in 1:S
+            @inbounds vd[i] = D(T(v[i]), _unit(T, i - o, Val(N)))
+        end
+        for j in 1:R
+            @inbounds sd[j] = D(T(s[j]), _unit(T, S + j - o, Val(N)))
+        end
+        θsd = ntuple(j -> D(T(θs[j]), _unit(T, S + R + j - o, Val(N))), Val(Q))
+        reads.n, reads.lo = 0, o - M
+        md = first(_rebuild_reads(m, θsd, _ReadSeed{D}(reads, 0), 1))
+        _written(m, forward!(md, Step(), vd, sd, t))
+        n = M + reads.n
+        ā = zero(ForwardDiff.Partials{N, T})
+        for i in 1:S
+            @inbounds ā += b.v̄[i] * ForwardDiff.partials(vd[i])
+        end
+        for j in 1:R
+            @inbounds ā += b.s̄[j] * ForwardDiff.partials(sd[j])
+        end
+        for j in max(1, o + 1):min(S, o + N)
+            @inbounds v̄[j] += ā[j - o]
+        end
+        for j in max(1, o + 1 - S):min(R, o + N - S)
+            @inbounds s̄[j] += ā[S + j - o]
+        end
+        Q == 0 || o + N <= S + R || o >= M ||
+            _add_scalar!(m̄, m, _picks(ā, S + R - o, Val(Q)), nothing)
+        for j in max(1, M + 1 - o):min(n - o, N)
+            _add_read!(m̄, m, reads.leaf[j], reads.index[j], ā[j], 1)
+        end
+        pass += 1
+    end
+    b.reads[] = n - M
+    return nothing
+end
+
+# The entries one step of `m` over `S` strata reads, from ones, at times 1
+# and 2, and the larger of that and the count at the call's last time
+# `tlast`. A step that reads a different number at times 1 and 2, as one
+# that reads every entry up to `t` does, would need more passes as the run
+# goes on, so it counts as reading more than its arrays hold, as does a
+# step that fails to run: it seeds every entry through views
+# (`_reads_fewer`, `_step_inputs`), and past the cap the call takes plain
+# AD. One whose reads start to grow later is caught at the last time.
+# The count sets only the route and the first lane width: the read step
+# counts the reads on each pass, so a step that reads more on its real
+# values runs more passes and keeps its derivative.
+function _probe_step_reads(m, S, tlast = 2)
+    n = _probe_reads_at(m, S, 1)
+    n == _probe_reads_at(m, S, 2) || return typemax(Int) ÷ 2
+    return tlast <= 2 ? n : max(n, _probe_reads_at(m, S, tlast))
+end
+function _probe_reads_at(m, S, t)
+    θs = _param_tuple(m)
+    T = float(promote_type(map(typeof, θs)..., param_eltype(m)))
+    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_probe_step_reads, T)), T, 1}
+    reads = _Reads{1}()
+    return try
+        md = first(_rebuild_reads(m, map(D, θs), _ReadSeed{D}(reads, 0), 1))
+        forward!(md, Step(), ones(D, S), ones(D, nstate(m, S)), t)
+        reads.n
+    catch e
+        e isa InterruptException && rethrow()
+        typemax(Int) ÷ 2
+    end
+end
+
+# Whether a whole-step modifier's read rebuild gives its scalars back and
+# keeps each float array as the `_ReadArray` of itself.
+function _check_read_rebuild(x)
+    θ = _param_tuple(x)
+    T = float(promote_type(map(typeof, θ)..., param_eltype(x)))
+    D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_check_read_rebuild, T)), T, length(θ) + 1}
+    θd = ntuple(i -> D(T(θ[i]), _unit(T, i, Val(length(θ) + 1))), length(θ))
+    return try
+        xd = first(_rebuild_reads(x, θd, _ReadSeed{D}(_Reads{1}(), length(θ)), 1))
+        _rebuilt_tuple(x, xd) === θd && _reads_kept(x, xd)
+    catch e
+        e isa InterruptException && rethrow()
+        false
+    end
+end
+
 # The modifier the dual step runs: rebuilt from the seeded scalars, or from
 # the seeded parameters (each pass, as scalars are copied), when it is
 # differentiated; as itself when it is held constant.
@@ -514,6 +636,119 @@ function _init_jacobian(m, s, history, P, nh)
     cfg = _local_config(_init_jacobian, f, x0)
     return ForwardDiff.jacobian(f, x0, cfg, Val(false))
 end
+# The Init derivative of a pointwise modifier, stratum by stratum: at
+# stratum `k` the Init runs on the modifier rebuilt with the scalars and
+# the entries read at `(k, 1)`, and on the history with row `k` seeded,
+# each as a dual number with a partial of its own, and `s[k]`'s partials
+# give that stratum's cotangents. The inputs are seeded in passes of the
+# width that holds them, up to the widest; the state is one buffer of dual
+# numbers, and the history is read through a wrapper, so the pullback
+# allocates only that buffer. An Init that writes another stratum's state
+# from row `k` throws, rather than give a wrong gradient.
+function _init_strata_back!(m̄, h̄, m, s̄, s, history)
+    S = length(s)
+    θ = _param_tuple(m, (1, 1))
+    Q = m̄ === nothing ? 0 : length(θ)
+    L = h̄ === nothing ? 0 : length(history) ÷ S
+    T = float(promote_type(map(typeof, θ)..., eltype(s̄), _init_eltype(history)))
+    n = Q + L
+    n <= 4 && return _init_strata!(Val(4), m̄, h̄, m, s̄, history, T, Q, L)
+    n <= 8 && return _init_strata!(Val(8), m̄, h̄, m, s̄, history, T, Q, L)
+    n <= 12 && return _init_strata!(Val(12), m̄, h̄, m, s̄, history, T, Q, L)
+    return _init_strata!(Val(24), m̄, h̄, m, s̄, history, T, Q, L)
+end
+_init_eltype(::Nothing) = Bool
+_init_eltype(h) = eltype(h)
+function _init_strata!(::Val{N}, m̄, h̄, m, s̄, history, ::Type{T}, Q, L) where {N, T}
+    D = Dual{typeof(ForwardDiff.Tag(_init_jacobian, T)), T, N}
+    sd = Vector{D}(undef, length(s̄))
+    for k in eachindex(s̄)
+        iszero(s̄[k]) && continue
+        θk = map(T, _param_tuple(m, (k, 1)))
+        o = 0
+        while true
+            _init_pass!(m̄, h̄, m, sd, s̄[k], θk, history, k, Q, L, o)
+            o += N
+            o < Q + L || break
+        end
+    end
+    return nothing
+end
+# One pass at stratum `k`: inputs `o + 1` to `o + N` are seeded, the
+# scalars first, then the history row.
+function _init_pass!(m̄, h̄, m, sd::Vector{D}, s̄k, θk, history, k, Q, L, o) where {D}
+    N = ForwardDiff.npartials(D)
+    θd = ntuple(i -> _dual_at(D, θk[i], i <= Q ? i - o : 0), Val(length(θk)))
+    md = first(_rebuild_scalar(m, θd))
+    forward!(md, Init(), sd, _row_duals(h̄, D, history, k, length(sd), Q - o))
+    _rows_kept(h̄, sd, k, Q - o, L) || _other_rows_read(m, k)
+    y = ForwardDiff.partials(sd[k])
+    if o < Q
+        g = ntuple(i -> i <= Q && 0 < i - o <= N ? s̄k * y[i - o] : zero(s̄k), Val(length(θk)))
+        _add_scalar!(m̄, m, g, (k, 1))
+    end
+    S = length(sd)
+    for c in max(1, o - Q + 1):min(L, o - Q + N)
+        h̄[k + (c - 1) * S] += s̄k * y[Q + c - o]
+    end
+    return nothing
+end
+# Whether no stratum's state but `k`'s depends on the seeded history row
+# `k`, whose column `c` has partial `off + c`: an Init that writes another
+# stratum's state from it breaks the pointwise contract, and taking its
+# derivative stratum by stratum would give a wrong gradient.
+_rows_kept(::Nothing, sd, k, off, L) = true
+function _rows_kept(h̄::AbstractArray, sd::Vector{D}, k, off, L) where {D}
+    lo, hi = max(1, off + 1), min(ForwardDiff.npartials(D), off + L)
+    lo > hi && return true
+    for j in eachindex(sd)
+        j == k && continue
+        p = ForwardDiff.partials(sd[j])
+        for i in lo:hi
+            iszero(@inbounds p[i]) || return false
+        end
+    end
+    return true
+end
+@noinline function _other_rows_read(m, k)
+    throw(
+        ArgumentError(
+            "the Init of $(nameof(typeof(m))) writes another stratum's state " *
+                "from stratum $k's history; a pointwise modifier's Init writes " *
+                "s[k] from stratum k only, so write a `pullback!` for its Init " *
+                "or keep it to that"
+        )
+    )
+end
+# A dual number of value `x` whose partial `j` is one, all zero for `j`
+# outside `1:N`.
+function _dual_at(::Type{Dual{G, T, N}}, x, j) where {G, T, N}
+    return Dual{G, T, N}(x, ForwardDiff.Partials(ntuple(i -> T(i == j), Val(N))))
+end
+# The history as the Init reads it: as given when it has no cotangent, else
+# with row `k` seeded.
+_row_duals(::Nothing, D, history, k, S, off) = history
+_row_duals(h̄, D, history, k, S, off) = _RowDuals{D}(history, k, S, off)
+# An array of dual numbers read from `h`, strata × time (or a vector for
+# one stratum): the entry in row `k` and column `c` has partial `off + c`,
+# and every other entry none. Nothing is copied.
+struct _RowDuals{D, M, A <: AbstractArray} <: AbstractArray{D, M}
+    h::A
+    k::Int
+    S::Int
+    off::Int
+end
+function _RowDuals{D}(h::AbstractArray{<:Any, M}, k, S, off) where {D, M}
+    return _RowDuals{D, M, typeof(h)}(h, k, S, off)
+end
+Base.size(w::_RowDuals) = size(w.h)
+Base.IndexStyle(::Type{<:_RowDuals}) = IndexLinear()
+function Base.getindex(w::_RowDuals{D}, i::Int) where {D}
+    c, r = divrem(i - 1, w.S)
+    j = r + 1 == w.k ? w.off + c + 1 : 0
+    return _dual_at(D, w.h[i], j)
+end
+
 # A Jacobian's configuration with the tag of local derivative `g`.
 function _local_config(g, f, x)
     return ForwardDiff.JacobianConfig(
@@ -550,6 +785,12 @@ function _transform_partials(
         y::ForwardDiff.Dual{<:ForwardDiff.Tag{_TransformTag}}, ::Val{N}
     ) where {N}
     return ntuple(i -> ForwardDiff.partials(y, i), Val(N))
+end
+# Its value.
+function ComposableRecurrences._transform_value(
+        y::ForwardDiff.Dual{<:ForwardDiff.Tag{_TransformTag}}
+    )
+    return ForwardDiff.value(y)
 end
 
 # The primal value of a dual number, through any nesting, and its type.

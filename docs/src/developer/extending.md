@@ -18,7 +18,7 @@ A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is a function
 |---|---|---|---|
 | modifier step | `forward!(m, Step(), v, s, t)` updates `v` and `s` | `pullback!(grads, m, Step(), v, s, t)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
 | blockwise modifier group step | `forward!(m, Step(), v::Tuple, s::Tuple, t, g)` updates the views in `v` and `s` | `pullback!(grads, m, Step(), v, s, t, g)` | `piece`; `v` and `s` are tuples of views holding the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
-| initial state | `forward!(m, Init(), s, history)` writes `s` | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
+| initial state | `forward!(m, Init(), s, history)` writes `s`; a pointwise modifier writes `s[k]` from stratum `k` only | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
 | coupling | `forward!(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | `piece`; `q` holds the cotangent of `q`; add into `p` |
 | depletion form | `forward!(form, Step(), v, s, N)` writes the drawn values into `v` and the pools after the draw into `s` | `pullback!(grads, form, Step(), v, s, N)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s`, add that of `N` into `N`, indexed as `v` is, and those of the form's own parameters into `piece` |
 | modifier trace | `forward!(m, ComposableRecurrences.Trace(), r, v, s, v′, s′, t)` writes `r`: for a pointwise modifier a tuple of vectors, one per trace value, indexed as `v`; for any other the step's column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t)` | `piece`; `trace` holds the cotangent of `r`, in its shape; add into `v`, `s`, `v′` and `s′` |
@@ -36,6 +36,8 @@ The arguments mean the same in every role:
 - A pointwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to `(1, 1)`, and writes entry `k` of `v` and `s` from entry `k` only, for each `k` in `eachindex(v)`.
   The operator may call it on a one-entry view of stratum `k`, whose axes are `k:k`, so loop over `eachindex(v)` and read parameters at `k` with [`param`](@ref ComposableRecurrences.param).
   A broadcast against a field with one entry per stratum, such as `v .*= m.w`, cannot run on that view; the pointwise check of `PieceInterface` reports it.
+  Its `Init` writes `s[k]` from the parameters read at stratum `k` and time 1, `param(m.a, k, 1)`, and from row `k` of the history only.
+  Without an `Init` `pullback!`, its derivative is then taken stratum by stratum, and the pointwise check of `PieceInterface` checks it.
   Such a step runs on a [`Device`](@ref ComposableRecurrences.Device) when it reads and writes only `eachindex(v)` entries, and allocates nothing.
 - A blockwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to its `(nv, ns)` and implements the step for one group, `g`, on tuples of one-entry views; read and write a view `x` as `x[]`.
 - Any other modifier implements the step on whole vectors and may read every stratum.

@@ -699,6 +699,31 @@ end
     end
 end
 
+@testitem "Coupling pressure: BLAS's product from _BLAS_MIX strata" begin
+    using ComposableRecurrences, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(12)
+    N = CR._BLAS_MIX
+    # Just below the threshold the loop runs, from it BLAS; both give the
+    # product, with the pressures a view of a longer buffer as in a step.
+    for S in (N - 1, N, 2N)
+        C, p = rand(rng, S, S), rand(rng, S)
+        @test CR._blas_mix(C) == (S >= N)
+        buf = fill(NaN, 2S)
+        q = view(buf, (S + 1):(2S))
+        CR.forward!(C, CR.Pressure(), q, p, 1)
+        @test q ≈ C * p
+        # Float32 too, and a mixed element type keeps to the loop.
+        C32, p32 = Float32.(C), Float32.(p)
+        q32 = zeros(Float32, S)
+        CR.forward!(C32, CR.Pressure(), q32, p32, 1)
+        @test q32 ≈ C32 * p32
+        qm = zeros(S)
+        CR.forward!(C32, CR.Pressure(), qm, p, 1)
+        @test qm ≈ C32 * p
+    end
+end
+
 @testitem "Recurrence: forward(r, Run(), R) and record infer" begin
     using ComposableRecurrences, Test
     CR = ComposableRecurrences
