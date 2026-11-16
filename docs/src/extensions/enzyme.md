@@ -19,3 +19,8 @@ Branching inside the loss to one call per concrete modifier also avoids the erro
 
 Without runtime activity (`AutoEnzyme()`, or `Enzyme.Reverse` as given), Enzyme raises `EnzymeRuntimeActivityError` when an operator with an active part holds a constant array that lives outside the loss, such as a global population in `Depletion(PerStratum(N))`.
 Use `AutoEnzyme(; mode = Enzyme.set_runtime_activity(Enzyme.Reverse))`, as the tutorials do, or build every such array inside the loss, the kernel included.
+
+Under Enzyme reverse mode, joining a view to a matrix with `hcat`, or with `[a b]`, fails with `IllegalTypeAnalysisException` ([issue #672](https://github.com/EpiAware/ComposableRecurrences.jl/issues/672)).
+This happens when a caller puts a run's history in front of its output, `hcat(h, r(; history = reshape(h, :, 1), add = A))`, and `h` is a view, as a parameter read from a flat vector is.
+The error comes from Enzyme's type analysis of Base's `hcat`, with no package code involved; `vcat` fails the same way ([issue #299](https://github.com/EpiAware/ComposableRecurrences.jl/issues/299)).
+Join with `cat(h, r(; history = reshape(h, :, 1), add = A); dims = 2)` instead, which Enzyme compiles, or `collect` the view first.
