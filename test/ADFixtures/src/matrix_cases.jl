@@ -1593,6 +1593,43 @@ if isfile(BVD_HANDRULE)
     end
     _bvd_bins_hand(kernel) = (wrap, daily, days) -> kernel(daily, days)
 
+    # BVD's `zone_window_weights`: what one infection on each of `T` grid days
+    # adds to each vintage window through a delay PMF of `L` lags, lag 0
+    # first. The windows are the backend's: the first runs to day `T - 100`
+    # and the other 100 are single days. The package arm is the port's
+    # spelling: a `Convolution` of each window's indicator in reversed time,
+    # then reversed back and transposed.
+    function _bvd_window_rows(T)
+        stops = collect(max(1, T - 100):T)
+        return [1; stops[1:(end - 1)] .+ 1], stops
+    end
+    function _bvd_window_weights(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            starts, stops = _bvd_window_rows(T)
+            W = _weights(T, length(starts))
+            f = function (θ)
+                return sum(W .* run(wrap, θ, starts, stops, T))
+            end
+            return f, _gi(L)
+        end
+    end
+    function _bvd_window_weights_rule(wrap, f, starts, stops, nd)
+        nv = length(starts)
+        (nv == 0 || nd == 0) && return zeros(eltype(f), nd, nv)
+        windows = [
+            starts[v] <= nd + 1 - j <= stops[v] ? one(eltype(f)) :
+                zero(eltype(f))
+                for v in 1:nv, j in 1:nd
+        ]
+        return permutedims(reverse(wrap(Convolution(f))(windows); dims = 2))
+    end
+    function _bvd_window_weights_hand(kernel)
+        return function (wrap, f, starts, stops, nd)
+            return kernel(collect(f), starts, stops, nd)
+        end
+    end
+
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
                 "bvd_renewal", "BVD renewal_infections: seeded hazard depletion",
@@ -1637,6 +1674,13 @@ if isfile(BVD_HANDRULE)
                 _bvd_bins, _bvd_bins_rule, _bvd_bins_hand,
                 (BVD.bin_loop, BVD.bin_increments), [1],
             ),
+            (
+                "bvd_window_weights",
+                "BVD zone_window_weights: window weights from a delay PMF",
+                _bvd_window_weights, _bvd_window_weights_rule,
+                _bvd_window_weights_hand,
+                (BVD.zone_window_loop, BVD.zone_window_weights), [1],
+            ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
         BASELINES[name] = [
@@ -1650,6 +1694,11 @@ if isfile(BVD_HANDRULE)
     end
     # Weekly and 30-day bins over the backend's 220 days.
     TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
+    # The backend's timing call, 161 grid days with a 45-lag PMF, and its
+    # model's 202 grid days with a 50-lag PMF.
+    TIERS["docs"].bycase["bvd_window_weights"] = [
+        (T = 161, L = 45), (T = 202, L = 50),
+    ]
     # The backend's call shape against the same loops, which read the series
     # over the seed's days too and return those days first.
     _renewal_call_hand(kernel) = (wrap, g, seed, R, N) -> kernel(R, collect(g), seed, N)

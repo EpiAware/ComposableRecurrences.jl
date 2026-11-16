@@ -171,3 +171,31 @@ end
         end
     end
 end
+
+@testitem "The window-weights case's arms agree at the backend's sizes" tags = [:ad, :mooncake_reverse] begin
+    using ADFixtures: MatrixCases as MC
+    using ADTypes: AutoMooncake
+    import DifferentiationInterface as DI
+    import ForwardDiff, Mooncake
+
+    B = MC.BVD
+    V = Vector{Int}
+    sig = Tuple{typeof(B.zone_window_weights), Vector{Float64}, V, V, Int}
+    @test Mooncake.is_primitive(
+        Mooncake.MinimalCtx, Mooncake.ReverseMode, sig, Base.get_world_counter()
+    )
+    c = only(x for x in MC.CASES if x.name == "bvd_window_weights")
+    backend = AutoMooncake(; config = nothing)
+    for (T, L) in ((161, 45), (202, 50), (60, 10))
+        z = MC.Size(; T, L)
+        loop, θ = MC.build(c, z, "loop")
+        ref = ForwardDiff.gradient(loop, θ)
+        for arm in ("rule", "NoAdjoint", "handrule")
+            f, θarm = MC.build(c, z, arm)
+            @test θarm == θ
+            @test f(θ) ≈ loop(θ)
+            prep = DI.prepare_gradient(f, backend, copy(θ))
+            @test DI.gradient(f, prep, backend, θ) ≈ ref rtol = 1.0e-8
+        end
+    end
+end
