@@ -152,11 +152,13 @@ struct Flow{D, F <: _FlowForm, E, P}
 end
 
 # The checks on a flow's ends, form and demand that read no demand entries;
-# returns the demand, which the checks leave as it is.
+# returns the demand.
 function _check_flow(from, to, demand, form)
     _check_flow_parts(from, to, demand, form)
     return demand
 end
+# The checks alone, returning nothing, so that AD can take them as having
+# no derivative.
 function _check_flow_parts(from, to, demand, form)
     _check_end(:from, from)
     _check_end(:to, to)

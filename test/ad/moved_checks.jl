@@ -421,7 +421,11 @@ end
             Tuple{typeof(CR._check_pieces), Tuple, Int},
             Tuple{typeof(CR._check_given), Tuple},
         )
-        @test Mooncake.is_primitive(Mooncake.DefaultCtx, Mooncake.ReverseMode, sig, Base.get_world_counter())
+        for mode in (Mooncake.ReverseMode, Mooncake.ForwardMode)
+            @test Mooncake.is_primitive(
+                Mooncake.DefaultCtx, mode, sig, Base.get_world_counter()
+            )
+        end
     end
     T = 30
     function model(θ)
@@ -449,6 +453,19 @@ end
     @test gr ≈ g rtol = 1.0e-10
     dθ = [sin(i / 7) for i in eachindex(θ)]
     dcache = Mooncake.prepare_derivative_cache(model, θ)
-    _, d = Mooncake.value_and_derivative!!(dcache, (model, Mooncake.NoTangent()), (θ, dθ))
+    _, d = Mooncake.value_and_derivative!!(
+        dcache, (model, Mooncake.NoTangent()), (θ, dθ)
+    )
     @test d ≈ g' * dθ rtol = 1.0e-10
+    # The checks still throw inside a gradient: a share above one.
+    function bad(θ)
+        dep = CR.Depletion(
+            CR.Flow(:u => :c, 1.5 * θ[1]; form = CR.Share()); pools = (:u, :c)
+        )
+        r = Recurrence([true]; modifiers = (dep,))
+        return sum(r(; history = ones(2, 1), stop = 3))
+    end
+    @test_throws ArgumentError Mooncake.value_and_gradient!!(
+        Mooncake.prepare_gradient_cache(bad, [1.0]), bad, [1.0]
+    )
 end

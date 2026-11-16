@@ -112,11 +112,15 @@ Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_form), Any}
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_check_flow_parts), Any, Any, Any, Any,
 }
-Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_unit), Any, Any}
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
+    typeof(_check_unit), Any, Any,
+}
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_check_nonnegative), Any, Any,
 }
-Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_pieces), Any, Any}
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
+    typeof(_check_pieces), Any, Any,
+}
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_given), Any}
 # Nor is the `Allocate` constructor's check and flattening of its groups,
 # which handles only integers.
