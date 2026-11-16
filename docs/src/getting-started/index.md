@@ -46,7 +46,8 @@ Infections before the first day are the history.
 ```@example overview
 gi = [0.05, 0.2, 0.3, 0.25, 0.12, 0.08]
 T = 75
-one_town = Recurrence(gi)(fill(1.8, T); history = fill(10.0, 6))
+one_seed = fill(10.0, 6)
+one_town = Recurrence(gi)(fill(1.8, T); history = one_seed)
 
 @chain DataFrame(day = 1:T, count = one_town) begin
     data(_) * mapping(:day, :count) * visual(Lines, linewidth = 2)
@@ -68,12 +69,12 @@ C_t = \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l},
 
 where ``C_t`` is the number of reports on day ``t``.
 ``w_l`` is the delay's weight on lag ``l``, and ``L_w`` is its length.
-Infections before day 1 count as zero here.
+The delay reads the same history as the renewal, `one_seed`, 10 infections on each of the six days before day 1.
 ``\rho`` is the gain of the [`Convolution`](@ref), and a delay of zero days is lag 0.
 
 ```@example overview
 delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
-one_report = delay(one_town; gain = 0.4)
+one_report = delay(one_town; gain = 0.4, history = one_seed)
 
 @chain long([one_town one_report]', ["Infections", "Reports"]; name = :series) begin
     data(_) * mapping(:day, :count, color = :series => "") *
@@ -134,19 +135,19 @@ They then grow at about the same rate as town A.
 
 Each infection removes a person from the pool of people who can be infected.
 A finite pool stops an outbreak growing without limit.
-In town A alone, the susceptible pool ``s_t`` starts at the population ``N`` and shrinks by the infections drawn from it.
+In town A alone, the susceptible pool ``S_t`` starts at the population ``N`` and shrinks by the infections drawn from it.
 The default hazard form draws
 
 ```math
 \lambda_t = \frac{v_t}{N}, \qquad
-I_t = s_{t-1} \big(1 - e^{-\lambda_t}\big), \qquad
-s_t = s_{t-1} \, e^{-\lambda_t},
+I_t = S_{t-1} \big(1 - e^{-\lambda_t}\big), \qquad
+S_t = S_{t-1} \, e^{-\lambda_t},
 ```
 
 where ``v_t`` is the right-hand side of the renewal equation and ``\lambda_t`` is the hazard.
 
 ```@example overview
-one_depleted = Recurrence(gi; modifiers = (Depletion(pop[1]),))(fill(1.8, T); history = fill(10.0, 6))
+one_depleted = Recurrence(gi; modifiers = (Depletion(pop[1]),))(fill(1.8, T); history = one_seed)
 
 @chain DataFrame(day = 1:T, count = one_depleted) begin
     data(_) * mapping(:day, :count) * visual(Lines, linewidth = 2)
@@ -168,7 +169,7 @@ R_t = 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big).
 
 ```@example overview
 intervention = [1.8 - clamp((t - 50) / 6, 0, 1) for t in 1:T]
-one_intervened = Recurrence(gi)(intervention; history = fill(10.0, 6))
+one_intervened = Recurrence(gi)(intervention; history = one_seed)
 
 @chain long([one_town one_intervened]', ["No intervention", "Intervention"]; name = :series) begin
     data(_) * mapping(:day, :count, color = :series => "") *
@@ -196,7 +197,7 @@ An intervention from day 50 lowers the reproduction number in every town.
 ```math
 \begin{aligned}
 v_{t,i} &= R_{t,i} \sum_{j=1}^{3} K_{ij} \sum_{l=1}^{L} g_l \, I_{t-l,j}, \\
-I_{t,i} &= s_{t-1,i} \big(1 - e^{-v_{t,i} / N_i}\big), \qquad s_{t,i} = s_{t-1,i} \, e^{-v_{t,i} / N_i}, \\
+I_{t,i} &= S_{t-1,i} \big(1 - e^{-v_{t,i} / N_i}\big), \qquad S_{t,i} = S_{t-1,i} \, e^{-v_{t,i} / N_i}, \\
 C_{t,i} &= \rho \sum_{l=0}^{L_w - 1} w_l \, I_{t-l,i}, \\
 K_{ij} &= 0.998 \, \delta_{ij} + 0.002 \, \frac{G_{ij}}{\sum_{m} G_{im}}, \qquad G_{ij} = \frac{N_j}{d_{ij}^2} \text{ for } i \neq j, \\
 R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
@@ -204,11 +205,12 @@ R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
 ```
 
 where ``I_{t,i}`` is the number of infections in town ``i`` on day ``t``, ``C_{t,i}`` the number of reports and ``R_{t,i}`` the reproduction number.
-The value ``v_{t,i}`` is the number of new infections before depletion, and the susceptible pool ``s_{t,i}`` starts at the population ``N_i``.
+The value ``v_{t,i}`` is the number of new infections before depletion, and the susceptible pool ``S_{t,i}`` starts at the population ``N_i``.
 The generation interval has weight ``g_l`` on lag ``l`` over ``L`` lags, the reporting delay has weight ``w_l`` over ``L_w`` lags, and a share ``\rho = 0.4`` of infections is reported.
 The gravity coupling ``K_{ij}`` comes from the populations and the distances ``d_{ij}`` between towns, with ``G_{ii} = 0``.
 The term ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
 Town A has 10 infections on each of the six days before day 1, and the other towns none.
+The renewal and the delay both read these as their `history`, so the reports from day 1 include them.
 In the code, `PerStratum(pop)` gives each town its own population.
 
 ```@example overview
@@ -216,12 +218,12 @@ R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
 
 renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 infections = renewal(R; history = seed)
-reports = delay(infections; gain = 0.4)
+reports = delay(infections; gain = 0.4, history = seed)
 round.(Int, vec(sum(infections; dims = 2)))
 ```
 
 The result is each town's total infections over the 75 days.
-The susceptible share of town ``i`` on day ``t`` is ``s_{t,i} / N_i``.
+The susceptible share of town ``i`` on day ``t`` is ``S_{t,i} / N_i``.
 
 ```@example overview
 susceptible = 1 .- cumsum(infections; dims = 2) ./ pop
@@ -242,26 +244,14 @@ Town A peaks on day 36, before the intervention, because its susceptible pool ru
 The intervention brings the peaks of towns B and C forward to day 50, from days 53 and 51 without it.
 About 49% of town B and 54% of town C are infected, against 73% without the intervention.
 
-## [Performance](@id overview-performance)
-
-The chart compares the time the operators take with three hand-written versions of the same model.
-Each bar times the three-town model over 200 days with a 20-day generation interval.
-The hand-written versions are a preallocated loop, a loop that copies its window every step, and `accumulate` over a `NamedTuple` state.
-
-```@example overview
-using ComposableRecurrences: Floor, Add # hide
-include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) # hide
-performance_plot("naive vs package")
-```
-
 ### Changing the model
 
 Switching to the floored depletion form and adding imported infections after depletion changes one line of the operator version.
 The step becomes
 
 ```math
-D_{t,i} = \max\Big(\max\Big(\frac{s_{t-1,i}}{N_i}, 0\Big), 10^{-6}\Big) \, v_{t,i}, \qquad
-s_{t,i} = s_{t-1,i} - D_{t,i}, \qquad
+D_{t,i} = \max\Big(\max\Big(\frac{S_{t-1,i}}{N_i}, 0\Big), 10^{-6}\Big) \, v_{t,i}, \qquad
+S_{t,i} = S_{t-1,i} - D_{t,i}, \qquad
 I_{t,i} = D_{t,i} + \iota_{t,i},
 ```
 
@@ -270,12 +260,13 @@ Imports added after the `Depletion` do not draw down the pool, unlike [imports a
 
 ```diff
 -renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
-+renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop), Floor()), Add(TimeVarying(PerStratum(ι)))))
++renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop), Floor()), Transform(+, TimeVarying(PerStratum(ι)))))
 ```
 
 ::: details The same change in the hand-written loop
 
 ```@example overview
+using ComposableRecurrences: Floor, Transform
 function loop_renewal(R, seed, gi, K, pop, ι)  # changed: imports passed in
     S, T = size(R)
     L, m = length(gi), size(seed, 2)
@@ -302,7 +293,7 @@ end
 ι[3, 1:10] .= 5.0
 extended = Recurrence(
     gi; coupling = K,
-    modifiers = (Depletion(PerStratum(pop), Floor()), Add(TimeVarying(PerStratum(ι))))
+    modifiers = (Depletion(PerStratum(pop), Floor()), Transform(+, TimeVarying(PerStratum(ι))))
 )
 maximum(abs, extended(R; history = seed) .- loop_renewal(R, seed, gi, K, pop, ι))
 ```
@@ -311,10 +302,11 @@ maximum(abs, extended(R; history = seed) .- loop_renewal(R, seed, gi, K, pop, ι
 
 ## Gradients
 
-One line gives the gradient of all reports with respect to every town's reproduction number on every day.
+ForwardDiff gives the gradient of all reports with respect to every town's reproduction number on every day.
 
 ```@example overview
-∂R = ForwardDiff.gradient(R -> sum(delay(renewal(R; history = seed); gain = 0.4)), R)
+reports_of(R) = delay(renewal(R; history = seed); gain = 0.4, history = seed)
+∂R = ForwardDiff.gradient(R -> sum(reports_of(R)), R)
 round.(vec(sum(∂R; dims = 2)); digits = 1)
 ```
 
@@ -331,13 +323,25 @@ Total reports are most sensitive to town A's reproduction number around its peak
 The reproduction numbers of B and C matter most just before the intervention, when their own outbreaks are largest.
 Sensitivity fades after the intervention and is zero on the last day, whose infections are not yet reported.
 
+## [Performance](@id overview-performance)
+
+The chart compares the time the operators take with three hand-written versions of the same model.
+Each bar times the three-town model over 200 days with a 20-day generation interval.
+The hand-written versions are a preallocated loop, a loop that copies its window every step, and `accumulate` over a `NamedTuple` state.
+
+```@example overview
+include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) # hide
+performance_plot("naive vs package")
+```
+
+The [benchmarks page](@ref benchmarks-hand-written) compares each tutorial's model with a hand-written loop of it in the same way.
+
 ## Learning more
 
 - See every operator, coupling and modifier on the [API overview](@ref api-overview).
 - See how renewal processes, delays and occupancy map to the package in [Infectious disease models](@ref infectious-disease-models).
 - Want to write your own modifier or coupling? See the [Developer documentation](@ref developer).
 - Want the full interface? See the [Public API](@ref public-api).
-- Want the packages ComposableRecurrences works alongside? See Related packages on the [home page](../index.md).
 
 ## Getting help
 

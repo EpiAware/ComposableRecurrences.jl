@@ -180,7 +180,7 @@ end
         ["a", "b"]
     @test [l for (_, l) in literate_prose("# Prose.\nx = 1  # code. X\n")] ==
         ["Prose."]
-    calls = ("Recurrence", "Add")
+    calls = ("Recurrence", "Transform")
     @test sections_missing_maths("# ## A\nr = Recurrence(k)\n", calls) ==
         ["A"]
     @test isempty(
@@ -198,10 +198,10 @@ end
     @test julia_block_lines("a\n```julia\nx = 1\n\ny = 2\n```\n") ==
         ["x = 1", "y = 2"]
     @test isempty(sections_missing_maths("# ## A\nx = MyAdd(1)\n", calls))
-    @test sections_missing_maths("# ## A\nx = CR.Add(1)\n", calls) == ["A"]
+    @test sections_missing_maths("# ## A\nx = CR.Transform(+, 1)\n", calls) == ["A"]
     nested = "# ## A\n# ```math\n# ```\n# ### B\nRecurrence(k)\n"
     @test sections_missing_maths(nested, calls) == ["B"]
-    @test sections_missing_maths("# ## [A](@id a)\nAdd(1)\n", calls) == ["A"]
+    @test sections_missing_maths("# ## [A](@id a)\nTransform(+, 1)\n", calls) == ["A"]
 end
 
 @testitem "Standards: the nav lists every page the docs build" tags = [

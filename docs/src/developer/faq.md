@@ -6,7 +6,7 @@ Load [Revise](https://github.com/timholy/Revise.jl) before the package, so edits
 
 ## How do I run a subset of the tests?
 
-The test entry point takes `skip_quality`, `quality_only`, `readme_only` and `usecase_only`.
+The test entry point takes `skip_quality`, `quality_only`, `readme_only`, `usecase_only` and `threads_only`.
 
 ```bash
 julia --project=test test/runtests.jl skip_quality

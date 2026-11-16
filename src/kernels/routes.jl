@@ -1,5 +1,7 @@
-# The kernel `Pairwise(C₁ => k₁, C₂ => k₂, ...)` builds, held as its routes'
-# couplings and kernels in route order.
+# == _Routes ==
+
+# The kernel `Pairwise(C₁ => k₁, C₂ => k₂, ...)` builds: its routes' couplings
+# and kernels, in route order.
 struct _Routes{C <: Tuple, G <: Tuple}
     "Each route's coupling."
     couplings::C
@@ -62,6 +64,9 @@ _describe(R::_Routes) = _describe_routes(length(R.kernels))
 _describe_routes(n) = string("Pairwise with ", n, n == 1 ? " route" : " routes")
 
 _check_kernel_shape(::_Routes) = nothing
+function _check_coupling_shape(R::_Routes)
+    return _kernel_as_coupling_error(R, "Pairwise(C => k, ...)", "Pairwise")
+end
 function _check_pairwise_coupling(::_Routes, coupling)
     return _check_unit_coupling(
         coupling,
@@ -69,9 +74,11 @@ function _check_pairwise_coupling(::_Routes, coupling)
     )
 end
 
-# The fold: one route is its kernel with its coupling, unless it is a
-# pairwise kernel, which takes coupling `I`; routes on `λ * I` with vector
-# kernels sum into one kernel. Decided from the types.
+# == Folding to a plain kernel ==
+
+# One route is its kernel with its coupling, unless that kernel is pairwise;
+# routes on `λ * I` with vector kernels sum into one kernel. Decided from the
+# types.
 function _fold(R::_Routes, J::UniformScaling{Bool})
     _check_pairwise_coupling(R, J)
     return _fold_routes(R.couplings, R.kernels, R, J)
@@ -99,6 +106,8 @@ function _scaled_sum(Cs, gs)
     return g
 end
 
+# == Checks and adjoint traits ==
+
 _nlags(R::_Routes) = maximum(map(_nlags, R.kernels))
 
 function _check_kernel_strata(R::_Routes, S)
@@ -118,10 +127,8 @@ function _check_primary_seed(R::_Routes, history, start)
     return nothing
 end
 
-# The rule covers the routes when it covers every route coupling, with its
-# own pullback or a local derivative, as for the coupling of a
-# `Recurrence`; the local step rebuilds and fits each route coupling as it
-# does that coupling.
+# The rule covers the routes when it covers every route coupling, as for the
+# coupling of a `Recurrence`.
 _kernel_adjoint(R::_Routes) = all(C -> _coupling_adjoint(C) !== :none, R.couplings)
 _kernel_couplings(R::_Routes) = R.couplings
 
@@ -130,9 +137,11 @@ function _no_adjoint_kernel(R::_Routes)
     return Tuple(_part_why(C) for C in R.couplings if _coupling_adjoint(C) === :none)
 end
 
-# The routes as a run reads them: the couplings, each kernel oldest first
-# and its length, and two work vectors at the buffer eltype for one route's
-# convolution and its coupled pressure, or their cotangents.
+# == Forward pass ==
+
+# The routes as a run reads them: each kernel oldest first and its length,
+# and work vectors `z` and `w` for one route's convolution and its coupled
+# pressure, or their cotangents.
 struct _RouteKernels{C <: Tuple, G <: Tuple, L <: Tuple, W}
     couplings::C
     kernels::G
@@ -154,9 +163,8 @@ end
 # The routes mix strata, so the strata do not run on their own.
 _independent(::_PointwiseCoupling, ::_RouteKernels, ::Tuple) = false
 
-# The routes' pressure fills `p` before each step, and the coupling is `I`.
-# Route `r` reads the last `L_r` rows of the window, buffer rows
-# `t + L - L_r` to `t + L - 1`.
+# The routes' pressure fills `p` before each step, under coupling `I`. Route
+# `r` reads buffer rows `t + L - L_r` to `t + L - 1`.
 function _prepare!(ex, p, q, C::UniformScaling, k::_RouteKernels, H, t, τ, L)
     fill!(p, zero(eltype(p)))
     _routes_pressure!(ex, p, k.z, k.w, k.couplings, k.kernels, k.lags, H, t, τ, L)
@@ -179,16 +187,14 @@ function _routes_pressure!(ex, p, z, w, Cs::Tuple, gs::Tuple, Ls::Tuple, H, t, �
     )
 end
 
-# The reverse pass, per route: recompute its kernel convolution `z` from
-# the buffer, send the pressure's cotangent `p̄` back through its coupling
-# into `z̄`, then through its kernel into the buffer. The mirrors of the
-# route couplings and kernels sit in the kernel's mirror.
+# == Reverse pass ==
+
+# Each route's mirror, or `nothing` for each when no cotangent is carried.
 _route_mirrors(::Nothing, xs) = map(_ -> nothing, xs)
 _route_mirrors(x̄s, xs) = x̄s
 
-# Each route's kernel buffer, and its coupling's dual-number buffers
-# (`_pressure_buffers`), made once per reverse pass so a step allocates
-# nothing.
+# Each route's kernel buffer and coupling buffers, made once per reverse
+# pass so a step allocates nothing.
 struct _RouteBuffers{K <: Tuple, P <: Tuple}
     kernels::K
     pressures::P
@@ -216,6 +222,8 @@ function _kernels_back!(accs, kbuf, k::_RouteKernels, p̄, H, H̄, t, τ, L)
     _kernel_back!(kbuf, _own(first(accs).ḡ), k, p̄, H, H̄, t, τ, L)
     return nothing
 end
+# Per route: recompute its convolution `z`, send `p̄` back through its
+# coupling into `z̄`, then through its kernel into the buffer.
 function _routes_back!(
         ::Tuple{}, pbufs, ḡs, C̄s, Cs, gs, Ls, z, z̄, p̄, H, H̄, t, τ, L
     )
@@ -240,8 +248,4 @@ function _kernel_finish!(ḡ, kbuf::_RouteBuffers)
     kbufs = kbuf.kernels
     foreach(_kernel_finish!, _route_mirrors(cotangent(ḡ, :kernels), kbufs), kbufs)
     return nothing
-end
-
-function _check_coupling_shape(R::_Routes)
-    return _kernel_as_coupling_error(R, "Pairwise(C => k, ...)", "Pairwise")
 end

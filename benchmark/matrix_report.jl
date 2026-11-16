@@ -518,17 +518,18 @@ function report(dir, prevdir = nothing)
 end
 
 # The docs table: the getting-started model and the tutorials' models
-# against code written without the package, the user modifier under plain
-# AD and through the rule with and without its `pullback!`, and the case
-# study's backend kernels against their hand loops with and without
-# hand-written rules. Each row is one method on one target; `ratio` is its
-# median over the reference method's (the package, or the modifier with
-# `forward` only).
+# against code written without the package and against the package with its
+# rules turned off, the user modifier under plain AD and through the rule
+# with and without its `pullback!`, and the case study's backend kernels
+# against their hand loops with and without hand-written rules. Each row is
+# one method on one target; `ratio` is its median over the reference
+# method's (the package, or the modifier with `forward` only).
 const DOCS_BLOCKS = [
     (
         "naive vs package", "overview", "ComposableRecurrences",
         [
             ("overview", "rule") => "ComposableRecurrences",
+            ("overview", "NoAdjoint") => "plain AD",
             ("overview", "loop") => "hand loop",
             ("overview", "copy loop") => "hand loop (window copies)",
             ("overview", "accumulate") => "accumulate",
@@ -571,7 +572,17 @@ const DOCS_BLOCKS = [
     ),
 ]
 # The tutorials' models against their hand loops, one block per page. The
-# forecast's loop runs every day in one pass, with no state to resume.
+# forecast's loop runs every day in one pass, with no state to resume. The
+# cases in `HAND_RULE_CASES` also time the loop with hand-written Mooncake
+# rules, from `benchmark/tutorial_handrule.jl`. It repeats
+# `TUTORIAL_HANDRULE_CASES` in `test/ADFixtures/src/matrix_cases.jl`, which
+# this file runs without; a case added there goes here too.
+const HAND_RULE_CASES = Set(
+    [
+        "ar", "renewal_depletion", "renewal_imports", "transform",
+        "delay_primary", "outcome_chain", "renewal_forecast", "reproduction",
+    ]
+)
 for (block, case, loop) in (
         ("renewal", "renewal_depletion", "hand loop"),
         ("vaccination", "strata_waning", "hand loop"),
@@ -588,14 +599,21 @@ for (block, case, loop) in (
     push!(
         DOCS_BLOCKS, (
             block, case, "ComposableRecurrences",
-            [(case, "rule") => "ComposableRecurrences", (case, "loop") => loop],
+            [
+                (case, "rule") => "ComposableRecurrences",
+                (case, "NoAdjoint") => "plain AD", (case, "loop") => loop,
+                (
+                    case in HAND_RULE_CASES ?
+                        [(case, "handrule") => "hand rules"] : []
+                )...,
+            ],
         )
     )
 end
 const DOCS_COLUMNS = [
     "block", "size", "method", "target", "status", "median_us", "min_us",
     "allocs",
-    "ratio", "relerr", "check", "revision", "rules",
+    "ratio", "relerr", "check", "revision", "rules", "case",
 ]
 
 function docs_csv(run)
@@ -637,7 +655,7 @@ function docs_csv(run)
                                     "%.3f", _num(r, "median_ns") / _num(ref, "median_ns")
                                 ) : "",
                             r["relerr"], r["check"], first(get(m, "rev", ""), 8),
-                            get(m, "rules", ""),
+                            get(m, "rules", ""), c,
                         ], ','
                     )
                 )

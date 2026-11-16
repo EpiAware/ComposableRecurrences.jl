@@ -113,7 +113,7 @@ end
             pools = (S = rest - protected0, V = protected0)
         )
         y, state = Recurrence(g; modifiers = (d,))(
-            R; history = [float(n0)], state = true
+            R; history = [float(n0)], record = (:state,)
         )
         u∞, w∞ = state.states[1]
         @test y[end] < 1.0e-6

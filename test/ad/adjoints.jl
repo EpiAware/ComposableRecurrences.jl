@@ -102,13 +102,20 @@
     # scalar, mixed-eltype and Float32 fields, pools and flows (past 32
     # leaves), a population over time, imports, movements, dense matrices,
     # `Derived`, a capacity, a seed joined to the output with and without
-    # state, traces of pointwise and grouped steps, change points, the
-    # automatic convolution, the weights of a computed kernel, the local
-    # steps of user types, routes, and an operator checked at the call. Enzyme's pass with the operator constant
-    # reaches branches for a constant part that only some operators have,
-    # so their scenarios are here too: a constant movement, `Clamp`, a
-    # traced movement, change-point kernels, ragged columns held as given
-    # and outputs read by a parameter. `extra_cases` adds the shapes the
+    # state, traces of pointwise and grouped steps and through a sparse
+    # coupling, change points, the automatic convolution, the weights of a
+    # computed kernel, the local steps of user types, routes, and an
+    # operator checked at the call.
+    # So are the operator types and field types no other scenario has: the
+    # transpose, lag contributions, kernels computed from a distribution, a
+    # hazard and survival or a chain of delays, time-varying, pairwise and
+    # per-stratum kernels, sparse and `Diagonal` couplings, `Allocate` alone,
+    # dense and sparse routes and a whole-step modifier holding a vector.
+    # Enzyme's pass with the operator constant reaches branches for a
+    # constant part that only some operators have, so their scenarios are
+    # here too: a constant movement, `Transform(clamp, lo, hi)`, a traced
+    # movement, change-point kernels, ragged columns held as given and
+    # outputs read by a parameter. `extra_cases` adds the shapes the
     # registry lacks.
     const ADJOINT_SCENARIOS = (
         "Recurrence renewal",
@@ -128,6 +135,8 @@
         "Recurrence seeded on a growth path",
         "Recurrence returning its state after its seed",
         "Recurrence trace of pointwise modifiers",
+        "Recurrence default traces of user modifiers",
+        "Recurrence user traces on groups and over the whole step",
         "Recurrence trace of a protected pool",
         "Recurrence coupling from change points",
         "Recurrence parameters from change points",
@@ -140,12 +149,29 @@
         "Recurrence whole-step modifier without a pullback",
         "Recurrence routes with a user coupling without a pullback",
         "Recurrence checked at the call",
-        "Recurrence Redistribute, Add and Clamp",
+        "Recurrence Redistribute, Transform(+) and Transform(clamp)",
         "Recurrence trace of the importation (Redistribute)",
+        "Recurrence trace through a sparse coupling",
         "Recurrence Primary per-stratum kernel from change points",
         "Convolution kernel from change points with history",
         "Convolution ragged kernel of views into the parameters",
         "Recurrence feedback from recent outputs",
+        "Convolution transpose of a Primary kernel with a tail",
+        "Convolution Poisson delay distribution",
+        "Convolution kernel from a hazard and a survival",
+        "Convolution chain of two delays as masses",
+        "Convolution time-varying kernel",
+        "Recurrence negative binomial generation interval per stratum",
+        "Recurrence kernel shortened by a survival",
+        "Recurrence time-varying kernel and coupling",
+        "Recurrence pairwise kernel",
+        "Recurrence grouped totals (Allocate)",
+        "Recurrence routes, dense and sparse",
+        "Recurrence whole-step modifier holding a vector",
+        "Convolution lag contributions",
+        "Recurrence sparse coupling",
+        "Recurrence per-stratum kernel, Diagonal coupling",
+        "Convolution per-stratum kernel with history",
     )
 
     # `(name, op, args, rtol)` for each scenario of `ADJOINT_SCENARIOS` at
@@ -350,7 +376,9 @@
                         g; coupling = 0.3 .* rand(rng, S, S),
                         modifiers = (
                             CR.Depletion(PerStratum(fill(80.0, S))),
-                            CR.Add(TimeVarying(PerStratum(0.2 .* rand(rng, S, T)))),
+                            CR.Transform(
+                                +, TimeVarying(PerStratum(0.2 .* rand(rng, S, T)))
+                            ),
                         )
                     ),
                     rec(R, nothing, h),
@@ -417,21 +445,27 @@
 
     # Runs `check()` in a testset named `label`, for the backend named
     # `name`. A registry scenario marked broken there runs in a testset that
-    # only records whether every check passed, as one `@test_broken` while
-    # it fails.
-    function scenario_testset(check, name, label)
-        broken = get(ADFixtures.backend_broken_scenarios(), name, Set{String}())
-        if label in broken || label in ADFixtures.broken_scenario_names()
+    # only records whether every check passed, as one `@test_broken`, which
+    # reports an unexpected pass once it is fixed.
+    function scenario_testset(check, name, label; broken = _marked_broken(name, label))
+        if broken
             probe = @testset Probe "$label" begin
                 check()
             end
-            probe.ok ? (@test probe.ok) : (@test_broken probe.ok)
+            @test_broken probe.ok
         else
             @testset "$label" begin
                 check()
             end
         end
         return nothing
+    end
+
+    # Whether the registry marks scenario `label` broken on the backend
+    # named `name`.
+    function _marked_broken(name, label)
+        broken = get(ADFixtures.backend_broken_scenarios(), name, Set{String}())
+        return label in broken || label in ADFixtures.broken_scenario_names()
     end
 
     # Runs `test_adjoint` on `case` for the backend named `name`.
@@ -463,28 +497,6 @@
             parent isa Probe && Test.record(parent, ts)
         end
         return ts
-    end
-
-    # Each registry scenario's gradient on `backend` runs the analytic
-    # reverse pass, and no `NoAdjoint` twin's does, nor a scenario that
-    # takes plain AD on the backend by design. The counter is reset per
-    # scenario. In one CI job the gradients reuse the code the backend's
-    # registry item compiled, so this checks the same scenarios. A
-    # scenario marked broken on the backend is recorded as broken while it
-    # fails, as in `test_adjoint_case`.
-    function test_rules_fire(name, backend)
-        skip = get(ADFixtures.backend_skip_scenarios(), name, Set{String}())
-        plain = get(ADFixtures.backend_plain_scenarios(), name, Set{String}())
-        for scen in ADFixtures.scenarios()
-            scen.name in skip && continue
-            rule = !startswith(scen.name, "NoAdjoint") && !(scen.name in plain)
-            scenario_testset(name, scen.name) do
-                CR._PULLBACK_CALLS[] = 0
-                DifferentiationInterface.gradient(scen.f, backend, scen.x)
-                @test (CR._PULLBACK_CALLS[] > 0) == rule
-            end
-        end
-        return nothing
     end
 end
 
@@ -643,6 +655,35 @@ end
     end
 end
 
+# A scenario marked broken whose checks all pass is reported, so a fixed
+# entry is taken off the broken list, as `@test_broken` reports it in the
+# registry items.
+@testitem "A scenario marked broken that passes is reported" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases] begin
+    using Test: Test, @test, @testset
+    # A testset that keeps its results and passes none up.
+    mutable struct Kept <: Test.AbstractTestSet
+        description::String
+        results::Vector{Any}
+    end
+    Kept(description; kwargs...) = Kept(description, Any[])
+    Test.record(ts::Kept, r) = (push!(ts.results, r); r)
+    Test.finish(ts::Kept) = ts
+    function results(pass)
+        ts = @testset Kept "probe" begin
+            scenario_testset("backend", "scenario"; broken = true) do
+                @test pass
+            end
+        end
+        return ts.results
+    end
+    fixed, failing = results(true), results(false)
+    @test length(fixed) == 1
+    @test only(fixed) isa Test.Error
+    @test only(fixed).test_type === :test_unbroken
+    @test length(failing) == 1
+    @test only(failing) isa Test.Broken
+end
+
 @testitem "Mooncake: test_adjoint on one operator of each kind" tags = [:ad, :mooncake, :mooncake_reverse] setup = [AdjointCases] begin
     using ADTypes: AutoMooncake
     import Mooncake
@@ -664,26 +705,28 @@ end
     end
 end
 
+# Enzyme reverse checks the delay and grouped totals through the registry.
 @testitem "Rules fire through the public call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases, JobBackends] begin
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient
     import Mooncake, Enzyme, ForwardDiff
     using ComposableRecurrences: NoAdjoint
-    backends = job_backends(
-        :mooncake_reverse => AutoMooncake(; config = nothing),
-        :enzyme_reverse => AutoEnzyme(;
-            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-            function_annotation = Enzyme.Const
-        ),
+    mooncake = job_backends(:mooncake_reverse => AutoMooncake(; config = nothing))
+    backends = (
+        mooncake...,
+        job_backends(
+            :enzyme_reverse => AutoEnzyme(;
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Const
+            ),
+        )...,
     )
     rng = Xoshiro(3)
     g, h, W = rand(rng, 3) ./ 2, 1 .+ rand(rng, 3), randn(rng, 8)
     renewal(θ) = sum(W .* Recurrence(g; modifiers = (Hazard(θ[1]),))(θ[2:end]; history = h))
     renewal_na(θ) = sum(W .* NoAdjoint(Recurrence(g; modifiers = (Hazard(θ[1]),)))(θ[2:end]; history = h))
-    delay(θ) = sum(W .* Convolution(θ[1:3])(θ[4:end]))
-    delay_na(θ) = sum(W .* NoAdjoint(Convolution(θ[1:3]))(θ[4:end]))
-    # Two groups of strata with totals over time: the totals and the gains
-    # get cotangents.
+    # Two groups of strata, one of them not contiguous, with totals over
+    # time: the totals and the gains get cotangents.
     W2, h2 = randn(rng, 3, 4), 1 .+ rand(rng, 3, 3)
     split(θ) = CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(reshape(θ[1:8], 2, 4))))
     allocate(θ) = sum(
@@ -694,14 +737,12 @@ end
             reshape(θ[9:end], 3, 4); history = h2
         )
     )
-    for (f, θ, fires) in (
-                (renewal, [50.0; 1 .+ rand(rng, 8)], true),
-                (renewal_na, [50.0; 1 .+ rand(rng, 8)], false),
-                (delay, rand(rng, 11), true), (delay_na, rand(rng, 11), false),
-                (allocate, 1 .+ rand(rng, 20), true),
-                (allocate_na, 1 .+ rand(rng, 20), false),
-            ),
-            backend in backends
+    for (f, θ, fires, bs) in (
+                (renewal, [50.0; 1 .+ rand(rng, 8)], true, backends),
+                (renewal_na, [50.0; 1 .+ rand(rng, 8)], false, backends),
+                (allocate, 1 .+ rand(rng, 20), true, mooncake),
+                (allocate_na, 1 .+ rand(rng, 20), false, mooncake),
+            ), backend in bs
         ref = gradient(f, AutoForwardDiff(), θ)
         n0 = CR._PULLBACK_CALLS[]
         # Plain Enzyme on Julia 1.11 loses the scalar field's gradient.
@@ -771,10 +812,10 @@ end
         return sum(W .* w(r)(fill(1.1, 2, 8); history = fill(0.2, 2, 2)))
     end
     # A scalar times a function of a time-varying parameter.
-    θm(θ) = CR.Add(θ[1] * Derived(exp, TimeVarying(θ[2:9])))
+    θm(θ) = CR.Transform(+, θ[1] * Derived(exp, TimeVarying(θ[2:9])))
     # A closure's captured value is not an argument, so plain AD takes it.
     scaled(c) = x -> c * exp(x)
-    cm(θ) = CR.Add(Derived(scaled(θ[1]), TimeVarying(θ[2:9])))
+    cm(θ) = CR.Transform(+, Derived(scaled(θ[1]), TimeVarying(θ[2:9])))
     θ0 = [0.5, collect(range(-0.2, 0.6; length = 8))...]
     # Without the rule the map already takes plain AD, so its `NoAdjoint`
     # would repeat that call.
@@ -795,7 +836,9 @@ end
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme
     using DifferentiationInterface: gradient
-    import Enzyme, Mooncake
+    # The local derivative of a modifier without a pullback needs
+    # ForwardDiff loaded.
+    import Enzyme, Mooncake, ForwardDiff
     using ComposableRecurrences: NoAdjoint
     # A pointwise modifier with no pullback that maps the value through a
     # stored function and scales it by `a`.
@@ -1063,8 +1106,8 @@ end
         function (θ)
             R, h = reshape(θ[1:120], 3, 40), reshape(θ[121:126], 3, 2)
             r = NoAdjoint(Recurrence(Pairwise(dense8..., K => [0.3, 0.2])))
-            y1, s = r(R[:, 1:20]; history = h, state = true)
-            y2, _ = r(R; state = s)
+            y1, s = r(R[:, 1:20]; history = h, record = (:state,))
+            y2 = r(R; state = s)
             return sum(abs2, y1) + sum(abs2, y2)
         end
     end
@@ -1112,6 +1155,16 @@ end
         @test z̄c ≈ ref[(n + 1):end]
         @test K.nzval == nz0
     end
+    # An active coupling with a constant `z` gets its cotangent alone.
+    w, w̄ = zeros(3), copy(w̄0)
+    K̄ = Kof(zeros(n))
+    Enzyme.autodiff(
+        Enzyme.Reverse, CR._route_forward!, Const, Duplicated(K, K̄),
+        Duplicated(w, w̄), Const(copy(z)), Const(1)
+    )
+    @test w ≈ K * z
+    @test iszero(w̄)
+    @test K̄.nzval ≈ ref[1:n]
 end
 
 @testitem "Enzyme: a scalar operator field gets its cotangent" tags = [:ad, :enzyme, :enzyme_reverse] begin
@@ -1139,9 +1192,9 @@ end
             R = 1.0 .+ 0.05 .* [sin(a + t) for a in 1:3, t in 1:8],
             pool = PerStratum([60.0, 90.0, 70.0])
 
-        mods(b) = (CR.Depletion(pool, CR.Floor()), CR.Add(b))
+        mods(b) = (CR.Depletion(pool, CR.Floor()), CR.Transform(+, b))
         op(b) = Recurrence([0.3, 0.2]; modifiers = mods(b))
-        ws(r) = r(R; history = h, stop = 4, state = true)
+        ws(r) = r(R; history = h, stop = 4, record = (:state,))
         # The operator built from `b` inside the loss.
         for f in (
                 b -> sum(W .* op(b[1])(R; history = h)),
@@ -1154,10 +1207,10 @@ end
         for f in (
                 r -> sum(W .* r(R; history = h)),
                 r -> sum(abs2, ws(r)[2].history),
-                r -> sum(W[:, 1:4] .* first(r(R; state = ws(r)[2]))),
+                r -> sum(W[:, 1:4] .* r(R; state = ws(r)[2])),
             )
             ḡ = Enzyme.gradient(mode, Enzyme.Const(f), op(0.5))[1]
-            @test ḡ.modifiers[2].b ≈ ForwardDiff.derivative(b -> f(op(b)), 0.5)
+            @test ḡ.modifiers[2].θ ≈ ForwardDiff.derivative(b -> f(op(b)), 0.5)
         end
         # Fixed scalar fields with only the input active.
         g(Rx) = sum(W .* op(0.5)(Rx; history = h))
@@ -1176,8 +1229,10 @@ end
     empty!(ext._SCALAR_LOSS_WARNED)
     mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
     let R = fill(1.1, 4), h = ones(2)
-        op(b) = Recurrence([0.3, 0.2]; modifiers = (CR.Add(b),))
-        op2(b) = Recurrence([0.3, 0.2]; modifiers = (CR.Add(b), CR.Add(b)))
+        op(b) = Recurrence([0.3, 0.2]; modifiers = (CR.Transform(+, b),))
+        op2(b) = Recurrence(
+            [0.3, 0.2]; modifiers = (CR.Transform(+, b), CR.Transform(+, b))
+        )
         msg = (:warn, r"On Julia 1\.11, Enzyme reverse mode can return a zero")
         grad(f, x) = Enzyme.gradient(mode, Enzyme.Const(f), x)[1]
         # The rule, plain AD of a `NoAdjoint`, a scalar field that is not
@@ -1227,13 +1282,16 @@ end
     using ADFixtures
     using ADTypes: AutoForwardDiff, AutoMooncake, AutoMooncakeForward, AutoEnzyme
     using DifferentiationInterface: value_and_gradient
-    using ComposableRecurrences: NoAdjoint
     import Enzyme, ForwardDiff, Mooncake
-    _, loss, θ0, _ = only(
-        filter(s -> first(s) == "Recurrence protected pool in Float32", ADFixtures._SCENARIOS)
+    # The registry's scenario and twin, whose gradients the registry items
+    # already check against ForwardDiff; their own functions, so a backend
+    # compiles each once for both items. Only the element types are new here.
+    names = (
+        "Recurrence protected pool in Float32",
+        "NoAdjoint Recurrence protected pool in Float32",
     )
-    θ = θ0()
-    @test eltype(θ) == Float32
+    scens = filter(s -> s.name in names, ADFixtures.scenarios(; precision = :single))
+    @test length(scens) == length(names)
     backends = job_backends(
         :forwarddiff => AutoForwardDiff(),
         :mooncake_reverse => AutoMooncake(; config = nothing),
@@ -1247,11 +1305,12 @@ end
             function_annotation = Enzyme.Const
         ),
     )
-    for w in (identity, NoAdjoint)
-        f = Base.Fix1(loss, w)
-        _, ref = value_and_gradient(f, AutoForwardDiff(), Float64.(θ))
+    for s in scens
+        θ = s.x
+        @test eltype(θ) == Float32
+        _, ref = value_and_gradient(s.f, AutoForwardDiff(), Float64.(θ))
         for backend in backends
-            y, ∇ = value_and_gradient(f, backend, θ)
+            y, ∇ = value_and_gradient(s.f, backend, θ)
             @test y isa Float32
             @test eltype(∇) == Float32
             @test ∇ ≈ ref rtol = 1.0e-3
@@ -1611,6 +1670,109 @@ end
     @test Mooncake.rdata_type(Mooncake.tangent_type(Vector{Float64})) === Mooncake.NoRData
 end
 
+@testsnippet FoldedTraces begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    const S = 5
+    const T = 8
+    const g = [0.5, 0.3, 0.2]
+    const h = [1.0 + 0.1 * k + 0.05 * j for k in 1:S, j in 1:3]
+    const K = [p == q ? 0.0 : 0.02 * (p + q) for p in 1:S, q in 1:S]
+    const groups = [1:2, [3, 5], 4:4]
+    # An import pattern, zero within each group.
+    const P = [
+        0.0 0.0 0.3 0.2 0.1
+        0.0 0.0 0.1 0.4 0.2
+        0.5 0.2 0.0 0.3 0.0
+        0.1 0.1 0.2 0.0 0.3
+        0.4 0.3 0.0 0.1 0.0
+    ]
+    const W = reshape(sin.(1:(S * T)), S, T)
+    rates(θ) = reshape(θ[1:(S * T)], S, T)
+    weigh(x) = sum(sin.(1:length(x)) .* vec(x))
+    # Redistribute's trace, its arrivals, beside a Depletion whose trace the
+    # loss does not read.
+    function arrivals(θ; both = false)
+        m = (
+            CR.Redistribute(K, θ[end]),
+            CR.Depletion(CR.PerStratum(fill(50.0, S))),
+        )
+        (; y, trace) = Recurrence(g; modifiers = m)(
+            rates(θ); history = h, record = (:trace,)
+        )
+        a = weigh(first(trace.modifiers))
+        return both ? a + sum(W .* y) : a
+    end
+    # Allocate with imports, whose state is longer than the strata.
+    function allocated(θ)
+        m = CR.Allocate(groups, θ[end]; imports = (0.2, P))
+        (; y, trace) = Recurrence(g; modifiers = (m,))(
+            rates(θ); history = h, record = (:trace,)
+        )
+        return sum(W .* y) + weigh(first(trace.modifiers))
+    end
+    # Depletion's trace alone, so Redistribute's trace has a zero
+    # cotangent and Depletion's takes the general pullback.
+    function depleted(θ)
+        m = (
+            CR.Redistribute(K, θ[end]),
+            CR.Depletion(CR.PerStratum(fill(50.0, S))),
+        )
+        (; trace) = Recurrence(g; modifiers = m)(
+            rates(θ); history = h, record = (:trace,)
+        )
+        return weigh(last(trace.modifiers))
+    end
+    # A traced call whose loss reads only `y`, so the trace has no
+    # cotangent.
+    function output_only(θ)
+        r = Recurrence(g; modifiers = (CR.Redistribute(K, θ[end]),))
+        return sum(W .* r(rates(θ); history = h, record = (:trace,)).y)
+    end
+    const θ0 = vcat(vec(1.0 .+ 0.1 .* sin.(1:(S * T))), 0.3)
+end
+
+@testitem "Trace: a state trace folded into its step, against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends, FoldedTraces] begin
+    using ADTypes: AutoEnzyme, AutoMooncake
+    using DifferentiationInterface: gradient
+    import Enzyme, ForwardDiff, Mooncake
+    # Redistribute and Allocate fold their trace cotangent into the step's;
+    # Depletion keeps the trace pullback, skipped when its cotangent is
+    # zero. Runtime activity covers Enzyme's shared mode, where an unread
+    # trace's mirror is `nothing`.
+    @test CR._trace_is_state(CR.Redistribute(K, 0.3))
+    @test !CR._trace_is_state(CR.Depletion(50.0))
+    losses = (
+        arrivals, θ -> arrivals(θ; both = true), allocated, depleted,
+        output_only,
+    )
+    for backend in job_backends(
+                :mooncake_reverse => AutoMooncake(; config = nothing),
+                :enzyme_reverse => AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
+            ),
+            f in losses
+        @test gradient(f, backend, θ0) ≈ ForwardDiff.gradient(f, θ0)
+    end
+end
+
+@testitem "Trace: a folded state trace gives the same gradient split across tasks" tags = [:ad, :executor, :mooncake, :mooncake_reverse] setup = [FoldedTraces] begin
+    using ADTypes: AutoMooncake
+    using Base.ScopedValues: with
+    using DifferentiationInterface: gradient
+    import Mooncake
+    backend = AutoMooncake(; config = nothing)
+    for f in (arrivals, allocated)
+        serial = gradient(f, backend, θ0)
+        split = with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = 2)) do
+            gradient(f, backend, θ0)
+        end
+        @test split ≈ serial
+    end
+end
+
 # Tagged `allocations` so the Threads workflow, which runs without coverage,
 # runs the count.
 @testitem "Mooncake rule route folds at compile time (allocation guard)" tags = [:ad, :mooncake, :mooncake_reverse, :allocations] begin
@@ -1647,7 +1809,9 @@ end
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme
     using DifferentiationInterface: gradient
-    import Enzyme, Mooncake
+    # The local derivative of a modifier without a pullback needs
+    # ForwardDiff loaded.
+    import Enzyme, Mooncake, ForwardDiff
     # Pointwise modifiers whose float field is typed `Float64`, so the
     # local step cannot rebuild them and the operator takes plain AD; one
     # type per backend, as the note is logged once per operator type.
@@ -1849,7 +2013,9 @@ end
                 ρ^2 + sum(x)
             ),
             (ρ, x) -> (
-                unused(Recurrence([0.5]; modifiers = (CR.Add(ρ),))(x; history = [0.5]));
+                unused(
+                    Recurrence([0.5]; modifiers = (CR.Transform(+, ρ),))(x; history = [0.5])
+                );
                 ρ^2 + sum(x)
             ),
             (ρ, x) -> (unused(Convolution([0.3, 0.2])(x; gain = ρ)); ρ^2 + sum(x)),
@@ -1966,12 +2132,19 @@ end
     end
 end
 
-@testitem "Blocks: blockwise, pointwise and vector modifiers under the rule" tags = [:ad, :mooncake, :mooncake_reverse] begin
+@testitem "Blocks: blockwise, pointwise and vector modifiers under the rule" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
-    using ADTypes: AutoMooncake
+    using ADTypes: AutoMooncake, AutoEnzyme
     using DifferentiationInterface: gradient
-    import ForwardDiff, Mooncake
+    import Enzyme, ForwardDiff, Mooncake
+    backends = job_backends(
+        :mooncake_reverse => AutoMooncake(; config = nothing),
+        :enzyme_reverse => AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Const
+        ),
+    )
     # Two compartments per group: a share `a` of the first moves to the
     # second, and the state keeps what moved.
     struct Move{A}
@@ -2017,13 +2190,98 @@ end
     K = [0.0 0.1 0.0 0.0; 0.1 0.0 0.0 0.0; 0.0 0.0 0.0 0.1; 0.0 0.0 0.1 0.0]
     function loss(θ)
         ms = (
-            CR.Clamp(0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
+            CR.Transform(clamp, 0.0, 50.0), Move(PerStratum(θ[1:2])), Keep(θ[3]),
             CR.Redistribute(K, 0.5),
         )
         return sum(abs2, Recurrence(g; modifiers = ms)(R; history = h))
     end
     θ = [0.2, 0.4, 0.8]
-    n = CR._PULLBACK_CALLS[]
-    @test gradient(loss, AutoMooncake(; config = nothing), θ) ≈ ForwardDiff.gradient(loss, θ)
-    @test CR._PULLBACK_CALLS[] > n
+    ref = ForwardDiff.gradient(loss, θ)
+    for backend in backends
+        n = CR._PULLBACK_CALLS[]
+        @test gradient(loss, backend, θ) ≈ ref
+        @test CR._PULLBACK_CALLS[] > n
+    end
+end
+
+@testitem "Enzyme reverse under runtime activity: shared and distinct shadows" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, Enzyme, ForwardDiff
+    using ComposableRecurrences: ComposableRecurrences as CR
+    ext = Base.get_extension(CR, :ComposableRecurrencesEnzymeExt)
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+    h, ϵ = [0.3], [0.1 * sin(t) for t in 1:8]
+    # The output is read twice, so its shadow takes cotangents from both
+    # reads before the rule's reverse pass runs.
+    f(w, ϵ) = (y = Recurrence(w)(1.0; history = h, add = ϵ); sum(y) + sum(abs2, y))
+    w = [0.6]
+    ref_w = ForwardDiff.gradient(x -> f(x, ϵ), w)
+    ref_ϵ = ForwardDiff.gradient(x -> f(w, x), ϵ)
+    # Every shadow distinct from its value.
+    dw, dϵ = zero(w), zero(ϵ)
+    Enzyme.autodiff(mode, Const(f), Active, Duplicated(w, dw), Duplicated(ϵ, dϵ))
+    @test dw ≈ ref_w
+    @test dϵ ≈ ref_ϵ
+    # The kernel's shadow is the kernel itself, which runtime activity reads
+    # as constant: no cotangent is written into it.
+    dϵ = zero(ϵ)
+    Enzyme.autodiff(mode, Const(f), Active, Duplicated(w, w), Duplicated(ϵ, dϵ))
+    @test dϵ ≈ ref_ϵ
+    @test w == [0.6]
+    # The check reads each kind of shadow as the rule's mirrors do.
+    x, dx = rand(3), zeros(3)
+    @test !ext._any_shares((Const(x), Active(1.0), Duplicated(x, dx)))
+    @test ext._any_shares((Duplicated(x, dx), Duplicated(x, x)))
+    @test ext._any_shares((Duplicated(PerStratum(x), PerStratum(x)),))
+    @test !ext._any_shares((Duplicated(PerStratum(x), PerStratum(dx)),))
+    @test ext._any_shares((Duplicated([x, x], [x, dx]),))
+    @test ext._any_shares((Duplicated((x, 1.0), (x, 0.0)),))
+end
+
+@testitem "Mooncake reverse: a call the rule cannot take builds plain AD's rule once" tags = [:ad, :mooncake, :mooncake_reverse] begin
+    using ComposableRecurrences, DifferentiationInterface, ForwardDiff, Mooncake
+    using ADTypes: AutoForwardDiff, AutoMooncake
+    CR = ComposableRecurrences
+    ext = Base.get_extension(CR, :ComposableRecurrencesMooncakeExt)
+    # A modifier that reads its parameter's array directly, which the local
+    # step cannot rebuild, so `_fit` sends every call to plain AD.
+    struct DirectRead{K}
+        κ::K
+    end
+    CR.blocks(::DirectRead) = (1, 1)
+    function CR.forward!(m::DirectRead, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] / (1 + v[k] / m.κ.x[k])
+        end
+        return nothing
+    end
+    W = [cos(a * t) for a in 1:3, t in 1:8]
+    function loss(θ)
+        r = Recurrence([0.3, 0.2]; modifiers = (DirectRead(PerStratum(θ[1:3])),))
+        return sum(W .* r(fill(1.1, 3, 8); history = ones(3, 2)))
+    end
+    function loss_add(θ)
+        r = Recurrence([0.3, 0.2]; modifiers = (DirectRead(PerStratum(θ[1:3])),))
+        return sum(W .* r(fill(1.1, 3, 8); history = ones(3, 2), add = θ[4]))
+    end
+    θ = [5.0, 6.0, 7.0, 0.5]
+    @test CR._fit(Recurrence([0.3, 0.2]; modifiers = (DirectRead(PerStratum(θ[1:3])),)), true, nothing, ones(3, 2)) === :none
+    mc = AutoMooncake(; config = nothing)
+    empty!(ext._PLAIN_RULES)
+    ref = gradient(loss, AutoForwardDiff(), θ)
+    prep = prepare_gradient(loss, mc, θ)
+    @test gradient(loss, prep, mc, θ) ≈ ref
+    @test length(ext._PLAIN_RULES) == 1
+    key = only(keys(ext._PLAIN_RULES))
+    built = ext._PLAIN_RULES[key]
+    # A second call through the same prepared gradient takes the cached rule.
+    @test gradient(loss, prep, mc, θ) ≈ ref
+    @test ext._PLAIN_RULES[key] === built
+    # Other argument types build their own rule.
+    @test gradient(loss_add, mc, θ) ≈ gradient(loss_add, AutoForwardDiff(), θ)
+    @test length(ext._PLAIN_RULES) == 2
+    # A gradient prepared in a newer world rebuilds the rule at that world.
+    @eval _a_method_for_a_newer_world() = nothing
+    prep2 = Base.invokelatest(prepare_gradient, loss, mc, θ)
+    @test Base.invokelatest(gradient, loss, prep2, mc, θ) ≈ ref
+    @test first(ext._PLAIN_RULES[key]) > first(built)
 end

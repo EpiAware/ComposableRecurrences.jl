@@ -5,6 +5,11 @@
 # Source: https://github.com/epiforecasts/BVDOutbreakSize at commit 95be3b22.
 # Each block names its file and line range. Docstrings and the Mooncake rules
 # are left out; the code is unchanged.
+#
+# This is a frozen reference: it matches that commit and is not kept in step
+# with BVDOutbreakSize. On its `main`, `deviation_knots`, `zone_fixed_terms`
+# and `zone_share_renewal_with_state` have since changed, with the same
+# arithmetic, and `_correlate!` no longer exists.
 module BVDReference
 
 using LinearAlgebra
@@ -190,6 +195,16 @@ function accumulate_occupancy(
         Val(false), A_bvd, A_bg, deaths, recover, ruleout, κ, conf_hazard
     )
 end
+
+# The branch flags `_accumulate_occupancy` records with `Val(true)`.
+# src/models/observations.jl L1929-L1935 at 73c575bd
+const _OCC_UNCONF = 0x01
+const _OCC_DENOM = 0x02
+const _OCC_BVD = 0x04
+const _OCC_BG = 0x08
+const _OCC_CONF_X = 0x10
+const _OCC_CONF_HI = 0x20
+const _OCC_SUSP = 0x40
 
 # src/models/observations.jl L1943-L2014
 ## The forward balance of `accumulate_occupancy`. With `Val(true)` it also

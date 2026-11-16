@@ -74,7 +74,7 @@
             g, R = split(θ, L + 1)
             r = Recurrence(
                 g[1:L]; modifiers = (
-                    CR.Depletion(1.0e3, CR.Floor()), CR.Add(g[L + 1]),
+                    CR.Depletion(1.0e3, CR.Floor()), CR.Transform(+, g[L + 1]),
                 )
             )
             return sum(w .* r(R; history = seed))
@@ -122,12 +122,14 @@
     # the same backend, and the serial ForwardDiff gradient. A threaded pass
     # may sum in another order, which moves only the last bits, so the
     # serial gradient on the same backend is matched to a relative 1e-12.
+    # The serial gradients do not depend on the executor, so each is taken
+    # once per loss.
     function test_executor_gradients(backend)
         losses, θ = executor_losses()
-        for ex in (CR.Threaded(; min_work = 0), CR.Threaded(; min_work = 0, ntasks = 3))
-            for loss in losses
-                ref = DifferentiationInterface.gradient(loss, AutoForwardDiff(), θ)
-                gs = DifferentiationInterface.gradient(loss, backend, θ)
+        for loss in losses
+            ref = DifferentiationInterface.gradient(loss, AutoForwardDiff(), θ)
+            gs = DifferentiationInterface.gradient(loss, backend, θ)
+            for ex in (CR.Threaded(; min_work = 0), CR.Threaded(; min_work = 0, ntasks = 3))
                 g = with(CR.EXECUTOR => ex) do
                     DifferentiationInterface.gradient(loss, backend, θ)
                 end

@@ -19,17 +19,37 @@ function pullback!(grads, w::_WithState, ::Run, c)
     _reverse!(c, Ȳ, cotangent(grads.piece, :r), ḡain, ādd, h̄, s̄0, st̄)
     return nothing
 end
-# With a trace, its cotangent joins the records the reverse pass reads. A
-# zero cotangent, as a loss that reads only the output gives, adds nothing,
-# so the steps then skip the traces' pullbacks.
+# With a trace, its cotangent joins the records the reverse pass reads:
+# each modifier's into its records, and the pressure's into the pressure
+# records, as `Q̄`. A zero cotangent, as a loss that reads only the output
+# gives, adds nothing, so the steps then skip the traces' pullbacks and
+# the pressure's. When both are zero the cache passes on unchanged:
+# rebuilding it costs a runtime `merge` under some AD backends.
 function pullback!(grads, w::_WithTrace, ::Run, c)
     ȳ, tr̄ = grads.y
     T̄s = cotangent(tr̄, :modifiers)
+    Q̄ = cotangent(tr̄, :pressure)
     inner = (; piece = cotangent(grads.piece, :op), y = ȳ, args = grads.args)
-    _zero_trace(T̄s) && return pullback!(inner, w.op, Run(), c)
-    rec = _traced_records(c.rec, T̄s, c.S)
-    return pullback!(inner, w.op, Run(), merge(c, (; rec)))
+    _zero_trace(T̄s) && _zero_trace(Q̄) && return pullback!(inner, w.op, Run(), c)
+    rec = _zero_trace(T̄s) ? c.rec : _traced_records(c.rec, T̄s, c.S)
+    pr = _zero_trace(Q̄) ? c.pr : merge(c.pr, (; Q̄ = _strata_rows(Q̄)))
+    return pullback!(inner, w.op, Run(), _with_fields(c, (; rec, pr)))
 end
+# `merge(c, x)` for a named tuple `x` whose names are all in `c`, with the
+# names and order of `c`, so its type is inferred from the argument types.
+@generated function _with_fields(
+        c::NamedTuple{N}, x::NamedTuple{M}
+    ) where {N, M}
+    @assert issubset(M, N)
+    vals = map(N) do n
+        src = n in M ? :x : :c
+        :(getfield($src, $(QuoteNode(n))))
+    end
+    return :(NamedTuple{$N}(($(vals...),)))
+end
+# The pressure's cotangent as strata × steps, a row for one series.
+_strata_rows(Q̄::AbstractVector) = reshape(Q̄, 1, length(Q̄))
+_strata_rows(Q̄::AbstractMatrix) = Q̄
 _zero_trace(::Nothing) = true
 _zero_trace(T̄s::Tuple) = all(_zero_trace, T̄s)
 _zero_trace(T̄::AbstractArray) = iszero(T̄)
@@ -44,15 +64,14 @@ end
 function _reverse_run!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     _count_pullback()
     (; r, H, D, S, T, τ0) = c
-    H̄ = _seeded(H, Ȳ, D)
+    H̄ = _seeded(c, H, Ȳ, D)
     # Parameters that read the outputs send their cotangents into `H̄`. The
     # bound modifiers enter the step loop through a function barrier.
     modifiers = _bind(r.modifiers, H, H̄, D - τ0 + 1)
-    cur = _current()
-    if cur.ex isa Serial || _reads_across(modifiers)
+    if _reads_across(modifiers)
         _reverse!(Serial(), c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     else
-        _reverse!(cur, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
+        _with_executor(_reverse!, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     end
     return nothing
 end
@@ -142,6 +161,21 @@ function _series_back!(
     end
     for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
         kb = _run_buffer(kbuf, kernel, j)
+        c = _chain(g, ms, eltype(H))
+        if c isa _Chained && size(H, 2) == 1
+            _carried_back!(
+                c, _run_steps(ts, T), first(ks), acc, kb, pr, gain, coupling, H,
+                H̄, τ0, L, D
+            )
+            continue
+        end
+        if size(H, 2) == 1 && _carries(g, H)
+            _carried_back!(
+                g, _run_steps(ts, T), first(ks), acc, kb, s̄s, rec, pr, gain,
+                coupling, ms, H, H̄, τ0, L, D
+            )
+            continue
+        end
         for t in reverse(_run_steps(ts, T))
             τ = τ0 + t - 1
             for k in ks
@@ -156,6 +190,67 @@ function _series_back!(
     return nothing
 end
 
+# A chained run of one stratum in reverse carries the cotangent each step
+# sends to its last value, rather than adding it into `H̄` and reading it
+# back, and adds the run's last into the row before its first step. That
+# cotangent is the step's times the gain, the coefficient and the newest
+# weight together, so each step waits on one fused multiply-add.
+function _carried_back!(
+        c, steps, k, acc, kb, pr, gain, coupling, H, H̄, τ0, L, D
+    )
+    carry = zero(eltype(H̄))
+    w = _stratum_weights(c.g, k)
+    newest = L >= 1 ? @inbounds(w[L]) : zero(eltype(w))
+    kw = _stratum_buffer(kb, c.g, k)
+    for t in reverse(steps)
+        carry = _chained_back!(
+            w, newest, kw, acc, pr, gain, coupling, H, H̄, carry, t,
+            τ0 + t - 1, L, D, k
+        )
+    end
+    row = D + first(steps) - 1
+    row >= 1 && @inbounds(H̄[row, k] += carry)
+    return nothing
+end
+# Stratum `k` at step `t` of a chained run in reverse, given the cotangent
+# `carry` the step after it sends to its value; returns the cotangent this
+# step sends to the value before it.
+@inline function _chained_back!(
+        w, newest, kw, acc, pr, gain, C, H, H̄, carry, t, τ, L, D, k
+    )
+    h̄ = @inbounds H̄[D + t, k]
+    p̄ = _core_back!(acc, h̄ + carry, pr, gain, C, t, τ, k)
+    L >= 1 || return zero(carry)
+    _older_back!(kw, w, p̄, H, H̄, t + D - L - 1, L, k)
+    β = @inbounds _at(gain, k, τ) * _coef(C, k) * newest
+    return muladd(β, carry, β * h̄)
+end
+# The same for a run through pointwise modifiers: the cotangent each step
+# sends to its last value is its pressure's times the newest weight.
+function _carried_back!(
+        g, steps, k, acc, kb, s̄s, rec, pr, gain, coupling, ms, H, H̄, τ0, L, D
+    )
+    w = _stratum_weights(g, k)
+    b = _stratum_buffer(kb, g, k)
+    carry = zero(eltype(H̄))
+    for t in reverse(steps)
+        τ = τ0 + t - 1
+        v̄k = _thread_back(
+            ms, acc.m̄s, rec, s̄s, @inbounds(H̄[D + t, k]) + carry, τ, t, k
+        )
+        p̄ = _core_back!(acc, v̄k, pr, gain, coupling, t, τ, k)
+        L >= 1 || (carry = zero(carry); continue)
+        _older_back!(b, w, p̄, H, H̄, t + D - L - 1, L, k)
+        carry = p̄ * @inbounds(w[L])
+    end
+    row = D + first(steps) - 1
+    row >= 1 && @inbounds(H̄[row, k] += carry)
+    return nothing
+end
+_stratum_buffer(kb::AbstractMatrix, ::AbstractVector, k) = view(kb, :, k)
+_stratum_buffer(kb::AbstractMatrix, ::PerStratum, k) = view(kb, k, :)
+_stratum_buffer(::Nothing, g, k) = nothing
+
 # Stratum `k`'s output cotangent at step `t` back through the pointwise
 # modifiers, then `_gain_add_back!`.
 @inline function _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D, k)
@@ -169,6 +264,17 @@ end
 @inline function _gain_add_back!(acc, v̄k, pr, gain, C, t, τ, k)
     @inbounds _add_slot!(acc.ādd, v̄k, k, τ)
     @inbounds _add_slot!(acc.ḡain, v̄k * _pressure(C, pr, k, t), k, τ)
+    return @inbounds _at(gain, k, τ) * v̄k + _traced_pressure(pr, k, t)
+end
+# The pressure records with the cotangent `Q̄` of the trace's pressure,
+# which joins each step's pressure cotangent.
+const _TracedPressure = NamedTuple{(:P, :X, :Q̄)}
+_traced_pressure(pr, k, t) = false
+_traced_pressure(pr::_TracedPressure, k, t) = @inbounds pr.Q̄[k, t]
+
+# Without records the gain has no cotangent.
+@inline function _gain_add_back!(acc, v̄k, ::Nothing, gain, C::_PointwiseCoupling, t, τ, k)
+    @inbounds _add_slot!(acc.ādd, v̄k, k, τ)
     return @inbounds _at(gain, k, τ) * v̄k
 end
 
@@ -183,6 +289,21 @@ end
     @inbounds _add_slot!(acc.ḡain, v̄k * (_coef(C, k) * Pk), k, τ)
     _coef_back!(acc.C̄, C, gk * v̄k * Pk, k)
     return (gk * _coef(C, k)) * v̄k
+end
+# Without records the gain and the coefficient carry no cotangent.
+@inline function _core_back!(acc, v̄k, ::Nothing, gain, C::_PointwiseCoupling, t, τ, k)
+    @inbounds _add_slot!(acc.ādd, v̄k, k, τ)
+    return (@inbounds(_at(gain, k, τ)) * _coef(C, k)) * v̄k
+end
+@inline function _core_back!(
+        acc, v̄k, pr::_TracedPressure, gain, C::_PointwiseCoupling, t, τ, k
+    )
+    Pk = @inbounds pr.P[k, t]
+    @inbounds _add_slot!(acc.ādd, v̄k, k, τ)
+    @inbounds _add_slot!(acc.ḡain, v̄k * (_coef(C, k) * Pk), k, τ)
+    q̄k = @inbounds _at(gain, k, τ) * v̄k + pr.Q̄[k, t]
+    _coef_back!(acc.C̄, C, q̄k * Pk, k)
+    return _coef(C, k) * q̄k
 end
 _coef_back!(C̄, C::UniformScaling, v, k) = add_cotangent!(cotangent(C̄, :λ), v)
 _coef_back!(C̄, C::Diagonal, v, k) = @inbounds add_cotangent!(cotangent(C̄, :diag), v, k)
@@ -261,6 +382,12 @@ end
 # in `_reverse!`: where `Ȳ` may be `nothing` by type (`Enzyme` under runtime
 # activity), that branch slowed the whole reverse pass by about 8%.
 _seeded(H, ::Nothing, D) = _zeros(H, eltype(H), size(H)...)
+# A cotangent `Ȳ` that `_shared_shadow` gave the rule already sits in the
+# buffer's cotangent, below zero rows.
+function _seeded(c::NamedTuple{N}, H, Ȳ, D) where {N}
+    :ȳ in N && Ȳ === c.ȳ && return c.H̄
+    return _seeded(H, Ȳ, D)
+end
 function _seeded(H, Ȳ, D)
     H̄ = similar(H)
     fill!(view(H̄, 1:D, :), zero(eltype(H̄)))
@@ -269,6 +396,20 @@ end
 _set_rows!(H̄, x̄::AbstractVector, o) = (view(H̄, (o + 1):size(H̄, 1), 1) .= x̄; H̄)
 function _set_rows!(H̄, x̄::AbstractMatrix, o)
     view(H̄, (o + 1):size(H̄, 1), :) .= transpose(x̄)
+    return H̄
+end
+# A CPU buffer is written down its columns: the broadcast above is a plain
+# copy, which `Base` hands to the slower blocked transpose. The loop skips
+# bounds checks, so it checks the shapes the broadcast would have.
+function _set_rows!(H̄::Matrix, x̄::Matrix, o)
+    size(H̄) == (o + size(x̄, 2), size(x̄, 1)) || throw(
+        DimensionMismatch(
+            "cotangent $(size(x̄)) against buffer $(size(H̄)) after row $o"
+        )
+    )
+    @inbounds for k in axes(x̄, 1), j in axes(x̄, 2)
+        H̄[o + j, k] = x̄[k, j]
+    end
     return H̄
 end
 
@@ -329,7 +470,7 @@ function _stages_back!(ms::Tuple, m̄s, rec, s̄s, bufs, v̄, τ, t)
     v, s = view(R.V, :, t), _states_at(R.S, t)
     _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t)
     _vector_pullback!(_step_grads(m̄, v̄, s̄, R.A, first(bufs), t), m, v, s, τ)
-    _trace_in!(R, v̄, s̄)
+    _trace_in!(R, m, v̄, s̄)
     return nothing
 end
 _step_grads(m̄, v̄, s̄, ::Nothing, ::Nothing, t) = (; piece = m̄, v = v̄, s = s̄)
@@ -361,9 +502,9 @@ _column(x::AbstractVector, t) = x
 # A whole-step modifier differentiated by its local derivative takes its
 # dual numbers as its pass buffer (`_StepDuals`), made once per reverse
 # pass, and reads them from `grads.pass`.
-_pass_buffer(H, ::Type, m, m̄, S, T) = _local_step_duals(Val(_whole_local(m)), m̄, m, H)
-_local_step_duals(::Val{false}, m̄, m, H) = nothing
-_local_step_duals(::Val{true}, m̄, m, H) = _step_duals(m̄, m, eltype(H))
+_pass_buffer(H, ::Type, m, m̄, S, T) = _local_step_duals(Val(_whole_local(m)), m̄, m, H, S)
+_local_step_duals(::Val{false}, m̄, m, H, S) = nothing
+_local_step_duals(::Val{true}, m̄, m, H, S) = _step_duals(m̄, m, eltype(H), S)
 _finish_pass!(m̄, m, R, ::Nothing, τ0) = nothing
 
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
@@ -384,6 +525,8 @@ function _coupling_back_at(C̄, C::UniformScaling, q̄k, pr, t, k)
     add_cotangent!(cotangent(C̄, :λ), q̄k * @inbounds(pr.P[k, t]))
     return C.λ * q̄k
 end
+_coupling_back_at(C̄, C::UniformScaling, q̄k, ::Nothing, t, k) = C.λ * q̄k
+_coupling_back_at(C̄, C::Diagonal, q̄k, ::Nothing, t, k) = @inbounds C.diag[k] * q̄k
 function _coupling_back_at(C̄, C::Diagonal, q̄k, pr, t, k)
     @inbounds add_cotangent!(cotangent(C̄, :diag), q̄k * pr.P[k, t], k)
     return @inbounds C.diag[k] * q̄k
@@ -439,19 +582,18 @@ end
 @inline function _window_back!(kbuf, g, a, H, H̄, t, L, k)
     L >= 1 || return nothing
     @inbounds H̄[t + L - 1, k] = muladd(a, g[L], H̄[t + L - 1, k])
-    @inbounds kbuf[L] = muladd(a, H[t + L - 1, k], kbuf[L])
-    @inbounds @simd ivdep for i in 1:(L - 1)
-        kbuf[i] += a * H[t + i - 1, k]
-        H̄[t + i - 1, k] += a * g[i]
-    end
+    _older_back!(kbuf, g, a, H, H̄, t - 1, L, k)
     return nothing
 end
-@inline function _window_back!(::Nothing, g, a, H, H̄, t, L, k)
-    L >= 1 || return nothing
-    @inbounds H̄[t + L - 1, k] = muladd(a, g[L], H̄[t + L - 1, k])
-    @inbounds @simd ivdep for i in 1:(L - 1)
-        H̄[t + i - 1, k] += a * g[i]
-    end
+# The rest of `_window_back!` for the window after row `o`: the kernel's
+# cotangent, and the older lags' rows of `H̄`.
+@inline function _older_back!(kbuf, g, a, H, H̄, o, L, k)
+    @inbounds kbuf[L] = muladd(a, H[o + L, k], kbuf[L])
+    _span_back!(kbuf, g, a, H, H̄, o + 1, 1, L - 1, k)
+    return nothing
+end
+@inline function _older_back!(::Nothing, g, a, H, H̄, o, L, k)
+    _span_back!(nothing, g, a, H, H̄, o + 1, 1, L - 1, k)
     return nothing
 end
 # Time-varying kernels read their weights through `_weight` and add their
@@ -545,4 +687,20 @@ function _scatter_history!(h̄::AbstractMatrix, H̄, h, D)
     n = min(m, D)
     view(h̄, :, (m - n + 1):m) .+= transpose(view(H̄, (D - n + 1):D, :))
     return nothing
+end
+
+# A zero output cotangent for a reverse rule to accumulate into, with the
+# cache it goes with, or `nothing` where the rule makes its own. A single
+# series' output is the buffer's rows after the history, so its cotangent can
+# be those rows of the buffer's cotangent, which `_seeded` then need not
+# fill; the cache keeps both.
+_shared_shadow(op, y, c) = (nothing, c)
+_shared_shadow(op::Recurrence, y, c) = _shared_shadow(y, c, c.H, c.D)
+_shared_shadow(y, c, H, D) = (nothing, c)
+function _shared_shadow(y::Vector{E}, c, H::Matrix{E}, D) where {E <: _IEEEFloat}
+    m = Memory{E}(undef, length(H))
+    fill!(m, zero(E))
+    H̄ = Base.wrap(Array, m, size(H))
+    ȳ = Base.wrap(Array, memoryref(m, D + 1), (length(y),))
+    return ȳ, merge(c, (; H̄, ȳ))
 end

@@ -61,7 +61,7 @@ end
     @test CR.depth(Recent(7)) == 7
     @test CR.depth(CR.Transform(*, Derived(exp, -0.1 * Recent(9)))) == 9
     # A nested operator keeps its own buffer.
-    inner = Recurrence([0.5]; modifiers = (CR.Add(Recent(12)),))
+    inner = Recurrence([0.5]; modifiers = (CR.Transform(+, Recent(12)),))
     @test CR.depth(inner) == 0
     @test CR.depth((inner, Recent(3))) == 3
     @test_throws "n >= 1" Recent(0)
@@ -159,8 +159,8 @@ end
             ),
             x -> 0.3 * x, u -> 0.3 * u,
         ),
-        (u -> CR.Add(u), x -> -0.05 * x, u -> -0.05 * u),
-        (u -> CR.Clamp(0.0, u), x -> 2.0 + x, u -> 2.0 + u),
+        (u -> CR.Transform(+, u), x -> -0.05 * x, u -> -0.05 * u),
+        (u -> CR.Transform(clamp, 0.0, u), x -> 2.0 + x, u -> 2.0 + u),
         (
             u -> RecentSpill.Spill(K, u), x -> Derived(tanh, 0.01 * x),
             u -> tanh(0.01 * u),
@@ -190,9 +190,9 @@ end
     R = fill(1.4, 2, 12)
     h = ones(2, 6)
     y = r(R; history = h)
-    y1, st = r(R; history = h, stop = 5, state = true)
+    y1, st = r(R; history = h, stop = 5, record = (:state,))
     @test size(st.history) == (2, 6)
-    @test hcat(y1, first(r(R; state = st))) ≈ y
+    @test hcat(y1, r(R; state = st)) ≈ y
 end
 
 @testitem "Recent: reverse pass through the outputs" setup = [AdjointCheck, RecentSpill] begin
@@ -214,7 +214,7 @@ end
                 CR.Flow(:S => 0, 0.2 * Recent(w); form = CR.Truncate())
             ),
         ),
-        (CR.Add(-0.01 * Recent(w)), CR.Clamp(0.0, 10.0 - Recent(3))),
+        (CR.Transform(+, -0.01 * Recent(w)), CR.Transform(clamp, 0.0, 10.0 - Recent(3))),
         (RecentSpill.Spill(K, Derived(tanh, 0.1 * Recent(w))),),
         (CR.Redistribute(K, Derived(tanh, 0.1 * Recent(w))),),
     )
@@ -362,7 +362,7 @@ end
     @test @inferred(CR.param_eltype(b)) === Float64
 end
 
-@testitem "Recent: a coupling against a naive loop" begin
+@testitem "Recent: a coupling against a naive loop" tags = [:threads] begin
     using ComposableRecurrences: Derived, Recent
     using ComposableRecurrences, LinearAlgebra, Random, SparseArrays
     const CR = ComposableRecurrences
@@ -416,7 +416,7 @@ end
         100.0; pools = (S = Recent(2; coupling = ones(40, 40)),)
     )
     r = Recurrence(
-        [0.5]; modifiers = (CR.Add(Recent(2; coupling = ones(3, 3))),)
+        [0.5]; modifiers = (CR.Transform(+, Recent(2; coupling = ones(3, 3))),)
     )
     @test_throws "expected 2 × 2" r(ones(2, 4); history = ones(2, 2))
 end
@@ -448,6 +448,65 @@ end
             @test pullback_matches(CR._WithState(r), recargs(R, nothing, h)...)
         end
     end
+end
+
+@testitem "Recent: coupled Recent(n) reads share their windows" setup = [AdjointCheck] begin
+    using ComposableRecurrences: Derived, Recent
+    using ComposableRecurrences, Random
+    rng = Xoshiro(33)
+    S, L, T, W = 3, 3, 9, 2
+    g = rand(rng, L) ./ 2
+    h = rand(rng, S, W)
+    R = 1.0 .+ rand(rng, S, T)
+    C1, C2 = rand(rng, S, S), rand(rng, S, S)
+    f(a, b, c, d) = exp(-0.05 * a - 0.02 * b + 0.01 * c - 0.01 * d)
+    # Two reads of the last two outputs through different couplings, a third
+    # with another window and a fourth with float weights, which keeps its own.
+    last2(C) = Recent(W; coupling = C)
+    β = Derived(
+        f, last2(C1), last2(C2), Recent(3; coupling = C1),
+        Recent([1.0, 1.0]; coupling = C2),
+    )
+    ms = (CR.Transform(*, β),)
+    H = rand(rng, T + 3, S)
+    reads = only(CR._bind(ms, H, nothing, 1)).θ.args
+    @test reads[1].u === reads[2].u
+    @test reads[3].u !== reads[1].u
+    @test reads[4].u !== reads[1].u
+    # The shared windows read what separate ones would.
+    own = Derived(
+        f, Recent([1.0, 1.0]; coupling = C1), Recent([1.0, 1.0]; coupling = C2),
+        Recent([1.0, 1.0, 1.0]; coupling = C1), Recent([1.0, 1.0]; coupling = C2),
+    )
+    r = Recurrence(g; modifiers = ms)
+    @test r(R; history = h) ≈ Recurrence(g; modifiers = (CR.Transform(*, own),))(R; history = h)
+    @test pullback_matches(r, recargs(R, nothing, h)...)
+    @test pullback_matches(CR._WithState(r), recargs(R, nothing, h)...)
+    flows = (
+        CR.Depletion(
+            PerStratum([50.0, 80.0, 60.0]), CR.Hazard(),
+            CR.Flow(:S => 0, 0.1 * last2(C1); form = CR.Truncate()),
+            CR.Flow(:S => 0, 0.05 * last2(C2); form = CR.Truncate()),
+        ),
+    )
+    @test pullback_matches(Recurrence(g; modifiers = flows), recargs(R, nothing, h)...)
+    # Init reads the shared windows at the first step's row, before any step
+    # fills them, and a flow reads them again at each step.
+    init = (
+        CR.Depletion(
+            100.0 + 5 * last2(C1), CR.Hazard(),
+            CR.Flow(:S => 0, 0.1 * last2(C2); form = CR.Truncate()),
+        ),
+    )
+    init_own = (
+        CR.Depletion(
+            100.0 + 5 * Recent([1.0, 1.0]; coupling = C1), CR.Hazard(),
+            CR.Flow(:S => 0, 0.1 * Recent([1.0, 1.0]; coupling = C2); form = CR.Truncate()),
+        ),
+    )
+    r = Recurrence(g; modifiers = init)
+    @test r(R; history = h) ≈ Recurrence(g; modifiers = init_own)(R; history = h)
+    @test pullback_matches(r, recargs(R, nothing, h)...)
 end
 
 @testitem "Recent: binding, rebinding and mirrors" begin

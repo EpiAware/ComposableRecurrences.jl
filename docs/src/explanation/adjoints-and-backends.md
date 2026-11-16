@@ -44,9 +44,11 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | pointwise modifier with `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through [`param`](@ref ComposableRecurrences.param) | rule, local ForwardDiff step |
 | pointwise modifier with other float arrays, or views of them, that its step indexes, at most 24 entries a step | rule, local ForwardDiff step |
 | pointwise modifier with a `Diagonal`, sparse or other structured float array, or a depletion form with any array parameter | plain AD |
-| whole-step modifier (neither pointwise nor blockwise) with float scalars and float arrays, its values, state and parameters at most 24 | rule, local ForwardDiff step |
-| the same with more | rule on Mooncake, plain AD on Enzyme |
-| blockwise modifier | plain AD |
+| whole-step modifier (neither pointwise nor blockwise) with float scalars and float arrays, its values, state and parameters at most 24, counting only the entries a step reads for one that reads fewer than its arrays hold | rule, local ForwardDiff step |
+| the same with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
+| the same with more than 48 | plain AD |
+| blockwise modifier with float scalars and `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through `param` at its group | rule, local ForwardDiff step per group |
+| blockwise modifier with other float arrays | plain AD |
 | coupling with float scalars and float arrays, strata plus scalars and array entries at most 24 | rule, local ForwardDiff step |
 | the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
 | the same coupling with more than 48 | plain AD |
@@ -84,6 +86,8 @@ Add a `ConstructionBase.constructorof` method for a type whose positional constr
 The local step of a pointwise modifier passes a `PerStratum` or `TimeVarying` parameter as the one entry the step reads at its stratum and time.
 So the step must read it through `param` at its own `k` and `t`, as `param(m.κ, k, t)`.
 A step that indexes the array sends the operator to plain AD, and one that reads another stratum or time gets the wrong entry, so such a step needs a `pullback!`.
+A blockwise modifier's local step does the same for each group: it seeds the group's values, its state and the entries its parameters read at group `g`, as `param(m.a, g, t)`.
+So its dual numbers are as wide as one group, whatever the number of strata.
 A coupling over more strata than the route table allows needs a `pullback!` to take the rule.
 
 The local step of a pointwise modifier seeds the entries of its other float arrays that a step reads, as `m.a[t]`, and records which they are.
@@ -94,7 +98,13 @@ Above 24 the local step is slower than plain AD, so such a modifier takes plain 
 A step that reads more at a later time than at the first still gets the right gradient, in passes of 12.
 The local step of a coupling seeds every entry of its float arrays, so they count towards its limit.
 The local step of a whole-step modifier runs its `forward!` on the step's values and state as dual numbers, with every scalar and array entry of its parameters, so all of them count towards its limit.
-Past one pass it stays faster than plain AD on Mooncake at any size, and is slower than plain AD on Enzyme.
+A whole-step modifier whose step reads fewer entries of its float arrays than they hold, as `m.total[t]`, seeds only the entries it reads, as a pointwise modifier does, so only those count.
+Each call runs one step at each of the first two times to count them.
+A step that reads a different number at each, as one that sums every entry up to `t` does, seeds every entry instead, so past the limit it takes plain AD.
+A step that reads more only at a later time still gets the right gradient, in more passes.
+This holds for strided float arrays outside `PerStratum` and `TimeVarying`.
+With a second pass it takes the rule on Mooncake and plain AD on Enzyme, where the rule is slower than plain AD.
+Past two passes it takes plain AD on every backend, as a coupling does.
 A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rather than its entries.
 The local step's dual numbers, and those of a `Transform` without a `derivative`, compare by value only, as plain floats do.
 So at a tie, such as `x > 0 ? y / x : zero(x)` at `x = 0`, the local step takes the branch the step takes.
@@ -120,6 +130,15 @@ The AD tests also run ReverseDiff, which is not a target; the README's coverage 
 
 A rule is kept only where it beats plain AD, its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin, by about 10% in reverse mode on Mooncake or Enzyme; it then runs on both, unless the route table above splits by backend.
 The [rule timings](@ref rule-timings) are each rule's time over its twin's, at `T` 200 and `L` 20 where a benchmark case covers it.
+
+`NoAdjoint` turns off the operator's rules, so its call is differentiated as the forward loop, with two deliberate exceptions inside the call.
+
+- Under Mooncake, two BLAS overlays stay: a convolution adds each lag with `axpy!`, which Mooncake differentiates with its own rule.
+  Without them Mooncake's plain AD of a convolution is 1.3 to 3.1 times slower.
+- Under Enzyme, a sparse route coupling's pressure is differentiated by the coupling's own `pullback!`.
+  Plain AD reaches it under `NoAdjoint`, and in the default route when `Pairwise` routes with a route coupling without a `pullback!` take plain AD on Enzyme; without the rule that default route is 3 to 4 times slower.
+
+Rules for building parts before the call, the masses of a chain of delays and the movement of `Redistribute(K, ε)`, are not the operator's and stay too.
 
 ## [Checking a rule](@id adjoint-checks)
 
@@ -155,6 +174,10 @@ Strata that mix are one kernel per step, with the time loop on the host, so such
 Every array the call reads must live on the same device: the inputs, the gain and add inputs, the history, a resumed state, the kernel, the coupling and the modifiers' parameters.
 A call with device inputs and a host float array among these is an error.
 `Adapt.adapt(CuArray, r)` moves every parameter of an operator `r` to the device.
+A GPU runs `Float32` much faster than `Float64`.
+An output takes its float type from every array and number a call holds.
+So a `Float64` scalar parameter, such as a population, promotes the run to `Float64`.
+[`convert_floats(Float32, r)`](@ref ComposableRecurrences.convert_floats) converts every float of `r`, scalars included, so `Adapt.adapt(CuArray, convert_floats(Float32, r))` runs on the device in `Float32`.
 Buffers, states and outputs are allocated from the inputs, so they live there too.
 
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.

@@ -1,17 +1,20 @@
-# Operators with a computed kernel (see `weights.jl`). A convolution fills
-# a block of cohorts at a time inside its own loops; a recurrence, the
-# terms of a convolution and `kernel_weights` fill the weights as a dense
-# `Primary()` kernel and take its cotangent back to the coefficients.
+# Operators with a computed kernel (see `weights.jl`). A convolution and
+# `kernel_weights` walk each cohort's weights in turn (see `walk.jl`); a
+# recurrence fills the weights as a dense `Primary()` kernel and takes its
+# cotangent back to the coefficients.
 
 const _ComputedConvolution = Convolution{<:_ComputedKernel}
 uses_adjoint(c::_ComputedConvolution, ::Run) = _derived_local(c.kernel)
 
 # The input at time `σ`, buffer row `m + σ`, spreads forward through its
-# cohort's weights, as a `Primary()` kernel's does, filled a block of
-# cohorts at a time and shared by the strata. The strata share each block,
-# so they run in one loop; another executor takes the dense kernel of the
-# same weights, whose loops it splits by stratum.
+# cohort's weights, as a `Primary()` kernel's does; serially each cohort's
+# weights come from its walk, shared by the strata unless a `Survival` has
+# strata of its own. Another executor takes the dense kernel of the same
+# weights, whose loops it splits by stratum.
 function _convolve!(ex, Y, c::_ComputedKernel, X, m, start)
+    return _convolve_dense!(ex, Y, c, X, m, start)
+end
+function _convolve_dense!(ex, Y, c::_ComputedKernel, X, m, start)
     stop = start + size(Y, 1) - 1
     K, _ = _fill_kernel(c, 0, stop, stop, Val(false))
     return _convolve!(ex, Y, _dense_kernel(K), X, m, start)
@@ -19,26 +22,44 @@ end
 function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
     x = c.x
     L = _nlags(c)
+    T = eltype(Y)
     stop = start + size(Y, 1) - 1
-    sc = _scratch(x, eltype(Y), L)
-    W = _block_weights(eltype(Y), L, max(_coef_strata(x), 1))
-    shared = size(W, 3) == 1
-    for τ0 in max(1, start - L + 1):_BLOCK:stop
-        nb = min(_BLOCK, stop - τ0 + 1)
-        _fill_block!(W, x, sc, τ0, nb, 0, stop)
-        for k in axes(Y, 2), i in 1:L
-            r = shared ? 1 : k
-            o = τ0 + i - 1 - start
-            @inbounds for b in max(1, 1 - o):_bmax(τ0, nb, i, 0, stop)
-                Y[o + b, k] += W[b, i, r] * X[m + τ0 + b - 1, k]
+    sc = _walk_scratch(x, T, (L,), Val(false))
+    ks = axes(Y, 2)
+    for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):stop
+        imax = _imax(τ, L, 0, stop)
+        # Lag index `i` of cohort `τ` lands in row `τ + i - start`.
+        i0 = max(1, start - τ + 1)
+        kw = _walk_strata(x, ks, k0)
+        if length(kw) == 1
+            # One stratum: each weight is added as its lag is walked.
+            k1 = first(kw)
+            x1 = @inbounds X[m + τ, k1]
+            _walk_cohort!(x, _no_record(sc), k0, τ, 0, imax, T) do i, l, st
+                i < i0 && return nothing
+                w1 = _walk_value(x, st, k1, i, τ, l)
+                @inbounds Y[τ + i - start, k1] += w1 * x1
+                return nothing
+            end
+        else
+            # Several: a loop over the strata inside the walk would hold up
+            # its chain of products, so each reads the walk after it.
+            _walk_cohort!(x, sc, k0, τ, 0, imax, T)
+            for k in kw
+                xk = @inbounds X[m + τ, k]
+                for i in i0:imax
+                    w = @inbounds _value(x, sc, k, i, τ, i - 1, 1)
+                    @inbounds Y[τ + i - start, k] += w * xk
+                end
             end
         end
     end
     return Y
 end
 
-# Its reverse pass recomputes each block, adds each input's cotangent and
-# the weights', and takes the weights' back to the coefficients.
+# Its reverse pass walks each cohort again, adds each input's cotangent and
+# the weights', and takes the weights' back to the coefficients along the
+# same walk; another executor takes the dense kernel's reverse pass.
 function _convolve_back!(ex, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start)
     stop = start + size(Ȳ, 1) - 1
     K, sc = _fill_kernel(c, 0, stop, stop)
@@ -61,62 +82,43 @@ function _convolve_back!(ex::Serial, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, sta
     x = c.x
     x̄ = cotangent(c̄, :x)
     L = _nlags(c)
-    stop = start + size(Ȳ, 1) - 1
     T = eltype(X̄)
-    sc = _scratch(x, T, L)
-    W = _block_weights(T, L, max(_coef_strata(x), 1))
-    W̄ = zero(W)
-    shared = size(W, 3) == 1
-    for τ0 in max(1, start - L + 1):_BLOCK:stop
-        nb = min(_BLOCK, stop - τ0 + 1)
-        _fill_block!(W, x, sc, τ0, nb, 0, stop)
-        for k in axes(Ȳ, 2), i in 1:L
-            r = shared ? 1 : k
-            o = τ0 + i - 1 - start
-            @inbounds for b in max(1, 1 - o):_bmax(τ0, nb, i, 0, stop)
-                ȳ = Ȳ[o + b, k]
-                W̄[b, i, r] += ȳ * X[m + τ0 + b - 1, k]
-                X̄[m + τ0 + b - 1, k] += W[b, i, r] * ȳ
+    stop = start + size(Ȳ, 1) - 1
+    sc = _walk_scratch(x, T, (L,), Val(false))
+    ks = axes(Ȳ, 2)
+    for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):stop
+        imax = _imax(τ, L, 0, stop)
+        _walk_cohort!(x, sc, k0, τ, 0, imax, T)
+        for k in _walk_strata(x, ks, k0)
+            xk = @inbounds X[m + τ, k]
+            acc = zero(T)
+            for i in max(1, start - τ + 1):imax
+                @inbounds begin
+                    ȳ = Ȳ[τ + i - start, k]
+                    acc += _value(x, sc, k, i, τ, i - 1, 1) * ȳ
+                    x̄ === nothing ||
+                        _add_value!(x̄, x, sc, ȳ * xk, k, i, τ, i - 1, 1)
+                end
             end
+            @inbounds X̄[m + τ, k] += acc
         end
-        x̄ === nothing && continue
-        _back_block!(x̄, x, sc, W̄, τ0, nb, 0, stop)
-        fill!(W̄, zero(T))
+        x̄ === nothing || _walk_cohort_back!(x̄, x, sc, k0, τ, 0, imax, T)
     end
     return nothing
 end
 
-# The terms of a convolution read its weights through `_lagweight`, so they
-# run with the dense kernel.
-const _ComputedContributions = _Contributions{<:_ComputedConvolution}
-uses_adjoint(op::_ComputedContributions, ::Run) = _derived_local(op.c.kernel)
-function _dense_contributions(
-        op::_ComputedContributions, x, gain, history, start, stop, keep
+# The terms of a convolution read its weights one at a time, which a
+# computed kernel holds only inside a call.
+function _contributions(c::_ComputedConvolution, route, x; kwargs...)
+    throw(
+        ArgumentError(
+            "contributions reads a kernel's weights lag by lag, and a " *
+                "computed kernel has none outside a call; pass the dense " *
+                "kernel of its weights, TimeVarying(K, Primary())"
+        )
     )
-    kernel = op.c.kernel
-    n = last(_check_conv(kernel, x, gain, nothing, history, start, stop))
-    K, sc = _fill_kernel(kernel, 0, n, n, keep)
-    return _Contributions(_with_kernel(op.c, K)), n, sc
-end
-function _run_forward(op::_ComputedContributions, x, gain, history, start, stop)
-    d, n, sc = _dense_contributions(op, x, gain, history, start, stop, Val(true))
-    y, cache = _run_forward(d, x, gain, history, start, stop)
-    return y, (; d, inner = cache, n, sc)
-end
-function _primal(op::_ComputedContributions, x, gain, history, start, stop)
-    d, _, _ = _dense_contributions(op, x, gain, history, start, stop, Val(false))
-    return _primal(d, x, gain, history, start, stop)
-end
-function pullback!(grads, op::_ComputedContributions, ::Run, cache)
-    x̄ = cotangent(cotangent(cotangent(grads.piece, :c), :kernel), :x)
-    K̄ = _weights_cotangent(x̄, _array(cache.d.c.kernel))
-    piece = (; c = (; kernel = _dense_mirror(K̄)))
-    pullback!((; piece, y = grads.y, args = grads.args), cache.d, Run(), cache.inner)
-    _weights_back!(x̄, op.c.kernel, K̄, 0, cache.n, cache.sc)
-    return nothing
 end
 
-_with_kernel(c::Convolution, K) = Convolution(_dense_kernel(K); method = _method(c))
 function _with_kernel(r::Recurrence, K)
     return Recurrence(_Checked(), _dense_kernel(K), r.coupling, r.modifiers, r.rebuilds)
 end
@@ -124,12 +126,12 @@ end
 # A recurrence fills the weights of cohorts up to its last time, then runs
 # with them as its kernel; its cache keeps the computed kernel.
 function _recur(
-        r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop, record::Val
+        r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop, cache::Val
     )
     n = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
-    K, sc = _fill_kernel(r.kernel, 1, n, n, record)
-    Y, H, states, cache = _recur(_with_kernel(r, K), gain, add, h, s0, τ0, stop, record)
-    return Y, H, states, _with_computed(cache, r.kernel, n, sc)
+    K, sc = _fill_kernel(r.kernel, 1, n, n, cache)
+    Y, H, states, inner = _recur(_with_kernel(r, K), gain, add, h, s0, τ0, stop, cache)
+    return Y, H, states, _with_computed(inner, r.kernel, n, sc)
 end
 _with_computed(::Nothing, kernel, n, sc) = nothing
 _with_computed(cache, kernel, n, sc) = merge(cache, (; computed = (; kernel, n, sc)))
@@ -208,15 +210,26 @@ uses_adjoint(op::_KernelWeights, ::Run) = _derived_local(op.kernel)
 # Every weight of the cohorts `1:n` lands by this time.
 _last_time(op::_KernelWeights, n) = n + _nlags(op.kernel) - 1
 function _run_forward(op::_KernelWeights, n)
-    K, sc = _fill_kernel(op.kernel, 0, n, _last_time(op, n))
+    K, sc = _weights_walk(op, n, Val(true))
     return K, (; n, sc)
 end
-function _primal(op::_KernelWeights, n)
-    return first(_fill_kernel(op.kernel, 0, n, _last_time(op, n), Val(false)))
+_primal(op::_KernelWeights, n) = first(_weights_walk(op, n, Val(false)))
+function _weights_walk(op::_KernelWeights, n, keep)
+    x = op.kernel.x
+    n = max(n, 0)
+    last = _last_time(op, n)
+    _check_coef_times(x, n, last)
+    Tp = float(param_eltype(x))
+    L = _coef_lags(x)
+    # Every weight of cohorts `1:n` lands by `last`, so the walk writes each.
+    K = _has_strata(x) ? _alloc(Tp, _coef_strata(x), L, n) : _alloc(Tp, L, n)
+    return _walk_fill!(K, op.kernel, 0, last, keep)
 end
 function pullback!(grads, op::_KernelWeights, ::Run, cache)
     _count_pullback()
     x̄ = cotangent(cotangent(grads.piece, :kernel), :x)
-    _weights_back!(x̄, op.kernel, grads.y, 0, _last_time(op, cache.n), cache.sc)
+    x̄ === nothing && return nothing
+    last = _last_time(op, cache.n)
+    _walk_weights_back!(x̄, op.kernel, grads.y, 0, last, cache.sc)
     return nothing
 end

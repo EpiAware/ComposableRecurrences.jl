@@ -1,0 +1,12 @@
+name = "TrimApp"
+uuid = "7d411678-5a44-4674-8957-3232033a846c"
+version = "0.1.0"
+
+[deps]
+ComposableRecurrences = "4e7e49c6-d082-4112-9a58-49588f39a74b"
+
+[sources]
+ComposableRecurrences = {path = "../.."}
+
+[compat]
+julia = "1.12"

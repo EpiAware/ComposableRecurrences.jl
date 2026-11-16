@@ -62,8 +62,10 @@ the AD backend instead, so they keep their gradients.
 
 Arithmetic with a `Derived` on either side builds another `Derived`, so
 `κ * x`, `x + c`, `x - c`, `x / N`, `x ^ p` and `-x` all work when `x` is
-a `Derived`, with a number, a vector, `PerStratum`, `TimeVarying` or a
-`Survival` on the other side.
+a `Derived`, with a number, a vector, `PerStratum` or `TimeVarying` on the
+other side.
+`+`, `-`, `*` and `/` also work with a
+[`ComposableRecurrences.Survival`](@ref) on either side.
 Wrap a plain parameter as `Derived(identity, x)` to start such an
 expression.
 
@@ -133,20 +135,40 @@ Derived(f, args...) = Derived(f, args)
 
 param(x::Derived, k, t) = x.f(_params_at(x.args, k, t)...)
 
-# Unrolled over the arguments, so a nested `Derived` recurses only into
-# simpler `Derived` types and infers: a helper shared by every level would
-# meet inference's recursion limit and dispatch at run time.
-@generated function add_param!(x̄, x::Derived{F, A}, v, k, t) where {F, A}
+function add_param!(x̄, x::Derived, v, k, t)
+    ā = _arg_mirrors(cotangent(x̄, :args), x.args)
+    ā === nothing && return nothing
+    return _add_partials!(ā, x, v, _partials(x.f, _params_at(x.args, k, t)), k, t)
+end
+# Add `v ∂_i` into each argument's mirror `ā[i]`. Unrolled over the
+# arguments, so a nested `Derived` recurses only into simpler `Derived`
+# types and infers: a helper shared by every level would meet inference's
+# recursion limit and dispatch at run time.
+@generated function _add_partials!(ā, x::Derived{F, A}, v, ∂, k, t) where {F, A}
     calls = (
         :(add_param!(ā[$i], x.args[$i], v * ∂[$i], k, t)) for i in 1:fieldcount(A)
     )
     return quote
-        ā = _arg_mirrors(cotangent(x̄, :args), x.args)
-        ā === nothing && return nothing
-        ∂ = _forward_derivative(x.f, _params_at(x.args, k, t))
         $(calls...)
         return nothing
     end
+end
+
+# The value of parameter `x` at `(k, t)` and what its pullback
+# (`_add_param_partials!`) needs, from one read of its arguments: the
+# partials of a `Derived`'s map that has mirrors, else `nothing`. Only the
+# outer map's partials are kept: a nested `Derived` argument reads its own
+# arguments again in its `add_param!`.
+_param_partials(x̄, x, k, t) = (param(x, k, t), nothing)
+function _param_partials(x̄, x::Derived, k, t)
+    xs = _params_at(x.args, k, t)
+    ā = _arg_mirrors(cotangent(x̄, :args), x.args)
+    ā === nothing && return (x.f(xs...), nothing)
+    return (x.f(xs...), _partials(x.f, xs))
+end
+_add_param_partials!(x̄, x, v, ::Nothing, k, t) = add_param!(x̄, x, v, k, t)
+function _add_param_partials!(x̄, x::Derived, v, ∂::Tuple, k, t)
+    return _add_partials!(_arg_mirrors(cotangent(x̄, :args), x.args), x, v, ∂, k, t)
 end
 
 # The arguments' values, read one tuple entry at a time: a `map` closure
@@ -162,7 +184,7 @@ function _check_param(name, x::Derived)
     return x
 end
 function _check_param_strata(name, x::Derived, S)
-    foreach(a -> _check_param_strata(name, a, S), x.args)
+    _tuple_foreach(a -> _check_param_strata(name, a, S), x.args)
     return nothing
 end
 # Constant over time when every argument is.
@@ -182,7 +204,7 @@ function _derived_local_type(::Type{T}) where {T}
     isconcretetype(T) && isstructtype(T) || return true
     return all(_derived_local_type, fieldtypes(T))
 end
-# The type-level form of `_fieldfree`: no float leaves in fields.
+# Whether a type holds no float leaves in its fields.
 function _fieldfree_type(::Type{T}) where {T}
     T <: Union{Bool, Integer, Nothing, Symbol, AbstractString} && return true
     T <: Real && return false

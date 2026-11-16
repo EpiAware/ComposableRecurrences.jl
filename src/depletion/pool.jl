@@ -49,7 +49,7 @@ When ``P \le 0`` the draw comes from the first pool `weights` names alone.
 A draw into pool ``f`` (`into = f`) fills it instead, up to ``N_t``:
 ``(v', \cdot) = F(v, N_t - x_f, N_t)`` and ``x'_f = x_f + v'``, as
 admissions fill beds.
-Its form is `Truncate()` or `SoftTruncate(κ)`, and its capacity ``N_t`` is
+Its form is `Truncate()` or `Truncate(κ)`, and its capacity ``N_t`` is
 not negative.
 What a draw leaves of the value it takes, ``u = v - v'``, goes nowhere by
 default; with `overflow = :stratum` to the group's second value,
@@ -64,7 +64,7 @@ Hazard and share [flows](@ref ComposableRecurrences.Flow) given one after
 another act together, then each count flow in the order given; a count
 flow from `0` brings its demand in from outside.
 
-A draw is a form, `Hazard()`, `Floor()`, `Truncate()`, `SoftTruncate(κ)`
+A draw is a form, `Hazard()`, `Floor()`, `Truncate()`, `Truncate(κ)`
 or a [new type](@ref extending-form) with a `forward!(form, Step(), v, s, N)`
 method, which draws from the first pool alone.
 A built-in form given `weights`, `into` or `overflow`, such as
@@ -122,7 +122,7 @@ A share ``\delta`` leaving the beds is a geometric length of stay, with
 survival ``(1 - \delta)^k`` after ``k`` steps; for another stay, convolve the
 admissions with its survival, as a [`ComposableRecurrences.Primary`](@ref)
 indexed [`TimeVarying`](@ref) kernel for cohorts, and bound the sum with
-[`ComposableRecurrences.Clamp`](@ref) or a `Depletion` that fills a pool.
+`Transform(clamp, lo, hi)` or a `Depletion` that fills a pool.
 A `Depletion` holds the fields `pools` (each pool's starting value,
 `nothing` for its default) and `pieces`: the draws, each with `N` and its
 pools named by position, and the flows given one after another as one
@@ -349,23 +349,23 @@ const _Flows = Tuple{Flow, Vararg{Flow}}
 # that one draw at most has a queue; the message is built only when one
 # does not hold.
 function _check_pieces(pieces::Tuple, n)
-    foreach(p -> _check_piece_pools(p, n), pieces)
+    _tuple_foreach(p -> _check_piece_pools(p, n), pieces)
     _nqueues(pieces) <= 1 || throw(
         ArgumentError("one draw at most has overflow = :queue")
     )
     return nothing
 end
-_check_piece_pools(fs::Tuple, n) = foreach(f -> _check_pool(f, n), fs)
+_check_piece_pools(fs::Tuple, n) = _tuple_foreach(f -> _check_pool(f, n), fs)
 _check_piece_pools(d::_DrawFrom, n) = _check_drawn_pool(d.first, n)
 _check_piece_pools(d::_DrawInto, n) = _check_drawn_pool(d.pool, n)
 function _check_pool(f, n)
-    max(f.from, f.to) <= n || _too_many_pools(f, n)
+    max(_from(f), _to(f)) <= n || _too_many_pools(f, n)
     return nothing
 end
 @noinline function _too_many_pools(f, n)
     throw(
         ArgumentError(
-            "the flows name pool $(max(f.from, f.to)), but there " *
+            "the flows name pool $(max(_from(f), _to(f))), but there " *
                 (n == 1 ? "is 1 pool" : "are $n pools")
         )
     )
@@ -465,7 +465,9 @@ end
 # A run or a part with its pools as positions among `starts`: each flow of
 # a run, or a draw by its form's arguments, a form of another type drawn
 # from the first pool alone. The draw holds the form without its arguments.
-_place_run(fs::_Flows, N, starts) = _tuple_map(f -> _placed(f, keys(starts)), fs)
+function _place_run(fs::_Flows, N, ::NamedTuple{names}) where {names}
+    return _tuple_map(f -> _placed(f, Val(names)), fs)
+end
 _place_run(form, N, starts) = _place_piece(form, N, starts)
 function _place_piece(form, N, starts)
     _check_piece(form)
@@ -579,7 +581,7 @@ _check_fill_form(::_TruncateForm) = nothing
 @noinline function _check_fill_form(form)
     throw(
         ArgumentError(
-            "a draw into a pool is Truncate() or SoftTruncate(κ), got " *
+            "a draw into a pool is Truncate() or Truncate(κ), got " *
                 _describe(form)
         )
     )
@@ -881,9 +883,10 @@ _to_stratum(::_ToStratum, b, u) = b + u
 _to_queue(o, Q, u) = Q
 _to_queue(::_Queue, Q, u) = u
 
-# The weights at group `g` and time `t`, promoted to one type so a step
-# indexes them without a union, and the weighted pools `Σ w_i x_i`, summed
-# in order. A fixed weight of one promotes to an exact one.
+# The weights at group `g` and time `t`, promoted to one type so the
+# reverse pass (`_take_back`) indexes them without a union, and the
+# weighted pools `Σ w_i x_i`, summed in order. A fixed weight of one
+# promotes to an exact one.
 function _weights_at(p, ::Val{n}, g, t) where {n}
     return promote(ntuple(i -> param(p.weights[i], g, t), Val(n))...)
 end
@@ -913,8 +916,10 @@ end
 end
 
 # Several pools: each loses the draw in proportion to its weighted pool.
+# The weights keep their own types, so a fixed weight of one multiplies a
+# dual pool as a plain number.
 @inline function _draw_pools(p, v, x::NTuple{n}, t, g) where {n}
-    w = _weights_at(p, Val(n), g, t)
+    w = map(@inline(wi -> param(wi, g, t)), Tuple(p.weights))
     P = _weighted(w, x)
     y, _ = _draw(p.form, v, P, _pop(p.N, g, t))
     # `ifelse`, not `if`, so a traced `P` needs no branch; the guarded
@@ -923,8 +928,9 @@ end
     on = _primal_value(P) > 0
     q = y / ifelse(on, P, one(P))
     d = p.first
-    x′ = ntuple(Val(n)) do i
-        return ifelse(on, x[i] - q * w[i] * x[i], ifelse(i == d, x[i] - y, x[i]))
+    x′ = map(w, x, ntuple(identity, Val(n))) do wi, xi, i
+        @inline
+        return ifelse(on, xi - q * wi * xi, ifelse(i == d, xi - y, xi))
     end
     return y, x′
 end
@@ -952,7 +958,7 @@ end
         only(m.pieces), _head(cotangent(grads.piece, :pieces)), v, grads.v, grads.s,
         g, t
     )
-    return x̄, map(_ -> zero(eltype(x̄)), x̄)
+    return x̄, _tuple_map(_ -> zero(eltype(x̄)), x̄)
 end
 
 # `v` and `s` are the group's incoming values and state; returns their
@@ -1453,7 +1459,7 @@ end
             Flow(1 => 2, PerStratum([0.3, 0.2])),
             Flow(2 => 0, 0.1; form = Share()),
             Flow(1 => 0, 0.5; form = Truncate()),
-            Flow(2 => 0, 0.2; form = SoftTruncate(0.1)); pools = (:A, :B)
+            Flow(2 => 0, 0.2; form = Truncate(0.1)); pools = (:A, :B)
         ),
         role = Step(), args = ([2.0, 3.0, 1.0, 0.5], zeros(4), 1)
     ),
@@ -1464,7 +1470,7 @@ end
     Arguments(;
         piece = Depletion(
             4.0, Flow(:O => 0, 0.2; form = Share()),
-            SoftTruncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
+            Truncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
         ),
         role = Step(), args = ([2.0, 3.0, 1.0, 0.5], [1.0, 3.5], 2),
         pullback = false

@@ -96,7 +96,7 @@ end
     deep = Recurrence(Pairwise(K1 => g1, K2 => g2); modifiers = (Deep(),))
     ref = Recurrence(Pairwise(A); modifiers = (Deep(),))
     @test deep(R; history = hd) ≈ ref(R; history = hd)
-    y, st = deep(R; history = hd, state = true)
+    y, st = deep(R; history = hd, record = (:state,))
     @test size(st.history) == (S, 2L)
     @test st.history ≈ hcat(hd, y)[:, (end - 2L + 1):end]
 end
@@ -154,8 +154,8 @@ end
     ϵ = rand(rng, S, T)
     @test r(R; history = h, add = ϵ) ≈ ref(R; history = h, add = ϵ)
     # Resuming from the state continues the run.
-    y1, st = r(R; history = h, stop = 4, state = true)
-    @test hcat(y1, first(r(R; state = st))) ≈ r(R; history = h)
+    y1, st = r(R; history = h, stop = 4, record = (:state,))
+    @test hcat(y1, r(R; state = st)) ≈ r(R; history = h)
     # A history shorter than the longest route is zero-padded.
     @test r(R; history = h[:, 3:4]) ≈ ref(R; history = h[:, 3:4])
     # Float32 throughout gives a Float32 output.

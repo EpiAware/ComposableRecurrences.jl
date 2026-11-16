@@ -28,6 +28,7 @@ gain.
 With modifiers or added values the ratio is the gain as realised on each
 step, with their effect included.
 Where ``q_{t,i}`` is zero the ratio is `NaN` or `Inf`.
+For outputs from a traced call, `trace.pressure` is the same pressure.
 
 # Arguments
 - `r`: the recurrence.

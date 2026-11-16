@@ -25,6 +25,7 @@
     mirror_vec(x̄::Nothing, x) = zeros(CR._nparams(x))
     mirror_vec(x̄, x::SparseMatrixCSC) = copy(x̄.nzval)
     mirror_vec(x̄, x::Diagonal) = mirror_vec(x̄.diag, x.diag)
+    mirror_vec(::Nothing, x::Diagonal) = zeros(CR._nparams(x))
     function mirror_vec(x̄, x::Union{Tuple, NamedTuple})
         return reduce(vcat, map(mirror_vec, values(x̄), values(x)); init = Float64[])
     end
@@ -231,6 +232,36 @@ end
     @test pullback_matches(r, recargs(R, nothing, rand(rng, L); start = 4)...)
 end
 
+@testitem "Adjoint: Recurrence, single series through pointwise modifiers" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    rng = Xoshiro(8)
+    L, T = 3, 9
+    # A fixed kernel, one given by change points and one with no lags, whose
+    # runs each carry the last value; a gain with and without additions, and
+    # later starts.
+    kernels = (
+        rand(rng, L) ./ 2,
+        TimeVarying([1 => rand(rng, L) ./ 2, 4 => rand(rng, L) ./ 2, 7 => rand(rng, 2)]),
+        Float64[],
+    )
+    modifiers = (
+        (CR.Transform(clamp, 0.0, 2.0),),
+        (CR.Depletion(50.0),),
+        (CR.Depletion(50.0), CR.Transform(clamp, 0.0, 2.0)),
+    )
+    R = 0.8 .+ rand(rng, T)
+    ϵ = rand(rng, T)
+    # With no lags and no add input every value is 0, on `clamp`'s kink, where
+    # the rule and the reference may take different one-sided slopes.
+    for g in kernels, ms in modifiers, start in (1, 5, 8),
+            add in (g isa Vector && isempty(g) ? (ϵ,) : (nothing, ϵ))
+        r = Recurrence(g; modifiers = ms)
+        h = 1 .+ rand(rng, L)
+        @test pullback_matches(r, recargs(R, add, h; start)...)
+    end
+end
+
 @testitem "Adjoint: Recurrence, unit lag-1" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(5)
@@ -326,10 +357,13 @@ end
             (Slope(0.3),),
             (CR.Depletion(PerStratum([40.0, 50.0, 60.0])),),
             (CR.Depletion(50.0, CR.Floor(1.5)),),
-            (CR.Redistribute(K, [0.3, 0.2, 0.1]), CR.Add(PerStratum([0.1, 0.2, 0.3]))),
-            (CR.Clamp(0.0, 3.0),),
+            (
+                CR.Redistribute(K, [0.3, 0.2, 0.1]),
+                CR.Transform(+, PerStratum([0.1, 0.2, 0.3])),
+            ),
+            (CR.Transform(clamp, 0.0, 3.0),),
             (CR.Allocate([[1, 3], [2]], TimeVarying(PerStratum(4 .+ rand(rng, 2, T)))),),
-            (CR.Allocate([1:3], 5.0), CR.Add(0.2)),
+            (CR.Allocate([1:3], 5.0), CR.Transform(+, 0.2)),
             (CR.Allocate([[1, 3], [2]], 4.0; imports = (0.3, P), spill),),
             (
                 CR.Allocate(
@@ -344,12 +378,12 @@ end
             ),
             (
                 CR.Allocate([[1, 3], [2]], 4.0; imports = (0.3, TimeVarying(PT))),
-                CR.Add(0.2),
+                CR.Transform(+, 0.2),
             ),
             (
                 CR.Depletion(
                     1.5, CR.Flow(:O => 0, 0.3; form = CR.Share()),
-                    CR.SoftTruncate(0.1; into = :O, overflow = :queue); pools = (:O,)
+                    CR.Truncate(0.1; into = :O, overflow = :queue); pools = (:O,)
                 ),
             ),
             (
@@ -361,7 +395,7 @@ end
                     CR.Truncate(; overflow = :queue);
                     pools = (B = PerStratum([0.5, 0.0, 1.0]),)
                 ),
-                CR.Add(0.2),
+                CR.Transform(+, 0.2),
             ),
             (
                 CR.Depletion(30.0, CR.Truncate()),
@@ -392,7 +426,7 @@ end
     @test pullback_matches(r, recargs(R[1:2, :], nothing, h[1:2, :]; states = ([1.0],))...)
 end
 
-@testitem "Adjoint: Allocate imports read the record and batch the same" setup = [
+@testitem "Adjoint: Allocate imports read the record and batch the same" tags = [:threads] setup = [
     AdjointCheck,
 ] begin
     using ComposableRecurrences
@@ -440,7 +474,7 @@ end
     for spill in (CR.Redistribute(M), nothing)
         r = Recurrence(
             g; coupling = rand(rng, S, S) ./ 4,
-            modifiers = (CR.Allocate(groups, 6.0; imports, spill), CR.Add(0.1))
+            modifiers = (CR.Allocate(groups, 6.0; imports, spill), CR.Transform(+, 0.1))
         )
         xs = (r, recargs(R, nothing, h)...)
         function cotangents()
@@ -458,7 +492,7 @@ end
     end
 end
 
-@testitem "Adjoint: Recurrence reverse pass in threaded blocks" setup = [AdjointCheck, AdjointModifiers] begin
+@testitem "Adjoint: Recurrence reverse pass in threaded blocks" tags = [:threads] setup = [AdjointCheck, AdjointModifiers] begin
     using ComposableRecurrences
     using Base.ScopedValues: with
     rng = Xoshiro(16)
@@ -468,15 +502,15 @@ end
     h = 1 .+ rand(rng, S, L)
     R = 0.5 .+ rand(rng, S, T)
     ϵ = randn(rng, S, T)
-    mods = (CR.Depletion(PerStratum(fill(60.0, S)), CR.Floor()), CR.Add(0.2))
+    mods = (CR.Depletion(PerStratum(fill(60.0, S)), CR.Floor()), CR.Transform(+, 0.2))
     ops = (
         Recurrence(g; modifiers = mods),
-        Recurrence(g; coupling = 0.8I, modifiers = (CR.Clamp(0.0, 4.0),)),
+        Recurrence(g; coupling = 0.8I, modifiers = (CR.Transform(clamp, 0.0, 4.0),)),
         Recurrence(PerStratum(rand(rng, S, L)); coupling = Diagonal(rand(rng, S))),
         Recurrence(TimeVarying(rand(rng, L, T)); modifiers = (PoolDepletion(fill(40.0, S)),)),
         Recurrence(g; coupling = K, modifiers = mods),
         Recurrence(Pairwise(rand(rng, S, S, L) ./ S); modifiers = mods),
-        Recurrence(g; modifiers = (CR.Allocate([1:2, 3:5], 6.0), CR.Add(0.1))),
+        Recurrence(g; modifiers = (CR.Allocate([1:2, 3:5], 6.0), CR.Transform(+, 0.1))),
     )
     for ex in (CR.Threaded(; min_work = 0, ntasks = 2), CR.Threaded(; min_work = 0))
         with(CR.EXECUTOR => ex) do
@@ -488,7 +522,7 @@ end
     end
 end
 
-@testitem "Adjoint: threaded reverse pass with outputs read and routes" setup = [AdjointCheck] begin
+@testitem "Adjoint: threaded reverse pass with outputs read and routes" tags = [:threads] setup = [AdjointCheck] begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived, Recent
     using Base.ScopedValues: with
@@ -501,7 +535,7 @@ end
     w = rand(rng, W)
     # Each stratum reads its own outputs, so the strata split; a coupled
     # read mixes the strata, so its reverse pass runs serially.
-    own = (CR.Add(-0.01 * Recent(w)), CR.Clamp(0.0, 10.0 - Recent(3)))
+    own = (CR.Transform(+, -0.01 * Recent(w)), CR.Transform(clamp, 0.0, 10.0 - Recent(3)))
     across = (CR.Transform(*, Derived(exp, -0.05 * Recent(w; coupling = K))),)
     ops = (
         (Recurrence(g; modifiers = own), true),
@@ -519,7 +553,7 @@ end
     end
 end
 
-@testitem "Adjoint: Convolution reverse pass in threaded blocks" setup = [AdjointCheck] begin
+@testitem "Adjoint: Convolution reverse pass in threaded blocks" tags = [:threads] setup = [AdjointCheck] begin
     using ComposableRecurrences
     using Base.ScopedValues: with
     rng = Xoshiro(17)
@@ -536,6 +570,15 @@ end
             @test CR._SPLIT_BLOCKS[] > splits
         end
     end
+    # A per-stratum time-varying kernel, in blocks of several strata and of
+    # one, with more tasks than strata too.
+    for ix in (CR.Secondary(), CR.Primary()), ntasks in (2, 3, 8)
+        c = Convolution(TimeVarying(PerStratum(rand(rng, S, D, T)), ix))
+        h = ix isa CR.Primary ? nothing : rand(rng, S, 2)
+        with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks)) do
+            @test pullback_matches(c, X, true, nothing, h, 2, nothing)
+        end
+    end
 end
 
 @testitem "Adjoint: Recurrence cache keeps only what the reverse pass reads" setup = [AdjointCheck] begin
@@ -543,7 +586,7 @@ end
     S, L, T = 3, 2, 5
     h = ones(S, L)
     R = fill(1.2, S, T)
-    mods = (CR.Add(0.1), CR.Depletion(50.0), CR.Clamp(0.0, 9.0))
+    mods = (CR.Transform(+, 0.1), CR.Depletion(50.0), CR.Transform(clamp, 0.0, 9.0))
     for C in (I, rand(S, S))
         r = Recurrence([0.4, 0.3]; coupling = C, modifiers = mods)
         _, c = CR._run_forward(r, recargs(R, nothing, h)...)
@@ -560,11 +603,14 @@ end
         @test size(c.rec[2].S) == (S, T)
         @test c.rec[3].S == zeros(S)
     end
-    @test all(CR._stateless, (CR.Add(0.1), CR.Clamp(0.0, 1.0), CR.Allocate([1:3], 1.0)))
+    @test all(
+        CR._stateless,
+        (CR.Transform(+, 0.1), CR.Transform(clamp, 0.0, 1.0), CR.Allocate([1:3], 1.0)),
+    )
     @test CR._stateless(CR.Transform(exp))
     @test !CR._stateless(CR.Depletion(50.0))
     # A resumed stateless modifier reads the state it was given.
-    r = Recurrence([0.4, 0.3]; modifiers = (CR.Add(0.1),))
+    r = Recurrence([0.4, 0.3]; modifiers = (CR.Transform(+, 0.1),))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([0.5, 1.0, 2.0],))...)
     # A caller overwriting the history after the call does not change the
     # gradient: the history is copied for the modifiers' `Init` pullbacks,
@@ -585,11 +631,57 @@ end
     end
 end
 
+@testitem "Adjoint: an integer gain and coefficient record no convolutions" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(11)
+    S, L, T = 3, 2, 6
+    h = 1 .+ rand(rng, S, L)
+    ϵ = rand(rng, S, T)
+    # Independent strata and a run whose modifier mixes strata, under `I`
+    # and an integer `Diagonal`.
+    mixing = (CR.Allocate([1:3], 1.0),)
+    for C in (I, Diagonal([1, 2, 3])), ms in ((), mixing)
+        r = Recurrence([0.4, 0.3]; coupling = C, modifiers = ms)
+        _, c = CR._run_forward(r, recargs(true, ϵ, h)...)
+        @test c.pr === nothing
+        @test pullback_matches(r, recargs(true, ϵ, h)...)
+        # A float gain still records them.
+        _, c = CR._run_forward(r, recargs(1.0, ϵ, h)...)
+        @test size(c.pr.P) == (S, T)
+    end
+end
+
+@testitem "Adjoint: a single series' output shadow is rows of the buffer's" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(12)
+    r = Recurrence(rand(rng, 3))
+    y, c = CR._run_forward(r, recargs(1.0, rand(rng, 5), rand(rng, 3))...)
+    # One return type, so a rule's tape infers.
+    ȳ, c2 = @inferred CR._shared_shadow(r, y, c)
+    @test ȳ == zeros(5)
+    @test c2.H̄ == zeros(size(c.H))
+    ȳ .= 1:5
+    @test c2.H̄[(c.D + 1):end] == 1:5
+    @test CR._seeded(c2, c.H, ȳ, c.D) === c2.H̄
+    # Any other cotangent is copied into a fresh buffer.
+    @test CR._seeded(c2, c.H, copy(ȳ), c.D) !== c2.H̄
+    # Strata, and operators other than a Recurrence, get none.
+    Y, cS = CR._run_forward(r, recargs(1.0, rand(rng, 2, 5), rand(rng, 2, 3))...)
+    @test CR._shared_shadow(r, Y, cS) == (nothing, cS)
+    @test CR._shared_shadow(nothing, y, c) == (nothing, c)
+end
+
 @testitem "Adjoint: the buffer's cotangent starts as the output's" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(9)
     H, Ȳ = rand(rng, 5, 2), rand(rng, 2, 3)
     @test CR._seeded(H, Ȳ, 2) == CR._seed_rows!(zeros(5, 2), Ȳ, 2)
+    # A CPU matrix takes its own loop and other arrays the broadcast, so the
+    # two must agree: for one stratum, no history and more steps than strata.
+    for (S, n, o) in ((2, 3, 2), (1, 4, 2), (3, 5, 0), (2, 1, 1))
+        Hs, Ys = rand(rng, o + n, S), rand(rng, S, n)
+        @test CR._seeded(Hs, Ys, o) == CR._seeded(Hs, view(Ys, :, :), o)
+    end
     H1, ȳ = rand(rng, 5, 1), rand(rng, 3)
     @test CR._seeded(H1, ȳ, 2) == CR._seed_rows!(zeros(5, 1), ȳ, 2)
     @test CR._seeded(H1, view(rand(rng, 4), 2:4), 2)[3:5] isa Vector{Float64}
@@ -865,7 +957,7 @@ end
             (Recurrence(g), :rule), (Recurrence(g; coupling = K), :rule),
             (Recurrence(g; modifiers = (CR.Depletion(50.0),)), :rule),
             (Recurrence(g; modifiers = (Slope(0.3),)), :rule),
-            (Recurrence(g; modifiers = (Slope(0.3), CR.Clamp(0.0, 9.0))), :rule),
+            (Recurrence(g; modifiers = (Slope(0.3), CR.Transform(clamp, 0.0, 9.0))), :rule),
             (
                 Recurrence(g; modifiers = (CR.Allocate([1:1, 2:2], PerStratum([1.0, 2.0])),)),
                 :rule,
@@ -930,16 +1022,16 @@ end
         coupling = NestedMix(nested)
     )
     @test_logs (:info, r"NestedPool has no pullback!") note(
-        modifiers = (CR.Clamp(0.0, 9.0), NestedPool([[30.0], [40.0]]))
+        modifiers = (CR.Transform(clamp, 0.0, 9.0), NestedPool([[30.0], [40.0]]))
     )
     @test_logs note(coupling = Mix(K, [1.0, 1.0]))
-    @test_logs note(modifiers = (CR.Clamp(0.0, 9.0),))
+    @test_logs note(modifiers = (CR.Transform(clamp, 0.0, 9.0),))
     # A `Derived` map that holds floats is named as the cause.
     scaled = let c = 2.0
         x -> c * x
     end
-    @test_logs (:info, r"Add has a Derived map that holds floats") note(
-        modifiers = (CR.Add(Derived(scaled, 0.5)),)
+    @test_logs (:info, r"Transform has a Derived map that holds floats") note(
+        modifiers = (CR.Transform(+, Derived(scaled, 0.5)),)
     )
     @test_logs (:info, r"Depletion has a Derived map that holds floats") note(
         modifiers = (CR.Depletion(Derived(scaled, 25.0)),)
@@ -958,7 +1050,7 @@ end
     @test CR._part_why(CR.Depletion(50.0, VecForm([1.0]))) ==
         "VecForm has no pullback! the rule can use"
     # Roles the rule does not call pass the adjoint check.
-    @test CR._adjoint_found(CR.Clamp(0.0, 1.0), CR.Init())
+    @test CR._adjoint_found(CR.Transform(clamp, 0.0, 1.0), CR.Init())
     # A `pullback!` method opts a modifier in, and declaring `uses_adjoint`
     # overrides it.
     struct Scaled{A}
@@ -1124,13 +1216,16 @@ end
     CR._step_pullback((; piece = m̄, v = 1.0, s = 0.0), Doubled(0.5), 2.0, 0.0, 1, 1)
     @test m̄.a[] ≈ 4.0
     # Without a part to check, the outcome is read off the types.
-    for ms in ((), (CR.Depletion(50.0), CR.Clamp(0.0, 9.0)), (CR.Add(1.0),))
+    for ms in (
+            (), (CR.Depletion(50.0), CR.Transform(clamp, 0.0, 9.0)),
+            (CR.Transform(+, 1.0),),
+        )
         @test (@inferred Recurrence(g, I, ms)).rebuilds === Val(true)
     end
     # A rebuild through `constructorof` checks again.
     op = ConstructionBase.setproperties(op; modifiers = (Kept(0.5),))
     @test op.rebuilds === true
-    op = ConstructionBase.setproperties(op; modifiers = (CR.Add(1.0),))
+    op = ConstructionBase.setproperties(op; modifiers = (CR.Transform(+, 1.0),))
     @test op.rebuilds === Val(true)
     @test pullback_matches(
         Recurrence(g; modifiers = (Kept(0.5),)),
@@ -1271,6 +1366,9 @@ end
     @test_throws msg("PoolDepletion") invoke(CR._scalar_pullback, two_args, m, nothing)
     @test_throws msg("PoolDepletion") invoke(CR._read_pullback, two_args, m, nothing)
     @test_throws msg("PoolDepletion") invoke(CR._init_jacobian, one_arg, m, 1.0)
+    @test_throws msg("PoolDepletion") invoke(
+        CR._init_strata_back!, Tuple{Any, Any, Any, Vararg{Any}}, nothing, nothing, m
+    )
     @test_throws msg("Mix") invoke(CR._array_pressure, one_arg, C, 1.0)
     @test_throws msg("Mix") invoke(
         CR._local_pressure!, Tuple{Any, Any, Any, Vararg{Any}}, nothing, nothing, C
@@ -1283,10 +1381,13 @@ end
         CR._transform_seeds, Tuple{Vararg{Any}}, 1.0, 2.0
     )
     # The checks and buffers that need dual numbers say nothing, so the
-    # constructor stores `nothing` and each call checks.
+    # constructor stores `nothing` and each call checks; a whole-step read
+    # count is zero, so its step seeds every entry.
     @test invoke(CR._check_scalars, one_arg, m, (1.0,)) === nothing
     @test invoke(CR._check_views, one_arg, C) === nothing
     @test invoke(CR._probe_reads, one_arg, m) === nothing
+    @test invoke(CR._check_read_rebuild, one_arg, m) === nothing
+    @test invoke(CR._probe_step_reads, two_args, m, 2) == 0
     @test invoke(CR._dual_pressure_buffers, two_args, nothing, C, Float64) === nothing
     @test CR._reads_within(nothing) === nothing
     @test CR._check_rebuilds((m, C)) isa Bool
@@ -1361,7 +1462,7 @@ end
     end
     @test_logs Recurrence([0.2, 0.3]; modifiers = (Mapped(quartered),))
     @test_logs r(ones(4); history = ones(2))
-    @test_logs r(ones(4); history = ones(2), state = true)
+    @test_logs r(ones(4); history = ones(2), record = (:state,))
 end
 
 @testitem "Adjoint: cotangent helpers" setup = [AdjointCheck] begin
@@ -1397,8 +1498,8 @@ end
     r = Recurrence([0.2, 0.3])
     n0 = CR._PULLBACK_CALLS[]
     @test NoAdjoint(r)(ones(4); history = ones(2)) == r(ones(4); history = ones(2))
-    y, st = NoAdjoint(r)(ones(4); history = ones(2), state = true)
-    y2, st2 = r(ones(4); history = ones(2), state = true)
+    y, st = NoAdjoint(r)(ones(4); history = ones(2), record = (:state,))
+    y2, st2 = r(ones(4); history = ones(2), record = (:state,))
     @test y == y2 && st.history == st2.history && st.t == st2.t
     c = Convolution([0.5, 0.5])
     @test NoAdjoint(c)(ones(3)) == c(ones(3))
@@ -1507,16 +1608,16 @@ end
 
 @testitem "Adjoint: the default Init pullback skips a zero state cotangent" setup = [AdjointCheck] begin
     # A modifier with its own Init whose state never reaches the output: the
-    # state cotangent is zero, so the Jacobian over the history is skipped.
+    # state cotangent is zero, so the derivative in the history is skipped.
     struct Capped{K}
         κ::K
     end
     CR.blocks(::Capped) = (1, 1)
-    # Counts the Init calls on dual numbers, which only the Jacobian makes.
+    # Counts the Init calls on dual numbers, which only the derivative makes.
     const DUAL_INITS = Ref(0)
     function CR.forward!(::Capped, ::CR.Init, s, history)
         eltype(history) <: ForwardDiff.Dual && (DUAL_INITS[] += 1)
-        s .= sum(history)
+        s .= vec(sum(history; dims = 2))
         return nothing
     end
     function CR.forward!(m::Capped, ::CR.Step, v, s, t)
@@ -1531,12 +1632,111 @@ end
     CR.pullback!(zero_grads, m, CR.Init(), zeros(3), h)
     @test DUAL_INITS[] == 0
     @test all(iszero, zero_grads.history)
-    # A nonzero one takes the Jacobian.
+    # A nonzero one takes the derivative.
     CR.pullback!(one_grads, m, CR.Init(), zeros(3), h)
     @test DUAL_INITS[] > 0
-    @test one_grads.history ≈ fill(3.0, 3, 4)
+    @test one_grads.history ≈ ones(3, 4)
     r = Recurrence([0.3, 0.2, 0.1]; modifiers = (m,))
     @test pullback_matches(r, recargs(ones(3, 5), nothing, h)...)
+end
+
+@testitem "Adjoint: a pointwise modifier's Init derivative is taken stratum by stratum" setup = [
+    AdjointCheck,
+] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR, PerStratum
+    # A pool per stratum that starts at a scaled `N` plus the last history
+    # value of its stratum, and caps each value at what is left.
+    struct HPool{N, A}
+        N::N
+        a::A
+    end
+    CR.blocks(::HPool) = (1, 1)
+    function CR.forward!(m::HPool, ::CR.Init, s, history)
+        H = reshape(history, length(s), :)
+        for k in eachindex(s)
+            s[k] = m.a * CR.param(m.N, k, 1) + H[k, end]^2
+        end
+        return nothing
+    end
+    function CR.forward!(m::HPool, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            x = min(v[k], s[k])
+            v[k], s[k] = x, s[k] - x
+        end
+        return nothing
+    end
+    # The Init's cotangents against the ForwardDiff Jacobian of the Init in
+    # the parameters and the history.
+    function init_check(S, L)
+        m = HPool(PerStratum(collect(range(3.0, 6.0; length = S))), 0.8)
+        h = [1.0 + 0.1 * k + 0.01 * c for k in 1:S, c in 1:L]
+        s̄ = [(-1.0)^k * (1 + 0.1 * k) for k in 1:S]
+        θ = [m.N.x; m.a; vec(h)]
+        f = function (x)
+            mm = HPool(PerStratum(x[1:S]), x[S + 1])
+            s = zeros(eltype(x), S)
+            CR.forward!(mm, CR.Init(), s, reshape(x[(S + 2):end], S, L))
+            return s
+        end
+        g = transpose(ForwardDiff.jacobian(f, θ)) * s̄
+        grads = (; piece = (; N = (; x = zeros(S)), a = Ref(0.0)), s = s̄, history = zeros(S, L))
+        @test CR._strata_init(m, zeros(S), S * L)
+        CR.pullback!(grads, m, CR.Init(), zeros(S), h)
+        @test grads.piece.N.x ≈ g[1:S] rtol = 1.0e-12
+        @test grads.piece.a[] ≈ g[S + 1] rtol = 1.0e-12
+        @test vec(grads.history) ≈ g[(S + 2):end] rtol = 1.0e-12
+        # Without a history cotangent only the parameters are seeded.
+        grads = (; piece = (; N = (; x = zeros(S)), a = Ref(0.0)), s = s̄, history = nothing)
+        CR.pullback!(grads, m, CR.Init(), zeros(S), h)
+        @test grads.piece.N.x ≈ g[1:S] rtol = 1.0e-12
+        return m, h, s̄
+    end
+    # One pass, and inputs past the widest pass (2 scalars and 30 history
+    # columns), taken in two.
+    init_check(3, 4)
+    init_check(4, 30)
+    # A single series' history is a vector.
+    m = HPool(PerStratum([4.0]), 0.5)
+    grads = (; piece = (; N = (; x = [0.0]), a = Ref(0.0)), s = [2.0], history = zeros(3))
+    CR.pullback!(grads, m, CR.Init(), [0.0], [1.0, 2.0, 3.0])
+    @test grads.piece.N.x ≈ [1.0]
+    @test grads.piece.a[] ≈ 8.0
+    @test grads.history ≈ [0.0, 0.0, 12.0]
+    # At 50 strata it allocates only the state's dual numbers.
+    m, h, s̄ = init_check(50, 10)
+    grads = (; piece = (; N = (; x = zeros(50)), a = Ref(0.0)), s = s̄, history = zeros(50, 10))
+    CR.pullback!(grads, m, CR.Init(), zeros(50), h)
+    @test (@allocated CR.pullback!(grads, m, CR.Init(), zeros(50), h)) < 10_000
+    # Through the operator, with the pools running out.
+    r = Recurrence([0.3, 0.2, 0.1]; modifiers = (HPool(PerStratum([0.5, 1.0, 2.0]), 1.0),))
+    @test pullback_matches(r, recargs(fill(1.4, 3, 8), nothing, fill(0.9, 3, 3))...)
+    @test any(iszero, r(fill(1.4, 3, 8); history = fill(0.9, 3, 3)))
+    # A modifier with another float array keeps the Jacobian.
+    struct MPool{M}
+        M::M
+    end
+    CR.blocks(::MPool) = (1, 1)
+    CR.forward!(m::MPool, ::CR.Init, s, history) = (s .= m.M[:, 1]; nothing)
+    @test !CR._strata_init(MPool(ones(3, 2)), zeros(3), 0)
+    grads = (; piece = (; M = zeros(3, 2)), s = [1.0, 2.0, 3.0], history = nothing)
+    CR.pullback!(grads, MPool(ones(3, 2)), CR.Init(), zeros(3), ones(3, 2))
+    @test grads.piece.M == [1.0 0.0; 2.0 0.0; 3.0 0.0]
+    # An Init that writes every stratum's state from the whole history
+    # breaks the contract: its derivative stratum by stratum would be wrong,
+    # so it throws and says why.
+    struct Summed{K}
+        κ::K
+    end
+    CR.blocks(::Summed) = (1, 1)
+    CR.forward!(::Summed, ::CR.Init, s, history) = (s .= 0.01 .* sum(history); nothing)
+    CR.forward!(m::Summed, ::CR.Step, v, s, t) = (v .= min.(v, m.κ .+ s); nothing)
+    grads = (; piece = (; κ = Ref(0.0)), s = ones(3), history = zeros(3, 4))
+    msg = r"^ArgumentError: the Init of Summed writes another stratum's state from stratum 1's history"
+    @test_throws msg CR.pullback!(grads, Summed(5.0), CR.Init(), zeros(3), ones(3, 4))
+    # Without a history cotangent nothing is seeded there, so it runs.
+    grads = (; piece = (; κ = Ref(0.0)), s = ones(3), history = nothing)
+    @test CR.pullback!(grads, Summed(5.0), CR.Init(), zeros(3), ones(3, 4)) === nothing
 end
 
 @testitem "Adjoint: coupling pullbacks called directly" setup = [ReferenceAD, AdjointCheck] begin
@@ -1619,6 +1819,23 @@ end
     @test_throws BoundsError CR.pullback!(
         (; piece = nothing, q = q̄, p = zeros(3)), C, CR.Pressure(), nothing, p, 5
     )
+end
+
+@testitem "Adjoint: coupling pullback on a matrix view and a time-varying view" setup = [AdjointCheck] begin
+    # A coupling that is not a dense `Array` takes the generic loop; its
+    # cotangents match the transposed products.
+    rng = Xoshiro(6)
+    A, X = randn(rng, 3, 3), randn(rng, 3, 3, 4)
+    p, q̄, t = randn(rng, 3), randn(rng, 3), 2
+    for (C, M, m̄, read) in (
+            (view(A, :, :), A, zeros(3, 3), identity),
+            (TimeVarying(view(X, :, :, :)), X[:, :, t], (; x = zeros(3, 3, 4)), m -> m.x[:, :, t]),
+        )
+        p̄ = zeros(3)
+        CR.pullback!((; piece = m̄, q = q̄, p = p̄), C, CR.Pressure(), nothing, p, t)
+        @test p̄ ≈ transpose(M) * q̄
+        @test read(m̄) ≈ q̄ * transpose(p)
+    end
 end
 
 @testitem "Adjoint: local pullback over structured and nested parameters" setup = [ReferenceAD, AdjointCheck] begin
@@ -2257,7 +2474,8 @@ end
     # Through a recurrence the rule matches ForwardDiff over every leaf.
     for (ms, S) in (
             ((Mixer(0.9, 0.1),), 3), ((VecScale([0.9, 1.1]),), 2),
-            ((Smear(), CR.Clamp(0.0, 9.0)), 3), ((Mixer(0.95, 0.05), Smear()), 2),
+            ((Smear(), CR.Transform(clamp, 0.0, 9.0)), 3),
+            ((Mixer(0.95, 0.05), Smear()), 2),
         )
         op = Recurrence([0.3, 0.2]; modifiers = ms)
         @test CR.uses_adjoint(op, CR.Run())
@@ -2265,12 +2483,14 @@ end
         @test pullback_matches(op, recargs(fill(1.1, S, 6), nothing, ones(S, 2))...)
     end
     # One pass of 24 holds the values, the state and the parameters; past
-    # it the call takes the wider route, at any size.
+    # it the call takes the wider route, and past two passes plain AD, as
+    # for a coupling.
     args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(11)...) === :one
     @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(12)...) === :wide
     @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(23)...) === :wide
-    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(60)...) === :wide
+    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(24)...) === :none
+    @test CR._fit(Recurrence([0.3]; modifiers = (Mixer(0.9, 0.1),)), args(60)...) === :none
     @test CR._fit(Recurrence([0.3]; modifiers = (Smear(),)), args(12)...) === :one
     # A constructor that changes its arguments takes plain AD with the note.
     struct Doubling{A}
@@ -2289,6 +2509,132 @@ end
     )
     @test invoke(CR._step_duals, Tuple{Any, Any, Vararg{Any}}, nothing, Mixer(0.9, 0.1)) ===
         nothing
+end
+
+@testitem "Adjoint: a whole-step modifier that reads a few array entries seeds only those" setup = [
+    AdjointCheck,
+] begin
+    using ComposableRecurrences, ForwardDiff
+    # The values rescaled to a total read by time.
+    struct TotalByTime{A}
+        total::A
+    end
+    CR.forward!(m::TotalByTime, ::CR.Step, v, s, t) = (v .*= m.total[t] / sum(v); nothing)
+    # A scalar, an array read by time and a state.
+    struct Smoothed{B, A}
+        b::B
+        a::A
+    end
+    CR.nstate(::Smoothed, S) = S
+    function CR.forward!(m::Smoothed, ::CR.Step, v, s, t)
+        μ = sum(v) / length(v)
+        for k in eachindex(v, s)
+            v[k] = (1 - m.b) * v[k] + m.b * μ * m.a[t]
+            s[k] = 0.5 * s[k] + v[k]
+        end
+        return nothing
+    end
+    # Reads 30 entries a step, more than one pass of dual numbers holds.
+    struct ThirtyReads{A}
+        a::A
+    end
+    CR.forward!(m::ThirtyReads, ::CR.Step, v, s, t) = (v .*= sum(m.a[j] for j in 1:30) / 30; nothing)
+    # Reads every entry, so it is seeded through views.
+    struct EveryEntry{A}
+        a::A
+    end
+    CR.forward!(m::EveryEntry, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    # Reads every entry up to `t`, more each step: seeded through views.
+    struct CumMean{A}
+        a::A
+    end
+    function CR.forward!(m::CumMean, ::CR.Step, v, s, t)
+        v .*= sum(m.a[j] for j in 1:t) / t
+        return nothing
+    end
+    # Reads the same at times 1 and 2, then more from time 5 on.
+    struct CumLag{A}
+        a::A
+    end
+    function CR.forward!(m::CumLag, ::CR.Step, v, s, t)
+        v .*= sum(m.a[j] for j in 1:max(1, t - 3)) / max(1, t - 3)
+        return nothing
+    end
+    T, S = 12, 3
+    m = TotalByTime(fill(4.0, 100))
+    @test CR._reads_step(m)
+    @test CR._reads_fewer(m, S)
+    @test CR._probe_step_reads(m, S) == 1
+    # One entry read, so a length-100 vector takes one pass, not plain AD.
+    @test CR._step_fit(m, S) === :one
+    @test !CR._reads_fewer(EveryEntry([0.9, 1.1, 1.0]), S)
+    @test CR._step_fit(EveryEntry(rand(30)), 30) === :none
+    # A step whose reads grow with time reads one entry at time 1 and two at
+    # time 2, so it seeds every entry, and a long array takes plain AD, as a
+    # step at time 1 alone would hide; a short one keeps the views step.
+    @test !CR._reads_fewer(CumMean(ones(100)), S)
+    @test CR._step_inputs(CumMean(ones(100)), S) == 100
+    @test CR._step_fit(CumMean(ones(100)), S) === :none
+    @test CR._step_fit(CumMean(ones(T)), S) === :one
+    # A step whose reads start to grow later reads one entry at times 1 and
+    # 2; the call's last time shows the growth, so a long run takes plain
+    # AD, and a short one stays within one pass.
+    @test CR._step_fit(CumLag(ones(100)), S) === :one
+    @test CR._step_inputs(CumLag(ones(100)), S, 100) == 97
+    @test CR._step_fit(CumLag(ones(100)), S, 100) === :none
+    lag = Recurrence([0.3, 0.2]; modifiers = (CumLag(ones(100)),))
+    @test CR._fit(lag, recargs(fill(1.1, S, 100), nothing, ones(S, 2))...) === :none
+    @test CR._fit(lag, recargs(fill(1.1, S, T), nothing, ones(S, 2))...) === :one
+    # The last time as the run takes it: `stop`, else the extent in time of
+    # the gain or the added series, else 2.
+    @test CR._last_time(fill(1.1, S, T), nothing, nothing, 1, 20) == 20
+    @test CR._last_time(fill(1.1, S, T), nothing) == T
+    @test CR._last_time(1.0, ones(S, 15)) == 15
+    @test CR._last_time(TimeVarying(fill(1.1, 30)), nothing, nothing, 1, 30) == 30
+    @test CR._last_time(1.0, nothing) == 2
+    # A scalar beside the array is seeded whole, and each read counts:
+    # this step reads `a[t]` once per stratum.
+    @test CR._step_inputs(Smoothed(0.3, fill(1.0, 50)), S) == 1 + S
+    args = recargs(fill(1.1, S, T), nothing, ones(S, 2))
+    for ms in (
+            (m,), (Smoothed(0.3, 1 .+ 0.1 .* sin.(1:T)),),
+            (ThirtyReads(1 .+ 0.1 .* sin.(1:40)),), (m, CR.Transform(clamp, 0.0, 9.0)),
+            (CumMean(1 .+ 0.1 .* sin.(1:T)),), (CumLag(1 .+ 0.1 .* sin.(1:T)),),
+        )
+        op = Recurrence([0.3, 0.2]; modifiers = ms)
+        @test CR.uses_adjoint(op, CR.Run())
+        @test op.rebuilds === true
+        @test pullback_matches(op, args...)
+    end
+    # With the pass buffers made once, a step allocates nothing.
+    m̄ = (; total = zeros(100))
+    b = CR._step_duals(m̄, m, Float64, S)
+    @test b.readstep
+    v, s = ones(S) .+ 0.5, Float64[]
+    grads = (; piece = m̄, v = ones(S), s = Float64[], pass = b)
+    CR._local_step_back!(grads, m, v, s, 2)
+    coverage = Base.JLOptions().code_coverage != 0
+    @test (@allocated CR._local_step_back!(grads, m, v, s, 2)) == 0 skip = coverage
+    # A step that fails on the probe's ones is taken to read every entry,
+    # so it seeds them all through views.
+    struct Fails{A}
+        a::A
+    end
+    CR.forward!(m::Fails, ::CR.Step, v, s, t) = (v[1] == 1 && error("ones"); nothing)
+    @test !CR._reads_fewer(Fails(rand(10)), S)
+    @test CR._step_inputs(Fails(rand(10)), S) == 10
+    # A constructor that copies its array loses the read wrapper, so the
+    # operator takes plain AD and says so.
+    struct Copying{A}
+        a::A
+        Copying(a::A) where {A} = new{A}(copy(a))
+    end
+    CR.forward!(m::Copying, ::CR.Step, v, s, t) = (v .*= m.a[t]; nothing)
+    empty!(CR._PLAIN_NOTED)
+    op = @test_logs (:info, r"Copying cannot be rebuilt") Recurrence(
+        [0.3, 0.2]; modifiers = (Copying(fill(0.9, T)),)
+    )
+    @test op.rebuilds === false
 end
 
 @testitem "Adjoint: the local step's dual numbers compare by value" begin
@@ -2614,7 +2960,7 @@ end
 @testitem "Adjoint: a call with its trace against ForwardDiff" setup = [AdjointCheck] begin
     using ComposableRecurrences
     # The trace's cotangent through the records, for each modifier's own
-    # trace and the default, with `state = true` too.
+    # trace and the default, with `record = (:state,)` too.
     # A pointwise modifier whose state decays and gathers what passes it.
     struct Decay{A}
         a::A
@@ -2663,7 +3009,7 @@ end
         pools = (:S, :V)
     )
     cases = (
-        Recurrence(g; modifiers = (Decay(0.6), CR.Add(0.1), CR.Depletion(80.0))),
+        Recurrence(g; modifiers = (Decay(0.6), CR.Transform(+, 0.1), CR.Depletion(80.0))),
         Recurrence(g; modifiers = (Keep(0.8), leaky)),
         Recurrence(
             g; modifiers = (
@@ -2695,7 +3041,7 @@ end
     # A ward without a draw: each flow's amount, with every form.
     ward = CR.Depletion(
         CR.Flow(1 => 2, 0.3), CR.Flow(1 => 0, 0.2; form = CR.Share()),
-        CR.Flow(2 => 0, 1.5; form = CR.SoftTruncate(0.2)),
+        CR.Flow(2 => 0, 1.5; form = CR.Truncate(0.2)),
         CR.Flow(2 => 1, 0.4; form = CR.Truncate()),
         CR.Flow(0 => 2, 0.6; form = CR.Truncate()); pools = (:A, :B)
     )
@@ -2749,5 +3095,86 @@ end
         H = CR._buffer(h, Float64, 2, 3, 2)
         @test size(H) == (5, 2)
         @test all(iszero, H[1:2, :])
+    end
+end
+
+@testitem "Adjoint: every parameter walker round-trips each leaf kind" begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using LinearAlgebra: Diagonal
+    using SparseArrays: sparse, nonzeros
+    using Test
+    struct Leaves{A, B, C, D}
+        a::A
+        b::B
+        c::C
+        d::D
+    end
+    # A float, a vector, a matrix and a `Diagonal`, with a sparse matrix in
+    # a nested tuple beside them.
+    dense = Leaves(1.5, [2.0, 3.0], [4.0 5.0; 6.0 7.0], Diagonal([8.0, 9.0]))
+    x = (dense, (; s = sparse([1.0 0.0; 0.0 2.0]), k = :label))
+    n = 1 + 2 + 4 + 2 + 2
+    @test CR._nparams(x) == n
+    @test CR._params(x) == [1.5, 2.0, 3.0, 4.0, 6.0, 5.0, 7.0, 8.0, 9.0, 1.0, 2.0]
+    θ = collect(1.0:n) ./ 10
+    # A copy and, without the sparse matrix, which keeps its own entries,
+    # views of `θ` that a change to `θ` reaches; the float scalar is copied.
+    y = CR._rebuild(x, θ)
+    @test CR._params(y) == θ
+    @test y[1].d isa Diagonal && nonzeros(y[2].s) == θ[(end - 1):end]
+    θv = copy(θ[1:(n - 2)])
+    v = CR._rebuild_views(dense, θv)
+    @test CR._params(v) == θv
+    θv .*= 2
+    @test CR._params(v)[2:end] == θv[2:end]
+    @test CR._params(v)[1] == θ[1]
+    # A gradient added into a zero mirror reads back in the same order.
+    x̄ = CR._zero_mirror(x)
+    CR._addparams!(x̄, x, θ, 0)
+    @test CR._mirror_params(x̄, x) == θ
+    # The float scalars, rebuilt and with their cotangents added.
+    @test CR._param_tuple(x) == (1.5,)
+    @test CR._param_tuple(CR._rebuild_scalar(x, (0.25,))[1]) == (0.25,)
+    s̄ = CR._zero_mirror(x)
+    @test CR._add_scalar!(s̄, x, (0.75, 1.0), nothing) == (1.0,)
+    @test s̄[1].a[] == 0.75
+    # The read step's rebuild wraps each float array, a `Diagonal` whole,
+    # numbered in field order, and adds a read's cotangent into that
+    # array's mirror.
+    seed = CR._ReadSeed{Float64}(CR._Reads{4}(), 0)
+    r, rest, l = CR._rebuild_reads(dense, (0.5, 9.0), seed, 1)
+    @test r.a == 0.5 && rest == (9.0,) && l == 4
+    @test r.b isa CR._ReadArray && r.b.leaf == 1 && r.c.leaf == 2
+    @test r.d isa CR._ReadArray && r.d.leaf == 3 && r.d.x === dense.d
+    d̄ = CR._zero_mirror(dense)
+    @test CR._add_read!(d̄, dense, 2, 3, 0.5, 1) == 4
+    @test d̄.c[3] == 0.5 && all(iszero, d̄.b)
+    # A nested tuple of parts infers through the count and the scalar walks.
+    parts = (dense, (Leaves(0.5, 1, :s, nothing), (; m = dense)))
+    @test @inferred(CR._nparams(parts)) == 2n - 4 + 1
+    @test @inferred(CR._param_tuple(parts)) == (1.5, 0.5, 1.5)
+    @test @inferred(CR._rebuild_scalar(parts, (1.0, 2.0, 3.0)))[2] == ()
+    @test CR._rebuild(parts, collect(1.0:(2n - 3))) isa typeof(parts)
+end
+
+@testitem "Adjoint: the read step takes a Diagonal or sparse field whole" begin
+    using ComposableRecurrences, LinearAlgebra, SparseArrays
+    # The read step's check rebuilds with dual numbers.
+    using ForwardDiff
+    CR = ComposableRecurrences
+    struct DiagonalScale{D}
+        d::D
+    end
+    CR.blocks(::DiagonalScale) = (1, 1)
+    CR.forward(m::DiagonalScale, ::CR.Step, v, s, t, k) = (m.d[k, k] * v, s)
+    seed = CR._ReadSeed{Float64}(CR._Reads{4}(), 0)
+    for d in (Diagonal([0.5, 0.7, 0.9]), sparse(Diagonal([0.5, 0.7, 0.9])))
+        m = DiagonalScale(d)
+        r, rest, l = CR._rebuild_reads(m, (), seed, 1)
+        @test r.d isa CR._ReadArray && r.d.x === d && r.d.leaf == 1 && l == 2
+        @test CR._reads_kept(m, r)
+        # The check turns the part away, so its call takes plain AD.
+        @test CR._check_reads(m) === false
     end
 end

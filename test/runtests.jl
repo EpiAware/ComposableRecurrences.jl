@@ -15,6 +15,8 @@
 #   readme_only   — run only `:readme`-tagged items (README/tutorial tests)
 #   usecase_only  — run only `:usecase`-tagged items (real models in
 #                   test/usecases/ checked against their original code)
+#   threads_only  — run only `:threads`-tagged items (those that use
+#                   `Threaded`, `EXECUTOR` or `Threads`)
 #
 # `:usecase_pending` items need API that has not landed yet, so only
 # `usecase_only` runs them; drop the tag once they pass.
@@ -39,6 +41,7 @@ function mode_filter(args)
     "quality_only" in args && return ti -> :quality in ti.tags
     "readme_only" in args && return ti -> :readme in ti.tags
     "usecase_only" in args && return ti -> :usecase in ti.tags
+    "threads_only" in args && return ti -> :threads in ti.tags
     quality = !("skip_quality" in args)
     return ti -> (quality || !(:quality in ti.tags)) && !(:ad in ti.tags) &&
         !(:usecase_pending in ti.tags)

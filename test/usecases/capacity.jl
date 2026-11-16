@@ -139,3 +139,47 @@ end
     @test sum(model(R, e, budget(60.0, 7, true))) <=
         sum(model(R, e, budget(60.0, 7, false)))
 end
+
+@testitem "Use case: a bed cap with a general length of stay" tags = [:usecase] begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    T = 40
+    demand = [30 * exp(-((t - 15) / 6)^2) for t in 1:T]
+    # A stay that is not geometric, lag 0 first: the survival of a gamma
+    # with shape 2 and scale `θ[2]`, read at the end of each step, so some
+    # patients leave on the step they arrive and `S[1] < 1`.
+    survival(θ) = [(1 + (k + 1) / θ[2]) * exp(-(k + 1) / θ[2]) for k in 0:(T - 1)]
+    function naive(θ)
+        S = survival(θ)
+        x = zeros(eltype(θ), T)
+        for t in 1:T
+            held = sum(S[k + 1] * x[t - k] for k in 1:(t - 1); init = zero(eltype(θ)))
+            x[t] = min(demand[t], (θ[1] - held) / S[1])
+        end
+        return x
+    end
+    function admitted(θ)
+        S = survival(θ)
+        cap = CR.Transform(min, (θ[1] - CR.Recent(S[2:end])) / S[1])
+        r = Recurrence([zero(eltype(θ))]; modifiers = (cap,))
+        return r(; history = [zero(eltype(θ))], add = demand)
+    end
+    θ = [60.0, 3.0]
+    x = admitted(θ)
+    @test x ≈ naive(θ)
+    occupancy = Convolution(survival(θ))(x)
+    @test any(x .< demand)
+    @test maximum(occupancy) ≈ θ[1]
+    @test all(occupancy .<= θ[1] + 1.0e-10)
+    # A non-increasing survival keeps the bound, and so the admissions,
+    # non-negative where the cap binds.
+    @test all(>=(0), x)
+    free = [Inf, θ[2]]
+    @test admitted(free) ≈ demand
+    w = range(0.5, 1.5; length = T)
+    loss(x) = sum(w .* Convolution(survival(θ))(x))
+    @test ForwardDiff.gradient(θ -> loss(admitted(θ)), θ) ≈
+        ForwardDiff.gradient(θ -> loss(naive(θ)), θ)
+    # More beds, more admitted.
+    @test ForwardDiff.gradient(θ -> sum(admitted(θ)), θ)[1] > 0
+end

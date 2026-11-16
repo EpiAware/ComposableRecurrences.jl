@@ -133,7 +133,7 @@ end
         CR.Flow(1 => 0, 0.4); pools = (:A, :B)
     )
     r = Recurrence([1.0]; modifiers = (flows,))
-    _, st = r(; history = [5.0, 0.0][:, :], stop = 1, state = true)
+    _, st = r(; history = [5.0, 0.0][:, :], stop = 1, record = (:state,))
     @test only(st.states)[1] == 0
     @test only(st.states)[2] ≈ 5 * 0.3 / 0.7 * (1 - exp(-0.7))
 end
@@ -159,7 +159,7 @@ end
     adm = [4.0, 0.0, 3.0, 0.0, 0.0, 6.0]
     function run(θ)
         flows = CR.Depletion(
-            CR.Flow(1 => 2, θ[1]; form = CR.SoftTruncate(θ[2])),
+            CR.Flow(1 => 2, θ[1]; form = CR.Truncate(θ[2])),
             CR.Flow(2 => 0, 0.2; form = CR.Share()); pools = (:A, :B)
         )
         r = Recurrence([1.0]; modifiers = (flows,))
@@ -187,10 +187,8 @@ end
         ReferenceAD.gradient(θ -> sum(ref(θ)), θ)
 end
 
-@testitem "Depletion without a draw: the time checks infer and allocate nothing, after a gradient too" setup = [ReferenceAD] begin
-    using ComposableRecurrences, ForwardDiff, Mooncake
-    using DifferentiationInterface: gradient, AutoMooncake
-    CR = ComposableRecurrences
+@testitem "Depletion without a draw: the time checks infer and allocate nothing, after a gradient too" setup = [AdjointCheck] begin
+    using ComposableRecurrences
     function flows(θ)
         return CR.Depletion(
             CR.Flow(:U => :C, PerStratum(θ[1:2])),
@@ -203,7 +201,7 @@ end
         )
     end
     θ = vcat([0.3, 0.2], fill(0.1, 6), 0.1, fill(0.5, 12))
-    mods = (flows(θ), CR.Clamp(0.0, 1.0e6))
+    mods = (flows(θ), CR.Transform(clamp, 0.0, 1.0e6))
     checked(m) = ComposableRecurrences._check_times(:modifiers, m, 6)
     check_allocs(m) = (checked(m); @allocated checked(m))
     @test (@inferred checked(mods)) === nothing
@@ -215,8 +213,9 @@ end
     call(m) = Recurrence([1.0]; modifiers = m)(; history = zeros(4, 1), add = adm)
     call_allocs(m) = (call(m); @allocated call(m))
     before = call_allocs(mods)
-    loss(θ) = sum(call((flows(θ), CR.Clamp(0.0, 1.0e6))))
-    @test gradient(loss, AutoMooncake(), θ) ≈ ReferenceAD.gradient(loss, θ)
+    # The reverse pass, against ForwardDiff.
+    r = Recurrence([1.0]; modifiers = mods)
+    @test pullback_matches(r, recargs(true, adm, zeros(4, 1))...)
     # A gradient does not leave the checks to run inference on each call.
     @test check_allocs(mods) == 0 skip = coverage
     @test call_allocs(mods) <= before skip = coverage
@@ -244,6 +243,18 @@ end
     )
     for θ in θs, t in (1, 2)
         c = check_pullback(build, θ, v, zeros(6), t)
+        @test c.v && c.s && c.θ
+    end
+    # Pool A's one hazard flow enters a pool, beside a share out of it; B has
+    # two hazard flows and C's one leaves the system. A's rate spans the
+    # series and both arms of the exponential.
+    abc(θ) = CR.Depletion(
+        CR.Flow(:A => :B, θ[1]), CR.Flow(:A => 0, θ[2]; form = CR.Share()),
+        CR.Flow(:B => :C, θ[3]), CR.Flow(:B => :A, θ[4]), CR.Flow(:C => 0, θ[5]);
+        pools = (:A, :B, :C)
+    )
+    for r in (0.0, 1.0e-12, 0.5, 40.0), t in (1, 2)
+        c = check_pullback(abc, [r, 0.1, 0.2, 0.3, 0.4], v, zeros(6), t)
         @test c.v && c.s && c.θ
     end
     # Derived and group-by-time parameters, and a count into a compartment
@@ -274,8 +285,8 @@ end
     # Smooth counts, with the softness as a parameter: one below what the
     # compartment holds, one above it and one out of an empty compartment.
     soft(θ) = CR.Depletion(
-        CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.SoftTruncate(θ[3])),
-        CR.Flow(2 => 0, θ[4]; form = CR.SoftTruncate(θ[5])); pools = (:A, :B)
+        CR.Flow(1 => 2, PerStratum(θ[1:2]); form = CR.Truncate(θ[3])),
+        CR.Flow(2 => 0, θ[4]; form = CR.Truncate(θ[5])); pools = (:A, :B)
     )
     for θ in ([1.5, 0.3, 0.1, 9.0, 0.2], [3.0, 0.5, 0.4, -1.0, 0.1]), t in (1, 2)
         c = check_pullback(soft, θ, [4.0, 0.0, 1.0, 0.5], zeros(4), t)
@@ -303,7 +314,8 @@ end
     for T in (Float32, Float64), H in Hs
         x = T(H)
         E, gx = CR._leave(x)
-        @test gx isa T
+        @test E isa T && gx isa T
+        @test E ≈ T(exp(-big(x))) rtol = 2 * eps(T)
         @test gx ≈ T(g(big(x))) rtol = 8 * eps(T)
         @test CR._leave_slope(x, E, gx) ≈ T(g′(big(x))) rtol = sqrt(eps(T))
     end
@@ -359,6 +371,62 @@ end
     end
 end
 
+@testitem "Depletion without a draw: a pool's one hazard flow moves -expm1(-H)" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Pool 1 has one hazard flow into a pool; pool 2 two; pool 3's one leaves
+    # the system.
+    depletion(r) = CR.Depletion(
+        CR.Flow(:A => :B, r), CR.Flow(:A => 0, 0.1; form = CR.Share()),
+        CR.Flow(:B => :C, 0.2), CR.Flow(:B => :A, 0.3), CR.Flow(:C => 0, 0.4);
+        pools = (:A, :B, :C)
+    )
+    fs = only(depletion(0.3).pieces)
+    @test CR._one_rated_into(fs, 1)
+    @test !CR._one_rated_into(fs, 2)
+    @test !CR._one_rated_into(fs, 3)
+    @test map(i -> CR._hazards_out(fs, i), (1, 2, 3)) == (1, 2, 1)
+    @test CR._hazards_out((), 1) == 0
+    @test CR._group_leaves_each(fs, 1, 1, 0.0, Val(3)) ===
+        ntuple(i -> CR._group_leaves(fs, i, 1, 1, 0.0), 3)
+    for i in 2:3
+        @test CR._group_leaves(fs, i, 1, 1, 0.0) === CR._step_leaves(fs, i, 1, 1, 0.0)
+    end
+    setprecision(BigFloat, 256) do
+        for H in (0.0, 1.0e-12, 1.0e-6, 0.03, 0.49, 0.5, 2.0, 40.0)
+            fs = only(depletion(H).pieces)
+            E, w, P = CR._group_leaves(fs, 1, 1, 1, 0.0)
+            Es, gH, Ps = CR._step_leaves(fs, 1, 1, 1, 0.0)
+            @test (E, P) == (Es, Ps)
+            @test w isa CR._Moved
+            F = CR._by_rate(fs[1], 1, 1, w)
+            @test CR._by_rate(fs[2], 1, 1, w) == 0
+            ref = -expm1(-big(H))
+            @test abs(F - ref) <= eps(Float64(ref))
+            # As accurate as the general form, `H g(H)`, or more.
+            @test abs(F - ref) <= abs(H * gH - ref)
+        end
+    end
+    # A run with a share flow into a pool beside the one hazard flow, against
+    # a hand loop.
+    for r in (1.0e-9, 0.3, 4.0)
+        fl = CR.Depletion(
+            CR.Flow(:A => :B, r), CR.Flow(:A => :C, 0.2; form = CR.Share());
+            pools = (:A, :B, :C)
+        )
+        A = [k == 1 ? 10.0 : 0.0 for k in 1:3, t in 1:6]
+        y = Recurrence([1.0]; modifiers = (fl,))(;
+            history = zeros(3, 1), add = A, stop = 6
+        )
+        x = zeros(3)
+        for t in 1:6
+            a, b, c = x .+ A[:, t]
+            x = [(exp(-r) - 0.2) * a, b - expm1(-r) * a, c + 0.2 * a]
+            @test y[:, t] ≈ x rtol = 1.0e-14
+        end
+    end
+end
+
 @testitem "Depletion without a draw: resume, Float32 and the adjoint route" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
@@ -369,8 +437,8 @@ end
     r = Recurrence([1.0]; modifiers = (flows,))
     A = [fill(3.0, 2, 10); zeros(2, 10)]
     y = r(; history = zeros(4, 1), add = A, stop = 10)
-    y1, st = r(; history = zeros(4, 1), add = A, stop = 4, state = true)
-    @test hcat(y1, first(r(; state = st, add = A, stop = 10))) ≈ y
+    y1, st = r(; history = zeros(4, 1), add = A, stop = 4, record = (:state,))
+    @test hcat(y1, r(; state = st, add = A, stop = 10)) ≈ y
     @test CR.blocks(flows) == (2, 2)
     @test CR.nstate(flows, 6) == 6
     @test CR.uses_adjoint(r, CR.Run())
@@ -403,7 +471,7 @@ end
         1 => 0, PerStratum([0.2, -0.1]); form = CR.Share()
     )
     @test CR.Flow(1 => 2, 1.5).demand == 1.5
-    @test_throws "SoftTruncate(κ), got ComposableRecurrences.Floor()" CR.Flow(
+    @test_throws "Truncate(κ), got ComposableRecurrences.Floor()" CR.Flow(
         1 => 2, 0.1; form = CR.Floor()
     )
     moving(names, f::CR.Flow) = moving(names, (f,))

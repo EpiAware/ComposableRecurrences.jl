@@ -2,14 +2,17 @@ module ComposableRecurrencesReactantExt
 
 using ComposableRecurrences: ComposableRecurrences, Executor, PerStratum, Primary,
     Secondary, TimeVarying, _BoundRecent, _CPUArray, _OldestFirstPiecewise, _Piecewise,
-    _Ragged, _array, _lagweight, _nlags, _seg_weights, _steps!, _weight
+    _ComputedKernel, _PointwiseCoupling, _Ragged, _array, _lagweight, _nlags,
+    _seg_weights, _steps!, _weight
+using LinearAlgebra: Diagonal, UniformScaling
 using Reactant: Reactant, @allowscalar, @trace, AnyTracedRArray, AnyTracedRMatrix,
     AnyTracedRVector, TracedRNumber, materialize_traced_array, unwrapped_eltype
 
-# A traced call compiles as one program: the strata loops are written out
-# in order, which costs a fixed `S` blocks, while the time loop compiles to
-# a single loop whose body is the step, so the program does not grow with
-# the number of steps.
+# A traced call compiles as one program: the time loop compiles to a
+# single loop whose body is the step, so the program does not grow with the
+# number of steps. A step of independent strata with no modifiers runs on
+# all strata at once (`_series_step!` below); other strata loops are written
+# out in order, which costs a fixed `S` blocks.
 struct Traced <: Executor end
 
 @inline function ComposableRecurrences.each!(
@@ -198,6 +201,16 @@ end
 _lead_index(::AbstractMatrix, a, i) = i
 _lead_index(x::PerStratum, a, i) = a + (i - 1) * size(x.x, 1)
 
+# A per-stratum parameter at a traced time, read at its linear index for the
+# same reason: inside the traced loop `x[k, t]` reads stratum 1 for every
+# `k`. Values given by change points reach here with their segment as `t`.
+function ComposableRecurrences.param(
+        x::TimeVarying{<:Any, <:PerStratum}, k, t::TracedRNumber
+    )
+    A = x.x.x
+    return vec(_traced(A))[k + (t - 1) * size(A, 1)]
+end
+
 # A recurrence kernel from change points at a traced step: each lag's weight
 # is chosen from the segment of the time it reads, `τ` or with `Primary()`
 # the value's own time, with `ifelse` over the segments, so every lag runs.
@@ -238,7 +251,7 @@ end
 ComposableRecurrences._cached(b::_BoundRecent, i::TracedRNumber) = true
 ComposableRecurrences._cache_row!(b::_BoundRecent, i::TracedRNumber) = nothing
 
-# The soft minimum of `SoftTruncate` with a traced value picks its arms
+# The soft minimum of `Truncate(κ)` with a traced value picks its arms
 # with `ifelse`, as a traced `Bool` has no branch. The arm not taken sees
 # the ratio 1, so it makes no NaN that a derivative would carry.
 const _MaybeTraced = Union{Real, TracedRNumber}
@@ -264,10 +277,10 @@ end
 # threads and devices of the other executors are the compiled program's
 # own concern.
 function ComposableRecurrences._run(
-        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val
+        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, cache::Val
     ) where {Tp <: TracedRNumber}
     return @allowscalar ComposableRecurrences._run(
-        Tp, Traced(), r, gain, add, h, s0, τ0, L, D, S, T, record
+        Tp, Traced(), r, gain, add, h, s0, τ0, L, D, S, T, cache
     )
 end
 
@@ -290,6 +303,92 @@ function ComposableRecurrences._convolve!(ex::Traced, Y, c, X, m, start)
     _steps!(_conv_step!, ex, size(Y, 1), Y, c, Xp, m + D - 1, start, D)
     return Y
 end
+
+# A computed kernel is filled as a dense `Primary()` kernel, as on any
+# executor without its own loops; this method settles which of this
+# executor's method and the computed kernel's a traced call takes.
+function ComposableRecurrences._convolve!(
+        ex::Traced, Y, c::_ComputedKernel, X, m, start
+    )
+    return ComposableRecurrences._convolve_dense!(ex, Y, c, X, m, start)
+end
+
+# The coefficients a computed kernel reads may be traced: a traced array's
+# eltype is a traced number, which is not a `Real`, so the package's check
+# on the coefficient's shape does not match it.
+const _TracedCoefficient = Union{
+    TracedRNumber, AnyTracedRVector,
+    PerStratum{<:Union{AnyTracedRVector, AnyTracedRMatrix}},
+    TimeVarying{<:Any, <:Union{AnyTracedRVector, PerStratum{<:AnyTracedRMatrix}}},
+}
+ComposableRecurrences._check_coefficient(::_TracedCoefficient) = nothing
+ComposableRecurrences._check_argument(::_TracedCoefficient) = nothing
+
+# Arithmetic between a traced number or vector and a `Derived` or a
+# `Survival` lowers to `Derived`, as the package's operands do; a
+# `PerStratum` or `TimeVarying` is an operand whatever it holds.
+const _TracedOperand = Union{TracedRNumber, AnyTracedRVector}
+for op in (:+, :-, :*, :/, :^)
+    @eval begin
+        function Base.$op(
+                a::_TracedOperand,
+                b::Union{ComposableRecurrences.Derived, ComposableRecurrences.Survival}
+            )
+            return ComposableRecurrences.Derived($op, a, b)
+        end
+        function Base.$op(
+                a::Union{ComposableRecurrences.Derived, ComposableRecurrences.Survival},
+                b::_TracedOperand
+            )
+            return ComposableRecurrences.Derived($op, a, b)
+        end
+    end
+end
+
+# A survival's scratch buffers at a traced eltype are traced arrays, as
+# `zeros` gives, not Julia arrays of traced numbers.
+function ComposableRecurrences._alloc(
+        ::Type{Tp}, dims::Vararg{Int, N}
+    ) where {Tp <: TracedRNumber, N}
+    return zeros(Tp, dims...)
+end
+
+# A step of independent strata with no modifiers, and no records or trace,
+# runs on every stratum at once: one slice of the `L × S` window, one
+# product with the kernel summed over the lags, and one write of the
+# buffer row. The program then holds one step whatever the number of
+# strata, as it holds one whatever the number of steps.
+function ComposableRecurrences._series_step!(
+        t, ks::AbstractUnitRange, H::AnyTracedRArray, pr::Nothing, gain, add,
+        coupling::_PointwiseCoupling, kernel::Union{AbstractVector, PerStratum},
+        p, q, ms::Tuple{}, states::Tuple{}, rec::Nothing, τ0, L, D
+    )
+    τ = τ0 + t - 1
+    pk = _strata_kdot(kernel, H, t + D - L, L, ks)
+    H[D + t, ks] = _strata_at(gain, τ, ks) .* _coefs(coupling, ks) .* pk .+
+        _strata_at(add, τ, ks)
+    return nothing
+end
+
+# The kernel convolutions of strata `ks` over the window from row `t`.
+function _strata_kdot(g, H, t, L, ks)
+    L == 0 && return Reactant.Ops.fill(zero(unwrapped_eltype(eltype(H))), (length(ks),))
+    W = Reactant.Ops.dynamic_slice(H, [t, first(ks)], [L, length(ks)])
+    return vec(sum(_lag_weights(g, ks) .* W; dims = 1))
+end
+_lag_weights(g::AbstractVector, ks) = _traced(g)
+_lag_weights(g::PerStratum, ks) = permutedims(_traced(g.x)[ks, :])
+
+# A parameter of the step at time `τ` for strata `ks`, as `_at` reads it
+# for one stratum.
+_strata_at(x::Real, τ, ks) = x
+_strata_at(::Nothing, τ, ks) = false
+_strata_at(x::AbstractVector, τ, ks) = _traced(x)[τ]
+function _strata_at(x::AbstractMatrix, τ, ks)
+    return vec(Reactant.Ops.dynamic_slice(_traced(x), [first(ks), τ], [length(ks), 1]))
+end
+_coefs(C::UniformScaling, ks) = C.λ
+_coefs(C::Diagonal, ks) = _traced(C.diag)[ks]
 
 # Output `j` of every stratum.
 function _conv_step!(j, Y, c, X, m, start, D)

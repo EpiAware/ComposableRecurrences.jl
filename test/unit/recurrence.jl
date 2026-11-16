@@ -28,6 +28,59 @@
     @test y ≈ vec(ref)
 end
 
+@testitem "Recurrence: a single series matches the same series among strata" setup = [Reference] begin
+    using ComposableRecurrences, Random
+    # One stratum carries its last value from step to step and more strata
+    # interleave; both agree with the naive loop, for every kernel length,
+    # and so with each other.
+    rng = Xoshiro(4)
+    T = 15
+    for L in (1, 2, 5)
+        g = rand(rng, L) ./ L
+        h = rand(rng, L)
+        ϵ = randn(rng, T)
+        R = 0.5 .+ rand(rng, T)
+        y = Recurrence(g)(R; history = h, add = ϵ)
+        Y = Recurrence(g)(R; history = vcat(h', h'), add = vcat(ϵ', ϵ'))
+        ref = naive_recurrence(
+            (t, a, b, i) -> g[i], reshape(h, 1, L), T;
+            gain = (a, t) -> R[t], add = (a, t) -> ϵ[t]
+        )
+        @test y ≈ vec(ref)
+        @test Y[1, :] ≈ y
+        @test Y[2, :] == Y[1, :]
+    end
+end
+
+@testitem "Recurrence: a single series through modifiers matches it among strata" begin
+    using ComposableRecurrences, Random
+    using ComposableRecurrences: ComposableRecurrences as CR
+    # One stratum through pointwise modifiers carries its last value; two
+    # strata take the general step. Both give the same series, for fixed,
+    # change-point and zero-lag kernels, later starts and an add input.
+    rng = Xoshiro(9)
+    T = 12
+    kernels = (
+        rand(rng, 3) ./ 2,
+        Float64[],
+        TimeVarying([1 => rand(rng, 3) ./ 2, 5 => rand(rng, 2) ./ 2]),
+    )
+    modifiers = (
+        (one = (CR.Transform(clamp, 0.0, 2.0),), two = (CR.Transform(clamp, 0.0, 2.0),)),
+        (one = (CR.Depletion(50.0),), two = (CR.Depletion(PerStratum(fill(50.0, 2))),)),
+    )
+    for g in kernels, ms in modifiers, start in (1, 6), with_add in (false, true)
+        h = 1 .+ rand(rng, 3)
+        R = 0.8 .+ rand(rng, T)
+        ϵ = rand(rng, T)
+        add, add2 = with_add ? (ϵ, vcat(ϵ', ϵ')) : (nothing, nothing)
+        y = Recurrence(g; modifiers = ms.one)(R; history = h, add, start)
+        Y = Recurrence(g; modifiers = ms.two)(R; history = vcat(h', h'), add = add2, start)
+        @test y ≈ Y[1, :]
+        @test signbit.(y) == signbit.(Y[1, :])
+    end
+end
+
 @testitem "Recurrence: strata with dense coupling" setup = [Reference] begin
     using ComposableRecurrences, Random
     rng = Xoshiro(2)
@@ -173,7 +226,7 @@ end
     @test Recurrence(TimeVarying(Pairwise(P4)))(R; history = h) ≈ ref
     @test Recurrence(Pairwise(TimeVarying(P4)))(R; history = h) ≈ ref
     # With a modifier, as any kernel.
-    y = Recurrence(Pairwise(P); modifiers = (ComposableRecurrences.Add(0.5),))(
+    y = Recurrence(Pairwise(P); modifiers = (ComposableRecurrences.Transform(+, 0.5),))(
         R; history = h
     )
     @test y ≈ naive_recurrence(
@@ -295,14 +348,14 @@ end
     )
     # A seed or a state, and a resumed call starts where it left off.
     y, state = Recurrence(g)(
-        ones(5); history = ones(3), stop = 2, state = true
+        ones(5); history = ones(3), stop = 2, record = (:state,)
     )
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), state)
     @test_throws "not both; got history = 3-element" Recurrence(g)(
         ones(5); history = ones(3), state
     )
     @test_throws "state.t = 3, not start = 4" Recurrence(g)(ones(5); state, start = 4)
-    @test first(Recurrence(g)(ones(5); state, start = 3)) == first(Recurrence(g)(ones(5); state))
+    @test Recurrence(g)(ones(5); state, start = 3) == Recurrence(g)(ones(5); state)
     @test_throws ArgumentError Recurrence(g)(ones(5); history = ones(3), start = 0)
     @test_throws DimensionMismatch Recurrence(g; coupling = ones(3, 3))(
         ones(2, 5); history = ones(2, 3)
@@ -327,28 +380,28 @@ end
     R = 1 .+ rand(rng, S, T)
     ϵ = rand(rng, S, T)
     full = r(R; history = h, add = ϵ)
-    y1, state = r(R; history = h, add = ϵ, stop = 4, state = true)
+    y1, state = r(R; history = h, add = ϵ, stop = 4, record = (:state,))
     @test state isa ComposableRecurrences.State
     @test y1 ≈ full[:, 1:4]
     @test state.history ≈ full[:, 1:4]
     @test length(state.states) == 2
     @test state.t == 5
     # The resumed call reads the same full-length inputs from `state.t`.
-    y2, _ = r(R; state, add = ϵ)
+    y2 = r(R; state, add = ϵ)
     @test y2 ≈ full[:, 5:end]
 
     # Resuming twice matches as well, and a single series keeps its shape.
-    y2a, state2 = r(R; state, add = ϵ, stop = 7)
-    y2b, _ = r(R; state = state2, add = ϵ)
+    y2a, state2 = r(R; state, add = ϵ, stop = 7, record = (:state,))
+    y2b = r(R; state = state2, add = ϵ)
     @test hcat(y2a, y2b) ≈ full[:, 5:end]
 
     r1 = Recurrence([0.1, 0.2, 0.3, 0.4])
     h1 = rand(rng, 4)
     full1 = r1(R[1, :]; history = h1)
-    y, st = r1(R[1, :]; history = h1, stop = 6, state = true)
+    y, st = r1(R[1, :]; history = h1, stop = 6, record = (:state,))
     @test st.history isa Vector
     @test st.history ≈ full1[3:6]
-    @test first(r1(R[1, :]; state = st)) ≈ full1[7:end]
+    @test r1(R[1, :]; state = st) ≈ full1[7:end]
 end
 
 @testitem "Recurrence: a resumed state has nstate entries per modifier" begin
@@ -358,13 +411,13 @@ end
         100.0, CR.Hazard(; weights = (S = 1, V = 0.3)),
         CR.Flow(1 => 2, 1.0; form = CR.Truncate()); pools = (:S, :V)
     )
-    @test CR.nstate(CR.Clamp(0.0, 10.0), 2) == 2
+    @test CR.nstate(CR.Transform(clamp, 0.0, 10.0), 2) == 2
     @test CR.nstate(d, 2) == 4
-    r = Recurrence([0.5, 0.5]; modifiers = (CR.Clamp(0.0, 10.0), d))
+    r = Recurrence([0.5, 0.5]; modifiers = (CR.Transform(clamp, 0.0, 10.0), d))
     R, h = fill(1.1, 2, 6), ones(2, 2)
-    y, state = r(R; history = h, stop = 3, state = true)
+    y, state = r(R; history = h, stop = 3, record = (:state,))
     @test length.(state.states) == (2, 4)
-    @test first(r(R; state)) ≈ r(R; history = h)[:, 4:end]
+    @test r(R; state) ≈ r(R; history = h)[:, 4:end]
     # A state of the wrong length names the modifier and both lengths.
     bad = CR.State(state.history, (state.states[1], state.states[2][1:2]), state.t)
     err = try
@@ -397,9 +450,9 @@ end
     @test full ≈ vec(ref)
 
     # A resumed call continues at the state's next time.
-    y1, state = r(R; history = h, stop = 5, state = true)
+    y1, state = r(R; history = h, stop = 5, record = (:state,))
     @test state.t == 6
-    @test first(r(R; state)) ≈ full[6:end]
+    @test r(R; state) ≈ full[6:end]
 
     # An explicit start reads the gain and time-varying slots from that
     # time, with the history holding the outputs just before it.
@@ -464,15 +517,76 @@ end
         Recurrence(g)(ones(3, T); history = [zeros(3, L - 2) H])
 end
 
+@testitem "Recurrence: a strata output of wide numbers is the buffer transposed in place" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    for (D, T, S) in (
+            (0, 4, 3), (2, 0, 3), (2, 5, 1), (1, 1, 1), (3, 7, 4), (20, 9, 6),
+        )
+        H = reshape(collect(1.0:((D + T) * S)), D + T, S)
+        want = permutedims(H[(D + 1):end, :])
+        # Plain floats and narrow duals are copied out; the buffer is kept.
+        for Hn in (copy(H), ForwardDiff.Dual.(H, 2 .* H))
+            Hc = copy(Hn)
+            y = CR._output(Hn, D, T, zeros(S, 1))
+            @test y isa Matrix{eltype(Hn)}
+            @test ForwardDiff.value.(y) == want
+            @test Hn == Hc
+        end
+        # Dual numbers with twelve partials are transposed in place.
+        Hw = map(x -> ForwardDiff.Dual(x, ntuple(k -> k * x, 12)...), H)
+        @test sizeof(eltype(Hw)) > 64
+        yw = CR._output(Hw, D, T, zeros(S, 1))
+        @test yw isa Matrix{eltype(Hw)}
+        @test ForwardDiff.value.(yw) == want
+        @test all(k -> ForwardDiff.partials.(yw, k) == k .* want, 1:12)
+        # An element type that is not plain bits is copied out.
+        @test CR._output(big.(H), D, T, zeros(S, 1)) == want
+    end
+    r = Recurrence([0.6, 0.3])
+    h = [1.0 2.0; 3.0 4.0; 5.0 6.0]
+    # A gradient in chunks of twelve takes the in-place output, and one
+    # partial at a time the copy; both give the same gradient.
+    f(θ) = sum(abs2, r(reshape(θ, 3, 6); history = h))
+    θ = collect(range(0.5, 1.5; length = 18))
+    one_at_a_time = ForwardDiff.GradientConfig(f, θ, ForwardDiff.Chunk{1}())
+    @test ForwardDiff.gradient(f, θ) ≈ ForwardDiff.gradient(f, θ, one_at_a_time)
+    # The state a wide run returns, with fewer steps than the buffer is deep
+    # and a history shorter than it, matches a run on plain floats, and a run
+    # resumed from it continues the same.
+    rd = Recurrence([0.1, 0.2, 0.3, 0.2, 0.1])
+    hs = [1.0 2.0; 3.0 4.0; 5.0 6.0]
+    R = [1.0 + 0.1 * (k + t) for k in 1:3, t in 1:7]
+    Rw = map(x -> ForwardDiff.Dual(x, ntuple(k -> k * x, 12)...), R)
+    _, st = rd(R[:, 1:2]; history = hs, record = (:state,))
+    _, stw = rd(Rw[:, 1:2]; history = hs, record = (:state,))
+    @test ForwardDiff.value.(stw.history) == st.history
+    # A resumed call reads its inputs by absolute time.
+    @test rd(R; state = st, start = 3) ≈
+        ForwardDiff.value.(rd(Rw; state = stw, start = 3))
+    @test rd(R; history = hs) ≈
+        hcat(rd(R[:, 1:2]; history = hs), rd(R; state = st, start = 3))
+    # A gradient through a state from four steps, still fewer than the
+    # buffer is deep, in chunks of twelve and one at a time.
+    function g(θ)
+        x = hcat(reshape(θ, 3, 4) .* R[:, 1:4], R[:, 5:7])
+        _, s = rd(x; history = hs, stop = 4, record = (:state,))
+        return sum(rd(x; state = s, start = 5))
+    end
+    θs = collect(range(0.5, 1.5; length = 12))
+    one_by_one = ForwardDiff.GradientConfig(g, θs, ForwardDiff.Chunk{1}())
+    @test ForwardDiff.gradient(g, θs) ≈ ForwardDiff.gradient(g, θs, one_by_one)
+end
+
 @testitem "start = nothing names the default to use" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     r = Recurrence([0.5, 0.5])
-    _, st = r(ones(6); history = ones(2), stop = 3, state = true)
+    _, st = r(ones(6); history = ones(2), stop = 3, record = (:state,))
     for call in (
             () -> r(ones(6); history = ones(2), start = nothing),
             () -> r(ones(6); state = st, start = nothing),
-            () -> r(ones(6); history = ones(2), start = nothing, state = true),
+            () -> r(ones(6); history = ones(2), start = nothing, record = (:state,)),
             () -> CR.forward(r, CR.Run(), ones(6); start = nothing),
         )
         @test_throws ArgumentError call()
@@ -561,7 +675,56 @@ end
     @test qv == [5.0, 11.0]
 end
 
-@testitem "Recurrence: forward(r, Run(), R) and state = true infer" begin
+@testitem "Coupling pressure: floats and dual numbers match the product" begin
+    using ComposableRecurrences, ForwardDiff, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(11)
+    # Sizes on both sides of the four-wide blocks, plus a non-square block.
+    for (m, n) in ((1, 1), (3, 3), (4, 4), (5, 5), (9, 9), (12, 12), (6, 11))
+        C, p = rand(rng, m, n), rand(rng, n)
+        q = fill(NaN, m)
+        CR.forward!(C, CR.Pressure(), q, p, 1)
+        @test q ≈ C * p
+        pd = [ForwardDiff.Dual(p[b], rand(rng, 3)...) for b in 1:n]
+        qd = similar(pd, m)
+        CR.forward!(C, CR.Pressure(), qd, pd, 1)
+        @test ForwardDiff.value.(qd) ≈ C * p
+        for i in 1:3
+            @test ForwardDiff.partials.(qd, i) ≈ C * ForwardDiff.partials.(pd, i)
+        end
+        Ci, pi_ = rand(rng, 0:3, m, n), rand(rng, 0:3, n)
+        qi = zeros(Int, m)
+        CR.forward!(Ci, CR.Pressure(), qi, pi_, 1)
+        @test qi == Ci * pi_
+    end
+end
+
+@testitem "Coupling pressure: BLAS's product from _BLAS_MIX strata" begin
+    using ComposableRecurrences, Random
+    CR = ComposableRecurrences
+    rng = Xoshiro(12)
+    N = CR._BLAS_MIX
+    # Just below the threshold the loop runs, from it BLAS; both give the
+    # product, with the pressures a view of a longer buffer as in a step.
+    for S in (N - 1, N, 2N)
+        C, p = rand(rng, S, S), rand(rng, S)
+        @test CR._blas_mix(C) == (S >= N)
+        buf = fill(NaN, 2S)
+        q = view(buf, (S + 1):(2S))
+        CR.forward!(C, CR.Pressure(), q, p, 1)
+        @test q ≈ C * p
+        # Float32 too, and a mixed element type keeps to the loop.
+        C32, p32 = Float32.(C), Float32.(p)
+        q32 = zeros(Float32, S)
+        CR.forward!(C32, CR.Pressure(), q32, p32, 1)
+        @test q32 ≈ C32 * p32
+        qm = zeros(S)
+        CR.forward!(C32, CR.Pressure(), qm, p, 1)
+        @test qm ≈ C32 * p
+    end
+end
+
+@testitem "Recurrence: forward(r, Run(), R) and record infer" begin
     using ComposableRecurrences, Test
     CR = ComposableRecurrences
     # The two entry points beside `r(R)`, with and without a history, for
@@ -571,15 +734,127 @@ end
         (Recurrence([0.4, 0.6]; coupling = [0.9 0.1; 0.2 0.8]), fill(1.1, 2, 6), ones(2, 2)),
         (Recurrence([0.4, 0.6]; modifiers = (CR.Depletion(100.0),)), fill(1.1, 6), ones(2)),
     )
-    # `state = true` folds as a literal inside a function.
-    stated(r, R; kw...) = r(R; kw..., state = true)
+    # `record` folds as a literal inside a function.
+    stated(r, R; kw...) = r(R; kw..., record = (:state,))
     for (r, R, h) in cases
         @test (@inferred CR.forward(r, CR.Run(), R)) isa Tuple
         @test (@inferred CR.forward(r, CR.Run(), R; history = h)) isa Tuple
-        @test (@inferred stated(r, R)) isa Tuple
-        @test (@inferred stated(r, R; history = h)) isa Tuple
-        # `state = false` is the plain call.
-        @test r(R; history = h, state = false) == r(R; history = h)
+        @test (@inferred stated(r, R)) isa NamedTuple{(:y, :state)}
+        @test (@inferred stated(r, R; history = h)) isa NamedTuple{(:y, :state)}
+        @test r(R; history = h, record = ()) == (; y = r(R; history = h))
+    end
+    r, R = first(cases)
+    @test_throws "records :trace only, got (:state,)" CR.forward(
+        r, CR.Run(), R; record = (:state,)
+    )
+    @test_throws "records :trace only" CR.forward(
+        r, CR.Run(), R; record = (:trace, :state)
+    )
+end
+
+@testitem "Recurrence: record returns its names in a fixed order, inferred" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(50.0),))
+    R, h = fill(1.2, 6), [1.0, 2.0]
+    y = r(R; history = h)
+    for (record, names) in (
+            () => (:y,), (:state,) => (:y, :state), (:trace,) => (:y, :trace),
+            (:state, :trace) => (:y, :state, :trace),
+            (:trace, :state) => (:y, :state, :trace),
+        )
+        # The tuple as a literal in a function, and in a closure over the
+        # operator and the history, as a gradient call builds it.
+        call = @eval (r, R, h) -> r(R; history = h, record = $record)
+        fit = @eval θ -> $r(θ; history = $h, record = $record)
+        loss = @eval θ -> sum($r(θ; history = $h, record = $record).y)
+        out = @inferred call(r, R, h)
+        @test propertynames(out) == names
+        @test out.y == y
+        @test typeof(@inferred fit(R)) == typeof(out)
+        @test (@inferred loss(R)) == sum(y)
+    end
+    both = r(R; history = h, record = (:trace, :state))
+    @test both.state.t == 7
+    @test both.trace == r(R; history = h, record = (:trace,)).trace
+    # A resumed call returns the output, and the next state when asked.
+    st = r(R; history = h, stop = 3, record = (:state,)).state
+    @test r(R; state = st) == y[4:end]
+    next = r(R; state = st, record = (:state,))
+    @test next.y == y[4:end] && next.state.t == 7
+    @test_throws "a tuple of the names" r(R; history = h, record = :state)
+    @test_throws "record names :state or :trace, got :pools" r(
+        R; history = h, record = (:pools,)
+    )
+    @test_throws "trace.pressure" r(R; history = h, record = (:pressures,))
+    @test_throws "once, got (:state, :state)" r(R; history = h, record = (:state, :state))
+    @test_throws "once, got (:trace, :state, :trace)" r(
+        R; history = h, record = (:trace, :state, :trace)
+    )
+end
+
+@testitem "Recurrence: a record in a Val infers from the argument types alone" begin
+    using ComposableRecurrences, Test
+    using ComposableRecurrences: Run, forward
+    CR = ComposableRecurrences
+    r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(50.0),))
+    R, h = fill(1.2, 6), [1.0, 2.0]
+    # The record reaches the call as an argument of a caller that is not
+    # inlined, so no constant reaches the call: a tuple infers only as a
+    # `NamedTuple`, a `Val` as the concrete one.
+    @noinline deep(r, R, h, record) = r(R; history = h, record)
+    @noinline deep_forward(r, R, record) = forward(r, Run(), R; record)
+    for names in ((), (:state,), (:trace,), (:state, :trace), (:trace, :state))
+        out = @inferred deep(r, R, h, Val(names))
+        lit = r(R; history = h, record = names)
+        @test typeof(out) == typeof(lit)
+        @test propertynames(out) == propertynames(lit)
+        @test out.y == lit.y
+        :trace in names && @test out.trace == lit.trace
+        :state in names && @test out.state.t == lit.state.t
+    end
+    traced = @inferred deep_forward(r, R, Val((:trace,)))
+    @test first(traced) == first(forward(r, Run(), R; record = (:trace,)))
+    @test first(@inferred deep_forward(r, R, Val(()))) == first(forward(r, Run(), R))
+    @test_throws "records :trace only" deep_forward(r, R, Val((:state,)))
+    @test_throws "or such a tuple in a Val" deep(r, R, h, Val(:state))
+    @test_throws "record names :state or :trace, got :pools" deep(
+        r, R, h, Val((:pools,))
+    )
+    @test_throws "once, got (:state, :state)" deep(r, R, h, Val((:state, :state)))
+end
+
+@testitem "Recurrence: a record call compiled from types alone dispatches statically" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Generic calls to the package left in code compiled from types alone.
+    function dynamic_calls(T, depth = 0)
+        found = Any[]
+        depth > 3 && return found
+        for (ci, _) in Base.code_typed_by_type(T)
+            for st in ci.code
+                if Meta.isexpr(st, :call)
+                    f = st.args[1]
+                    f = f isa GlobalRef ? getglobal(f.mod, f.name) : f
+                    f isa Function && parentmodule(f) === CR && push!(found, st)
+                elseif Meta.isexpr(st, :invoke)
+                    mi = st.args[1]
+                    mi = mi isa Core.CodeInstance ? mi.def : mi
+                    mi.def.module === CR &&
+                        append!(found, dynamic_calls(mi.specTypes, depth + 1))
+                end
+            end
+        end
+        return found
+    end
+    r = Recurrence([0.5, 0.3]; modifiers = (CR.Depletion(50.0),))
+    for rec in (Tuple{Symbol}, Tuple{Symbol, Symbol})
+        kw = NamedTuple{(:history, :record), Tuple{Vector{Float64}, rec}}
+        T = Tuple{
+            typeof(Core.kwcall), kw, typeof(CR._invoke), typeof(r), typeof(r),
+            Vector{Float64},
+        }
+        @test isempty(dynamic_calls(T))
     end
 end
 
@@ -641,9 +916,9 @@ end
     @test r(R[1, :]; history = Poison(h[1, :])) ≈ r(R[1, :]; history = h[1, :])
     # A resumed call loads its history from the state.
     r = Recurrence(g; coupling = K, modifiers = (pool,))
-    _, st = r(R; history = Poison(h), stop = 5, state = true)
+    _, st = r(R; history = Poison(h), stop = 5, record = (:state,))
     st = CR.State(Poison(st.history), st.states, st.t)
-    @test first(r(R; state = st)) ≈ r(R; history = h)[:, 6:end]
+    @test r(R; state = st) ≈ r(R; history = h)[:, 6:end]
 end
 
 @testitem "Recurrence: a zero sum is +0.0 for every run form" begin
@@ -655,4 +930,75 @@ end
     @test !any(signbit, r(1.0; history = fill(-0.0, 2, 1), add = fill(-0.0, 2, 2)))
     m = Recurrence([1.0]; modifiers = (ComposableRecurrences.Transform(*, 1.0),))
     @test !any(signbit, m(1.0; history = [-0.0], add = [-0.0, -0.0]))
+end
+
+@testitem "Recurrence: wide dual numbers over strata run strata-major" tags = [:threads] begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    CR = ComposableRecurrences
+    # Dual numbers wider than 64 bytes take the strata × time buffer; narrower
+    # ones, one series and nested dual numbers keep time × strata.
+    D12 = ForwardDiff.Dual{Nothing, Float64, 12}
+    @test CR._buffer(ones(3, 2), D12, 2, 5, 3) isa Transpose{D12, Matrix{D12}}
+    @test CR._buffer(ones(2), D12, 2, 5, 1) isa Matrix{D12}
+    D2, F12 = ForwardDiff.Dual{Nothing, Float64, 2}, ForwardDiff.Dual{Nothing, Float32, 12}
+    N12 = ForwardDiff.Dual{Int, D12, 1}
+    for Tn in (D2, F12, N12)
+        @test CR._buffer(ones(3, 2), Tn, 2, 5, 3) isa Matrix{Tn}
+    end
+    # A run on twelve partials against one run per partial.
+    seeds(x, j) = map(v -> ForwardDiff.Dual{Nothing}(v, j / (1 + v)), x)
+    wide(x) = map(v -> ForwardDiff.Dual{Nothing}(v, ntuple(j -> j / (1 + v), 12)...), x)
+    R, h = [1.0 + 0.1 * sin(k + t) for k in 1:3, t in 1:8], [1.0 + 0.2 * k * t for k in 1:3, t in 1:2]
+    runs = (
+        Recurrence([0.4, 0.6]; coupling = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.0 0.3 0.7]),
+        Recurrence(PerStratum([0.5 0.5; 0.3 0.7; 0.6 0.4])),
+        Recurrence([0.4, 0.6]; modifiers = (CR.Depletion(50.0),)),
+    )
+    threaded = CR.Threaded(; min_work = 0, ntasks = 2)
+    for r in runs, ex in (CR.Serial(), threaded)
+        Base.ScopedValues.with(CR.EXECUTOR => ex) do
+            # A call with no record, from a full and a short history.
+            for hk in (h, h[:, 2:2])
+                y = r(wide(R); history = wide(hk))
+                @test ForwardDiff.value.(y) ≈ r(R; history = hk)
+                for j in (1, 12)
+                    one = r(seeds(R, j); history = seeds(hk, j))
+                    @test ForwardDiff.partials.(y, j) ≈ ForwardDiff.partials.(one, 1)
+                end
+            end
+            out = r(wide(R); history = wide(h), record = (:state,))
+            @test size(out.y) == size(R)
+            @test ForwardDiff.value.(out.y) ≈ r(R; history = h)
+            for j in 1:12
+                one = r(seeds(R, j); history = seeds(h, j), record = (:state,))
+                @test ForwardDiff.partials.(out.y, j) ≈ ForwardDiff.partials.(one.y, 1)
+                @test ForwardDiff.partials.(out.state.history, j) ≈
+                    ForwardDiff.partials.(one.state.history, 1)
+            end
+        end
+    end
+end
+
+@testitem "Recurrence: wide strata outputs from either wide path match the copy" begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    CR = ComposableRecurrences
+    r = Recurrence([0.6, 0.3]; coupling = [0.9 0.1 0.0; 0.1 0.8 0.1; 0.0 0.2 0.8])
+    h = [1.0 2.0; 3.0 4.0; 5.0 6.0]
+    f(θ) = sum(abs2, r(reshape(θ, 3, 6); history = h))
+    θ = collect(range(0.5, 1.5; length = 18))
+    # A gradient in chunks of nine runs on dual numbers of floats of 80
+    # bytes, which take the strata × time buffer; a Hessian runs on nested
+    # dual numbers, which take the in-place transpose. One partial at a time
+    # each is copied out.
+    D9 = ForwardDiff.Dual{Nothing, Float64, 9}
+    N9 = ForwardDiff.Dual{Int, D9, 9}
+    @test sizeof(D9) > CR._INPLACE_BYTES && sizeof(N9) > CR._INPLACE_BYTES
+    @test CR._buffer(h, D9, 2, 6, 3) isa Transpose{D9, Matrix{D9}}
+    @test CR._buffer(h, N9, 2, 6, 3) isa Matrix{N9}
+    one = ForwardDiff.Chunk{1}()
+    nine = ForwardDiff.Chunk{9}()
+    @test ForwardDiff.gradient(f, θ, ForwardDiff.GradientConfig(f, θ, nine)) ≈
+        ForwardDiff.gradient(f, θ, ForwardDiff.GradientConfig(f, θ, one))
+    @test ForwardDiff.hessian(f, θ, ForwardDiff.HessianConfig(f, θ, nine)) ≈
+        ForwardDiff.hessian(f, θ, ForwardDiff.HessianConfig(f, θ, one))
 end

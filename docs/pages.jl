@@ -65,6 +65,7 @@ pages = [
         "AD comparison" =>
             "benchmarks/ad-comparison.md",
     ],
+    "Performance summary" => "performance/summary.md",
     "Explanation" => [
         "Operators" => "explanation/operators.md",
         "Shapes and couplings" => "explanation/shapes-and-couplings.md",

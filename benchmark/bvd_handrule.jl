@@ -9,6 +9,10 @@
 # rules, differentiated by the backend itself. The rules are Mooncake rules
 # only: Enzyme differentiates the loops in both arms.
 #
+# The loops and rules were written in this repository, not copied. The
+# loops follow `references/bvd.jl`, a frozen copy of BVDOutbreakSize at
+# commit 95be3b22, and neither is kept in step with BVDOutbreakSize.
+#
 # Included by `test/ADFixtures/src/matrix_cases.jl` inside `MatrixCases`.
 module BVDHandRule
 
@@ -17,7 +21,9 @@ using Mooncake: CoDual, NoRData, primal, tangent
 using LinearAlgebra: axpy!, dot, mul!
 
 export renewal_loop, patch_loop, delay_loop, zone_loop, renewal_infections,
-    patch_infections, convolve_delay, zone_infections
+    patch_infections, convolve_delay, zone_infections, two_clock_loop,
+    abscond_loop, onset_table_loop, two_clock_confirmed,
+    abscond_thinned_flows, onset_report_cdf_table
 
 # ---- forward loops ----------------------------------------------------------
 
@@ -173,35 +179,37 @@ function delay_loop(x::AbstractVector, delay::AbstractVector)
 end
 
 @doc raw"""
-    zone_loop(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
+    zone_loop(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
 
 The mixed zone share renewal, from day 1. Each zone's own force is
-``u_{z,t} = e^{δ_{t,z}} (w0_z Λ^{pre}_{p,t} + \sum_s g_s I_{z,t-s})``; a share
-``ε_z`` of it spills within its patch, ``v = (1 - ε) ∘ u + W (ε ∘ u)``, and
-the import pattern ``h = B (ow ∘ u)`` reads it before the spill. Patch `p`'s
-infections ``Ī_{p,t}`` go a share ``1 - φ_{p,t}`` by `v` and ``φ_{p,t}`` by
-`h` (by `v` where `h` sums to the floor or less). `δ` is days × zones and
-`φ`, `I_bar` and `force_pre` patches × days. Returns the infections, days ×
-zones.
+``u_{z,t} = γ_{z,t} \sum_s g_s I_{z,t-s} + a_{z,t}``, with the gain `γ` and
+the pre-grid drive `a` formed by the caller as the package's arm forms them;
+a share ``ε_z`` of it spills within its patch,
+``v = (1 - ε) ∘ u + W (ε ∘ u)``, and the import pattern ``h = B (ow ∘ u)``
+reads it before the spill. Patch `p`'s infections ``Ī_{p,t}`` go a share
+``1 - φ_{p,t}`` by `v` and ``φ_{p,t}`` by `h` (by `v` where `h` sums to the
+floor or less). `gain` and `add` are zones × days and `φ` and `I_bar`
+patches × days. Returns the infections, days × zones.
 """
-function zone_loop(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
+function zone_loop(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
     return _zone_state(
-        δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups
+        gain, add, ε, φ, ow, I_bar, g, within, between, groups
     ).infections
 end
 
-# `zone_loop` keeping each zone's own force `u`, the spilled force `v`, the
-# import pattern `h` and per patch and day the unfloored sums of `v` and `h`.
-function _zone_state(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
-    nd, nz = size(δ)
+# `zone_loop` keeping each zone's own force `u` and its renewal sum `c`, the
+# spilled force `v`, the import pattern `h` and per patch and day the
+# unfloored sums of `v` and `h`.
+function _zone_state(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
+    nz, nd = size(gain)
     np = length(groups)
     Tp = promote_type(
-        eltype(δ), eltype(w0), eltype(ε), eltype(φ), eltype(ow),
-        eltype(I_bar), eltype(g), eltype(force_pre), eltype(within),
-        eltype(between)
+        eltype(gain), eltype(add), eltype(ε), eltype(φ), eltype(ow),
+        eltype(I_bar), eltype(g), eltype(within), eltype(between)
     )
     I = zeros(Tp, nd, nz)
     U = zeros(Tp, nd, nz)
+    C = zeros(Tp, nd, nz)
     V = zeros(Tp, nd, nz)
     H = zeros(Tp, nd, nz)
     patch_total = zeros(Tp, np, nd)
@@ -215,16 +223,14 @@ function _zone_state(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, g
     floor_ = eps(Tp)
     @inbounds for j in 1:nd
         smax = min(L, j - 1)
-        for p in eachindex(groups)
-            fp = force_pre[p, j]
-            for z in groups[p]
-                acc = w0[z] * fp
-                for s in 1:smax
-                    acc = muladd(g[s], I[j - s, z], acc)
-                end
-                u[z] = exp(δ[j, z]) * acc
-                U[j, z] = u[z]
+        for z in 1:nz
+            acc = zero(Tp)
+            for s in 1:smax
+                acc = muladd(g[s], I[j - s, z], acc)
             end
+            C[j, z] = acc
+            u[z] = muladd(gain[z, j], acc, add[z, j])
+            U[j, z] = u[z]
         end
         for z in 1:nz
             eu[z] = ε[z] * u[z]
@@ -256,10 +262,110 @@ function _zone_state(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, g
             end
         end
     end
-    return (; infections = I, u = U, v = V, h = H, patch_total, share_total)
+    return (;
+        infections = I, u = U, c = C, v = V, h = H, patch_total, share_total,
+    )
+end
+
+# ---- computed kernels: each cohort's weights walked in place -----------------
+
+@doc raw"""
+    two_clock_loop(A, h, S)
+
+Admissions confirmed by hazard `h` and still present (`S`):
+
+```math
+O_t = \sum_{d=0}^{\min(L, t) - 1} A_{t-d} S_{d+1}
+    \Bigl(1 - \prod_{j=1}^{d} (1 - h_{t-d+j})\Bigr).
+```
+"""
+function two_clock_loop(A::AbstractVector, h::AbstractVector, S::AbstractVector)
+    n = length(A)
+    T = promote_type(eltype(A), eltype(h), eltype(S))
+    O = zeros(T, n)
+    L = length(S)
+    @inbounds for u in 1:n
+        a = A[u]
+        P = one(T)
+        O[u] += a * (one(T) - P) * S[1]
+        for d in 1:min(L - 1, n - u)
+            P *= one(T) - h[u + d]
+            O[u + d] += a * (one(T) - P) * S[d + 1]
+        end
+    end
+    return O
+end
+
+@doc raw"""
+    abscond_loop(adm, pmf, κ, h)
+
+Discharges by flow (days × flows) thinned by absconding.
+`adm` is days × flows and `pmf` lags × flows, the shorter flow's padded with
+zeros.
+Cohort ``t`` is unconfirmed after ``d`` days with probability
+``U_{t,d} = \prod_{j=1}^{d} (1 - h_{t+j-1})``, and has not absconded with
+probability ``V_{t,d} = \prod_{j=1}^{d} (1 - κ U_{t,j})``:
+
+```math
+\mathrm{out}_{s,k} = \sum_{t + d = s} \mathrm{adm}_{t,k} \,
+    \mathrm{pmf}_{d+1,k} V_{t,d}.
+```
+"""
+function abscond_loop(adm::AbstractMatrix, pmf::AbstractMatrix, κ::Real, h)
+    n, nf = size(adm)
+    L = size(pmf, 1)
+    T = promote_type(eltype(adm), eltype(pmf), typeof(κ), eltype(h))
+    out = zeros(T, n, nf)
+    @inbounds for t in 1:n
+        for k in 1:nf
+            out[t, k] += adm[t, k] * pmf[1, k]
+        end
+        U = one(T)
+        V = one(T)
+        for d in 1:min(L - 1, n - t)
+            U *= one(T) - h[t + d - 1]
+            V *= one(T) - κ * U
+            for k in 1:nf
+                out[t + d, k] += adm[t, k] * pmf[d + 1, k] * V
+            end
+        end
+    end
+    return out
+end
+
+_logistic(x) = inv(one(x) + exp(-x))
+
+@doc raw"""
+    onset_table_loop(logit_h0, γ, nu)
+
+The report-delay CDF of each onset date ``k = 1, \dots, nu``, with `γ`
+covering the days up to `nu + length(logit_h0) - 1`:
+
+```math
+F_{j,k} = 1 - \prod_{i=1}^{j}
+    \bigl(1 - \mathrm{logistic}(\mathrm{logit\_h0}_i + γ_{k+i-1})\bigr).
+```
+"""
+function onset_table_loop(
+        logit_h0::AbstractVector, γ::AbstractVector, nu::Integer
+    )
+    T = promote_type(eltype(logit_h0), eltype(γ))
+    D = length(logit_h0)
+    F = Matrix{T}(undef, D, nu)
+    @inbounds for k in 1:nu
+        s = one(T)
+        for j in 1:D
+            s *= one(T) - _logistic(logit_h0[j] + γ[k + j - 1])
+            F[j, k] = one(T) - s
+        end
+    end
+    return F
 end
 
 # ---- the same loops with hand-written Mooncake rules ------------------------
+
+# Each rule is a primitive for `Float64` arguments only (`_Vec`, `_Mat`); other
+# element types take Mooncake through the loop.
 
 "`renewal_loop` with a hand-written Mooncake rule."
 renewal_infections(Rt, g, seed, N) = renewal_loop(Rt, g, seed, N)
@@ -271,8 +377,8 @@ patch_infections(Rt, g, seeds, K, ε, N) = patch_loop(Rt, g, seeds, K, ε, N)
 convolve_delay(x, delay) = delay_loop(x, delay)
 
 "`zone_loop` with a hand-written Mooncake rule."
-function zone_infections(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
-    return zone_loop(δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between, groups)
+function zone_infections(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
+    return zone_loop(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
 end
 
 const _Vec = Vector{Float64}
@@ -442,23 +548,23 @@ end
 Mooncake.@is_primitive(
     Mooncake.DefaultCtx,
     Tuple{
-        typeof(zone_infections), _Mat, _Vec, _Vec, _Mat, _Vec, _Mat, _Vec, _Mat,
+        typeof(zone_infections), _Mat, _Mat, _Vec, _Mat, _Vec, _Mat, _Vec,
         _Mat, _Mat, Vector{UnitRange{Int}},
     }
 )
 function Mooncake.rrule!!(
-        ::CoDual{typeof(zone_infections)}, δ::CoDual{_Mat}, w0::CoDual{_Vec},
-        ε::CoDual{_Vec}, φ::CoDual{_Mat}, ow::CoDual{_Vec}, I_bar::CoDual{_Mat},
-        g::CoDual{_Vec}, force_pre::CoDual{_Mat}, within::CoDual{_Mat},
+        ::CoDual{typeof(zone_infections)}, gain::CoDual{_Mat},
+        add::CoDual{_Mat}, ε::CoDual{_Vec}, φ::CoDual{_Mat}, ow::CoDual{_Vec},
+        I_bar::CoDual{_Mat}, g::CoDual{_Vec}, within::CoDual{_Mat},
         between::CoDual{_Mat}, groups::CoDual{Vector{UnitRange{Int}}}
     )
-    duals = (δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between)
+    duals = (gain, add, ε, φ, ow, I_bar, g, within, between)
     args = (map(primal, duals)..., primal(groups))
     st = _zone_state(args...)
     Ī = zero(st.infections)
     function zone_infections_pb(::NoRData)
         _zone_back!(map(tangent, duals), copy(Ī), st, args...)
-        return ntuple(_ -> NoRData(), 12)
+        return ntuple(_ -> NoRData(), 11)
     end
     return CoDual(st.infections, Ī), zone_infections_pb
 end
@@ -470,14 +576,12 @@ end
 # product a day, and their own cotangents are one outer product after the
 # walk.
 function _zone_back!(
-        bars, acc, st, δ, w0, ε, φ, ow, I_bar, g, force_pre, within, between,
-        groups
+        bars, acc, st, gain, add, ε, φ, ow, I_bar, g, within, between, groups
     )
-    δ̄, w̄0, ε̄, φ̄, ōw, Ī_bar, ḡ, f̄_pre, W̄, B̄ = bars
-    nd, nz = size(δ)
+    γ̄, ā, ε̄, φ̄, ōw, Ī_bar, ḡ, W̄, B̄ = bars
+    nz, nd = size(gain)
     L = length(g)
     floor_ = eps(Float64)
-    E = exp.(δ)
     ū = zeros(nz)
     v̄ = zeros(nz)
     h̄ = zeros(nz)
@@ -546,24 +650,178 @@ function _zone_back!(
             ū[z] += w̄u[z] * ow[z]
         end
         smax = min(L, j - 1)
-        for p in eachindex(groups)
-            fp = force_pre[p, j]
-            pre = 0.0
-            for z in groups[p]
-                Λ̄ = ū[z] * E[j, z]
-                δ̄[j, z] += ū[z] * st.u[j, z]
-                w̄0[z] += Λ̄ * fp
-                pre += Λ̄ * w0[z]
-                for s in 1:smax
-                    acc[j - s, z] += Λ̄ * g[s]
-                    ḡ[s] += Λ̄ * st.infections[j - s, z]
-                end
+        for z in 1:nz
+            Λ̄ = ū[z] * gain[z, j]
+            γ̄[z, j] += ū[z] * st.c[j, z]
+            ā[z, j] += ū[z]
+            for s in 1:smax
+                acc[j - s, z] += Λ̄ * g[s]
+                ḡ[s] += Λ̄ * st.infections[j - s, z]
             end
-            f̄_pre[p, j] += pre
         end
     end
     mul!(W̄, transpose(V̄), st.u .* transpose(ε), 1.0, 1.0)
     mul!(B̄, transpose(H̄), st.u .* transpose(ow), 1.0, 1.0)
+    return nothing
+end
+
+"`two_clock_loop` with a hand-written Mooncake rule."
+two_clock_confirmed(A, h, S) = two_clock_loop(A, h, S)
+
+"`abscond_loop` with a hand-written Mooncake rule."
+abscond_thinned_flows(adm, pmf, κ, h) = abscond_loop(adm, pmf, κ, h)
+
+"`onset_table_loop` with a hand-written Mooncake rule."
+onset_report_cdf_table(logit_h0, γ, nu) = onset_table_loop(logit_h0, γ, nu)
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Tuple{typeof(two_clock_confirmed), _Vec, _Vec, _Vec}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(two_clock_confirmed)}, A::CoDual{_Vec},
+        h::CoDual{_Vec}, S::CoDual{_Vec}
+    )
+    Ap, hp, Sp = primal(A), primal(h), primal(S)
+    O = two_clock_loop(Ap, hp, Sp)
+    Ō = zero(O)
+    function two_clock_confirmed_pb(::NoRData)
+        _two_clock_back!(tangent(A), tangent(h), tangent(S), Ō, Ap, hp, Sp)
+        return NoRData(), NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(O, Ō), two_clock_confirmed_pb
+end
+
+# Each cohort's walk again, keeping its survival `P`, then back along the
+# lags with the running cotangent `acc` of the survival from lag `d` on:
+# `h̄_{u+d} = -P_{d-1} acc`.
+function _two_clock_back!(Ā, h̄, S̄, Ō, A, h, S)
+    n = length(A)
+    L = length(S)
+    P = ones(L)
+    @inbounds for u in 1:n
+        a = A[u]
+        dm = min(L - 1, n - u)
+        for d in 1:dm
+            P[d + 1] = P[d] * (1.0 - h[u + d])
+        end
+        acc = 0.0
+        ā = 0.0
+        for d in dm:-1:0
+            ō = Ō[u + d]
+            c = 1.0 - P[d + 1]
+            ā += c * S[d + 1] * ō
+            S̄[d + 1] += a * c * ō
+            acc -= a * S[d + 1] * ō
+            d == 0 && break
+            h̄[u + d] -= P[d] * acc
+            acc *= 1.0 - h[u + d]
+        end
+        Ā[u] += ā
+    end
+    return nothing
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx,
+    Tuple{typeof(abscond_thinned_flows), _Mat, _Mat, Float64, _Vec}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(abscond_thinned_flows)}, adm::CoDual{_Mat},
+        pmf::CoDual{_Mat}, κ::CoDual{Float64}, h::CoDual{_Vec}
+    )
+    args = (primal(adm), primal(pmf), primal(κ), primal(h))
+    out = abscond_loop(args...)
+    ō = zero(out)
+    function abscond_thinned_flows_pb(::NoRData)
+        κ̄ = _abscond_back!(tangent(adm), tangent(pmf), tangent(h), ō, args...)
+        return NoRData(), NoRData(), NoRData(), κ̄, NoRData()
+    end
+    return CoDual(out, ō), abscond_thinned_flows_pb
+end
+
+# Each cohort's walk again, keeping `U` and `V`, then back along the lags
+# with the running cotangents of both survivals: the outer one's hazard
+# `κ U_d` passes `-V_{d-1} accV` to `κ` and to `U_d`, whose own sweep then
+# passes `-U_{d-1} accU` to `h_{t+d-1}`.
+function _abscond_back!(ādm, p̄mf, h̄, ō, adm, pmf, κ, h)
+    n, nf = size(adm)
+    L = size(pmf, 1)
+    U = ones(L)
+    V = ones(L)
+    κ̄ = 0.0
+    @inbounds for t in 1:n
+        dm = min(L - 1, n - t)
+        for d in 1:dm
+            U[d + 1] = U[d] * (1.0 - h[t + d - 1])
+            V[d + 1] = V[d] * (1.0 - κ * U[d + 1])
+        end
+        accV = 0.0
+        accU = 0.0
+        for d in dm:-1:0
+            v = V[d + 1]
+            V̄ = 0.0
+            for k in 1:nf
+                o = ō[t + d, k]
+                ādm[t, k] += pmf[d + 1, k] * v * o
+                p̄mf[d + 1, k] += adm[t, k] * v * o
+                V̄ += adm[t, k] * pmf[d + 1, k] * o
+            end
+            d == 0 && break
+            accV += V̄
+            η̄ = -V[d] * accV
+            accV *= 1.0 - κ * U[d + 1]
+            κ̄ += η̄ * U[d + 1]
+            accU += η̄ * κ
+            h̄[t + d - 1] -= U[d] * accU
+            accU *= 1.0 - h[t + d - 1]
+        end
+    end
+    return κ̄
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Tuple{typeof(onset_report_cdf_table), _Vec, _Vec, Int}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(onset_report_cdf_table)}, logit_h0::CoDual{_Vec},
+        γ::CoDual{_Vec}, nu::CoDual{Int}
+    )
+    z, γp, n = primal(logit_h0), primal(γ), primal(nu)
+    D = length(z)
+    H = Matrix{Float64}(undef, D, n)
+    S = Matrix{Float64}(undef, D, n)
+    @inbounds for k in 1:n
+        s = 1.0
+        for j in 1:D
+            η = _logistic(z[j] + γp[k + j - 1])
+            s *= 1.0 - η
+            H[j, k] = η
+            S[j, k] = s
+        end
+    end
+    F = 1.0 .- S
+    F̄ = zero(F)
+    function onset_report_cdf_table_pullback!!(::NoRData)
+        _onset_back!(tangent(logit_h0), tangent(γ), F̄, H, S)
+        return NoRData(), NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(F, F̄), onset_report_cdf_table_pullback!!
+end
+
+# The forward pass keeps each column's hazards and survivals. `1 - s_j` has
+# derivative `s_j η_i` in the logit of hazard `i ≤ j`, so a column's
+# adjoint is one backward running sum, `x̄_i = η_i Σ_{j ≥ i} F̄_j s_j`.
+function _onset_back!(z̄, γ̄, F̄, H, S)
+    D, nu = size(H)
+    @inbounds for k in 1:nu
+        acc = 0.0
+        for j in D:-1:1
+            acc += F̄[j, k] * S[j, k]
+            x̄ = H[j, k] * acc
+            z̄[j] += x̄
+            γ̄[k + j - 1] += x̄
+        end
+    end
     return nothing
 end
 

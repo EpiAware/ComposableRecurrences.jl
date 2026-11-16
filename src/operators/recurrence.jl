@@ -1,6 +1,3 @@
-# Marks the call that sets the fields once the arguments are checked.
-struct _Checked end
-
 @doc raw"""
 A recurrence over strata whose kernel starts at lag 1, stepped from a window
 of its own past values.
@@ -58,7 +55,7 @@ struct with `forward!` on [`ComposableRecurrences.Pressure`](@ref).
 Modifiers are structs with `forward!` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 
-Called as `r(gain = 1; history, state, add, start, stop, trace)`,
+Called as `r(gain = 1; history, state, add, start, stop, record)`,
 the call covers the absolute times `start:stop`:
 
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
@@ -68,23 +65,31 @@ the call covers the absolute times `start:stop`:
     The recursion reads the last ``D`` outputs, with ``D`` at least `L`
     and at least the [`ComposableRecurrences.depth`](@ref) of each part,
     and a shorter history is zero-padded. A modifier's `Init` sees all of it.
-  - `state`: `true` to return `(y, state)`, with `state` the
-    [`ComposableRecurrences.State`](@ref) after the last step, or such a
-    `State` to resume from it, which returns the next one in the same way;
-    not a `State` with `history`. With `trace = true` as well the call
-    returns `((y, trace), state)`. Pass `true` as a literal, so that the
-    return type infers.
+  - `state`: a [`ComposableRecurrences.State`](@ref) to resume from, in
+    place of `history`; `record = (:state,)` returns the next one.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
   - `start`: the first time; `1`, or `state.t` when resuming.
     With `start = h + 1` the seed sits at times `1:h`, and the
     time-indexed inputs cover it.
   - `stop`: the last time; by default the common length of the
     time-indexed inputs (`gain`, `add`), required without one.
-  - `trace`: `false`, or `true` to return `(y, trace)`, with
-    `trace.modifiers` holding each modifier's series per step, a
-    [`ComposableRecurrences.ntrace`](@ref) by `T` matrix of its
-    [`ComposableRecurrences.Trace`](@ref) records. It is differentiable as
-    the output is. Pass it as a literal, so that the return type infers.
+  - `record`: a tuple of what to return beside the output `y`, which
+    makes the call return a named tuple with fields in the order `y`,
+    `state`, `trace`:
+      - `:state`, the [`ComposableRecurrences.State`](@ref) after the last
+        step;
+      - `:trace`, with `trace.modifiers` holding each modifier's series
+        per step, a [`ComposableRecurrences.ntrace`](@ref) by `T` matrix of
+        its [`ComposableRecurrences.Trace`](@ref) records, and
+        `trace.pressure` the pressure ``K_t p_t`` each step drew against,
+        laid out as `y`, as [`ComposableRecurrences.pressure`](@ref)
+        returns it; both differentiable as the output is.
+    `record = ()` returns `(; y)`, and without `record` the call returns
+    `y`.
+    Pass the tuple as a literal, or in a `Val`, as
+    `record = Val((:trace,))`, where it reaches the call as a variable or
+    the call is compiled from its argument types alone; the return type
+    then infers from the argument types.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -132,9 +137,8 @@ h = ones(2, 3)
 hcat(h, r(hcat(h, R); history = h, start = 4))
 
 # Resume from the returned state over the same inputs.
-y1, state = r(R; history = ones(2, 3), stop = 5, state = true)
-y2, _ = r(R; state)
-y ≈ hcat(y1, y2)
+fit = r(R; history = ones(2, 3), stop = 5, record = (:state,))
+y ≈ hcat(fit.y, r(R; state = fit.state))
 
 # output
 
@@ -175,7 +179,23 @@ end
 function _check_secondary(coupling, modifiers::Tuple)
     _check_times(:coupling, coupling, nothing)
     _check_times(:modifiers, modifiers, nothing)
+    _tuple_foreach(_check_not_form, modifiers)
     return nothing
+end
+
+# A depletion form's step reads a population where a modifier's reads the
+# time, and it has no `Init`, so a bare form among the modifiers would run
+# silently wrong.
+_check_not_form(m) = nothing
+@noinline function _check_not_form(form::_BuiltinForm)
+    name = nameof(typeof(form))
+    throw(
+        ArgumentError(
+            "$(_describe(form)) is a form for a Depletion or a Flow, not a " *
+                "modifier; use Depletion(N, $name(...)) to draw from a pool " *
+                "of population N"
+        )
+    )
 end
 
 # A rebuild of a `Recurrence` from its fields checks its parts again.
@@ -199,8 +219,8 @@ end
 _fold(kernel, coupling) = (kernel, coupling)
 
 @doc raw"""
-The state a [`Recurrence`](@ref) call with `state = true` returns with its
-output, passed back as `state` to resume.
+The state a [`Recurrence`](@ref) call with `record = (:state,)` returns
+with its output, passed back as `state` to resume.
 
 After a call that ended at absolute time ``t_1`` it carries
 
@@ -221,8 +241,8 @@ A call with `state` continues exactly as one call over both ranges would.
 using ComposableRecurrences
 CR = ComposableRecurrences
 r = Recurrence([0.5, 0.5])
-y, state = r(fill(1.1, 6); history = ones(2), stop = 3, state = true)
-state.t, round.(first(r(fill(1.1, 6); state)); digits = 3)
+(; state) = r(fill(1.1, 6); history = ones(2), stop = 3, record = (:state,))
+state.t, round.(r(fill(1.1, 6); state); digits = 3)
 
 # output
 
@@ -414,13 +434,12 @@ Base.@propagate_inbounds _add_at!(x̄, v, i) = (x̄[i] += v; nothing)
 # A native loop: at these lengths a BLAS call costs more than the arithmetic.
 _kdot(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
 _kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
-# A run of independent strata with no modifiers waits each step on its
-# kernel convolution alone (`_Chained`). The newest lag, the previous step's
-# value, is then added last, after the loop over the older lags, which do
-# not wait on that step; so each step waits on one fused multiply-add. This
-# holds for hardware floats and, through an extension, dual numbers; other
-# runs keep one out-of-line loop, where the split gains nothing and costs
-# `Enzyme` more. Both forms start from `+0.0`, so they agree on signed zeros.
+# A run of independent strata with no modifiers, whose steps wait only on
+# their own last values. A run of one stratum carries its last value in a
+# register (`_carried_run!`); more strata interleave and add the newest lag
+# after the older ones (`_window_dot`). This holds for hardware floats and,
+# through an extension, dual numbers; other runs keep one out-of-line loop,
+# where the split gains nothing and costs `Enzyme` more.
 struct _Chained{G}
     g::G
 end
@@ -428,33 +447,56 @@ _chain(g, ms, ::Type) = g
 function _chain(g::Union{AbstractVector, PerStratum}, ::Tuple{}, ::Type{<:_IEEEFloat})
     return _Chained(g)
 end
-@inline _kdot(c::_Chained{<:AbstractVector}, H, t, τ, L, a) = _window_dot(c.g, H, t, L, a)
-@inline function _kdot(c::_Chained{<:PerStratum}, H, t, τ, L, a)
-    return _window_dot(view(c.g.x, a, :), H, t, L, a)
+# Stratum `k`'s weights, oldest lag first.
+_stratum_weights(g::AbstractVector, k) = g
+_stratum_weights(g::PerStratum, k) = view(g.x, k, :)
+# Both sums start from `+0.0`, so they agree on signed zeros with the
+# general step.
+@inline function _kdot(c::_Chained, H, t, τ, L, a)
+    return _window_dot(_stratum_weights(c.g, a), H, t, L, a)
 end
-@inline function _window_dot(g, H, t, L, a)
-    acc = zero(promote_type(eltype(g), eltype(H)))
-    L >= 1 || return acc
-    @inbounds @_float_simd typeof(acc) for i in 1:(L - 1)
-        acc += g[i] * H[t + i - 1, a]
+# The window from row `t`, its newest lag added last; that lag is read from
+# the buffer, or is `y` when a run carries its last value.
+@inline _window_dot(g, H, t, L, a) = _window_dot(g, H, t, L, a, H)
+@inline function _window_dot(g, H, t, L, a, y)
+    L >= 1 || return zero(promote_type(eltype(g), eltype(H)))
+    acc = _span_dot(g, H, t, 1, L - 1, a)
+    return @inbounds muladd(g[L], _newest(y, t + L - 1, a), acc)
+end
+@inline _newest(H::AbstractMatrix, r, a) = @inbounds H[r, a]
+@inline _newest(y, r, a) = y
+# Stratum `k` at step `t` of a run of one stratum, from its last value `y`,
+# with weights `w` and the newest of them `newest`: writes the step's value
+# to the buffer, records its kernel convolution and returns the value. The
+# gain, coefficient and `newest` scale `y` together, so a step waits on one
+# fused multiply-add; that rounds differently from the interleaved step, so
+# the two agree to round-off, and still start from `+0.0`.
+@inline function _chained_step!(
+        w, newest, H, pr, gain, add, C, y, t, τ, L, D, k
+    )
+    # Its own loop rather than `_span_dot`: with the shared body, plain
+    # reverse-mode AD of a renewal took about a tenth longer.
+    o = t + D - L - 1
+    older = zero(promote_type(eltype(w), eltype(H)))
+    if L > 1
+        @inbounds @_float_simd typeof(older) for i in 1:(L - 1)
+            older += w[i] * H[o + i, k]
+        end
     end
-    return @inbounds muladd(g[L], H[t + L - 1, a], acc)
+    pk = muladd(newest, y, older)
+    _record_pressure!(pr, pk, _coef(C, k) * pk, t, k)
+    γ = @inbounds _at(gain, k, τ) * _coef(C, k)
+    v = muladd(γ * newest, y, muladd(γ, older, @inbounds(_at(add, k, τ))))
+    @inbounds H[D + t, k] = v
+    return v
 end
 # A window's convolution in one loop over the lags.
-function _window_sum(g, H, t, L, a)
-    acc = zero(promote_type(eltype(g), eltype(H)))
-    @inbounds @_float_simd typeof(acc) for i in 1:L
-        acc += g[i] * H[t + i - 1, a]
-    end
-    return acc
-end
+_window_sum(g, H, t, L, a) = _span_dot(g, H, t, 1, L, a)
+# Column `τ`'s weights, lag 0 first, against the window ending at row
+# `t + L - 1`.
 function _kdot(g::_TVColumns{Secondary}, H, t, τ, L, a)
     w = _wcolumn(g, a, τ)
-    acc = zero(eltype(H))
-    @inbounds @_float_simd typeof(acc) for i in 1:length(w)
-        acc += w[i] * H[t + L - i, a]
-    end
-    return acc
+    return _tail_dot(w, H, a, t + L - 1, 0, length(w) - 1)
 end
 # A per-stratum column is strided, so it is read entry by entry.
 function _kdot(g::_TVPerStratum{Secondary}, H, t, τ, L, a)
@@ -526,7 +568,8 @@ function _buffer(h, ::Type{Tp}, D, T, S) where {Tp}
     fill!(view(H, 1:D, :), zero(Tp))
     return H
 end
-function _buffer(::_CPUArray, ::Type{Tp}, D, T, S) where {Tp}
+_buffer(::_CPUArray, ::Type{Tp}, D, T, S) where {Tp} = _cpu_buffer(Tp, D, T, S)
+function _cpu_buffer(::Type{Tp}, D, T, S) where {Tp}
     H = Matrix{Tp}(undef, D + T, S)
     for k in 1:S, i in 1:D
         H[i, k] = zero(Tp)
@@ -592,13 +635,51 @@ function _output(H::Matrix{Tp}, D, T, h::AbstractVector) where {Tp}
     isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
     return deleteat!(vec(H), 1:D)
 end
-# The output of a recorded run: the cache keeps the buffer, so the output
-# copies the rows after the history rather than taking them over as
-# `_output` does. A single series (`h` a vector) is the buffer's one column,
-# copied in one call.
-_recorded_output(H, D, T, h) = _public(H, (D + 1):(D + T), h)
-function _recorded_output(H::Matrix, D, T, h::AbstractVector)
-    return copyto!(similar(H, T), 1, H, D + 1, T)
+# The width in bytes above which a strata output is transposed in place
+# rather than copied. Timed alone, the cycle walk takes 1.4 to 12 times the
+# copy for numbers up to 72 bytes and about as long at 104. In a whole
+# forward-mode gradient, dual numbers of 72 and 104 bytes still gain,
+# because the copy's fresh array on each chunk pass costs more in garbage
+# collection than the walk; plain numbers of 8 bytes lose.
+const _INPLACE_BYTES = 64
+
+# Strata × time: a buffer of wide numbers is transposed in place, so that
+# the history leads its memory, and the output takes over the rest;
+# narrower ones are copied out.
+function _output(H::Matrix{Tp}, D, T, h::AbstractMatrix) where {Tp}
+    (isbitstype(Tp) && sizeof(Tp) > _INPLACE_BYTES) ||
+        return _public(H, (D + 1):(D + T), h)
+    S = size(H, 2)
+    x = _transpose!(vec(H), D + T, S)
+    return reshape(deleteat!(x, 1:(D * S)), S, T)
+end
+
+# Transpose the `m × n` matrix held in the first `m * n` entries of `x`, in
+# place, by following the cycles of the permutation. Entry `j` (from zero) of
+# the transpose, at row `c` and column `r`, is entry `r + c * m` of the
+# matrix; the division by `n` is by multiplication.
+function _transpose!(x::Vector, m, n)
+    N = m * n
+    (m <= 1 || n <= 1) && return x
+    seen = falses(N)
+    dn = Base.MultiplicativeInverses.SignedMultiplicativeInverse(n)
+    @inbounds for i in 1:(N - 2)
+        seen[i + 1] && continue
+        # Walk the cycle through `i`: each slot takes the entry that belongs
+        # there, and the last takes the first slot's.
+        j = i
+        v = x[j + 1]
+        while true
+            seen[j + 1] = true
+            r = div(j, dn)
+            k = r + (j - r * n) * m
+            k == i && break
+            x[j + 1] = x[k + 1]
+            j = k
+        end
+        x[j + 1] = v
+    end
+    return x
 end
 
 # Without a history the run starts from zeros, with the strata of a
@@ -610,7 +691,7 @@ _empty_history(x::AbstractMatrix) = similar(x, Bool, size(x, 1), 0)
 _empty_history(x) = zeros(Bool, 0)
 
 # The first time of a call: the step after the history or the state.
-_start(::Union{Nothing, Bool}) = 1
+_start(::Nothing) = 1
 _start(state::State) = state.t
 
 _check_start(start) = nothing
@@ -625,7 +706,7 @@ end
 
 # The history, modifier states and first time of a call: seeded from
 # `history`, or resumed from `state`.
-function _resume(history, state::Union{Nothing, Bool}, start, gain, add)
+function _resume(history, ::Nothing, start, gain, add)
     h = history === nothing ? _empty_history(gain, add) : history
     return h, nothing, start
 end
@@ -654,32 +735,82 @@ end
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
 Base.@constprop :aggressive function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing,
-        trace::Union{Nothing, Bool} = nothing
+        add = nothing, start = _start(state), stop = nothing, record = nothing
     )
     args = _run_args(r, gain, history, state, add, start)
-    traced, stated = _traced(trace), _stated(state)
-    op = _call_op(traced, stated, r)
-    out = adjoint_call(_reroute(route, op), args..., stop)
-    return _unwrap(traced, stated, out)
+    rec = _record(record)
+    traced, stated = _recording(rec, Val(:trace)), _recording(rec, Val(:state))
+    return _routed(traced, stated, rec, r, route, args, stop)
 end
-# `trace` and `state` are `nothing` unless given, so that a call without
-# them compiles without their arms; a `State` to resume from returns the
-# next one.
-_traced(::Nothing) = Val(false)
-_traced(trace::Bool) = Val(trace)
-_stated(::Nothing) = Val(false)
-_stated(state::Bool) = Val(state)
-_stated(::State) = Val(true)
+# One call over both flags, so that a rule derived from types alone splits.
+function _routed(traced, stated, rec, r, route, args, stop)
+    out = adjoint_call(_reroute(route, _call_op(traced, stated, r)), args..., stop)
+    return _recorded(rec, traced, stated, out)
+end
+
+# What a call records beside `y`, checked once: `nothing` unless `record`
+# is given, so that a call without it compiles without its arms.
+_record(::Nothing) = nothing
+Base.@constprop :aggressive function _record(record::Tuple{Vararg{Symbol}})
+    foreach(_check_record, record)
+    allunique(record) || _duplicate_record(record)
+    return record
+end
+function _record(rec::Val{R}) where {R}
+    R isa Tuple{Vararg{Symbol}} || _bad_record(rec)
+    _record(R)
+    return rec
+end
+@noinline function _duplicate_record(record)
+    throw(ArgumentError("record names each of :state and :trace once, got $(record)"))
+end
+_record(record) = _bad_record(record)
+@noinline function _bad_record(record)
+    throw(
+        ArgumentError(
+            "record is a tuple of the names to return beside y, such as " *
+                "(:state,), (:trace,) or (:state, :trace), or such a tuple in a " *
+                "Val; got $(_describe(record))"
+        )
+    )
+end
+_check_record(name::Symbol) = name in (:state, :trace) || _record_error(name)
+@noinline function _record_error(name)
+    name === :pressures && throw(
+        ArgumentError(
+            "the pressures are in the trace: record = (:trace,) and read " *
+                "trace.pressure"
+        )
+    )
+    throw(
+        ArgumentError(
+            "record names :state or :trace, got $(repr(name))"
+        )
+    )
+end
+# The name is a `Val` so that a record in a `Val` answers from the types
+# alone.
+_recording(::Nothing, ::Val) = Val(false)
+# A branch, not `Val(name in rec)`, so that it infers as a two-way union.
+Base.@constprop :aggressive function _recording(rec::Tuple, ::Val{name}) where {name}
+    return name in rec ? Val(true) : Val(false)
+end
+_recording(::Val{R}, ::Val{name}) where {R, name} = Val(name in R)
+
 # The operator a call routes: the recurrence, with its state, its trace or
 # both in its output.
 _call_op(::Val{false}, ::Val{false}, r) = r
 _call_op(::Val{true}, ::Val{false}, r) = _WithTrace(r)
 _call_op(::Val{false}, ::Val{true}, r) = _WithState(r)
 _call_op(::Val{true}, ::Val{true}, r) = _WithTrace(_WithState(r))
-# A call with a trace and a state returns `((y, trace), state)`.
-_unwrap(traced, stated, out) = out
-_unwrap(::Val{true}, ::Val{true}, ((y, st), tr)) = ((y, tr), st)
+# Without `record` the call returns `y`; with it, a named tuple of `y` and
+# what it names, in the order `y`, `state`, `trace`.
+_recorded(::Nothing, traced, stated, y) = y
+_recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{false}, y) = (; y)
+_recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{true}, (y, state)) = (; y, state)
+_recorded(::Union{Tuple, Val}, ::Val{true}, ::Val{false}, (y, trace)) = (; y, trace)
+_recorded(::Union{Tuple, Val}, ::Val{true}, ::Val{true}, ((y, state), trace)) =
+    (; y, state, trace)
 
 function _run_args(r, gain, history, state, add, start)
     _check_start(start)
@@ -695,17 +826,26 @@ end
 
 Base.@constprop :aggressive function forward(
         r::Recurrence, ::Run, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing,
-        trace::Union{Nothing, Bool} = nothing
+        add = nothing, start = _start(state), stop = nothing, record = nothing
     )
-    op = _trace_op(_traced(trace), r)
+    op = _trace_op(_forward_record(_record(record)), r)
     return _run_forward(op, _run_args(r, gain, history, state, add, start)..., stop)
+end
+# `forward` returns no state, so `:trace` is the one name it records.
+_forward_record(rec) = _forward_record(rec, _recording(rec, Val(:state)))
+_forward_record(rec, ::Val{false}) = _recording(rec, Val(:trace))
+@noinline function _forward_record(rec, ::Val{true})
+    throw(
+        ArgumentError(
+            "forward(r, Run(); record) records :trace only, got $(repr(rec))"
+        )
+    )
 end
 _trace_op(::Val{false}, r) = r
 _trace_op(::Val{true}, r) = _WithTrace(r)
 
-# A call with `state` routes through the rules too: a recurrence whose
-# output is `(y, state)`.
+# A call that records its state routes through the rules too: a recurrence
+# whose output is `(y, state)`.
 struct _WithState{R <: Recurrence} <: AbstractOperator
     r::R
 end
@@ -748,9 +888,21 @@ function _modifier_adjoint(m)
     _derived_local(m) || return :none
     uses_adjoint(m, Step()) && return :pullback
     _local_step_kind(m) && _array_params(m) && !_reads_outputs(m) && return :local
+    _block_local(m) && return :local
     return :none
 end
 _local_step_kind(m) = _strata_loop(m) || _whole_step(m)
+# A blockwise modifier differentiated group by group with a local
+# derivative: its float parameters are scalars or read one entry per group
+# (`_local_params`), and none is read from the outputs. A depletion with
+# pools is blockwise, but its forms receive their parameters unresolved, so
+# a rebuild with one entry in place of a `PerStratum` would break a form
+# that indexes it; one whose forms lack a pullback takes plain AD.
+function _block_local(m)
+    return !_strata_loop(m) && _blocks(m) !== nothing && _local_params(m) &&
+        !_reads_outputs(m)
+end
+_block_local(::Depletion) = false
 # A modifier whose step reads and writes the whole step's values at once:
 # neither pointwise nor blockwise.
 _whole_step(m) = !_strata_loop(m) && _blocks(m) === nothing
@@ -853,14 +1005,12 @@ _part_why(m::Depletion) = _form_why(_forms(m.pieces)...)
 _form_why() = "Depletion has a Derived map that holds floats"
 _form_why(f, fs...) = _form_adjoint(f) ? _form_why(fs...) : _part_why(f)
 
-# How many passes of dual numbers a coupling's local derivative needs per
-# step: one while the strata and its scalars fit in one (`_LOCAL_PRESSURE`),
-# and the call takes the rule; two within `_LOCAL_PRESSURE_WIDE`, through
-# `_ad_wide`; with more it takes plain AD.
+# The route of a call: the slowest its couplings and whole-step modifiers
+# allow (`_local_fit`).
 # A part the local step cannot rebuild sends every call to plain AD.
 function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
-    return _parts_fit(r, h)
+    return _parts_fit(r, h, _last_time(gain, add, args...))
 end
 # An operator built before the dual-number extension was loaded checks its
 # parts when it is called (`_check_now`). Without the extension the call
@@ -868,21 +1018,52 @@ end
 # load it.
 function _fit(r::Recurrence{<:Any, <:Any, <:Tuple, Nothing}, gain, add, h, args...)
     _check_now(r) || return :none
-    return _parts_fit(r, h)
+    return _parts_fit(r, h, _last_time(gain, add, args...))
 end
-function _parts_fit(r, h)
+# The call's last time, as the run takes it: `stop` when given, else the
+# inputs' extent in time, else 2.
+_last_time(gain, add, s0 = nothing, τ0 = 1, stop = nothing, args...) =
+    something(stop, _extent(gain), _extent(add), 2)
+function _parts_fit(r, h, tlast = 2)
     couplings = _couplings_fit(h, r.coupling, _kernel_couplings(r.kernel)...)
-    return _worse(couplings, _steps_fit(r.modifiers, _nstrata(h)))
+    return _worse(couplings, _steps_fit(r.modifiers, _nstrata(h), tlast))
 end
 # A whole-step modifier's local derivative seeds the step's values, its
-# state and its parameters: within one pass of dual numbers
-# (`_LOCAL_PRESSURE`) the call takes the rule, and with more `_ad_wide`,
-# a rule on `Mooncake` at any size, where it stays faster than plain AD, and
-# plain AD on `Enzyme`, where the rule is slower than plain AD.
-_steps_fit(ms::Tuple, S) = reduce(_worse, map(m -> _step_fit(m, S), ms); init = :one)
-function _step_fit(m, S)
+# state and its parameters, and takes the same routes as a coupling's.
+function _steps_fit(ms::Tuple, S, tlast = 2)
+    return reduce(_worse, map(m -> _step_fit(m, S, tlast), ms); init = :one)
+end
+function _step_fit(m, S, tlast = 2)
     _whole_local(m) || return :one
-    return S + nstate(m, S) + _ninputs(m) <= _LOCAL_PRESSURE ? :one : :wide
+    return _local_fit(S + nstate(m, S) + _step_inputs(m, S, tlast))
+end
+# The parameters a whole-step modifier's local step seeds: its float scalars
+# and, for one that reads fewer entries of its float arrays than they hold
+# (`_reads_fewer`), the entries a step reads, the most of the first two
+# times and the call's last time `tlast`; else every array entry. A step
+# that reads more as the run goes on so routes on its last step, and past
+# the cap takes plain AD.
+function _step_inputs(m, S, tlast = 2)
+    _reads_step(m) || return _ninputs(m)
+    q = length(_param_tuple(m))
+    return q + min(_probe_step_reads(m, S, tlast), _nparams(m) - q)
+end
+# Whether a whole-step modifier's local step seeds only the entries a step
+# reads: it reads its float arrays entry by entry (`_reads_step`), and one
+# step over `S` strata reads fewer entries than the arrays hold, the same
+# number at times 1 and 2. A step that reads them all, or more as time goes
+# on, seeds them all, through views.
+function _reads_fewer(m, S)
+    _reads_step(m) || return false
+    return _probe_step_reads(m, S) < _nparams(m) - length(_param_tuple(m))
+end
+# The route of a part's local derivative that seeds `n` inputs: the rule
+# within one pass of dual numbers (`_LOCAL_PRESSURE`), `_ad_wide` within two
+# (`_LOCAL_PRESSURE_WIDE`), and plain AD past that, where the benchmarks in
+# the developer testing page find plain AD cheaper.
+function _local_fit(n)
+    n <= _LOCAL_PRESSURE && return :one
+    return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
 end
 # The route that holds for both of two parts.
 function _worse(a::Symbol, b::Symbol)
@@ -901,9 +1082,7 @@ end
 _fit(w::_WithState, args...) = _fit(w.r, args...)
 function _coupling_fit(C, h)
     _coupling_adjoint(C) === :local || return :one
-    n = _nstrata(h) + _ninputs(C)
-    n <= _LOCAL_PRESSURE && return :one
-    return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
+    return _local_fit(_nstrata(h) + _ninputs(C))
 end
 # The route that covers every coupling's fit: plain AD over the wider route
 # over one pass.
@@ -991,18 +1170,35 @@ end
 @generated function _array_params(m)
     return !_has_opaque_params(m) && !_has_structured_floats(m)
 end
+# Whether a type holds a parameter read through `param` (`_EntryParam`).
+function _has_entries(::Type{T}) where {T}
+    T <: _EntryParam && return true
+    T <: Union{AbstractArray, Real, Nothing, Symbol, AbstractString, Function} &&
+        return false
+    isconcretetype(T) || return false
+    return any(_has_entries, fieldtypes(T))
+end
+# Whether a whole-step modifier's local step seeds only the entries of its
+# float arrays that a step reads, as a pointwise modifier's does: it holds
+# float arrays, every one strided, and none read through `param`. The step
+# wraps each array so that the entries it reads are dual numbers, and adds
+# their cotangents to those entries.
+@generated function _reads_step(m)
+    return _has_array_params(m, false) && !_has_opaque_params(m) &&
+        !_has_structured_floats(m) && !_has_entries(m)
+end
 
 # The positional Run: the output and the cache the reverse pass reads,
 # including each modifier's final state; `_WithState` builds the state to
 # resume from, which a plain call does not need.
-function _run_forward(r::Recurrence, gain, add, h, s0, τ0, stop)
-    Y, _, _, cache = _recur(r, gain, add, h, s0, τ0, stop, Val(true))
+function _run_forward(r::Recurrence, gain, add, h, s0, τ0, stop, cache = Val(true))
+    Y, _, _, cache = _recur(r, gain, add, h, s0, τ0, stop, cache)
     return Y, cache
 end
 _primal(r::Recurrence, args...) = first(_recur(r, args..., Val(false)))
 
-function _run_forward(w::_WithState, gain, add, h, s0, τ0, stop)
-    Y, H, states, cache = _recur(w.r, gain, add, h, s0, τ0, stop, Val(true))
+function _run_forward(w::_WithState, gain, add, h, s0, τ0, stop, cache = Val(true))
+    Y, H, states, cache = _recur(w.r, gain, add, h, s0, τ0, stop, cache)
     return (Y, _state(Y, H, states, h, τ0)), cache
 end
 function _primal(w::_WithState, gain, add, h, s0, τ0, stop)
@@ -1010,19 +1206,31 @@ function _primal(w::_WithState, gain, add, h, s0, τ0, stop)
     return Y, _state(Y, H, states, h, τ0)
 end
 
+# The state to resume from: the last `D` times of the history then the
+# output, in the public layout, read from `Y` and `h` rather than the
+# buffer, which a strata output may have taken over (`_output`).
 function _state(Y, H, states, h, τ0)
     T = size(Y, ndims(Y))
     D = size(H, 1) - T
-    return State(_public(H, (T + 1):(T + D), h), states, τ0 + T)
+    return State(_state_history(Y, h, eltype(H), D, T), states, τ0 + T)
 end
+function _state_history(Y, h, ::Type{Tp}, D, T) where {Tp}
+    T >= D && return copy(selectdim(Y, ndims(Y), (T - D + 1):T))
+    # The buffer's history rows after the first `T`, as `_load_history!`
+    # loads them: the last of `h`, right aligned, zero before.
+    out = fill!(similar(Y, Tp, _with_times(Y, D)...), zero(Tp))
+    m = size(h, ndims(h))
+    n = min(m, D - T)
+    selectdim(out, ndims(out), (D - T - n + 1):(D - T)) .=
+        selectdim(h, ndims(h), (m - n + 1):m)
+    selectdim(out, ndims(out), (D - T + 1):D) .= Y
+    return out
+end
+_with_times(Y::AbstractVector, n) = (n,)
+_with_times(Y::AbstractMatrix, n) = (size(Y, 1), n)
 
 _tape(x::AbstractArray) = copy(x)
 _tape(x) = x
-# The reverse pass reads the history's values only in the modifiers' `Init`
-# pullbacks, which a call without modifiers or resumed from a state does not
-# run; otherwise it reads only the history's shape.
-_tape_history(h, s0, ::Tuple{}) = h
-_tape_history(h, s0, modifiers) = s0 === nothing ? _tape(h) : h
 
 # A resumed state must have each modifier's `nstate` entries, as an
 # `Init` would have written, and the modifiers must fit the strata, as
@@ -1040,7 +1248,7 @@ end
 
 # Checks the call, then runs the buffer loop at the promoted eltype.
 function _recur(
-        r::Recurrence, gain, add, h, s0, τ0, stop, record::Val
+        r::Recurrence, gain, add, h, s0, τ0, stop, cache::Val
     )
     (; kernel, coupling, modifiers) = r
     L = _nlags(kernel)
@@ -1069,7 +1277,7 @@ function _recur(
     _check_device(h, (kernel, coupling, modifiers, gain, add, s0))
     T = stop - τ0 + 1
     Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
-    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, record)
+    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache)
 end
 
 # The buffer eltype from the promoted eltype `E` of every input and part:
@@ -1153,7 +1361,15 @@ function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
 end
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
-_record_states!(R::AbstractMatrix, s, t) = (copyto!(view(R, :, t), s); nothing)
+_record_states!(R::AbstractMatrix, s, t) = _copy_column!(R, s, t)
+# Column `t` of `R` from `x`, by linear offset: a copy into a column view
+# takes `copyto!`'s generic path, whose checks cost more than the step's
+# short copy, where the offset form is one block copy for host and device
+# arrays alike.
+function _copy_column!(R, x, t)
+    copyto!(R, (t - 1) * size(R, 1) + 1, x, firstindex(x), length(x))
+    return nothing
+end
 _record_states!(R::AbstractVector, s, t) = nothing
 _record_states!(::Nothing, s, t) = nothing
 # The recorded state of stratum `k` entering step `t`, and of every stratum.
@@ -1170,7 +1386,7 @@ function _stages_rec!(ms::Tuple, states::Tuple, rec::Tuple, v, τ, t)
     return _stages_rec!(Base.tail(ms), Base.tail(states), Base.tail(rec), v, τ, t)
 end
 function _stage_rec!(R, m, v, s, τ, t)
-    copyto!(view(R.V, :, t), v)
+    _copy_column!(R.V, v, t)
     _record_states!(R.S, s, t)
     _stage!(m, v, s, τ)
     _record_states!(R.A, s, t)
@@ -1216,11 +1432,26 @@ end
 # pointwise coupling's pressure is its coefficient times the convolution,
 # so it records no `X`.
 # Every step writes its column of both, so they start unset.
-function _pressure_records(h, ::Type{Tp}, C, S, T) where {Tp}
+# A pointwise coupling's convolutions reach only the gain's and the
+# coupling's cotangents, which an integer gain and coefficient have none of,
+# so such a run records none.
+function _pressure_records(h, ::Type{Tp}, C, S, T, need) where {Tp}
+    C isa _PointwiseCoupling && !need && return nothing
     X = C isa _PointwiseCoupling ? nothing : similar(h, Tp, S, T)
     return (; P = similar(h, Tp, S, T), X)
 end
+@generated _floats(gain, C) = _has_float(gain) || _has_float(C)
+# A run without a reverse pass needs no kernel convolutions, only the
+# pressures its trace returns, so it keeps `X` whatever the coupling.
+struct _TracePressures{X}
+    X::X
+end
+_trace_pressures(h, ::Type{Tp}, S, T) where {Tp} = _TracePressures(similar(h, Tp, S, T))
 _record_pressure!(::Nothing, pk, xk, t, k) = nothing
+@inline function _record_pressure!(pr::_TracePressures, pk, xk, t, k)
+    pr.X[k, t] = xk
+    return nothing
+end
 @inline function _record_pressure!(pr, pk, xk, t, k)
     pr.P[k, t] = pk
     pr.X === nothing || (pr.X[k, t] = xk)
@@ -1230,6 +1461,12 @@ end
 # The records are sized by the call, so they are read without bounds checks.
 _pressure(C, pr, k, t) = @inbounds pr.X[k, t]
 _pressure(C::_PointwiseCoupling, pr, k, t) = _coef(C, k) * @inbounds(pr.P[k, t])
+# A pointwise coupling records no `X`, so its pressures are rebuilt.
+_pressures(C::UniformScaling, pr) = C.λ .* pr.P
+_pressures(C::Diagonal, pr) = C.diag .* pr.P
+_pressures(C, pr) = copy(pr.X)
+_output_layout(q, h::AbstractVector) = vec(q)
+_output_layout(q, h) = q
 
 # The whole run of the independent strata `ks`, time outermost. Each
 # stratum's step waits on its own last values, so interleaving the strata
@@ -1240,11 +1477,67 @@ function _series_body!(
         D, T
     )
     for (ts, g, _) in _kernel_runs(kernel, τ0, T)
-        _steps_in!(
-            _series_step!, ex, ts, T,
-            ks, H, pr, gain, add, coupling, _chain(g, ms, eltype(H)), p, q, ms,
-            states, rec, τ0, L, D
+        c = _chain(g, ms, eltype(H))
+        if c isa _Chained && size(H, 2) == 1
+            _carried_run!(
+                c, _run_steps(ts, T), first(ks), H, pr, gain, add, coupling,
+                τ0, L, D
+            )
+        elseif size(H, 2) == 1 && _carries(g, H)
+            _carried_run!(
+                g, _run_steps(ts, T), first(ks), H, pr, gain, add, coupling,
+                ms, states, rec, τ0, L, D
+            )
+        else
+            _steps_in!(
+                _series_step!, ex, ts, T,
+                ks, H, pr, gain, add, coupling, c, p, q, ms,
+                states, rec, τ0, L, D
+            )
+        end
+    end
+    return nothing
+end
+
+# A chained run of one stratum carries its last value from step to step.
+# More strata interleave, time outermost, which overlaps their waits on
+# their own last values; a block of one stratum among several, as a
+# threaded run splits them, interleaves too, so it rounds as the serial run
+# does. The row before the run is the history's, or none
+# for a run with no lags, which reads no value.
+function _carried_run!(c, steps, k, H, pr, gain, add, coupling, τ0, L, D)
+    row = D + first(steps) - 1
+    y = row >= 1 ? @inbounds(H[row, k]) : zero(eltype(H))
+    w = _stratum_weights(c.g, k)
+    newest = L >= 1 ? @inbounds(w[L]) : zero(eltype(w))
+    for t in steps
+        y = _chained_step!(
+            w, newest, H, pr, gain, add, coupling, y, t, τ0 + t - 1, L, D, k
         )
+    end
+    return nothing
+end
+
+# A call of one stratum through pointwise modifiers carries its last value
+# the same way: `y` is the value the step writes to the buffer, after the
+# modifiers, so it is the next step's newest lag. Only a host `Array`, as the
+# buffer is read without bounds checks, and a fixed or per-stratum kernel.
+_carries(g, H) = false
+_carries(::Union{AbstractVector, PerStratum}, ::Array) = true
+function _carried_run!(
+        g, steps, k, H, pr, gain, add, coupling, ms, states, rec, τ0, L, D
+    )
+    row = D + first(steps) - 1
+    y = row >= 1 ? @inbounds(H[row, k]) : zero(eltype(H))
+    w = _stratum_weights(g, k)
+    for t in steps
+        τ = τ0 + t - 1
+        pk = _window_dot(w, H, t + D - L, L, k, y)
+        xk = _coef(coupling, k) * pk
+        _record_pressure!(pr, pk, xk, t, k)
+        x = @inbounds _core(coupling, gain, add, k, τ, pk, xk)
+        y = _thread(ms, states, rec, x, τ, t, k)
+        @inbounds H[D + t, k] = y
     end
     return nothing
 end
@@ -1339,9 +1632,15 @@ end
     return nothing
 end
 
-# The buffer loop: returns the output, the buffer, the final states and,
-# when recording (`Val(true)`), the cache the reverse pass reads, or, when
-# tracing without records (`Val(:trace)`), each modifier's trace. The buffer
+_sink_trace(::Nothing, ::Nothing, h) = nothing
+function _sink_trace(rec, pr, h)
+    return (; modifiers = _sink_traces(rec), pressure = _output_layout(pr.X, h))
+end
+
+# The buffer loop: returns the output, the buffer, the final states and
+# what `cache` asks for: `Val(true)` the cache the reverse pass reads,
+# `Val(:traced)` that cache with the pressures a trace returns,
+# `Val(:trace)` only each modifier's trace, `Val(false)` nothing. The buffer
 # is `D` rows deep before the run, `D >= L`, and row `D + t` holds absolute
 # time `τ0 + t - 1`; the kernel reads the last `L` rows before each step.
 # The records are each step's kernel convolutions and pressures `pr`
@@ -1357,21 +1656,17 @@ end
 # with more than one pool) loop their groups, so they run on the calling task whatever
 # the executor.
 function _run(
-        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, record::Val
+        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, cache::Val
     ) where {Tp}
-    c = _current()
-    # The default executor is passed as the singleton `Serial()`, so the loop
-    # below holds no abstractly typed executor.
-    if c.ex isa Serial
-        return _run(Tp, Serial(), r, gain, add, h, s0, τ0, L, D, S, T, record)
+    return _with_executor() do ex
+        _run(Tp, ex, r, gain, add, h, s0, τ0, L, D, S, T, cache)
     end
-    return _run(Tp, c, r, gain, add, h, s0, τ0, L, D, S, T, record)
 end
 
 function _run(
-        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{record}
-    ) where {Tp, record}
-    keep = record === true
+        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{C}
+    ) where {Tp, C}
+    keep = C === true || C === :traced
     coupling = r.coupling
     kernel = _run_kernel(Tp, r.kernel, h, S)
     H = _history_buffer(h, Tp, D, T, S)
@@ -1383,9 +1678,16 @@ function _run(
         map(s -> _state_vector(Tp, s), s0)
     end
     init = keep ? map(copy, states) : nothing
-    pr = keep ? _pressure_records(h, Tp, coupling, S, T) : nothing
+    pr = if keep
+        # A traced run returns its pressures, so it records them whatever
+        # the gain.
+        need = C === :traced || _floats(gain, coupling)
+        _pressure_records(h, Tp, coupling, S, T, need)
+    else
+        C === :trace ? _trace_pressures(h, Tp, S, T) : nothing
+    end
     rec = keep ? map((m, s) -> _records(h, Tp, m, s, S, T), modifiers, init) :
-        _sinks(Val(record), h, Tp, modifiers, states, S, T)
+        _sinks(Val(C), h, Tp, modifiers, states, S, T)
     work = S * _kwork(kernel, S, L)
     if _independent(coupling, kernel, modifiers)
         # A stratum on its own reads only its kernel convolution, so the run
@@ -1411,17 +1713,17 @@ function _run(
             )
         end
     end
-    Y = keep ? _recorded_output(H, D, T, h) : _output(H, D, T, h)
+    # The cache keeps the buffer, so a recorded run's output copies the rows
+    # after the history rather than taking them over.
+    Y = keep ? _public(H, (D + 1):(D + T), h) : _output(H, D, T, h)
     # The cache holds copies of the inputs whose values the reverse pass
     # reads, so a caller overwriting them after the call cannot change the
-    # gradient; of the history it reads only the shape unless a modifier's
-    # `Init` pullback runs (`_tape_history`).
+    # gradient.
     cache = keep ?
         (;
-            r, kernel, gain = _tape(gain), add,
-            h = _tape_history(h, s0, r.modifiers), s0, τ0, L, D, S, T, H, pr,
-            rec, init, states,
-        ) : _sink_traces(rec)
+            r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, D, S,
+            T, H, pr, rec, init, states,
+        ) : _sink_trace(rec, pr, h)
     return Y, H, states, cache
 end
 

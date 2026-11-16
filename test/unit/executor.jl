@@ -74,7 +74,7 @@ end
     @test CR.each!(window_dot!, CR.Device(nothing), 0, 0) === nothing
 end
 
-@testitem "Device: arrays on a device select it" begin
+@testitem "Device: arrays on a device select it" tags = [:threads] begin
     using ComposableRecurrences, JLArrays, KernelAbstractions
     const CR = ComposableRecurrences
     x = JLArray(rand(3))
@@ -84,7 +84,7 @@ end
     @test CR._resolve(ex, x) === ex
 end
 
-@testitem "each!: threaded matches serial" setup = [ExecutorBodies] begin
+@testitem "each!: threaded matches serial" tags = [:threads] setup = [ExecutorBodies] begin
     using ComposableRecurrences
     const CR = ComposableRecurrences
     S, L, T = 37, 4, 6
@@ -113,7 +113,7 @@ end
     end
 end
 
-@testitem "Block accumulators: one per chunk, summed afterwards" begin
+@testitem "Block accumulators: one per chunk, summed afterwards" tags = [:threads] begin
     using ComposableRecurrences
     const CR = ComposableRecurrences
     # Each index adds its own value into a shared scalar and vector and
@@ -168,7 +168,7 @@ end
     @test isempty(small[2])
 end
 
-@testitem "Threaded: options are checked when it is built" begin
+@testitem "Threaded: options are checked when it is built" tags = [:threads] begin
     using ComposableRecurrences
     const CR = ComposableRecurrences
     @test_throws "ntasks must be at least 0, got -1" CR.Threaded(; ntasks = -1)
@@ -180,7 +180,7 @@ end
     @test CR._splits(CR.Threaded(; ntasks = 4), 8, 500_000)
 end
 
-@testitem "Threaded: loop work is counted per kind and element type" begin
+@testitem "Threaded: loop work is counted per kind and element type" tags = [:threads] begin
     using ComposableRecurrences, ForwardDiff
     const CR = ComposableRecurrences
     x = zeros(2)
@@ -209,7 +209,7 @@ end
     @test CR._splits(ex, 8, CR._work(CR._ConvLoop(), x, 8_000_000))
 end
 
-@testitem "EXECUTOR: serial by default, set per block" begin
+@testitem "EXECUTOR: serial by default, set per block" tags = [:threads] begin
     using ComposableRecurrences
     using Base.ScopedValues: with
     const CR = ComposableRecurrences
@@ -219,7 +219,7 @@ end
     @test CR.EXECUTOR[] === CR.Serial()
 end
 
-@testitem "Operators: threaded calls match serial calls exactly" begin
+@testitem "Operators: threaded calls match serial calls exactly" tags = [:threads] begin
     using ComposableRecurrences, Random
     using Base.ScopedValues: with
     using LinearAlgebra: Diagonal
@@ -327,7 +327,7 @@ end
     @test y == ones(4)
 end
 
-@testitem "Operators: GPU arrays run their strata loops on the device" begin
+@testitem "Operators: GPU arrays run their strata loops on the device" tags = [:threads] begin
     using ComposableRecurrences, JLArrays, KernelAbstractions
     using Base.ScopedValues: with
     const CR = ComposableRecurrences
@@ -342,8 +342,10 @@ end
             (Recurrence(g), Recurrence(gd)),
             (Recurrence(PerStratum(G)), Recurrence(PerStratum(Gd))),
             (
-                Recurrence(g; modifiers = (CR.Add(0.1), CR.Clamp(0.0, 50.0))),
-                Recurrence(gd; modifiers = (CR.Add(0.1), CR.Clamp(0.0, 50.0))),
+                Recurrence(g; modifiers = (CR.Transform(+, 0.1), CR.Transform(clamp, 0.0, 50.0))),
+                Recurrence(
+                    gd; modifiers = (CR.Transform(+, 0.1), CR.Transform(clamp, 0.0, 50.0))
+                ),
             ),
         )
         @test Array(rd(JLArray(R); history = JLArray(seed))) ≈
@@ -365,7 +367,7 @@ end
     @test Array(with(() -> cd(Rd), CR.EXECUTOR => ex)) ≈ Convolution(g)(R)
 end
 
-@testitem "Threaded: a failing chunk fails the loop after every chunk ends" begin
+@testitem "Threaded: a failing chunk fails the loop after every chunk ends" tags = [:threads] begin
     using ComposableRecurrences
     using Base.ScopedValues: with
     const CR = ComposableRecurrences
@@ -379,6 +381,39 @@ end
     @test_throws CompositeException CR.each!(body!, ex, 8, 8, done)
     # Every other chunk ran to the end before the error was raised.
     @test done[3:8] == ones(Int, 6)
+    # The first chunk runs on the calling task and the others on new tasks;
+    # a failure on either side, or on both, is raised once every chunk ends,
+    # the calling task's first.
+    for bad in ((2,), (8,), (2, 8))
+        fill!(done, 0)
+        function fails!(k, done)
+            k in bad && error("chunk failed")
+            done[k] = 1
+            return nothing
+        end
+        err = try
+            CR.each!(fails!, ex, 8, 8, done)
+            nothing
+        catch e
+            e
+        end
+        @test err isa CompositeException
+        @test length(err.exceptions) == length(bad)
+        @test count(==(1), done) == 8 - length(bad)
+        # A failure on the calling task comes first, with its backtrace; one
+        # on a new task is the `TaskFailedException` from waiting on it.
+        first_err = first(err.exceptions)
+        @test (first_err isa CR._ChunkFailed) == (2 in bad)
+        if first_err isa CR._ChunkFailed
+            @test first_err.error isa ErrorException
+            @test !isempty(first_err.backtrace)
+            @test occursin("Stacktrace", sprint(showerror, first_err))
+        end
+        spawned = count(e -> e isa TaskFailedException, err.exceptions)
+        @test spawned == (8 in bad)
+        msgs = map(e -> sprint(showerror, e), err.exceptions)
+        @test all(m -> occursin("chunk failed", m), msgs)
+    end
     @test CR._nchunks(ex, 2) == 2
     @test CR._nchunks(CR.Threaded(), 100) == min(Threads.nthreads(), 100)
     # Blocks through the executor read from `EXECUTOR`.
@@ -390,7 +425,7 @@ end
     @test y == ones(6)
 end
 
-@testitem "Threaded: chunks run in parallel on several threads" begin
+@testitem "Threaded: chunks run in parallel on several threads" tags = [:threads] begin
     using ComposableRecurrences
     const CR = ComposableRecurrences
     nt = Threads.nthreads()
@@ -421,5 +456,17 @@ end
     else
         # Run the suite with `--threads` above 1 to exercise this.
         @test_skip nt > 1
+    end
+end
+
+@testitem "Executor: a loop under an executor of another kind raises" tags = [:threads] begin
+    using ComposableRecurrences
+    using Base.ScopedValues: with
+    const CR = ComposableRecurrences
+    struct OtherExecutor <: CR.Executor end
+    y = zeros(4)
+    body!(k, y) = (y[k] = k; nothing)
+    @test_throws ArgumentError with(CR.EXECUTOR => OtherExecutor()) do
+        CR._each!(body!, CR._current(), y, 4, 4, y)
     end
 end

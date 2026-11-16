@@ -81,10 +81,10 @@ end
         @test !CR.ispointwise(M(0.1))
     end
     @test CR.uses_adjoint(Recurrence(g; modifiers = (Move(0.1),)), CR.Run())
-    @test !CR.uses_adjoint(Recurrence(g; modifiers = (MovePlain(0.1),)), CR.Run())
+    @test CR.uses_adjoint(Recurrence(g; modifiers = (MovePlain(0.1),)), CR.Run())
     # The state keeps what moved at the last step.
     moved = Recurrence([1.0]; modifiers = (Move(0.25),))
-    _, st = moved(; history = [4.0, 0.0][:, :], stop = 1, state = true)
+    _, st = moved(; history = [4.0, 0.0][:, :], stop = 1, record = (:state,))
     @test only(st.states) == [1.0]
     r = Recurrence(g; modifiers = (Move(0.1),))
     @test_throws "needs a multiple of 2 strata, got 3" r(ones(3, 4); history = ones(3, 3))
@@ -137,6 +137,81 @@ end
     end
 end
 
+@testitem "Blocks: a group step without a pullback is differentiated locally" setup = [
+    AdjointCheck, BlockChecks,
+] begin
+    using ComposableRecurrences, ForwardDiff
+    (; Move, MovePlain) = BlockChecks
+    flat(x) = collect(Iterators.flatten(x))
+    # One group's local derivative matches the hand pullback, with a scalar
+    # parameter and with the entry of a per-stratum one at the group.
+    for (a, mirror) in (
+            (0.3, () -> (; a = Ref(0.0))),
+            (PerStratum([0.1, 0.3, 0.5]), () -> (; a = (; x = zeros(3)))),
+        )
+        m̄h, m̄l = mirror(), mirror()
+        gh = (; piece = m̄h, v = (0.7, -0.2), s = (0.4,))
+        gl = (; piece = m̄l, v = (0.7, -0.2), s = (0.4,))
+        args = ((2.0, 1.0), (0.5,), 4, 2)
+        @test flat(CR._block_back(gl, MovePlain(a), args...)) ≈
+            flat(CR._block_back(gh, Move(a), args...))
+        @test m̄l.a isa Ref ? m̄l.a[] ≈ m̄h.a[] : m̄l.a.x ≈ m̄h.a.x
+        # Without a parameter cotangent to fill, only the values' are given.
+        g0 = (; piece = nothing, v = (0.7, -0.2), s = (0.4,))
+        @test flat(CR._block_back(g0, MovePlain(a), args...)) ≈
+            flat(CR._block_back(gh, Move(a), args...))
+    end
+    @test CR._modifier_adjoint(MovePlain(PerStratum([0.1, 0.3, 0.5]))) === :local
+    g = [0.5, 0.3, 0.2]
+    R = [1.0 + 0.1 * sin(k + t) for k in 1:6, t in 1:8]
+    h = [1.0 + 0.2 * k * l for k in 1:6, l in 1:3]
+    op = Recurrence(g; modifiers = (MovePlain(PerStratum([0.1, 0.3, 0.5])),))
+    @test op.rebuilds === true
+    @test pullback_matches(op, recargs(R, nothing, h)...)
+    # A step that indexes the parameter's array, rather than reading it
+    # through `param`, cannot take the entry the local derivative passes, so
+    # the operator takes plain AD and says so.
+    struct MoveIndexed{A}
+        a::A
+    end
+    CR.blocks(::MoveIndexed) = (2, 1)
+    function CR.forward!(m::MoveIndexed, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        return CR.forward!(Move(m.a.x[g]), CR.Step(), v, s, t, g)
+    end
+    empty!(CR._PLAIN_NOTED)
+    op = @test_logs (:info, r"MoveIndexed cannot be rebuilt") Recurrence(
+        g; modifiers = (MoveIndexed(PerStratum([0.1, 0.3, 0.5])),)
+    )
+    @test op.rebuilds === false
+    @test !CR.uses_adjoint(op, CR.Run())
+    # A depletion's group step keeps its own pullback.
+    d = CR.Depletion(
+        100.0, CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(1 => 2, 1.0; form = CR.Truncate()); pools = (:S, :V)
+    )
+    @test CR._modifier_adjoint(d) === :pullback
+    # A blockwise depletion whose form has no pullback takes plain AD: the
+    # form receives its `PerStratum` unresolved and may index it.
+    struct IndexedShare{W}
+        w::W
+    end
+    function CR.forward!(f::IndexedShare, ::CR.Step, v, s, N)
+        for i in eachindex(v, s)
+            y = min(v[i] * f.w.x[1], s[i])
+            v[i], s[i] = y, s[i] - y
+        end
+        return nothing
+    end
+    dd = CR.Depletion(
+        10.0, CR.Flow(:O => 0, 0.1; form = CR.Share()),
+        IndexedShare(PerStratum([0.5, 0.4])); pools = (O = 0.0,)
+    )
+    @test CR._blocks(dd) !== nothing
+    @test !CR.uses_adjoint(dd, CR.Step())
+    @test CR._modifier_adjoint(dd) === :none
+    @test !CR.uses_adjoint(Recurrence([0.5, 0.3]; modifiers = (dd,)), CR.Run())
+end
+
 @testitem "Blocks: a protected pool is blockwise" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
@@ -159,7 +234,7 @@ end
     @test Interfaces.test(blockwise, typeof(d), (obj, init); show = false)
     # A modifier that is not blockwise passes the blocks check, so one
     # declaration covers a type with both kinds.
-    @test CR._blocks_ok(CR.Clamp(0.0, 1.0), CR.Step(), ([1.0], [0.0], 1))
+    @test CR._blocks_ok(CR.Transform(clamp, 0.0, 1.0), CR.Step(), ([1.0], [0.0], 1))
     # A depletion is pointwise unless its pools make it blockwise.
     @test CR.ispointwise(
         CR.Depletion(100.0, CR.Hazard(), CR.Flow(:S => 0, 1.0; form = CR.Truncate()))
@@ -213,8 +288,8 @@ end
     h = ones(4, 2)
     r = Recurrence(g; modifiers = (Keep(0.9),))
     y = r(R; history = h)
-    y1, st = r(R[:, 1:3]; history = h, state = true)
-    @test hcat(y1, first(r(R; state = st))) ≈ y
+    y1, st = r(R[:, 1:3]; history = h, record = (:state,))
+    @test hcat(y1, r(R; state = st)) ≈ y
     bad = CR.State(st.history, (zeros(3),), st.t)
     @test_throws "expected nstate" r(R; state = bad)
     # Blockwise, pointwise and vector modifiers together: the pullback
@@ -223,11 +298,12 @@ end
     # rule" in test/ad/adjoints.jl).
     K = [0.0 0.1 0.0 0.0; 0.1 0.0 0.0 0.0; 0.0 0.0 0.0 0.1; 0.0 0.0 0.1 0.0]
     ms = (
-        CR.Clamp(0.0, 50.0), Move(PerStratum([0.2, 0.4])), Keep(0.8),
+        CR.Transform(clamp, 0.0, 50.0), Move(PerStratum([0.2, 0.4])), Keep(0.8),
         CR.Redistribute(K, 0.5),
     )
     @test CR.uses_adjoint(
-        Recurrence(g; modifiers = (Move(0.1), Keep(0.5), CR.Clamp(0.0, 1.0))), CR.Run()
+        Recurrence(g; modifiers = (Move(0.1), Keep(0.5), CR.Transform(clamp, 0.0, 1.0))),
+        CR.Run()
     )
     @test pullback_matches(Recurrence(g; modifiers = ms), recargs(R, nothing, h)...)
     # A malformed shape is named.

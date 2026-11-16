@@ -2,9 +2,8 @@
 #
 # ## Introduction
 #
-# [Getting started](@ref overview-build) builds a renewal process with a reporting delay.
-# Here the reproduction number changes over time, the seed grows from the first day and the population is finite.
-# It builds on the [Getting started](@ref getting-started) example.
+# A renewal process generates infections, and a reporting delay turns them into reports.
+# The reproduction number changes over time, the seed grows from the first step and the population is finite.
 
 # ## Packages used
 

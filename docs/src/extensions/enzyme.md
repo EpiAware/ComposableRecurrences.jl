@@ -4,8 +4,18 @@
 
 It registers the [rule](@ref adjoint-routing) of every operator as an Enzyme reverse-mode rule.
 
-On Julia 1.11, an operator built in code that Julia cannot infer can get a zero Enzyme reverse gradient for its scalar float fields, such as `b` in `Add(b)` or the population of a `Depletion`.
+On Julia 1.11, an operator built in code that Julia cannot infer can get a zero Enzyme reverse gradient for its scalar float fields, such as `b` in `Transform(+, b)` or the population of a `Depletion`.
 Uninferred code includes a closure that captures a variable it reassigns, or a call through a global that is not constant.
 Enzyme loses the gradient in that code, before any rule runs, so the extension cannot detect or refuse it.
 Instead it warns once per operator type, the first time Enzyme reverse mode differentiates an operator with an active scalar field on 1.11.
 Use Julia 1.12 or later, where Enzyme keeps these gradients, or build operators in type-stable code (check it with `@code_warntype`).
+
+Under Enzyme reverse mode, a modifier whose type depends on a run-time branch, such as `m = flag ? Depletion(N) : Depletion(N, Floor())`, makes the call fail with `TypeError: in new, expected Tuple{...}, got a value of type Tuple{Base.RefValue{...}}`.
+A keyword chosen at run time does the same when it changes the modifier's type, such as `Allocate`'s `spill = flag ? Redistribute(P, 0.2) : nothing`.
+The error comes from Enzyme when it differentiates the caller's keyword call `Recurrence(g; modifiers = (m,))`, before any package code runs.
+Choose the loss before differentiating instead, so that the differentiated function builds each modifier with one type.
+For example, take the gradient of `loss = flag ? (θ -> model(Depletion(N), θ)) : (θ -> model(Depletion(N, Floor()), θ))`.
+Branching inside the loss to one call per concrete modifier also avoids the error on Julia 1.11 and 1.12, but on Julia 1.13.3 Enzyme can crash while it compiles such a loss ([issue #314](https://github.com/EpiAware/ComposableRecurrences.jl/issues/314)).
+
+Without runtime activity (`AutoEnzyme()`, or `Enzyme.Reverse` as given), Enzyme raises `EnzymeRuntimeActivityError` when an operator with an active part holds a constant array that lives outside the loss, such as a global population in `Depletion(PerStratum(N))`.
+Use `AutoEnzyme(; mode = Enzyme.set_runtime_activity(Enzyme.Reverse))`, as the tutorials do, or build every such array inside the loss, the kernel included.

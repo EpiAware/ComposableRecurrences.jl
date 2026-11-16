@@ -365,13 +365,13 @@ function _convolve_public(
     history === nothing || Base.require_one_based_indexing(history)
     T = stop - start + 1
     out = x isa AbstractVector ? similar(x, Tp, T) : similar(x, Tp, S, T)
-    cur = _current()
-    ex = cur.ex isa Serial ? Serial() : cur
-    _each!(
-        _gather_body!, ex, out, S,
-        _work(_RunLoop(), out, length(out) * _nlags(kernel)),
-        out, kernel, x, history, gain, add, m, start
-    )
+    work = _work(_RunLoop(), out, length(out) * _nlags(kernel))
+    _with_executor() do ex
+        _each!(
+            _gather_body!, ex, out, S, work, out, kernel, x, history, gain, add,
+            m, start
+        )
+    end
     return out
 end
 
@@ -496,11 +496,9 @@ end
 # buffer at eltype `Tp` with the set executor; an extension adds methods for
 # its own number types.
 function _conv_buffers(::Type{Tp}, kernel, x, history, m, S, start, stop) where {Tp}
-    cur = _current()
-    if cur.ex isa Serial
-        return _conv_buffers(Tp, Serial(), kernel, x, history, m, S, start, stop)
+    return _with_executor() do ex
+        _conv_buffers(Tp, ex, kernel, x, history, m, S, start, stop)
     end
-    return _conv_buffers(Tp, cur, kernel, x, history, m, S, start, stop)
 end
 
 function _conv_buffers(
@@ -671,16 +669,8 @@ function _convolve_series!(y, c, X, k, m, start)
 end
 
 # The kernel `c` against stratum `k`'s window ending at buffer row `r`: lag
-# `d` reads row `r - d`, and lags past the first row read zeros. Inlined,
-# so plain reverse-mode AD differentiates the loop in its caller rather
-# than through one call per output.
-@inline function _lag_dot(c, X, k, r)
-    acc = zero(eltype(X))
-    @inbounds @_float_simd typeof(acc) for d in 0:(min(length(c), r) - 1)
-        acc += c[d + 1] * X[r - d, k]
-    end
-    return acc
-end
+# `d` reads row `r - d`, and lags past the first row read zeros.
+@inline _lag_dot(c, X, k, r) = _tail_dot(c, X, k, r, 0, min(length(c), r) - 1)
 
 # Whether `n` outputs of a kernel with `L` lags gather rather than take
 # one pass per lag.
@@ -755,12 +745,51 @@ end
     throw(DimensionMismatch("axpy vectors have different axes"))
 
 # Each stratum is one index of the executor loop; `work` counts one
-# multiply-add per output row and lag.
+# multiply-add per output row and lag. On a device, a kernel that gathers
+# each output from its window runs one output per index instead: outputs
+# are independent, and neighbouring indices read neighbouring rows.
 function _convolve!(ex, Y, c, X, m, start)
     S = size(Y, 2)
     work = _work(_ConvLoop(), Y, length(Y) * _nlags(c))
-    _each!(_convolve_body!, ex, Y, S, work, Y, c, X, m, start)
+    if _gathers(c) && _on_device(ex, Y)
+        _each!(_convolve_output!, ex, Y, length(Y), work, Y, c, X, m, start)
+    else
+        _each!(_convolve_body!, ex, Y, S, work, Y, c, X, m, start)
+    end
     return Y
+end
+
+# Whether each output of kernel `c` is one dot of its weights with the
+# window it reads, so an output can run on its own.
+_gathers(c) = false
+_gathers(::Union{AbstractVector, PerStratum, _TVColumns{Secondary}}) = true
+
+# Output `i` of `Y`, in column-major order: row `j` of stratum `k`.
+function _convolve_output!(i, Y, c, X, m, start)
+    j, k = mod1(i, size(Y, 1)), cld(i, size(Y, 1))
+    t = start + j - 1
+    @inbounds Y[j, k] = _lag_dot(_output_weights(c, k, t), X, k, m + t)
+    return nothing
+end
+_output_weights(c::AbstractVector, k, t) = c
+_output_weights(c::PerStratum, k, t) = view(c.x, k, :)
+_output_weights(c::_TVColumns{Secondary}, k, t) = _wcolumn(c, k, t)
+# A per-stratum time-varying kernel stores its weights strata fastest, so
+# strata run inside time, in blocks from `_nblocks`: one, or one per task
+# when the loop splits. Device arrays keep one stratum per index, and a
+# traced call its own loop.
+function _convolve!(
+        ex::Union{Serial, _Current}, Y::Array, c::_TVPerStratum, X, m, start
+    )
+    S = size(Y, 2)
+    work = _work(_ConvLoop(), Y, length(Y) * _nlags(c))
+    n = _nblocks(ex, S, work)
+    _each!(_convolve_block!, ex, Y, n, work, n, Y, c, X, m, start)
+    return Y
+end
+function _convolve_block!(b, n, Y, c, X, m, start)
+    _strata_forward!(_chunk(b, size(Y, 2), n), Y, c, X, m, start)
+    return nothing
 end
 
 function _convolve_body!(k, Y, c::AbstractVector, X, m, start)
@@ -809,10 +838,15 @@ _first_lag(c::TimeVarying{Primary}, t) = max(0, t - _last_column(c))
 # A per-stratum kernel, in either indexing: one dot per output time `t` of
 # the window with the weights `_lagweight` reads, from the column
 # `_lagcolumn` picks for the indexing. The column bodies above measured
-# faster for column kernels, this for per-stratum ones.
+# faster for column kernels, this for per-stratum ones. Time runs
+# outermost, so the strata `ks` read neighbouring weights in turn.
 function _convolve_body!(k, Y, c::_TVPerStratum, X, m, start)
+    _strata_forward!(k:k, Y, c, X, m, start)
+    return nothing
+end
+function _strata_forward!(ks, Y, c, X, m, start)
     L = _nlags(c)
-    for j in axes(Y, 1)
+    for j in axes(Y, 1), k in ks
         t = start + j - 1
         acc = zero(eltype(Y))
         @inbounds for d in _first_lag(c, t):(min(L, m + t) - 1)
@@ -840,13 +874,10 @@ function pullback!(grads, c::Convolution, ::Run, cache)
     end
     X̄ = zero(X)
     k̄ = cotangent(grads.piece, :kernel)
-    cur = _current()
     if cache.fft
         _fft_convolve_back!(X̄, k̄, c.kernel, X, Ȳ, o, start)
-    elseif cur.ex isa Serial
-        _convolve_back!(Serial(), X̄, k̄, c.kernel, X, Ȳ, o, start)
     else
-        _convolve_back!(cur, X̄, k̄, c.kernel, X, Ȳ, o, start)
+        _with_executor(_convolve_back!, X̄, k̄, c.kernel, X, Ȳ, o, start)
     end
     _add_window!(x̄, h̄, X̄, o, m, stop)
     return nothing
@@ -952,11 +983,7 @@ function _strata_back!(ks, X̄, c̄, c::_TVColumns{Secondary}, X, Ȳ, m, start)
         w = _wcolumn(c, k, t)
         w̄ = _wcolumn(c̄, c, k, t)
         @inbounds a = Ȳ[j, k]
-        @inbounds @simd ivdep for d in 0:(min(length(w), m + t) - 1)
-            r = m + t - d
-            _add_at!(w̄, a * X[r, k], d + 1)
-            X̄[r, k] += w[d + 1] * a
-        end
+        _tail_back!(w̄, X̄, w, X, a, k, m + t, 0, min(length(w), m + t) - 1)
     end
     return nothing
 end
@@ -982,17 +1009,29 @@ end
 
 # A per-stratum kernel's reverse pass, in either indexing, the transpose
 # of its forward body: each output cotangent adds to the weights it read,
-# through `_add_lagweight!`, and to the inputs.
+# through `_add_lagweight!`, and to the inputs. Time runs outermost, as in
+# the forward pass; a single stratum keeps its loop free of the strata loop.
 function _strata_back!(ks, X̄, c̄, c::_TVPerStratum, X, Ȳ, m, start)
     L = _nlags(c)
-    for k in ks, j in axes(Ȳ, 1)
-        t = start + j - 1
-        @inbounds a = Ȳ[j, k]
-        @inbounds for d in _first_lag(c, t):(min(L, m + t) - 1)
-            r = m + t - d
-            _add_lagweight!(c̄, c, a * X[r, k], k, d, t)
-            X̄[r, k] += _lagweight(c, k, d, t) * a
+    if length(ks) == 1
+        k = first(ks)
+        for j in axes(Ȳ, 1)
+            _lag_back!(X̄, c̄, c, X, Ȳ, m, start, L, j, k)
         end
+    else
+        for j in axes(Ȳ, 1), k in ks
+            _lag_back!(X̄, c̄, c, X, Ȳ, m, start, L, j, k)
+        end
+    end
+    return nothing
+end
+@inline function _lag_back!(X̄, c̄, c, X, Ȳ, m, start, L, j, k)
+    t = start + j - 1
+    @inbounds a = Ȳ[j, k]
+    @inbounds for d in _first_lag(c, t):(min(L, m + t) - 1)
+        r = m + t - d
+        _add_lagweight!(c̄, c, a * X[r, k], k, d, t)
+        X̄[r, k] += _lagweight(c, k, d, t) * a
     end
     return nothing
 end
@@ -1013,6 +1052,10 @@ so ``c_{t,i,l}`` is the part of the input at time ``t - l`` that arrives
 at ``t``: a reporting triangle by arrival time.
 Terms whose input is before the history, or past a ragged column's end,
 are zero.
+A kernel computed from coefficients (`TimeVarying(d, Primary())` with `d` a
+[`ComposableRecurrences.Derived`](@ref) or a
+[`ComposableRecurrences.Survival`](@ref)) is an `ArgumentError`: pass the
+dense kernel of its weights, `TimeVarying(K, Primary())`.
 
 Takes the arguments of a call of `c` except `add`, which no lag carries.
 The output is `L × T` for a single series and `S × L × T` for `S` strata,
@@ -1065,12 +1108,7 @@ function _run_forward(op::_Contributions, x, gain, history, start, stop)
     T = stop - start + 1
     L = _nlags(kernel)
     C = x isa AbstractVector ? _zeros(x, Tp, L, T) : _zeros(x, Tp, S, L, T)
-    cur = _current()
-    if cur.ex isa Serial
-        _contribute!(Serial(), C, kernel, X, gain, o, start)
-    else
-        _contribute!(cur, C, kernel, X, gain, o, start)
-    end
+    _with_executor(_contribute!, C, kernel, X, gain, o, start)
     return C, (; gain = _tape(gain), start, stop, X, o, m)
 end
 

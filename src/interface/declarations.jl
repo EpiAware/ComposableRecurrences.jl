@@ -1,13 +1,81 @@
-# Interfaces.jl declaration of the role interface. Test objects are
-# `Arguments(; piece, role, args)`, with `kwargs` for a `Run` and
-# `pullback = false` to skip the pullback check.
+@interface PieceInterface Any (
+    mandatory = (
+        forward = "forward or forward! runs in its role" =>
+            a -> _forward_ok(a.piece, a.role, a.args, _kwargs(a)),
+        adjoint = "uses_adjoint finds a pullback! method for the role" =>
+            a -> _adjoint_found(a.piece, a.role),
+    ),
+    optional = (
+        pointwise = "a Step and an Init work stratum by stratum" =>
+            a -> _pointwise_ok(a.piece, a.role, a.args),
+        blocks = "a vector Step matches the group Step on each group" =>
+            a -> _blocks_ok(a.piece, a.role, a.args),
+        nstate = "Init and Step keep the state at nstate(m, S) entries" =>
+            a -> _nstate_ok(a.piece, a.role, a.args),
+        pullback = "pullback! matches the `ForwardDiff` Jacobian of forward!" =>
+            a -> !_checks_pullback(a) || _pullback_ok(a.piece, a.role, a.args),
+    ),
+) "An operator, coupling, modifier or variant with `forward` or `forward!`
+for a role.
+
+The mandatory `forward` component checks that `forward` (for `Run()`) or
+`forward!` (for the other roles) runs and keeps to its role's conventions
+(outputs written into the leading arrays and `nothing` returned, inputs
+unchanged).
+The mandatory `adjoint` component checks that a `pullback!` method for the
+type and role is found by [`ComposableRecurrences.uses_adjoint`](@ref): a
+method with a typed `grads` or typed arguments after the role is not, apart
+from a blockwise group step's with `v::Tuple, s::Tuple`, and needs a
+`uses_adjoint` method, and one with the wrong number of arguments fails
+too.
+The optional `pointwise` component checks that a pointwise modifier's
+step on the whole vectors equals its step on a one-entry view of each
+stratum,
+
+```math
+M(v, s, t)_i = M_i(v_i, s_i, t), \\qquad i = 1, \\dots, S,
+```
+
+where ``M`` is the modifier, ``v`` and ``s`` its value and state vectors at
+time ``t`` and ``S`` the number of strata.
+For `Init()` it checks that a pointwise modifier writes each ``s_k`` from
+stratum ``k`` only: the modifier rebuilt with the parameters it reads at
+stratum ``k`` and time 1, given a history whose other rows differ, writes
+the same ``s_k``.
+It passes any other modifier.
+The optional `blocks` component checks the same for a blockwise modifier
+([`ComposableRecurrences.blocks`](@ref)), group by group, and passes any
+other modifier.
+The optional `nstate` component checks the state length against
+[`ComposableRecurrences.nstate`](@ref).
+The optional `pullback` component checks a `pullback!` for a modifier's or
+a depletion form's `Step()`, or a coupling's `Pressure()`, against the
+Jacobian ``J`` of `forward!` from `ForwardDiff`: for a fixed cotangent
+``\\bar o`` of the outputs it compares the cotangents of the type's float
+parameters and the role's inputs with ``J^\\top \\bar o`` at
+`rtol = 1e-8`.
+It needs `using ForwardDiff`, and passes with a note without it; it passes
+any other role and a type without a `pullback!`.
+
+Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`
+and `pullback = false` for an object the `pullback` component passes
+without a check.
+
+# Examples
+
+```jldoctest
+using ComposableRecurrences, Interfaces, ForwardDiff
+CR = ComposableRecurrences
+Interfaces.test(CR.PieceInterface, CR.Transform; show = false)
+
+# output
+
+true
+```"
+
+# == forward ==
 
 _kwargs(a) = haskey(a, :kwargs) ? a.kwargs : (;)
-_checks_pullback(a) = !haskey(a, :pullback) || a.pullback
-
-# `forward!` runs and keeps to the role's conventions: outputs written into
-# the leading arrays and `nothing` returned, inputs unchanged; a `Run`
-# returns `(y, cache)`.
 function _forward_ok(op, ::Run, args, kwargs)
     x = copy(first(args))
     y, cache = forward(op, Run(), args...; kwargs...)
@@ -29,8 +97,7 @@ function _forward_ok(C, ::Pressure, args, kwargs)
     return out === nothing && p == args[2] && all(isfinite, q)
 end
 # A trace writes into `r` (a vector, a tuple of vectors, or a group's
-# one-entry values read as `x[]`) and leaves the step's values and state
-# as they were.
+# one-entry values) and leaves the step's values and state as they were.
 function _forward_ok(m, ::Trace, args, kwargs)
     r, ins = deepcopy(args[1]), _snapshot(args[2:end])
     out = forward!(m, Trace(), r, args[2:end]...)
@@ -44,8 +111,10 @@ _finite(x::Tuple) = all(_finite, x)
 _finite(x::Ref) = isfinite(x[])
 _finite(x::AbstractArray) = all(isfinite, x)
 
-# A pointwise modifier's Step on each stratum's one-entry views matches its
-# Step on the whole vectors.
+# == pointwise ==
+
+# A pointwise modifier's Step on the whole vectors matches its Step on each
+# stratum's one-entry view.
 _pointwise_ok(piece, role, args) = true
 function _pointwise_ok(m, ::Step, args)
     _strata_loop(m) || return true
@@ -63,7 +132,45 @@ function _pointwise_ok(m, ::Step, args)
     return v ≈ first.(pairs) && s ≈ last.(pairs)
 end
 
-# The vector Step of a blockwise modifier matches its group Step per group.
+# A pointwise modifier's Init writes each stratum's state from that
+# stratum's inputs only: rebuilt with the parameters read at stratum `k`
+# and time 1, and given a history whose other rows differ, it writes the
+# same `s[k]`. The Init derivative is taken stratum by stratum on that
+# promise.
+function _pointwise_ok(m, ::Init, args)
+    _strata_loop(m) || return true
+    s, history = float(copy(args[1])), args[2]
+    forward!(m, Init(), s, history)
+    return all(eachindex(s)) do k
+        sk = zero(s)
+        forward!(_at_stratum(m, k), Init(), sk, _other_rows(history, k, length(s)))
+        sk[k] ≈ s[k]
+    end
+end
+# `m` rebuilt with the parameters it reads at stratum `k` and time 1, or
+# `m` itself when it has other float arrays or cannot be rebuilt.
+function _at_stratum(m, k)
+    _local_params(m) || return m
+    return try
+        first(_rebuild_scalar(m, _param_tuple(m, (k, 1))))
+    catch e
+        e isa Union{MethodError, ArgumentError, TypeError} || rethrow()
+        m
+    end
+end
+# A copy of `history` with every row but `k` changed.
+_other_rows(::Nothing, k, S) = nothing
+function _other_rows(history, k, S)
+    h = float(copy(history))
+    for i in eachindex(IndexLinear(), h)
+        (i - 1) % S + 1 == k || (h[i] = 2 * h[i] + 1)
+    end
+    return h
+end
+
+# == blocks ==
+
+# A blockwise modifier's vector Step matches its group Step on each group.
 _blocks_ok(piece, role, args) = true
 _blocks_ok(m, ::Step, args) = _groups_ok(_blocks(m), m, args)
 _groups_ok(::Nothing, m, args) = true
@@ -84,8 +191,10 @@ function _groups_ok(::Val{B}, m, args) where {B}
     end
 end
 
-# A modifier's state keeps `nstate(m, S)` entries through Init and Step,
-# and a pointwise modifier keeps one per stratum.
+# == nstate ==
+
+# The state keeps `nstate(m, S)` entries through Init and Step, one per
+# stratum for a pointwise modifier.
 _nstate_ok(piece, role, args) = true
 function _nstate_ok(m, ::Init, args)
     n = nstate(m, _nstrata(args[2]))
@@ -103,10 +212,10 @@ function _nstate_ok(m, ::Step, args)
     return length(s) == n && (blocks(m) !== (1, 1) || n == S)
 end
 
-# A `pullback!` method for the type in a role the rule calls is
-# found by `uses_adjoint`, unless the type declares its own `uses_adjoint`.
-# A method with typed arguments is missed by the folded lookup, and the
-# rule would otherwise drop it without a word.
+# == adjoint ==
+
+# A type that declares its own `uses_adjoint` passes. Without this check the
+# rule would drop a `pullback!` the folded lookup misses without a word.
 function _adjoint_found(x, role)
     role isa Union{Run, Step, Pressure} || return true
     sig = Tuple{Any, typeof(x), typeof(role), Vararg{Any}}
@@ -116,21 +225,17 @@ function _adjoint_found(x, role)
     return uses_adjoint(x, role)
 end
 
-# A `pullback!` for a modifier's or a depletion form's `Step()`, or a
-# coupling's `Pressure()`, gives the transpose Jacobian of its `forward!`
-# times a fixed cotangent, in the type's float parameters and the role's
-# inputs. The Jacobian is `ForwardDiff`'s, from the dual-number extension;
-# without it the check passes with a note. A role or a type without a
-# `pullback!` passes, as does a blockwise group step on tuples, which the
-# vector step's check covers.
+# == pullback ==
+
+_checks_pullback(a) = !haskey(a, :pullback) || a.pullback
+# A blockwise group step on tuples passes: the vector step's check covers it.
 _pullback_ok(piece, role, args) = true
 function _pullback_ok(x, role::Union{Step, Pressure}, args)
     uses_adjoint(x, role) || return true
     first(args) isa AbstractVector || return true
     return _pullback_matches(x, role, args)
 end
-# A modifier's step: inputs and outputs `v` and `s`, with the pullback
-# the rule calls on the whole vectors (per group for a blockwise one).
+# A modifier's step, with the pullback the rule calls on the whole vectors.
 function _pullback_matches(m, ::Step, args::Tuple{Any, Any, Any})
     v, s, t = float(copy(args[1])), float(copy(args[2])), args[3]
     P, nv = _nparams(m), length(v)
@@ -145,10 +250,8 @@ function _pullback_matches(m, ::Step, args::Tuple{Any, Any, Any})
     _vector_pullback!(grads, m, v, s, t)
     return _close(J, w, [_mirror_params(grads.piece, m); grads.v; grads.s])
 end
-# A depletion form's draw: inputs `v`, `s` and `N`, outputs `v` and `s`;
-# the cotangent of the scalar `N` arrives indexed as `v`. A form's step
-# takes `N` where a modifier's takes an integer time, so a form of another
-# type is told apart by a float `N`; a built-in form takes any real `N`.
+# A depletion form's draw, told from a modifier's step by a float `N` where a
+# modifier takes an integer time. The cotangent of `N` arrives indexed as `v`.
 function _pullback_matches(f, ::Step, args::Tuple{Any, Any, AbstractFloat})
     return _form_pullback_matches(f, args)
 end
@@ -197,11 +300,9 @@ end
 # A fixed, non-degenerate seed: entries of both signs and none zero.
 _probe_cotangent(n) = [cospi(0.37 * i + 0.105) for i in 1:n]
 
-# A zeroed mirror of `x`, as the extending guide's gradient mirror gives
-# it: a `Ref` for a float scalar, an array for a float array, `(; nzval)`
-# or `(; diag)` for a sparse or `Diagonal` matrix, a NamedTuple of its
-# fields' mirrors for a struct and `nothing` for anything without a
-# cotangent.
+# A zeroed mirror of `x`: a `Ref` for a float scalar, an array for a float
+# array, `(; nzval)` or `(; diag)` for a sparse or `Diagonal` matrix, a
+# NamedTuple for a struct and `nothing` otherwise.
 _zero_mirror(x::AbstractFloat) = Ref(zero(x))
 _zero_mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
 _zero_mirror(x::SparseMatrixCSC{<:AbstractFloat}) = (; nzval = zero(nonzeros(x)))
@@ -225,73 +326,3 @@ function _read_leaf!(x̄, x::AbstractArray, θ̄, o)
     x̄ === nothing || copyto!(θ̄, o + 1, vec(x̄), 1, length(x))
     return o + length(x)
 end
-
-@interface PieceInterface Any (
-    mandatory = (
-        forward = "forward or forward! runs in its role" =>
-            a -> _forward_ok(a.piece, a.role, a.args, _kwargs(a)),
-        adjoint = "uses_adjoint finds a pullback! method for the role" =>
-            a -> _adjoint_found(a.piece, a.role),
-    ),
-    optional = (
-        pointwise = "a vector Step matches the Step on each stratum's view" =>
-            a -> _pointwise_ok(a.piece, a.role, a.args),
-        blocks = "a vector Step matches the group Step on each group" =>
-            a -> _blocks_ok(a.piece, a.role, a.args),
-        nstate = "Init and Step keep the state at nstate(m, S) entries" =>
-            a -> _nstate_ok(a.piece, a.role, a.args),
-        pullback = "pullback! matches the `ForwardDiff` Jacobian of forward!" =>
-            a -> !_checks_pullback(a) || _pullback_ok(a.piece, a.role, a.args),
-    ),
-) "An operator, coupling, modifier or variant with `forward` or `forward!`
-for a role.
-
-The mandatory `forward` component checks that `forward` (for `Run()`) or
-`forward!` (for the other roles) runs and keeps to its role's conventions
-(outputs written into the leading arrays and `nothing` returned, inputs
-unchanged).
-The mandatory `adjoint` component checks that a `pullback!` method for the
-type and role is found by [`ComposableRecurrences.uses_adjoint`](@ref): a
-method with a typed `grads` or typed arguments after the role is not, apart
-from a blockwise group step's with `v::Tuple, s::Tuple`, and needs a
-`uses_adjoint` method, and one with the wrong number of arguments fails
-too.
-The optional `pointwise` component checks that a pointwise modifier's
-step on the whole vectors equals its step on a one-entry view of each
-stratum,
-
-```math
-M(v, s, t)_i = M_i(v_i, s_i, t), \\qquad i = 1, \\dots, S,
-```
-
-where ``M`` is the modifier, ``v`` and ``s`` its value and state vectors at
-time ``t`` and ``S`` the number of strata; it passes any other modifier.
-The optional `blocks` component checks the same for a blockwise modifier
-([`ComposableRecurrences.blocks`](@ref)), group by group, and passes any
-other modifier.
-The optional `nstate` component checks the state length against
-[`ComposableRecurrences.nstate`](@ref).
-The optional `pullback` component checks a `pullback!` for a modifier's or
-a depletion form's `Step()`, or a coupling's `Pressure()`, against the
-Jacobian ``J`` of `forward!` from `ForwardDiff`: for a fixed cotangent
-``\\bar o`` of the outputs it compares the cotangents of the type's float
-parameters and the role's inputs with ``J^\\top \\bar o`` at
-`rtol = 1e-8`.
-It needs `using ForwardDiff`, and passes with a note without it; it passes
-any other role and a type without a `pullback!`.
-
-Test objects are `Arguments(; piece, role, args)`, with `kwargs` for `Run()`
-and `pullback = false` for an object the `pullback` component passes
-without a check.
-
-# Examples
-
-```jldoctest
-using ComposableRecurrences, Interfaces, ForwardDiff
-CR = ComposableRecurrences
-Interfaces.test(CR.PieceInterface, CR.Clamp; show = false)
-
-# output
-
-true
-```"

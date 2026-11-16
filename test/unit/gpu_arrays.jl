@@ -5,7 +5,7 @@
 @testmodule GPUCases begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived
-    using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
+    using ComposableRecurrences: Allocate, Depletion,
         Flow, Floor, Hazard, Primary, Redistribute, Share, Truncate, Transform,
         contributions
     using JLArrays: JLSparseMatrixCSR
@@ -32,16 +32,18 @@
     const TOT = [4.0 + 0.2 * t + p for p in 1:2, t in 1:T]
 
     # A sparse coupling on the host, or in CSR form on the device.
-    _sparse(d, K) = d === identity ? sparse(K) : JLSparseMatrixCSR(sparse(K))
+    _sparse(d, K) = d(zeros(1)) isa Array ? sparse(K) : JLSparseMatrixCSR(sparse(K))
 
     # Each case maps `d`, which moves an array to the device (or leaves it
-    # on the host), to the output of one call with every array moved.
+    # on the host), to the output of one call with every array moved. A case
+    # with a scalar parameter also takes its float type `F`, so a run in
+    # `Float32` holds no `Float64` that would promote its output.
     const CASES = [
         "Recurrence, fixed kernel" =>
             d -> Recurrence(d(g0))(d(R0); history = d(H1)),
         "Recurrence, scalar gain and add" =>
-            d -> Recurrence(d([0.5, 0.2]))(
-            1.0; history = d(H1), add = d(0.1 .* sin.(1:T))
+            (d, F = Float64) -> Recurrence(d([0.5, 0.2]))(
+            F(1); history = d(H1), add = d(0.1 .* sin.(1:T))
         ),
         "Recurrence, strata with add" =>
             d -> Recurrence(d(g0))(d(RS); history = d(HS), add = d(0.1 .* RS)),
@@ -84,13 +86,13 @@
         "Recurrence, dense coupling" =>
             d -> Recurrence(d(g0); coupling = d(K0))(d(RS); history = d(HS)),
         "Recurrence, sparse coupling" =>
-            d -> Recurrence(d(g0); coupling = _sparse(d, K0))(d(RS); history = d(HS)),
+            (d, F = Float64) -> Recurrence(d(g0); coupling = _sparse(d, F.(K0)))(d(RS); history = d(HS)),
         "Recurrence, Diagonal coupling" =>
             d -> Recurrence(d(g0); coupling = Diagonal(d([0.5, 1.0, 1.5])))(
             d(RS); history = d(HS)
         ),
         "Recurrence, scaled I coupling" =>
-            d -> Recurrence(d(g0); coupling = 0.5I)(d(RS); history = d(HS)),
+            (d, F = Float64) -> Recurrence(d(g0); coupling = F(0.5) * I)(d(RS); history = d(HS)),
         "Recurrence, TimeVarying coupling" =>
             d -> Recurrence(d(g0); coupling = TimeVarying(d(repeat(K0, 1, 1, T))))(
             d(RS); history = d(HS)
@@ -120,7 +122,7 @@
         "contributions" =>
             d -> contributions(Convolution(d(g0)), d(x0)),
         "Depletion (Hazard)" =>
-            d -> Recurrence(d(g0); modifiers = (Depletion(60.0),))(
+            (d, F = Float64) -> Recurrence(d(g0); modifiers = (Depletion(F(60)),))(
             d(1.5 .* R0); history = d(H1)
         ),
         "Depletion (Floor), PerStratum population" =>
@@ -128,15 +130,15 @@
             d(g0); modifiers = (Depletion(PerStratum(d(NS)), Floor()),)
         )(d(RS); history = d(HS)),
         "Depletion, heterogeneity and starting pool" =>
-            d -> Recurrence(
-            d(g0); modifiers = (Depletion(60.0, Hazard(2.0); pools = (S = 50.0,)),)
+            (d, F = Float64) -> Recurrence(
+            d(g0); modifiers = (Depletion(F(60), Hazard(F(2)); pools = (S = F(50),)),)
         )(d(R0); history = d(H1)),
         "Depletion with removals" =>
-            d -> Recurrence(
+            (d, F = Float64) -> Recurrence(
             d(g0);
             modifiers = (
                 Depletion(
-                    60.0, Hazard(),
+                    F(60), Hazard(),
                     Flow(
                         :S => 0, TimeVarying(d(0.5 .+ 0.2 .* sin.(1:T)));
                         form = Truncate()
@@ -157,19 +159,19 @@
             )
         )(d(RS); history = d(HS)),
         "Flows, one group of three compartments with every form" =>
-            d -> Recurrence(
+            (d, F = Float64) -> Recurrence(
             d([1.0]);
             modifiers = (
                 Depletion(
                     Flow(1 => 2, PerStratum(d([0.3]))),
-                    Flow(1 => 0, 0.05),
+                    Flow(1 => 0, F(0.05)),
                     Flow(2 => 3, TimeVarying(d(fill(0.1, T))); form = Share()),
-                    Flow(3 => 0, 0.2; form = Truncate()); pools = (:A, :B, :C)
+                    Flow(3 => 0, F(0.2); form = Truncate()); pools = (:A, :B, :C)
                 ),
             )
         )(d(RS); history = d(HS[:, end:end])),
         "Depletion with a protected pool and waning flows" =>
-            d -> Recurrence(
+            (d, F = Float64) -> Recurrence(
             d(g0);
             modifiers = (
                 Depletion(
@@ -177,7 +179,7 @@
                     Hazard(; weights = (S = 1, V = PerStratum(d([0.3, 0.2, 0.1])))),
                     Flow(1 => 2, TimeVarying(PerStratum(d(fill(0.3, S, T)))); form = Truncate()),
                     Flow(2 => 1, PerStratum(d([0.05, 0.1, 0.2]))),
-                    Flow(1 => 0, 0.01; form = Share()); pools = (:S, :V)
+                    Flow(1 => 0, F(0.01); form = Share()); pools = (:S, :V)
                 ),
             )
         )(d(RS); history = d(HS)),
@@ -227,27 +229,32 @@
             )
         )(d(R0); history = d(H1)),
         "Transform with a tuple and Derived" =>
-            d -> Recurrence(
+            (d, F = Float64) -> Recurrence(
             d(g0);
             modifiers = (
                 Transform(
                     (v, θ) -> θ[1] * v + θ[2],
                     (
-                        0.8 * Derived(exp, TimeVarying(d(0.03 .* sin.(1:T)))),
+                        F(0.8) * Derived(exp, TimeVarying(d(0.03 .* sin.(1:T)))),
                         PerStratum(d([0.1, 0.2, 0.3])),
                     )
                 ),
             )
         )(d(RS); history = d(HS)),
-        "Add" =>
-            d -> Recurrence(d(g0); modifiers = (Add(TimeVarying(d(0.1 .* cos.(1:T)))),))(
+        "Transform(+, b)" =>
+            d -> Recurrence(
+            d(g0); modifiers = (Transform(+, TimeVarying(d(0.1 .* cos.(1:T)))),)
+        )(
             d(R0); history = d(H1)
         ),
-        "Clamp" =>
+        "Transform(clamp, lo, hi)" =>
             d -> Recurrence(
             d(g0);
             modifiers = (
-                Clamp(TimeVarying(PerStratum(d(fill(1.2, S, T)))), PerStratum(d([1.5, 1.6, 1.7]))),
+                Transform(
+                    clamp, TimeVarying(PerStratum(d(fill(1.2, S, T)))),
+                    PerStratum(d([1.5, 1.6, 1.7]))
+                ),
             )
         )(d(RS); history = d(HS)),
         "Redistribute" =>
@@ -272,11 +279,12 @@
             modifiers = (Redistribute(d(Redistribute(K0 - 0.5I, [0.1, 0.2, 0.3]).M)),)
         )(d(RS); history = d(HS)),
         "Modifiers in a chain with a dense coupling" =>
-            d -> Recurrence(
+            (d, F = Float64) -> Recurrence(
             d(g0); coupling = d(K0),
             modifiers = (
-                Add(0.1), Depletion(PerStratum(d(NS))),
-                Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))), Clamp(0.0, 10.0),
+                Transform(+, F(0.1)), Depletion(PerStratum(d(NS))),
+                Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),
+                Transform(clamp, F(0), F(10)),
             )
         )(d(RS); history = d(HS)),
     ]
@@ -296,42 +304,47 @@
                 Allocate([1:2, 3:3], TimeVarying(PerStratum(d(TOT)))),
             )
         )
-        y1, state = r(d(RS); history = d(HS), stop = 8, state = true)
-        return y1, state, first(r(d(RS); state))
+        y1, state = r(d(RS); history = d(HS), stop = 8, record = (:state,))
+        return y1, state, r(d(RS); state)
+    end
+
+    # Case `f` at float type `F`, which a case with no scalar parameter does
+    # not take.
+    at(f, d, F) = applicable(f, d, F) ? f(d, F) : f(d)
+end
+
+# A run in Float32 stays in Float32: every array is Float32 and each scalar
+# parameter is built in Float32, so a Float64 inside the package would
+# promote the output.
+@testitem "Every GPU case run in Float32 returns Float32, on the host and on JLArrays" setup = [GPUCases] begin
+    using JLArrays
+    JLArrays.allowscalar(false)
+    host(x) = Float32.(x)
+    device(x) = JLArray(Float32.(x))
+    for (where, d, A) in (("host", host, Array{Float32}), ("JLArrays", device, JLArray{Float32}))
+        @testset "$where" begin
+            for (name, f) in GPUCases.CASES
+                @testset "$name" begin
+                    y = GPUCases.at(f, d, Float32)
+                    @test y isa A
+                    @test Array(y) ≈ f(identity) rtol = 1.0e-4
+                end
+            end
+        end
     end
 end
 
-# One item for the three runs of every case, so the device code compiled
-# for one run is reused by the others.
-@testitem "JLArrays: every case runs forward on the device, by default, under a Device executor and with plain kernel arguments" setup = [GPUCases] begin
+# Every case runs once on the device under an explicit `Device` executor
+# whose launches are recorded, so the same run checks the result and the
+# kernel arguments. The default executor, which a device array resolves to
+# the same `Device`, runs three representative cases: an operator with a
+# dense coupling, a convolution with strata, and a chain of modifiers.
+@testitem "JLArrays: every case runs forward on the device with plain kernel arguments, and by default" tags = [:threads] setup = [GPUCases] begin
     using Adapt: adapt
     using ComposableRecurrences: ComposableRecurrences as CR
     using Base.ScopedValues: with
     using JLArrays, KernelAbstractions
     JLArrays.allowscalar(false)
-    # Every operator, coupling and modifier, with the default executor.
-    @testset "default executor" begin
-        for (name, f) in GPUCases.CASES
-            @testset "$name" begin
-                y = f(JLArray)
-                @test y isa JLArray
-                @test Array(y) ≈ f(identity)
-            end
-        end
-    end
-    # Every case under an explicit Device executor.
-    ex = CR.Device(KernelAbstractions.get_backend(JLArray(ones(1))))
-    @testset "explicit Device executor" begin
-        for (name, f) in GPUCases.CASES
-            @testset "$name" begin
-                y = with(CR.EXECUTOR => ex) do
-                    f(JLArray)
-                end
-                @test y isa JLArray
-                @test Array(y) ≈ f(identity)
-            end
-        end
-    end
     KAExt = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
     # A backend that compiles kernels takes plain data only: bits types, or
     # immutable structs whose concretely typed fields are plain, with the
@@ -357,16 +370,31 @@ end
         return KAExt._launch!(b.inner, body, args, n)
     end
     jl = KernelAbstractions.get_backend(JLArray(ones(1)))
-    @testset "plain kernel arguments" begin
+    @testset "Device executor, plain kernel arguments" begin
         for (name, f) in GPUCases.CASES
             @testset "$name" begin
                 b = Recording(jl, Any[])
                 y = with(CR.EXECUTOR => CR.Device(b)) do
                     f(JLArray)
                 end
+                @test y isa JLArray
                 @test Array(y) ≈ f(identity)
                 @test !isempty(b.args)
                 @test all(a -> plain(launched(a)), b.args)
+            end
+        end
+    end
+    @testset "default executor" begin
+        cases = Dict(GPUCases.CASES)
+        for name in (
+                "Recurrence, dense coupling",
+                "Convolution, strata with gain and history",
+                "Modifiers in a chain with a dense coupling",
+            )
+            @testset "$name" begin
+                y = cases[name](JLArray)
+                @test y isa JLArray
+                @test Array(y) ≈ cases[name](identity)
             end
         end
     end
@@ -460,7 +488,7 @@ end
 
 @testitem "JLArrays: coefficients from change points refuse a device" begin
     using ComposableRecurrences, JLArrays, Adapt
-    using ComposableRecurrences: Add, Primary
+    using ComposableRecurrences: Transform, Primary
     JLArrays.allowscalar(false)
     x, h = JLArray(ones(2, 6)), JLArray(ones(2, 2))
     g1, g2 = JLArray([0.5, 0.5]), JLArray([0.3, 0.7])
@@ -478,7 +506,7 @@ end
     end
     C = TimeVarying([1 => JLArray([0.9 0.1; 0.2 0.8]), 3 => JLArray([1.0 0.0; 0.0 1.0])])
     @test occursin("change points", msg(() -> Recurrence(g1; coupling = C)(x; history = h)))
-    m = Add(TimeVarying([1 => 0.1, 3 => 0.2]))
+    m = Transform(+, TimeVarying([1 => 0.1, 3 => 0.2]))
     r = Recurrence(g1; modifiers = (m,))
     @test occursin("change points", msg(() -> r(x; history = h)))
     # `adapt` refuses them too.
@@ -490,7 +518,7 @@ end
     using Adapt: adapt
     using ComposableRecurrences
     using ComposableRecurrences: Derived
-    using ComposableRecurrences: Add, Allocate, Clamp, Depletion,
+    using ComposableRecurrences: Allocate, Depletion,
         Flow, Hazard, Redistribute, Share, Transform, Truncate
     using JLArrays
     # Inside a kernel each wrapper and modifier must hold device arrays only:
@@ -510,7 +538,7 @@ end
                 PerStratum(v), Hazard(; weights = (S = 1, V = PerStratum(v))),
                 Flow(1 => 2, tv; form = Truncate()); pools = (:S, :V)
             ),
-            Add(tv), Clamp(PerStratum(v), tv), Redistribute(m),
+            Transform(+, tv), Transform(clamp, PerStratum(v), tv), Redistribute(m),
             Transform(*, 0.8 * Derived(exp, tv)),
             Depletion(
                 Flow(1 => 2, PerStratum(v)),
@@ -527,6 +555,9 @@ end
         @test typeof(y).name === typeof(x).name
         @test !holds_host(y)
     end
+    # The rebuild keeps a Transform's map and the order of its bounds.
+    y = adapt(JLArrays.Adaptor(), Transform(clamp, PerStratum(v), tv))
+    @test y.f === clamp && y.θ[1] isa PerStratum && y.θ[2] isa TimeVarying
 end
 
 @testitem "JLArrays: adapting an operator moves its parameters to the device" begin
@@ -586,9 +617,87 @@ end
         y = rd(JLArray(R); history = JLArray(h))
         @test y isa JLArray
         @test Array(y) ≈ r(R; history = h)
-        y1, st = rd(JLArray(R); history = JLArray(h), stop = 4, state = true)
+        y1, st = rd(JLArray(R); history = JLArray(h), stop = 4, record = (:state,))
         @test st.history isa JLArray
         @test size(st.history) == (S, D)
-        @test hcat(Array(y1), Array(first(rd(JLArray(R); state = st)))) ≈ r(R; history = h)
+        @test hcat(Array(y1), Array(rd(JLArray(R); state = st))) ≈ r(R; history = h)
+    end
+end
+
+@testitem "Adapting a flow does not read its demand on the host" begin
+    # A kernel launch adapts a Flow to device arrays, which the host cannot
+    # read entry by entry, so rebuilding it must not check its demand again.
+    using ComposableRecurrences, Adapt, KernelAbstractions
+    using ComposableRecurrences: Depletion, Flow, Share, Truncate
+    struct NoHostRead{T, N, A <: AbstractArray{T, N}} <: AbstractArray{T, N}
+        x::A
+    end
+    Base.size(a::NoHostRead) = size(a.x)
+    Base.getindex(::NoHostRead, i::Int...) = error("read on the host")
+    struct ToNoHostRead end
+    Adapt.adapt_storage(::ToNoHostRead, x::Array) = NoHostRead(x)
+    f = Flow(2 => 3, TimeVarying(fill(0.1, 5)); form = Share())
+    g = adapt(ToNoHostRead(), f)
+    @test g.demand.x isa NoHostRead
+    @test (g.from, g.to, g.form) == (f.from, f.to, f.form)
+    m = Depletion(
+        Flow(1 => 2, PerStratum([0.3])), f, Flow(3 => 0, 0.2; form = Truncate());
+        pools = (:A, :B, :C)
+    )
+    @test adapt(ToNoHostRead(), m) isa Depletion
+end
+
+@testitem "Rebuilding a flow from its fields keeps its structural checks" begin
+    # `setproperties` rebuilds through `constructorof`, as a kernel launch
+    # does, so it skips only the host reads of the demand's entries.
+    using ComposableRecurrences, ConstructionBase
+    using ComposableRecurrences: Flow, Hazard, Share
+    f = Flow(1 => 2, 0.5; form = Share())
+    @test setproperties(f, (; demand = 0.25)).demand == 0.25
+    @test_throws ArgumentError setproperties(f, (; demand = 1.5))
+    @test_throws ArgumentError setproperties(f, (; demand = -0.2))
+    @test_throws ArgumentError setproperties(f, (; demand = "x"))
+    @test_throws ArgumentError setproperties(f, (; from = 2))
+    @test_throws ArgumentError setproperties(f, (; from = -1))
+    @test_throws ArgumentError setproperties(f, (; from = 0))
+    @test_throws ArgumentError setproperties(f, (; form = Hazard(; weights = (S = 1, V = 0.3))))
+    @test_throws MethodError Flow{Float64, Share, Int}(1, 2, 1.5, Share())
+end
+
+# A device convolution with a gathering kernel runs one output per kernel
+# index, so a launch covers every output rather than one index per stratum.
+# A backend that records each launch's size and runs it on JLArrays checks
+# the launch without a GPU.
+@testitem "JLArrays: a device convolution launches one index per output" begin
+    using Adapt: adapt
+    using ComposableRecurrences: ComposableRecurrences as CR, PerStratum, TimeVarying
+    using Base.ScopedValues: with
+    using JLArrays, KernelAbstractions
+    JLArrays.allowscalar(false)
+    KAExt = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
+    struct RecordingBackend end
+    launches = Int[]
+    jl = KernelAbstractions.get_backend(JLArray(ones(1)))
+    function KAExt._launch!(::RecordingBackend, body, args, n)
+        push!(launches, n)
+        return KAExt._launch!(jl, body, args, n)
+    end
+    S, T, L = 3, 20, 4
+    g = [0.4, 0.3, 0.2, 0.1]
+    x = [1.0 + 0.1 * k + 0.01 * t for k in 1:S, t in 1:T]
+    kernels = (
+        "fixed" => g,
+        "PerStratum" => PerStratum(repeat(g', S) .* (1:S) ./ S),
+        "TimeVarying" => TimeVarying(repeat(g, 1, T) .* (1 .+ 0.01 .* (1:T)')),
+    )
+    for (name, k) in kernels
+        @testset "$name" begin
+            empty!(launches)
+            y = with(CR.EXECUTOR => CR.Device(RecordingBackend())) do
+                CR.Convolution(adapt(JLArray, k))(JLArray(x))
+            end
+            @test S * T in launches
+            @test Array(y) ≈ CR.Convolution(k)(x)
+        end
     end
 end

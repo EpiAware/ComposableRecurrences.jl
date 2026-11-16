@@ -1,7 +1,7 @@
 ## The Reactant extension
 
 `ext/ComposableRecurrencesReactantExt.jl` loads with Reactant.
-Each method below was found by tracing the cases here one failure at a time, first as a shim in this folder and now in the extension.
+Each method below was found by tracing the cases in this folder one failure at a time, first as a shim here and now in the extension.
 
 1. `param_eltype` for traced arrays.
    A traced array's eltype is `TracedRNumber{T}`, which is not a `Real`, so the generic array method runs `mapreduce(param_eltype, promote_type, x; init = Bool)`.
@@ -13,7 +13,9 @@ Each method below was found by tracing the cases here one failure at a time, fir
    The package writes its time loop once, as `_steps!(body, ex, T, args...)`.
    For `Traced` it is `@trace track_numbers = false for t in 1:T`, which compiles to one `stablehlo.while` whose body is the step.
    `track_numbers = false` keeps the integers the step closes over, such as the number of lags, as constants rather than loop-carried values.
-   The strata loops inside a step are written out in order, so the program grows with the strata but not with the steps.
+   A step of independent strata with no modifiers, records or trace runs on all strata at once (`_series_step!`): one `dynamic_slice` of the `L × S` window, its product with the kernel summed over the lags, and one write of the buffer row.
+   Such a program does not grow with the strata either: its size is the same at 2 strata as at 64.
+   Other strata loops inside a step are written out in order, so those programs grow with the strata but not with the steps.
 3. Traced buffers.
    `_zeros` at a traced eltype gives a traced array, which the loop carries and updates in place, rather than a Julia array of traced numbers.
 4. Windows at a traced step.
@@ -33,10 +35,14 @@ Each method below was found by tracing the cases here one failure at a time, fir
    Reactant's traced `reverse(g)` also reverses `g` in place.
    One call is right, but a second call with the same kernel, as when resuming from a returned state, would read it the wrong way round.
    The extension reverses a copy, for vector and `PerStratum` kernels.
+9. Per-stratum parameters at a traced time (`param`).
+   Inside the traced loop, `x[k, t]` with a traced `t` reads stratum 1 for every `k`.
+   A `TimeVarying(PerStratum(...))` parameter, and one given by change points with per-stratum values, is read at its linear index instead, as the kernel weights from change points are.
+   The registry's grouped-totals (`Allocate`) scenarios cover the dense parameter, `rec_cp_strata_const` the change points held as host constants, and "Recurrence parameters from change points" traced ones.
 
 Steps whose arm depends on the time or a value pick it with `ifelse` rather than `if`, since `if` refuses a traced `Bool`.
 This lives in the package for the draw of a `Depletion` with several pools (`_draw_pools`, `src/depletion/pool.jl`).
-The soft minimum of `SoftTruncate` (`_soft_min`) keeps its early returns in the package, which plain Julia and ForwardDiff run faster, and the extension adds a branch-free method for traced values.
+The soft minimum of `Truncate(κ)` (`_soft_min`) keeps its early returns in the package, which plain Julia and ForwardDiff run faster, and the extension adds a branch-free method for traced values.
 
 Things to keep in mind when reading the tables.
 The control row's compile time is Reactant's fixed first-compile cost; the rest of a cell's compile time does not grow with `T`.

@@ -11,8 +11,8 @@
     for T in (
             Recurrence, Convolution, UniformScaling, Matrix{Float64},
             Diagonal{Float64, Vector{Float64}}, TimeVarying, CR.Depletion,
-            CR.Hazard, CR.Floor, CR.Add, CR.Redistribute, CR.Clamp,
-            CR.Truncate, CR.SoftTruncate,
+            CR.Hazard, CR.Floor, CR.Redistribute, CR.Transform,
+            CR.Truncate,
         )
         @test Interfaces.implements(CR.PieceInterface, T)
     end
@@ -25,7 +25,7 @@
         CR.PieceInterface{(:pullback,)}, typeof(K), (obj,); show = false
     )
     # A built-in form's pullback check takes the population as any real.
-    for form in (CR.Hazard(1.5), CR.Floor(1.5), CR.Truncate(), CR.SoftTruncate(0.1)),
+    for form in (CR.Hazard(1.5), CR.Floor(1.5), CR.Truncate(), CR.Truncate(0.1)),
             N in (100, 100.0)
         obj = Interfaces.Arguments(;
             piece = form, role = CR.Step(), args = ([2.0, 3.0], [80.0, 60.0], N)
@@ -275,9 +275,9 @@ end
     @test !Interfaces.test(CR.PieceInterface, WritingGap, (obj,); show = false)
     # The default trace, the state after the step, passes.
     obj = Interfaces.Arguments(;
-        piece = CR.Clamp(0.0, 1.0), role = CR.Trace(), args = whole
+        piece = CR.Transform(clamp, 0.0, 1.0), role = CR.Trace(), args = whole
     )
-    @test Interfaces.test(CR.PieceInterface, CR.Clamp, (obj,); show = false)
+    @test Interfaces.test(CR.PieceInterface, CR.Transform, (obj,); show = false)
 end
 
 @testitem "Interfaces: a pointwise step may broadcast" begin
@@ -356,6 +356,77 @@ end
     @test_throws DimensionMismatch eachindex(a, CR._At(Ref(0.0), 3))
 end
 
+@testitem "Interfaces: a pointwise Init writes each stratum's state from that stratum" begin
+    using ComposableRecurrences, Interfaces
+    CR = ComposableRecurrences
+    # Each stratum's state from its own parameter entry and history row
+    # passes; one from the whole history, or from a parameter read at a
+    # time other than 1, fails.
+    struct Start{N}
+        N::N
+    end
+    struct Total end
+    struct Later{N}
+        N::N
+    end
+    for M in (Start, Total, Later)
+        @eval CR.blocks(::$M) = (1, 1)
+    end
+    function CR.forward!(m::Start, ::CR.Init, s, history)
+        for k in eachindex(s)
+            s[k] = CR.param(m.N, k, 1) + history[k, end]
+        end
+        return nothing
+    end
+    CR.forward!(::Total, ::CR.Init, s, history) = (s .= sum(history); nothing)
+    function CR.forward!(m::Later, ::CR.Init, s, history)
+        for k in eachindex(s)
+            s[k] = CR.param(m.N, k, 2)
+        end
+        return nothing
+    end
+    args = (zeros(3), [1.0 2.0; 3.0 4.0; 5.0 6.0])
+    obj(m) = Interfaces.Arguments(; piece = m, role = CR.Init(), args)
+    pw = CR.PieceInterface{(:pointwise,)}
+    @test Interfaces.test(pw, Start, (obj(Start(PerStratum([1.0, 2.0, 3.0]))),); show = false)
+    @test Interfaces.test(pw, Start, (obj(Start(0.5)),); show = false)
+    @test !Interfaces.test(pw, Total, (obj(Total()),); show = false)
+    tv = TimeVarying([1.0, 2.0, 3.0])
+    @test !Interfaces.test(pw, Later, (obj(Later(tv)),); show = false)
+    # A modifier that cannot be rebuilt from its parameters is checked as
+    # it is, on the history alone.
+    struct Fixed{N}
+        N::N
+        Fixed(; N) = new{typeof(N)}(N)
+    end
+    CR.blocks(::Fixed) = (1, 1)
+    function CR.forward!(m::Fixed, ::CR.Init, s, history)
+        for k in eachindex(s)
+            s[k] = CR.param(m.N, k, 1) + history[k, end]
+        end
+        return nothing
+    end
+    fixed = Fixed(; N = PerStratum([1.0, 2.0, 3.0]))
+    @test CR._at_stratum(fixed, 2) === fixed
+    @test Interfaces.test(pw, Fixed, (obj(fixed),); show = false)
+    # Without a history, only the parameters are checked.
+    struct NoHistory{N}
+        N::N
+    end
+    CR.blocks(::NoHistory) = (1, 1)
+    function CR.forward!(m::NoHistory, ::CR.Init, s, history)
+        for k in eachindex(s)
+            s[k] = CR.param(m.N, k, 1)
+        end
+        return nothing
+    end
+    bare = Interfaces.Arguments(;
+        piece = NoHistory(PerStratum([1.0, 2.0, 3.0])), role = CR.Init(),
+        args = (zeros(3), nothing)
+    )
+    @test Interfaces.test(pw, NoHistory, (bare,); show = false)
+end
+
 @testitem "Interfaces: a pointwise step that broadcasts a per-stratum field fails" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
@@ -411,10 +482,11 @@ end
     )
     # A state that does not match nstate fails.
     obj = Interfaces.Arguments(;
-        piece = CR.Clamp(0.0, 1.0), role = CR.Step(), args = ([1.0, 2.0], zeros(3), 1)
+        piece = CR.Transform(clamp, 0.0, 1.0), role = CR.Step(),
+        args = ([1.0, 2.0], zeros(3), 1)
     )
     @test !Interfaces.test(
-        CR.PieceInterface{(:nstate,)}, CR.Clamp, (obj,); show = false
+        CR.PieceInterface{(:nstate,)}, CR.Transform, (obj,); show = false
     )
     # Roles other than Init and Step have no state to check.
     obj = Interfaces.Arguments(;
@@ -488,16 +560,17 @@ end
             (; piece = nothing, v = 1.0, s = 0.5), m, 3.0, 60.0, 1, 2
         )
     end
-    grads = (; piece = (; b = Ref(0.0)), v = 1.0, s = 0.5)
-    @test CR._step_back(grads, CR.Add(1.0), 2.0, 0.0, 1, 1) == (1.0, 0.5)
-    @test grads.piece.b[] == 1.0
-    grads = (; piece = (; lo = Ref(0.0), hi = Ref(0.0)), v = 1.0, s = 0.0)
-    @test CR._step_back(grads, CR.Clamp(0.0, 1.0), 2.0, 0.0, 1, 1) == (0.0, 0.0)
-    @test grads.piece.hi[] == 1.0
+    grads = (; piece = (; θ = Ref(0.0)), v = 1.0, s = 0.5)
+    @test CR._step_back(grads, CR.Transform(+, 1.0), 2.0, 0.0, 1, 1) == (1.0, 0.5)
+    @test grads.piece.θ[] == 1.0
+    grads = (; piece = (; θ = (Ref(0.0), Ref(0.0))), v = 1.0, s = 0.0)
+    @test CR._step_back(grads, CR.Transform(clamp, 0.0, 1.0), 2.0, 0.0, 1, 1) == (0.0, 0.0)
+    @test grads.piece.θ[2][] == 1.0
+    @test grads.piece.θ[1][] == 0.0
     # A form's public in-place step and pullback match its kernels; the
     # exponent's cotangent, summed over the entries, goes to the form's
     # mirror.
-    for form in (CR.Hazard(1.0), CR.Floor(1.0), CR.Truncate(), CR.SoftTruncate(0.1))
+    for form in (CR.Hazard(1.0), CR.Floor(1.0), CR.Truncate(), CR.Truncate(0.1))
         v, s = [2.0, 3.0], [80.0, 1.5]
         CR.forward!(form, CR.Step(), v, s, 100.0)
         @test (v[2], s[2]) == CR._draw(form, 3.0, 1.5, 100.0)

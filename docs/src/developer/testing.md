@@ -35,7 +35,7 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | `Depletion`, hazard form | 0.16 | 0.31 | keep |
 | `Depletion`, `Floor()`, dense coupling | 0.32 | 0.39 | keep |
 | `Depletion`, `Truncate()`, dense coupling | 0.20³ | 0.24³ | keep |
-| `Depletion`, `SoftTruncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
+| `Depletion`, `Truncate(κ)`, dense coupling | 0.20³ | 0.32³ | keep |
 | `Depletion` with two pools and a count flow | 0.28 | 0.40 | keep |
 | `Redistribute` | 0.07 | 0.35 | keep |
 | `Depletion` without a draw | 0.43 | 0.43 | keep |
@@ -51,12 +51,13 @@ The table gives the rule time over the `NoAdjoint` time, from benchmark matrix c
 | sparse coupling | 0.75¹ | 0.28¹ | keep |
 | `TimeVarying` kernel and coupling | 0.71¹ | 0.85¹ | keep |
 | `Convolution` | 0.48 | 0.64 | keep |
-| pointwise modifier without a `pullback!` | 0.64 | 1.12 | keep, slower on Enzyme |
+| pointwise modifier without a `pullback!` | 0.33⁸ | 0.75⁸ | keep |
 | pointwise modifier without a `pullback!`, `PerStratum` parameter | 0.52² | 0.95² | keep |
 | coupling without a `pullback!`, up to 24 strata and scalars | 0.47² | 0.96² | keep |
 | coupling without a `pullback!`, 25 to 48 strata and scalars | 0.81² | 1.84² | keep on Mooncake |
 | pointwise modifier without a `pullback!`, float vector read by time | 0.39⁴ | 0.86⁴ | keep |
-| whole-step modifier without a `pullback!`, past one pass | 0.84⁷ | plain AD | keep on Mooncake |
+| whole-step modifier without a `pullback!`, 25 to 48 values, state and parameters | 0.84⁷ | plain AD | keep on Mooncake |
+| whole-step modifier without a `pullback!`, more than 48 | 11.7 to 157⁹ | plain AD | plain AD |
 | coupling without a `pullback!`, holding a matrix | 0.39⁴ | 0.55⁴ | keep |
 | `Pairwise` routes with a route coupling without a `pullback!`, up to 24 strata and scalars | 0.35⁵ | 0.83⁵ | keep |
 | the same with 25 to 48 strata and scalars | 0.59⁵ | plain AD | keep on Mooncake |
@@ -82,9 +83,13 @@ It was timed at 5 and 50 strata, with the sparse route coupling constant and as 
 ⁷ The worst of two rounds for the user type of the `custom_modifier_whole` case, at `T` 200, `L` 20 and `S` 20.
 On Enzyme the rule took 1.25 to 2.4 times plain AD, depending on the machine and the Julia version, so the call takes plain AD there.
 
-Every rule in the table is faster than plain AD on both backends, except the local step of a pointwise modifier with scalar parameters.
-That step is kept for Mooncake, so it also runs on Enzyme, where it is 1.12 to 1.38 times slower than plain AD.
-On Mooncake it wins at `T` 200 and `L` 20 but is within noise or slower at small sizes.
+⁸ The `custom modifier` block of `benchmark/results/docs.csv`, the docs tier at 48f2396e: median times of the rule with `forward!` only over plain AD at `T` 200 and `L` 20.
+At `T` 100 and `L` 6 they are 0.60 on Mooncake and 0.61 on Enzyme.
+
+⁹ The rule's time over plain AD before the call took plain AD past two passes, for the user type of the `custom_modifier_matrix` case, which holds an `S × S` matrix, at `T` 200 and `L` 20: 11.7 at 20 strata and 157 at 50.
+It now takes plain AD there, at 0.93 to 1.01 times the `NoAdjoint` time.
+
+Every rule is faster than plain AD on each backend that takes it; where the decision names one backend, the other takes plain AD.
 The limits sit where a coupling whose cost grows with the strata squared stops beating plain AD, with 24 inputs per pass.
 On Enzyme it is 0.96 times plain AD at 23 strata, one pass, and 1.58 at 26, two passes.
 On Mooncake it is 0.77 at 44 strata, two passes, and 1.08 at 50, three.
@@ -106,6 +111,8 @@ A new case is a `Case` entry in `matrix_cases.jl` whose loss takes a `wrap` argu
 Cases in `LOCAL_CASES` also run a `local` arm, which replaces the `pullback!` of each pointwise modifier and user coupling with the local `ForwardDiff` step.
 The `bvd_renewal`, `bvd_patches` and `bvd_delay` cases run in the `realistic` and `docs` tiers; they time the model of the [backend case study](@ref tutorial-backend-case-study).
 They add a `loop` arm, a hand loop in the style of the BVDOutbreakSize backend, and a `handrule` arm, the same loop with the hand-written Mooncake rules in `benchmark/bvd_handrule.jl`.
+The tutorial cases in `TUTORIAL_HANDRULE_CASES` add a `handrule` arm beside their `loop` arm in the same way, with the hand-written Mooncake rules in `benchmark/tutorial_handrule.jl`.
+A test item in `test/ad/handrules.jl` checks that each of these rules is a Mooncake primitive and that its gradient matches `ForwardDiff` on the case's hand loop.
 The `handrule` arm runs on Mooncake reverse only, since on any other target it is the `loop` arm.
 
 `--executor` and `--threads` time the operators under an executor.
@@ -170,14 +177,20 @@ Run them with `julia --project=test test/runtests.jl usecase_only`.
 ## Threads, older Julia versions and Reactant in CI
 
 The `Threads` workflow runs the tests with four threads, so `Threaded` loops run on separate threads.
-To do the same locally, add `--threads=4` to a [subset run](@ref developer-faq).
+On Julia 1.11 it runs the whole unit suite; on the current release it runs only the items tagged `:threads`, as the `Test` workflow runs the rest there.
+Tag an item `:threads` when it uses `Threaded`, `EXECUTOR` or `Threads`, so it runs with four threads on the current release too.
+A quality check in `test/package/test_tags.jl` fails on an item that uses them without the tag.
+To do the same locally, add `--threads=4` to a [subset run](@ref developer-faq), such as `julia --threads=4 --project=test test/runtests.jl threads_only`.
 
 The `AD` workflow runs every backend on the current Julia release only.
 The `AD versions` workflow runs every Enzyme reverse and Mooncake reverse item on Julia 1.11 and 1.12, weekly and on demand.
 To run one of these locally, use `julia +1.11 --project=test/ad test/ad/runtests.jl enzyme_reverse`.
 
 The Reactant support matrix in `test/reactant/` runs weekly and on `main`, and fails when a cell's status differs from the committed `results.tsv`.
-On pull requests that change `src/` or `ext/`, a smoke run checks five cases, forward and reverse at 20 steps, against the same file.
+It runs every AD registry scenario, forward and reverse, and the hand-written cases in `cases.jl`.
+Those cover what the registry cannot: a resumed call, a joined traced history, a call across 1,000 strata and the growth of compile time with the number of steps.
+A scenario Reactant cannot run is listed in the registry under the `Reactant` backend, with the cause.
+On pull requests that change `src/` or `ext/`, a smoke run checks a few cases and scenarios against the same file.
 After a change, rerun it on Julia 1.12 from the repository root:
 
 ```bash
@@ -185,5 +198,7 @@ julia +1.12 --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
 julia +1.12 --project=test/reactant --startup-file=no test/reactant/runtests.jl
 ```
 
-Then commit `results.tsv` and `RESULTS.md` and update `expected.jl`.
-The main tests check that these three agree.
+Then commit `results.tsv` and `RESULTS.md`, and update `expected.jl` or the registry's Reactant lists.
+`REACTANT_BACKENDS` picks the backends that run, and `REACTANT_RESULTS` only names the results files.
+A run on another backend, such as a GPU, sets both: `REACTANT_BACKENDS=gpu` runs it, and `REACTANT_RESULTS=gpu` writes `results-gpu.tsv` and `RESULTS-gpu.md`, so it leaves the CPU results the weekly job compares against unchanged.
+The main tests check that the hand-written cases' rows agree with `expected.jl`, which lists CPU cells only; the Reactant workflow checks the registry rows against the registry.

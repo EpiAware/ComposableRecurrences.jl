@@ -18,7 +18,7 @@ A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is a function
 |---|---|---|---|
 | modifier step | `forward!(m, Step(), v, s, t)` updates `v` and `s` | `pullback!(grads, m, Step(), v, s, t)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
 | blockwise modifier group step | `forward!(m, Step(), v::Tuple, s::Tuple, t, g)` updates the views in `v` and `s` | `pullback!(grads, m, Step(), v, s, t, g)` | `piece`; `v` and `s` are tuples of views holding the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
-| initial state | `forward!(m, Init(), s, history)` writes `s` | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
+| initial state | `forward!(m, Init(), s, history)` writes `s`; a pointwise modifier writes `s[k]` from stratum `k` only | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
 | coupling | `forward!(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | `piece`; `q` holds the cotangent of `q`; add into `p` |
 | depletion form | `forward!(form, Step(), v, s, N)` writes the drawn values into `v` and the pools after the draw into `s` | `pullback!(grads, form, Step(), v, s, N)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s`, add that of `N` into `N`, indexed as `v` is, and those of the form's own parameters into `piece` |
 | modifier trace | `forward!(m, ComposableRecurrences.Trace(), r, v, s, v′, s′, t)` writes `r`: for a pointwise modifier a tuple of vectors, one per trace value, indexed as `v`; for any other the step's column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t)` | `piece`; `trace` holds the cotangent of `r`, in its shape; add into `v`, `s`, `v′` and `s′` |
@@ -36,6 +36,8 @@ The arguments mean the same in every role:
 - A pointwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to `(1, 1)`, and writes entry `k` of `v` and `s` from entry `k` only, for each `k` in `eachindex(v)`.
   The operator may call it on a one-entry view of stratum `k`, whose axes are `k:k`, so loop over `eachindex(v)` and read parameters at `k` with [`param`](@ref ComposableRecurrences.param).
   A broadcast against a field with one entry per stratum, such as `v .*= m.w`, cannot run on that view; the pointwise check of `PieceInterface` reports it.
+  Its `Init` writes `s[k]` from the parameters read at stratum `k` and time 1, `param(m.a, k, 1)`, and from row `k` of the history only.
+  Without an `Init` `pullback!`, its derivative is then taken stratum by stratum, and the pointwise check of `PieceInterface` checks it.
   Such a step runs on a [`Device`](@ref ComposableRecurrences.Device) when it reads and writes only `eachindex(v)` entries, and allocates nothing.
 - A blockwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to its `(nv, ns)` and implements the step for one group, `g`, on tuples of one-entry views; read and write a view `x` as `x[]`.
 - Any other modifier implements the step on whole vectors and may read every stratum.
@@ -314,9 +316,12 @@ end
 Recurrence([0.5, 0.5]; modifiers = (AddMean(),))(fill(1.0, 2, 4); history = [1.0 2.0; 3.0 1.0])
 ```
 
+Without a `pullback!`, the rule differentiates the group step locally with ForwardDiff, one group at a time.
+A parameter it reads as `param(m.a, g, t)`, with `a` a `PerStratum` or `TimeVarying`, is seeded at that entry only; a step that indexes the array takes plain AD ([Rules and plain AD](@ref adjoint-routing)).
+
 ## [A trace](@id extending-trace)
 
-A call with `trace = true` returns `(y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps.
+A call with `record = (:trace,)` returns `(; y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps.
 By default a modifier's [trace](@ref ComposableRecurrences.Trace) is its state after each step, and a modifier whose state never changes records nothing.
 A modifier can record another series instead: a function of the step's values and state before it, `v` and `s`, and after it, `v′` and `s′`, written into `r` by `forward!`.
 The smoothing modifier above records its smoothed value and what it leaves of the value it receives,
@@ -353,7 +358,7 @@ function CR.pullback!(grads, m::Smooth, ::CR.Trace, v, s, t)
 end
 
 r = Recurrence([0.5, 0.5]; modifiers = (Smooth(0.5),))
-y, trace = r(2.0; history = [1.0, 2.0], stop = 4, trace = true)
+y, trace = r(2.0; history = [1.0, 2.0], stop = 4, record = (:trace,))
 only(trace.modifiers)
 ```
 
@@ -457,7 +462,6 @@ It needs Mooncake, or Enzyme and EnzymeTestUtils, loaded.
 - Keep `forward!` and `pullback!` free of allocations: loop over `eachindex(v)` and write in place.
 - Use concrete field types through type parameters, so every call is type stable.
 - Loop with `eachindex` over the arrays you index, and add `@inbounds` only to such loops.
-- Without a `pullback!`, the [rule](@ref rule-timings) of a pointwise modifier takes 0.64 times the plain AD time on Mooncake and 1.12 times on Enzyme.
 - A vector step makes the strata wait for each other at every step, so [`Threaded`](@ref ComposableRecurrences.Threaded) gains less from it.
 
 The [benchmark matrix](@ref testing) times the gradient of a renewal with a stateless pointwise modifier, the saturation ``v \kappa / (\kappa + v)`` in `benchmark/docs_modifier.jl`, under Mooncake and Enzyme in reverse mode.
@@ -475,8 +479,11 @@ if isempty(cases) # hide
     md"The benchmark results are not available in this build." # hide
 else # hide
     (lo, hi), (plo, phi) = pct("plain AD", "forward only"), pct("forward only", "with pullback!") # hide
+    ratio(tg) = round(Int, 100 * time_of("forward only", "T200_L20_S1", tg) / time_of("plain AD", "T200_L20_S1", tg)) # hide
     Markdown.parse( # hide
         "With `forward!` only, the gradient takes $lo% to $hi% of the time of plain AD. " * # hide
+            "At `T` 200 and `L` 20 that is $(ratio("Mooncake reverse"))% on Mooncake " * # hide
+            "and $(ratio("Enzyme reverse"))% on Enzyme. " * # hide
             "The `pullback!` then takes it to $plo% to $phi% of the time with `forward!` only. " * # hide
             "These are median times at revision `$(first(custom)[12])`." # hide
     ) # hide
@@ -486,6 +493,29 @@ end # hide
 The local step evaluates `forward!` once per step with dual numbers, so its cost follows the cost of `forward!`.
 For a map as cheap as the saturation there is little for a `pullback!` to save.
 Write `forward!` first, and add a `pullback!` when timing shows the modifier's local step matters.
+
+### [Trimmed executables](@id trimming)
+
+On Julia 1.12 and later, `juliac --trim=safe` compiles an app into an executable that holds only the code the app can reach.
+The build fails on any call the compiler cannot resolve from the argument types.
+A build can pass and still fail when run, for example on a call the runtime makes, so the app is run as well as built.
+The app in `test/trim` runs the forward path of a renewal, a convolution, a depletion with flows, a transform with a derived parameter and a coupled renewal over several strata, and checks the outputs.
+It also runs a loop split into tasks by [`Threaded`](@ref ComposableRecurrences.Threaded).
+A trimmed app cannot set [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) with `with` on Julia 1.12, so its operator calls run serially.
+The Trim workflow builds and runs it when `src` or the app changes.
+Gradients and the extensions are not trim-tested.
+A new type used in a trimmed app needs concrete field types, and methods whose calls resolve from the argument types.
+
+To run the check locally, with JuliaC installed in a shared environment:
+
+```bash
+julia --project=@juliac -e 'using Pkg; Pkg.add("JuliaC")'
+cd test/trim
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=@juliac -e 'using JuliaC; JuliaC.main(ARGS)' -- \
+    --output-exe trimapp --bundle build --trim=safe --experimental .
+build/bin/trimapp
+```
 
 ## [Specialising for speed](@id specialising)
 

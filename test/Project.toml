@@ -14,8 +14,10 @@ Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 EnzymeTestUtils = "12d8515a-0907-448a-8884-5fe00fdf1c5a"
 EpiAwarePackageTools = "7aaea248-0d11-4a0d-a7dc-86da30abb951"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
+FFTA = "b86e33f2-c0db-4aa1-a6e0-ab43e668529e"
 FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+Functors = "d9f16b24-f501-4c13-a1f2-28368ffc5196"
 GPUArrays = "0c68f7d7-f131-5f86-a1c3-88cf8149b2d7"
 GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
 Interfaces = "85a1e053-f937-4924-92a5-1367d23b7b87"
@@ -34,6 +36,13 @@ TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 [sources]
 ComposableRecurrences = {path = ".."}
 
+# LogExpFunctions 1.0.4 dropped a helper that Mooncake's LogExpFunctions
+# extension calls, so that extension no longer precompiles. LogExpFunctions
+# is listed here only to cap it; remove both entries once a Mooncake or
+# LogExpFunctions release loads together with LogExpFunctions 1.0.4 or later.
+[weakdeps]
+LogExpFunctions = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
+
 [compat]
 ADTypes = "1"
 Adapt = "4"
@@ -49,14 +58,17 @@ Enzyme = "0.13"
 EnzymeTestUtils = "0.2"
 EpiAwarePackageTools = "0.3, 0.4"
 ExplicitImports = "1.6"
+FFTA = "0.3.2"
 FFTW = "1.10"
+Functors = "0.5"
 ForwardDiff = "0.10, 1"
 GPUArrays = "11.3, 12.0"
 GPUArraysCore = "0.2"
 Interfaces = "0.3"
-JLArrays = "0.3.1, 0.4"
+JLArrays = "0.3.1, 0.4, 0.5"
 KernelAbstractions = "0.9.34, 0.10"
 LinearAlgebra = "1"
+LogExpFunctions = "1 - 1.0.3"
 Mooncake = "0.5.61"
 Pkg = "1"
 Random = "1"

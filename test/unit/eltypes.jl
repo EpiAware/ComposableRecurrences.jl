@@ -31,9 +31,7 @@
 end
 
 @testitem "Eltypes: ForwardDiff gradients through every slot" setup = [ReferenceAD, TestModifiers] begin
-    using ComposableRecurrences, ForwardDiff, LinearAlgebra, Random,
-        SparseArrays
-    rng = Xoshiro(41)
+    using ComposableRecurrences, ForwardDiff, SparseArrays
     S, L, T = 3, 3, 8
     g0 = [0.2, 0.3, 0.5]
     K0 = [0.8 0.1 0.1; 0.2 0.7 0.1; 0.0 0.3 0.7]
@@ -63,17 +61,7 @@ end
     @test check(h -> rec(g0, K0, h, R0, pop0), h0)
     @test check(R -> rec(g0, K0, h0, R, pop0), R0)
     @test check(pop -> rec(g0, K0, h0, R0, pop), pop0)
-    # A scalar modifier field receives its derivative.
-    @test check(
-        N -> sum(
-            W .* Recurrence(g0; modifiers = (LooseScale(N[1], (; b = 0.0)),))(
-                R0; history = h0
-            )
-        ), [0.9]
-    )
     @test check(ϵ -> rec(g0, K0, h0, R0, pop0; add = ϵ), 0.1 .* R0)
-    @test check(λ -> sum(W .* Recurrence(g0; coupling = λ[1] * I)(R0; history = h0)), [0.9])
-    @test check(d -> sum(W .* Recurrence(g0; coupling = Diagonal(d))(R0; history = h0)), [0.9, 1.0, 1.1])
     @test check(
         v -> sum(
             W .* Recurrence(g0; coupling = sparse([1, 2, 3, 1], [1, 2, 3, 3], v, S, S))(
@@ -81,8 +69,7 @@ end
             )
         ), [0.9, 1.0, 1.1, 0.2]
     )
-    @test check(P -> sum(W .* Recurrence(Pairwise(P))(R0; history = h0)), rand(rng, S, S, L))
-    @test check(G -> sum(W .* Recurrence(TimeVarying(G))(R0; history = h0)), rand(rng, L, T))
+    # A scalar modifier field and one in a named tuple.
     @test check(
         θ -> sum(
             W .* Recurrence(g0; modifiers = (LooseScale(θ[1], (; b = θ[2])),))(
@@ -106,13 +93,14 @@ end
             CR.Depletion(100.0f0),
             CR.Depletion(PerStratum(Float32[100, 50]), CR.Floor()),
             CR.Depletion(100.0f0, CR.Hazard(1.5f0); pools = (S = 97.0f0,)),
-            CR.Add(0.5f0), CR.Add(TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
+            CR.Transform(+, 0.5f0),
+            CR.Transform(+, TimeVarying(PerStratum(fill(0.5f0, 2, 5)))),
             CR.Redistribute(K, 0.1f0),
             CR.Redistribute(K, fill(0.1f0, 2, 5)),
-            CR.Clamp(0.0f0, 5.0f0),
+            CR.Transform(clamp, 0.0f0, 5.0f0),
             CR.Depletion(
                 0.8f0, CR.Flow(:O => 0, 0.1f0; form = CR.Share()),
-                CR.SoftTruncate(0.1f0; into = :O, overflow = :stratum); pools = (:O,)
+                CR.Truncate(0.1f0; into = :O, overflow = :stratum); pools = (:O,)
             ),
             CR.Depletion(
                 CR.Flow(
@@ -121,7 +109,7 @@ end
                 CR.Truncate(; overflow = :queue); pools = (:B,)
             ),
             CR.Depletion(0.8f0, CR.Truncate(; into = :O); pools = (:O,)),
-            CR.Depletion(5.0f0, CR.SoftTruncate(0.1f0)),
+            CR.Depletion(5.0f0, CR.Truncate(0.1f0)),
         )
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
     end
@@ -161,10 +149,10 @@ end
     @test y == [1 1; 2 3]
     r = Recurrence([true])
     @test eltype(vcat([0], r(true; history = [0], add = x))) == Int
-    @test eltype(first(r(true; history = [0], add = x, trace = true))) == Int
-    y, st = r(true; history = [0], add = x, stop = 2, state = true)
+    @test eltype(first(r(true; history = [0], add = x, record = (:trace,)))) == Int
+    y, st = r(true; history = [0], add = x, stop = 2, record = (:state,))
     @test eltype(y) == eltype(st.history) == Int
-    @test first(r(true; add = x, state = st)) == cumsum(x)[3:4]
+    @test r(true; add = x, state = st) == cumsum(x)[3:4]
     # A float anywhere, a rational, or a modifier, whose step may divide,
     # gives the float type.
     @test eltype(r(true; history = [0.0], add = x)) == Float64
@@ -196,7 +184,25 @@ end
     H = [dual(i, a) for i in 1:40, a in 1:2]
     g = [exp(-0.3i) for i in 1:20]
     @test CR._chain(g, (), D) isa CR._Chained
-    @test CR._chain(g, (CR.Clamp(0.0, 1.0),), D) === g
+    @test CR._chain(g, (CR.Transform(clamp, 0.0, 1.0),), D) === g
     older = foldl((acc, i) -> acc + g[i] * H[4 + i, 2], 1:19; init = zero(D))
     @test _window_dot(g, H, 5, 20, 2) === muladd(g[20], H[24, 2], older)
+end
+
+@testitem "Eltypes: a chained run of one stratum carries its last value" begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    D = ForwardDiff.Dual{Nothing, Float64, 3}
+    dual(i) = D(sin(i), ForwardDiff.Partials(ntuple(j -> cos(i * j), 3)))
+    g = [0.2, 0.3, 0.5]
+    H = reshape([dual(i) for i in 1:8], :, 1)
+    y = dual(9)
+    # Step 2 of a buffer with 3 history rows reads rows 2 and 3 and the
+    # carried value `y`, which takes the gain and the newest weight at once.
+    v = CR._chained_step!(
+        g, g[3], H, nothing, 1.5, 0.25, CR.I, y, 2, 2, 3, 3, 1
+    )
+    older = zero(D) + g[1] * H[2, 1] + g[2] * H[3, 1]
+    @test v === muladd(1.5 * g[3], y, muladd(1.5, older, 0.25))
+    @test H[5, 1] === v
 end

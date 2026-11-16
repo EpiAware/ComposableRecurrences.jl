@@ -2,7 +2,7 @@
 
 ```@example modifiers
 using ComposableRecurrences
-using ComposableRecurrences: Depletion, Clamp, Add
+using ComposableRecurrences: Depletion, Transform
 ```
 
 ## [Order](@id explanation-modifier-order)
@@ -20,12 +20,12 @@ where ``v_t`` is the value after the gain and `add`, ``u^{(n)}_t`` the value mod
 Each sees the value the one before it passed on, so the order is part of the model.
 A pool is a quantity a modifier carries from step to step and draws from, such as the people left to infect.
 A cap applied before depletion draws the capped value from the pool, and a cap applied after it only limits what is reported.
-With the cap ``c(v) = \min(\max(v, 0), 8)`` and the [hazard form](@ref ComposableRecurrences.Hazard) of a pool ``s_t`` of ``N``, the two orders give
+With the cap ``c(v) = \min(\max(v, 0), 8)`` and the [hazard form](@ref ComposableRecurrences.Hazard) of a pool ``S_t`` of ``N``, the two orders give
 
 ```math
 \begin{aligned}
-\text{cap first:} \quad & y_t = s_{t-1} \big(1 - e^{-c(v_t)/N}\big), & s_t &= s_{t-1} \, e^{-c(v_t)/N}, \\
-\text{cap last:} \quad & y_t = c\big(s_{t-1} \big(1 - e^{-v_t/N}\big)\big), & s_t &= s_{t-1} \, e^{-v_t/N}.
+\text{cap first:} \quad & y_t = S_{t-1} \big(1 - e^{-c(v_t)/N}\big), & S_t &= S_{t-1} \, e^{-c(v_t)/N}, \\
+\text{cap last:} \quad & y_t = c\big(S_{t-1} \big(1 - e^{-v_t/N}\big)\big), & S_t &= S_{t-1} \, e^{-v_t/N}.
 \end{aligned}
 ```
 
@@ -34,13 +34,13 @@ k = [0.3, 0.4, 0.3]
 gain = fill(2.5, 15)
 seed = [1.0, 2.0, 3.0]
 pool(N) = Depletion(N; pools = (S = N - sum(seed),))
-cap_first = Recurrence(k; modifiers = (Clamp(0.0, 8.0), pool(100.0)))
-cap_last = Recurrence(k; modifiers = (pool(100.0), Clamp(0.0, 8.0)))
+cap_first = Recurrence(k; modifiers = (Transform(clamp, 0.0, 8.0), pool(100.0)))
+cap_last = Recurrence(k; modifiers = (pool(100.0), Transform(clamp, 0.0, 8.0)))
 round.(cap_first(gain; history = seed)[end-2:end]; digits = 2),
 round.(cap_last(gain; history = seed)[end-2:end]; digits = 2)
 ```
 
-[Imported cases](@ref tutorial-imports) have the same choice: through `add` they are drawn from the pool, and through an [`Add`](@ref ComposableRecurrences.Add) after a `Depletion` they do not deplete it.
+Imported infections have the same choice: through `add` they are drawn from the pool, and through a [`Transform(+, b)`](@ref ComposableRecurrences.Transform) after a `Depletion` they do not deplete it.
 
 ## [State](@id explanation-modifier-state)
 
@@ -50,7 +50,7 @@ It is carried in the [`State`](@ref ComposableRecurrences.State) a call returns,
 
 ```@example modifiers
 r = Recurrence(k; modifiers = (pool(100.0),))
-y, state = r(gain; history = seed, state = true)
+y, state = r(gain; history = seed, record = (:state,))
 state.states
 ```
 
@@ -68,10 +68,8 @@ The scope sets how much the step can do, and how well it runs under [`Threaded`]
 |---|---|---|---|
 | [`Depletion`](@ref ComposableRecurrences.Depletion) | one stratum with its pools, two with `overflow = :stratum`, or without a draw one group of pools held in the stratum | each pool, pool by pool, then the queue with `overflow = :queue`; without a draw, what flowed into each pool | after anything that should draw from the pool; without a draw, on a kernel of `[1.0]`, which carries the pools forward |
 | [`Redistribute`](@ref ComposableRecurrences.Redistribute) | every stratum | what each stratum received | before a `Depletion` that should deplete where values are realised |
-| [`Add`](@ref ComposableRecurrences.Add) | one stratum | nothing | where the addition should enter |
-| [`Clamp`](@ref ComposableRecurrences.Clamp) | one stratum | nothing | after what it bounds |
-| [`Allocate`](@ref ComposableRecurrences.Allocate) | one group of strata, or every stratum with `imports` | nothing, or the import pattern after the spilled values | after what it rescales; an `Add` after it adds to the totals; a spill whose pattern reads the values before it goes in its `spill` |
-| [`Transform`](@ref ComposableRecurrences.Transform) | one stratum | nothing | where the map applies |
+| [`Allocate`](@ref ComposableRecurrences.Allocate) | one group of strata, or every stratum with `imports` | nothing, or the import pattern after the spilled values | after what it rescales; a `Transform(+, b)` after it adds to the totals; a spill whose pattern reads the values before it goes in its `spill` |
+| [`Transform`](@ref ComposableRecurrences.Transform) | one stratum | nothing | where the map applies; for `Transform(+, b)`, where the addition should enter; for `Transform(clamp, lo, hi)`, after what it bounds |
 
 A modifier acts on a [`Recurrence`](@ref) only; a [`Convolution`](@ref) has none.
 Its parameters take every form in [Slots](@ref explanation-slots).
@@ -80,7 +78,7 @@ Its parameters take every form in [Slots](@ref explanation-slots).
 
 Several needs have more than one fit.
 
-- To bound values, `Clamp` cuts them and a `Depletion` filled up to a capacity routes, queues or drops what is cut, so it keeps account of the excess.
+- To bound values, `Transform(clamp, lo, hi)` cuts them and a `Depletion` filled up to a capacity routes, queues or drops what is cut, so it keeps account of the excess.
 - To move values between strata, `Redistribute` moves them after the gain through a movement matrix whose columns sum to one, a `Depletion` without a draw moves between the pools of a group, and a [coupling](@ref explanation-coupling) mixes before the gain.
 - To map values, `Transform` takes any function, and write a [new modifier](@ref extending-pointwise) when the map keeps state or reads other strata.
 

@@ -121,6 +121,7 @@ end
 
 @testitem "Depletion flows: pullbacks against a local Jacobian" setup = [ModifierChecks] begin
     using ComposableRecurrences
+    using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     (; check_pullback) = ModifierChecks
     flatten = ModifierChecks.flat_pool
@@ -168,6 +169,18 @@ end
                 pools = (S = nothing, V = x[3])
             ),
             (a, α) -> [100.0, α, 0.0, 0.3, a],
+        ),
+        # Counts whose demands are `Derived`: a map with closed-form
+        # partials, one with a local derivative, and one without floats.
+        (
+            x -> CR.Depletion(
+                x[1], CR.Hazard(x[2]; weights = (S = 1, V = x[4])),
+                CR.Flow(:S => :V, Derived(*, x[5], TimeVarying(x[6:7])); form = CR.Truncate()),
+                CR.Flow(:V => 0, Derived((b, c) -> b * exp(c), x[8], x[9]); form = CR.Truncate()),
+                CR.Flow(:S => 0, Derived(identity, 1); form = CR.Truncate());
+                pools = (S = nothing, V = x[3])
+            ),
+            (a, α) -> [100.0, α, 0.0, 0.3, a, 1.0, 0.5, 2.0, 0.1],
         ),
     )
     # Pools full, and one stratum's pools empty so the draw comes from the
@@ -228,8 +241,8 @@ end
     )
     r = Recurrence(g; modifiers = (d,))
     y = r(R; history = h)
-    y1, st = r(R[1:5]; history = h, state = true)
-    @test vcat(y1, first(r(R; state = st))) ≈ y
+    y1, st = r(R[1:5]; history = h, record = (:state,))
+    @test vcat(y1, r(R; state = st)) ≈ y
     # Inside a function the pool names are constants, so the `Depletion`
     # infers.
     build() = ComposableRecurrences.Depletion(
@@ -247,4 +260,107 @@ end
     y32 = Recurrence(Float32.(g); modifiers = (d32,))(Float32.(R); history = Float32.(h))
     @test y32 isa Vector{Float32}
     @test y32 ≈ y rtol = 1.0e-5
+end
+
+@testitem "Depletion flows: more than 32 flows" setup = [AdjointCheck] begin
+    using ComposableRecurrences, Test
+    # Two linked pools among 40, the rest joined by rate, share and count
+    # flows that move nothing, run as the two pools alone; the step infers
+    # and neither pass allocates per step.
+    P, T = 40, 12
+    names = Tuple(Symbol(:p, i) for i in 1:P)
+    form(i) = i == 35 ? CR.Share() : i == 36 ? CR.Truncate() : nothing
+    function link(i)
+        f = form(i)
+        e = names[i] => names[i + 1]
+        return f === nothing ? CR.Flow(e, 0.0) : CR.Flow(e, 0.0; form = f)
+    end
+    rest = Tuple(link(i) for i in 3:(P - 1))
+    many = CR.Depletion(
+        CR.Flow(:p1 => :p2, 0.1), CR.Flow(:p2 => 0, 0.2), rest...; pools = names
+    )
+    two = CR.Depletion(CR.Flow(:p1 => :p2, 0.1), CR.Flow(:p2 => 0, 0.2); pools = (:p1, :p2))
+    g = [0.5, 0.3]
+    R = [1.0 + 0.1 * sin(k + t) for k in 1:P, t in 1:T]
+    h = [1.0 + 0.1 * k for k in 1:P, _ in 1:2]
+    r = Recurrence(g; modifiers = (many,))
+    fs = only(many.pieces)
+    @test CR._group_leaves_each(fs, nothing, 1, 0.0, Val(P)) ===
+        ntuple(i -> CR._group_leaves(fs, i, nothing, 1, 0.0), P)
+    y = @inferred r(R; history = h)
+    @test y[1:2, :] ≈ Recurrence(g; modifiers = (two,))(R[1:2, :]; history = h[1:2, :])
+    # A call over four times the steps allocates as often, forward and back.
+    long = repeat(R, 1, 4)
+    r(long; history = h)
+    @test (@allocations r(R; history = h)) == (@allocations r(long; history = h))
+    function back_allocations(x)
+        xs = (r, recargs(x, nothing, h)...)
+        y, cache = CR._run_forward(xs...)
+        ms = zero_mirror(xs)
+        grads = (; piece = first(ms), y = one.(y), args = Base.tail(ms))
+        return @allocations CR._run_pullback!(grads, r, cache)
+    end
+    back_allocations(R)
+    back_allocations(long)
+    @test back_allocations(R) == back_allocations(long)
+    @test pullback_matches(r, recargs(R, nothing, h)...)
+end
+
+@testitem "Depletion flows: tuple folds and their loops agree" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    # The unrolled folds and the loops taken for a tuple of unknown length
+    # give the same results over entries of mixed types.
+    xs = (1, 2.5, 3.0f0, 4)
+    op(acc, x, k) = acc + k * x
+    @test CR._tuple_fold(op, 0.0, xs) == CR._fold_loop(op, 0.0, xs) == 31.0
+    step(s, x, k) = (s + x * k, s + x)
+    @test CR._tuple_scan(step, 0, xs) == CR._scan_loop(step, 0, xs)
+    @test CR._tuple_scan(step, 0, xs) == (1, 6.0, 12.5, 22.5)
+    fwd(s, x, k) = (s + x, s)
+    back(b, x, kept, k) = 2b + kept * k
+    @test CR._tuple_forward_back(fwd, back, 0, 0.0, xs) ==
+        CR._forward_back_loop(fwd, back, 0, 0.0, xs)
+    @test CR._tuple_forward_back(fwd, back, 0, 0.0, xs) == 254.0
+    @test CR._fold_loop(op, 1, ()) == CR._tuple_fold(op, 1, ()) == 1
+    @test CR._scan_loop(step, 0, ()) == CR._tuple_scan(step, 0, ()) == ()
+end
+
+@testitem "Depletion flows: ends in the type" begin
+    using ComposableRecurrences, Test
+    using ComposableRecurrences: ConstructionBase
+    CR = ComposableRecurrences
+    # A flow's ends are its type's, and placing it reads its positions from
+    # them, so the step's selects at a pool index fold.
+    f = CR.Flow(:V => :S, 0.1)
+    @test (CR._from(f), CR._to(f)) === (:V, :S)
+    d = CR.Depletion(500.0, CR.Hazard(), f, CR.Flow(:S => 0, 0.2); pools = (:S, :V))
+    p = d.pieces[2]
+    @test map(CR._from, p) === (2, 1)
+    @test map(CR._to, p) === (1, 0)
+    @test (p[1].from, p[1].to) === (2, 1)
+    # Positions given as numbers are checked against the pools.
+    @test map(CR._from, CR.Depletion(CR.Flow(2 => 1, 0.1); pools = (:S, :V)).pieces[1]) === (2,)
+    @test_throws "names pool 3" CR.Depletion(CR.Flow(3 => 1, 0.1); pools = (:S, :V))
+    @test_throws "names pool :W" CR.Depletion(CR.Flow(:W => :S, 0.1); pools = (:S, :V))
+    # A rebuild from the fields, as a local derivative makes, keeps them.
+    q = ConstructionBase.constructorof(typeof(p[1]))(2, 1, 0.3, p[1].form)
+    @test typeof(q) == typeof(p[1]) && q.demand == 0.3
+    # Moving the ends means a new flow: a rebuild to valid but different
+    # ends throws, so the rebuild's type is the flow's.
+    @test_throws "keeps its ends" ConstructionBase.setproperties(f, (; from = :W))
+    @test_throws "keeps its ends" ConstructionBase.setproperties(p[1], (; to = 0))
+    # The placed type infers from the flow's type, wherever the flow was
+    # built, and so does a call of a recurrence holding it.
+    # Imported by name: a global alias of the module would not infer.
+    using ComposableRecurrences: Depletion, Flow, Hazard
+    place(f) = Depletion(500.0, Hazard(), f, Flow(:S => 0, 0.2); pools = (:S, :V))
+    @test (@inferred place(f)) isa CR.Depletion
+    rec = Recurrence([0.5]; modifiers = (place(f),))
+    @test (@inferred rec(fill(2.0, 6); history = [5.0])) isa Vector{Float64}
+    # Ends known only at run time still build and run the same.
+    ends = (:V, :S)
+    g = CR.Flow(ends[1] => ends[2], 0.1)
+    r(f) = Recurrence([0.5]; modifiers = (CR.Depletion(500.0, CR.Hazard(), f; pools = (:S, :V)),))
+    @test r(g)(fill(2.0, 6); history = [5.0]) == r(f)(fill(2.0, 6); history = [5.0])
 end

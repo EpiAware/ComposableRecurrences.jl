@@ -504,71 +504,6 @@ function pullback!(grads, form::Floor, ::Step, v, s, N)
     return nothing
 end
 
-# Add ---------------------------------------------------------------------
-
-@doc raw"""
-Adds `b` to each stratum's value wherever the modifier sits in the tuple:
-after a [`ComposableRecurrences.Depletion`](@ref), the added values are
-neither scaled by nor drawn from the pool.
-
-For each [stratum](@ref PerStratum) ``i`` at absolute time ``t``,
-
-```math
-v'_{t,i} = v_{t,i} + b_{t,i},
-```
-
-where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
-it passes on and ``b_{t,i}`` the parameter read at stratum ``i`` and time
-``t``.
-
-`b` is a [parameter](@ref ComposableRecurrences.param).
-Alone, `Add(TimeVarying(PerStratum(B)))` gives the same values as passing
-`B` as `add`.
-The state is unused.
-
-# Arguments
-- `b`: the values to add.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-mods = (CR.Depletion(50.0, CR.Floor()), CR.Add(TimeVarying([1.0, 0.0, 2.0])))
-Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
-
-# output
-
-3-element Vector{Float64}:
- 3.0
- 2.88
- 4.598912
-```
-"""
-struct Add{B}
-    "The values to add, a parameter."
-    b::B
-    Add(b::B) where {B} = new{B}(_check_param(:b, b))
-end
-
-blocks(::Add) = (1, 1)
-_stateless(::Add) = true
-forward!(m::Add, ::Init, s, history) = _zero_state!(s, :b => m.b)
-pullback!(grads, ::Add, ::Init, s, history) = nothing
-
-function forward!(m::Add, ::Step, v, s, t)
-    for k in eachindex(v)
-        v[k] += param(m.b, k, t)
-    end
-    return nothing
-end
-function pullback!(grads, m::Add, ::Step, v, s, t)
-    b̄ = cotangent(grads.piece, :b)
-    for k in eachindex(v)
-        add_param!(b̄, m.b, grads.v[k], k, t)
-    end
-    return nothing
-end
-
 # Redistribute ------------------------------------------------------------
 
 @doc raw"""
@@ -609,6 +544,14 @@ M = I - \operatorname{diag}(\varepsilon \odot o) + K \operatorname{diag}(\vareps
 
 so ``M_{qq} = 1 - \varepsilon_q \sum_{p \ne q} K_{pq}`` whatever the
 diagonal of ``K``, and every column of ``M`` sums to one.
+So the derivative in ``K`` includes that column sum: ``K_{pq}``, for
+``p \ne q``, moves ``M_{pq}`` by ``\varepsilon_q`` and ``M_{qq}`` by
+``-\varepsilon_q``.
+A movement written as ``M_{qq} = 1 - \varepsilon_q``, for a kernel whose
+columns are taken to sum to one, has the same values on such kernels but a
+gradient in ``K`` that differs by a constant down each column.
+The two agree once ``K`` is built so that its columns sum to one, for
+example by a softmax over each column.
 `ε` is one value or a vector over origins, which gives a matrix, or an
 origins × time matrix, which gives an `S × S × T` movement.
 `PerStratum(ε)` and `TimeVarying(PerStratum(E))` are read as the vector and
@@ -734,6 +677,31 @@ function _movement(K, E)
     o = sum(K; dims = 1)
     return (axes(K, 1) .== permutedims(axes(K, 2))) .* (1 .- o .* E) .+ K .* E
 end
+# The cotangents of `_movement(K, E)` from the cotangent `M̄` of its matrix,
+# for the reverse rules: added into `K̄`, and into the origin row `Ē`, or
+# returned for one intensity `E` when `Ē` is `nothing`. A row of one entry is
+# broadcast over every origin, as the movement reads it, so it gathers every
+# origin's cotangent.
+function _movement_back!(K̄, Ē, M̄, K, E)
+    e = zero(eltype(M̄))
+    for q in axes(K, 2)
+        Eq = _origin_at(E, q)
+        d = M̄[q, q]
+        o = zero(eltype(K))
+        a = zero(eltype(M̄))
+        for p in axes(K, 1)
+            o += K[p, q]
+            a += M̄[p, q] * K[p, q]
+            K̄[p, q] += (M̄[p, q] - d) * Eq
+        end
+        ē = a - d * o
+        Ē === nothing ? (e += ē) : (Ē[1, _origin_column(E, q)] += ē)
+    end
+    return e
+end
+_origin_at(E::Real, q) = E
+_origin_at(E::AbstractMatrix, q) = E[1, _origin_column(E, q)]
+_origin_column(E, q) = size(E, 2) == 1 ? 1 : q
 
 # The movement of a kernel `K` and an intensity `E` (origins × time), read
 # entry by entry: `M[p, q, t] = δ_pq (1 − E[q, t] o[q]) + K[p, q] E[q, t]`
@@ -901,6 +869,9 @@ function forward!(
     return nothing
 end
 
+# Its trace is its arrivals, the state after each step (the default).
+_trace_is_state(::Redistribute) = true
+
 # The matrix is checked against the strata, and its columns, once, here
 # and on a resumed state, not on every step.
 function forward!(m::Redistribute, ::Init, s, history)
@@ -1007,77 +978,46 @@ function _add_diag!(M̄, M::TimeVarying{<:Any, <:_Movement}, x, p, t)
     return _add_movement_entry!(cotangent(M̄, :x), M.x, x, p, p, t)
 end
 
-# Clamp -------------------------------------------------------------------
-
-@doc raw"""
-Clamps each stratum's value to `[lo, hi]`, as `clamp`.
-
-For each [stratum](@ref PerStratum) ``i`` at absolute time ``t``,
-
-```math
-v'_{t,i} = \min\big(\max(v_{t,i},\ \ell_{t,i}),\ u_{t,i}\big),
-```
-
-where ``v_{t,i}`` is the value entering the modifier, ``v'_{t,i}`` the value
-it passes on, and ``\ell_{t,i} \le u_{t,i}`` the bounds `lo` and `hi` read
-at stratum ``i`` and time ``t``.
-
-`lo` and `hi` are each a [parameter](@ref ComposableRecurrences.param).
-The state is unused.
-
-# Arguments
-- `lo`: the lower bound.
-- `hi`: the upper bound.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-Recurrence([2.0]; modifiers = (CR.Clamp(0.0, 5.0),))(1.0; history = [1.0], stop = 4)
-
-# output
-
-4-element Vector{Float64}:
- 2.0
- 4.0
- 5.0
- 5.0
-```
-"""
-struct Clamp{L, H}
-    "The lower bound, a parameter."
-    lo::L
-    "The upper bound, a parameter."
-    hi::H
-    function Clamp(lo::L, hi::H) where {L, H}
-        return new{L, H}(_check_param(:lo, lo), _check_param(:hi, hi))
+# The same over a movement, fused with its `Pressure` pullback so no entry
+# of `M` is rebuilt from its column sum. It must agree with the general
+# pullback above through `_add_movement_entry!` and that `Pressure` pullback.
+function pullback!(
+        grads, m::Redistribute{<:Any, <:TimeVarying{Secondary, <:_Movement}},
+        ::Step, v, s, t
+    )
+    v̄, s̄ = grads.v, grads.s
+    _stays(m.M) && return (fill!(s̄, zero(eltype(s̄))); nothing)
+    (; K, E) = m.M.x
+    X̄ = cotangent(cotangent(grads.piece, :M), :x)
+    K̄, Ē = cotangent(X̄, :K), cotangent(X̄, :E)
+    # `v̄` holds `s̄′` until its column is done, which reads it for the
+    # diagonal.
+    for p in eachindex(v, v̄, s̄)
+        d = s̄[p]
+        s̄[p] = v̄[p] + d
+        v̄[p] = d
     end
-end
-
-blocks(::Clamp) = (1, 1)
-_stateless(::Clamp) = true
-forward!(m::Clamp, ::Init, s, history) = _zero_state!(s, :lo => m.lo, :hi => m.hi)
-pullback!(grads, ::Clamp, ::Init, s, history) = nothing
-
-function forward!(m::Clamp, ::Step, v, s, t)
-    for k in eachindex(v)
-        v[k] = clamp(v[k], param(m.lo, k, t), param(m.hi, k, t))
-    end
-    return nothing
-end
-
-# Matches `clamp`'s branches: above `hi`, then below `lo`, else `v`.
-function pullback!(grads, m::Clamp, ::Step, v, s, t)
-    v̄ = grads.v
-    for k in eachindex(v)
-        if v[k] > param(m.hi, k, t)
-            add_param!(cotangent(grads.piece, :hi), m.hi, v̄[k], k, t)
-            v̄[k] = zero(v̄[k])
-        elseif v[k] < param(m.lo, k, t)
-            add_param!(cotangent(grads.piece, :lo), m.lo, v̄[k], k, t)
-            v̄[k] = zero(v̄[k])
+    for b in axes(K, 2)
+        e = _intensity(E, b, t)
+        w = e * v[b]
+        d = v̄[b]
+        # The diagonal is read only when the state's cotangent asks for it.
+        xe = iszero(d) ? zero(w * d) : -d * v[b] * e
+        c = zero(eltype(v̄))
+        o = zero(eltype(K))
+        for a in axes(K, 1)
+            c += K[a, b] * s̄[a]
+            o += K[a, b]
+            add_cotangent!(K̄, w * (s̄[a] - s̄[b]) - xe, a, b)
         end
+        add_cotangent!(K̄, xe, b, b)
+        diag = iszero(d) ? zero(c) : -(1 - e * o + K[b, b] * e) * d
+        v̄[b] = diag + e * c + (1 - e * o) * s̄[b]
+        ē = v[b] * (c - o * s̄[b])
+        iszero(d) || (ē += -d * v[b] * (K[b, b] - o))
+        _add_intensity!(Ē, E, ē, b, t)
     end
+    fill!(s̄, zero(eltype(s̄)))
     return nothing
 end
 
@@ -1089,25 +1029,9 @@ end
     Arguments(; piece = Floor(1.5), role = Step(), args = ([2.0], [80.0], 100.0)),
 ]
 
-@implements PieceInterface{(:pointwise, :nstate, :pullback)} Add [
-    Arguments(;
-        piece = Add(TimeVarying(PerStratum([0.5 1.0; 0.2 0.1]))), role = Step(),
-        args = ([2.0, 3.0], [0.0, 0.0], 2)
-    ),
-    Arguments(;
-        piece = Add(0.5), role = Init(), args = (zeros(2), ones(2, 3))
-    ),
-]
-
 @implements PieceInterface{(:nstate, :pullback)} Redistribute [
     Arguments(;
         piece = Redistribute([0.98 0.06; 0.02 0.94]),
         role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
-    ),
-]
-
-@implements PieceInterface{(:pointwise, :nstate, :pullback)} Clamp [
-    Arguments(;
-        piece = Clamp(0.0, 2.5), role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
     ),
 ]

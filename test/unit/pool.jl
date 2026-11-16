@@ -115,7 +115,7 @@ end
     )
     r = Recurrence(g; modifiers = (d,))
     for stop in (1, 7, 20, 40)
-        y, st = r(R; history = h, stop, state = true)
+        y, st = r(R; history = h, stop, record = (:state,))
         pools = only(st.states)
         @test sum(pools) + sum(y) ≈ N - sum(h)
     end
@@ -298,9 +298,9 @@ end
         )
         r = run(p)
         @test eltype(@inferred r(R; history = h)) == Float32
-        y, st = r(R; history = h, stop = 10, state = true)
+        y, st = r(R; history = h, stop = 10, record = (:state,))
         @test eltype(y) == Float32
-        @test eltype(first(r(R; state = st))) == Float32
+        @test eltype(r(R; state = st)) == Float32
     end
     # The empty default gives the same values as an explicit empty pool.
     @test run(pool(0.5f0, nothing))(R; history = h) ==
@@ -436,7 +436,7 @@ end
     @test_throws "a draw into a pool fills it up to N, so give N" CR.Depletion(
         CR.Truncate(; into = :S)
     )
-    @test_throws "a draw into a pool is Truncate() or SoftTruncate(κ)" CR.Depletion(
+    @test_throws "a draw into a pool is Truncate() or Truncate(κ)" CR.Depletion(
         10.0, CR.Hazard(; into = :S)
     )
     # A weight of an integer is fixed, a float one a parameter.
@@ -585,7 +585,7 @@ end
         (
             CR.Depletion(
                 10.0, CR.Flow(:O => 0, 0.1; form = CR.Share()),
-                CR.SoftTruncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
+                CR.Truncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
             ),
             [4.0, 1.0], [7.0], x -> [0.1 * x[1]],
         ),
@@ -714,10 +714,10 @@ end
             70.0, CR.Floor(; weights = (S = 1, V = 0.4)); pools = (S = 0.0, V = nothing)
         ),
         # Without a population: a truncated draw reads none.
-        CR.Depletion(CR.SoftTruncate(0.5); pools = (S = PerStratum([30.0, 40.0]),)),
+        CR.Depletion(CR.Truncate(0.5); pools = (S = PerStratum([30.0, 40.0]),)),
     )
     for m in mods
-        r = Recurrence(g; coupling = K, modifiers = (m, CR.Add(0.1)))
+        r = Recurrence(g; coupling = K, modifiers = (m, CR.Transform(+, 0.1)))
         @test pullback_matches(r, recargs(R, nothing, h)...)
         @test pullback_matches(CR._WithState(r), recargs(R, nothing, h)...)
     end
@@ -888,11 +888,11 @@ end
     @test repr(CR.Hazard()) == "ComposableRecurrences.Hazard()"
     @test repr(CR.Floor(1.5)) == "ComposableRecurrences.Floor(1.5)"
     @test repr(CR.Truncate()) == "ComposableRecurrences.Truncate()"
-    @test repr(CR.SoftTruncate(0.1)) == "ComposableRecurrences.SoftTruncate(0.1)"
+    @test repr(CR.Truncate(0.1)) == "ComposableRecurrences.Truncate(0.1)"
     @test repr(CR.Truncate(; into = :B, overflow = :queue)) ==
         "ComposableRecurrences.Truncate(; into = :B, overflow = :queue)"
     @test repr(CR.Hazard(2.0; weights = (S = 1, V = 0.3))) ==
         "ComposableRecurrences.Hazard(2.0; weights = (S = 1, V = 0.3))"
-    @test repr(CR.SoftTruncate(0.1; overflow = :stratum)) ==
-        "ComposableRecurrences.SoftTruncate(0.1; overflow = :stratum)"
+    @test repr(CR.Truncate(0.1; overflow = :stratum)) ==
+        "ComposableRecurrences.Truncate(0.1; overflow = :stratum)"
 end

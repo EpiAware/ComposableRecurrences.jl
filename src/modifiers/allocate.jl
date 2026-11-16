@@ -58,11 +58,13 @@ turn) and `offsets` (where each group starts), so the analytic adjoint sees
 only integer arrays and the parameters.
 `total` and `fraction` are [parameters](@ref ComposableRecurrences.param)
 over groups, not strata: `PerStratum` holds one value per group.
-It reads every stratum of a group, so it is not pointwise.
+It reads every stratum of a group, so it is not pointwise, and its groups
+differ in size and are set by the value, so it is not blockwise
+([`ComposableRecurrences.blocks`](@ref) is `nothing`).
 It has no state without `imports`; with them the state holds ``h``, after
 ``u`` when there is a spill.
 It composes with the other modifiers in tuple order:
-`(Allocate(groups, total), Add(b))` adds `b` after the split.
+`(Allocate(groups, total), Transform(+, b))` adds `b` after the split.
 Its reverse pass, with ``\bar v'`` the output cotangent and
 ``a_p = \sum_{j \in G_p} \bar v'_j v_j / \sigma_p``, is
 
@@ -154,11 +156,9 @@ struct Allocate{T, I}
     function Allocate(
             groups::AbstractVector, total::T; imports = nothing, spill = nothing
         ) where {T}
-        _check_groups(groups)
+        strata, offsets = _flat_groups(groups)
         _check_group_param(:total, total, length(groups))
         im = _imports(imports, spill, length(groups))
-        strata = Int[k for zs in groups for k in zs]
-        offsets = cumsum([0; length.(groups)])
         return new{T, typeof(im)}(strata, offsets, total, im)
     end
     function Allocate(::_Flat, strata, offsets, total::T, imports::I) where {T, I}
@@ -242,6 +242,16 @@ end
 _ngroups(m::Allocate) = length(m.offsets) - 1
 _group(m::Allocate, p) = view(m.strata, (m.offsets[p] + 1):m.offsets[p + 1])
 
+# The groups, checked and stored flat: every stratum in group order, and
+# each group's end in that list. Only integers, so the extensions mark it as
+# carrying no derivative; traced, it was most of the constructor's gradient.
+function _flat_groups(groups)
+    _check_groups(groups)
+    strata = Int[k for zs in groups for k in zs]
+    offsets = cumsum([0; length.(groups)])
+    return strata, offsets
+end
+
 # The groups are disjoint vectors of positive indices, some possibly empty;
 # that they cover every stratum is checked once the strata are known.
 function _check_groups(groups)
@@ -294,6 +304,8 @@ param_eltype(m::Allocate) = promote_type(param_eltype(m.total), param_eltype(m.i
 # With imports the state holds the import pattern, after the spilled values
 # when there is a spill.
 nstate(m::Allocate{<:Any, <:_AllocateImports}, S) = _nslots(m) * S
+# Its trace is its state after each step (the default).
+_trace_is_state(::Allocate) = true
 
 function forward!(m::Allocate, ::Init, s, history)
     _check_imports(m.imports, _check_partition(m, length(s) ÷ _nslots(m)))
@@ -522,9 +534,11 @@ _batches(P, P̄) = false
 _batches(P::Matrix, P̄) = _array_mirror(P̄) isa Matrix
 _batches_spill(spill, r̄) = false
 _batches_spill(r::Redistribute, r̄) = _batches(r.M, cotangent(r̄, :M))
+# Every step's pullback writes its column before `_finish_pass!` reads
+# any, so the buffer starts unset.
 function _batch_columns(H, ::Type{Tp}, P, P̄, S, T) where {Tp}
     _check_dense(_array_mirror(P̄), P)
-    return _zeros(H, Tp, S, T)
+    return similar(H, Tp, S, T)
 end
 
 # After the last step: `P̄ += H̄ Vᵀ` and `M̄ += Ū Vᵀ`, with `H̄` and `Ū` each

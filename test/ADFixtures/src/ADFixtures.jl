@@ -12,7 +12,7 @@
 module ADFixtures
 
 using ADTypes: AutoForwardDiff, AutoReverseDiff, AutoMooncake,
-    AutoMooncakeForward, AutoEnzyme
+    AutoMooncakeForward, AutoEnzyme, AutoReactant
 using DifferentiationInterface: DifferentiationInterface
 import DifferentiationInterfaceTest as DIT
 import ForwardDiff, ReverseDiff, Enzyme, Mooncake
@@ -27,6 +27,7 @@ using SparseArrays: SparseMatrixCSC, sparse
 
 export scenarios, backends, broken_scenario_names,
     backend_broken_scenarios, backend_plain_scenarios, backend_skip_scenarios,
+    benchmarked_backends, exclusion_reason,
     FlooredDepletion,
     supports, unsupported_scenarios
 
@@ -87,12 +88,39 @@ macro pointwise(T)
     return :($ComposableRecurrences.ispointwise(::$(esc(T))) = true)
 end
 
-# A call that also returns its state, as the loaded release spells it:
-# `state = true` on the call, and `with_state` before.
+# An added value and a clamp, as the loaded release spells them:
+# `Transform(+, b)` and `Transform(clamp, lo, hi)`, and `Add` and `Clamp`
+# before.
+const ADD_MODIFIER = isdefined(ComposableRecurrences, :Add)
+const CLAMP_MODIFIER = isdefined(ComposableRecurrences, :Clamp)
+function added(b)
+    ADD_MODIFIER && return ComposableRecurrences.Add(b)
+    return ComposableRecurrences.Transform(+, b)
+end
+function clamped(lo, hi)
+    CLAMP_MODIFIER && return ComposableRecurrences.Clamp(lo, hi)
+    return ComposableRecurrences.Transform(clamp, lo, hi)
+end
+
+# A call that also returns its state or its trace, as the loaded release
+# spells it: `record` on the call, `state = true` or `trace = true` before
+# it, and `with_state` before that.
+const RECORD_KEYWORD = isdefined(ComposableRecurrences, :_recorded)
 const STATE_KEYWORD = !isdefined(ComposableRecurrences, :with_state)
 function returning_state(op, args...; kwargs...)
+    RECORD_KEYWORD && return op(args...; kwargs..., record = (:state,))
     STATE_KEYWORD && return op(args...; kwargs..., state = true)
     return ComposableRecurrences.with_state(op, args...; kwargs...)
+end
+function returning_trace(op, args...; kwargs...)
+    RECORD_KEYWORD && return op(args...; kwargs..., record = (:trace,))
+    return op(args...; kwargs..., trace = true)
+end
+# The output of a call resumed from a state, which some releases before
+# `record` returned with the next state.
+function resumed(op, args...; kwargs...)
+    out = op(args...; kwargs...)
+    return out isa Tuple ? first(out) : out
 end
 
 # ForwardDiff reference gradient for a scenario function.
@@ -238,7 +266,7 @@ function _array_and_scalar_fields(w, θ)
     logR = reshape(view(θ, (2 + S * L):(1 + S * L + S * T)), S, T)
     mods = (
         depletion(PerStratum(POP); form = ComposableRecurrences.Floor()),
-        ComposableRecurrences.Add(b),
+        added(b),
     )
     y = w(Recurrence(G0; modifiers = mods))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -323,10 +351,17 @@ end
 
 # Movement between strata from a kernel and an intensity per origin and
 # time, both reshaped from θ, before a depletion.
-function _movement_time_varying(w, θ)
+_movement_time_varying(w, θ) = _movement_with(w, θ; leak = Val(false))
+
+# The same through the public `Redistribute(K, ε; leak = true)`, with a
+# kernel whose columns sum to less than one, so part of what moves leaves.
+_movement_leak(w, θ) = _movement_with(w, θ; leak = Val(true))
+
+# The movement's loss, with `leak` a type parameter (see `Redistribute`).
+function _movement_with(w, θ; leak::Val{LEAK}) where {LEAK}
     g, K, ε, logh, logR = _unpack(θ, (L,), (S, S), (S, T), (S, L), (S, T))
     mods = (
-        ComposableRecurrences.Redistribute(K, ε),
+        ComposableRecurrences.Redistribute(K, ε; leak = LEAK),
         ComposableRecurrences.Depletion(PerStratum(POP)),
     )
     y = w(Recurrence(g; modifiers = mods))(exp.(logR); history = exp.(logh))
@@ -661,7 +696,7 @@ function _empty_pool(w, θ)
     d = depletion(
         100.0; heterogeneity = 1 + θ[1], pool0 = 50 + θ[2], removals = 1000 + θ[3]
     )
-    mods = (d, ComposableRecurrences.Add(1.0))
+    mods = (d, added(1.0))
     y = w(Recurrence(G0; modifiers = mods))(fill(2.0, T); history = fill(5.0, L))
     return sum(W1 .* y)
 end
@@ -673,7 +708,8 @@ function _derived(w, θ)
     imports = only(κ) * Derived(exp, TimeVarying(logι))
     scale = Derived((x, c) -> c / (1 + x^2), TimeVarying(PerStratum(a)), only(κ))
     mods = (
-        ComposableRecurrences.Add(imports), ComposableRecurrences.Transform(*, scale),
+        added(imports),
+        ComposableRecurrences.Transform(*, scale),
     )
     y = w(Recurrence(G0; coupling = K0, modifiers = mods))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -697,8 +733,8 @@ function _clamp_redistribute_add(w, θ)
     )
     mods = (
         _leaky(ComposableRecurrences._kernel_movement(K, ε)),
-        ComposableRecurrences.Add(TimeVarying(PerStratum(B))),
-        ComposableRecurrences.Clamp(0.0, PerStratum(hi)),
+        added(TimeVarying(PerStratum(B))),
+        clamped(0.0, PerStratum(hi)),
     )
     y = w(Recurrence(G0; coupling = K0, modifiers = mods))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -724,6 +760,24 @@ function _capacity_beds(w, θ)
     return sum(WS[1:2, :] .* log.(y))
 end
 
+# A bed cap on admissions with a stay that is not geometric: the beds held
+# by earlier admissions are a weighted sum of the recurrence's own outputs,
+# read by `Recent`, and occupancy is the convolution of the admissions with
+# the survival. The parameters are the log beds and the log scale of a
+# gamma stay of shape 2; the cap binds on some steps and not on others.
+const BEDCAP0 = [log(40.0), log(3.0)]
+const DEMAND = [30 * exp(-((t - 5) / 2.5)^2) for t in 1:T]
+_stay(scale) = [(1 + (k + 1) / scale) * exp(-(k + 1) / scale) for k in 0:(T - 1)]
+function _bed_cap_any_stay(w, θ)
+    x = BEDCAP0 .+ θ
+    beds, S = exp(x[1]), _stay(exp(x[2]))
+    CR = ComposableRecurrences
+    cap = CR.Transform(min, (beds - CR.Recent(S[2:end])) / S[1])
+    r = Recurrence([zero(eltype(x))]; modifiers = (cap,))
+    y = w(r)(; history = [zero(eltype(x))], add = DEMAND)
+    return sum(W1 .* w(Convolution(S))(y))
+end
+
 # The capacity pools are built behind a call: inline in the losses, whose
 # unpacking does not infer, Enzyme rejects them when the code is compiled
 # for coverage.
@@ -731,7 +785,7 @@ function _beds(C, δ, κ)
     CR = ComposableRecurrences
     return CR.Depletion(
         C, CR.Flow(:O => 0, δ; form = CR.Share()),
-        CR.SoftTruncate(κ; into = :O, overflow = :stratum); pools = (:O,)
+        CR.Truncate(κ; into = :O, overflow = :stratum); pools = (:O,)
     )
 end
 function _budget(init, grants)
@@ -774,10 +828,10 @@ function _capacity_drop(w, θ)
     logh, logR = _unpack(x, (S, L), (S, T))
     n = length(x)
     CR = ComposableRecurrences
-    pool = depletion(exp(x[n - 4]); form = CR.SoftTruncate(x[n - 3]))
+    pool = depletion(exp(x[n - 4]); form = CR.Truncate(x[n - 3]))
     beds = CR.Depletion(
         PerStratum(exp.(x[(n - 2):n])), CR.Flow(:O => 0, 0.3; form = CR.Share()),
-        CR.SoftTruncate(0.2; into = :O); pools = (:O,)
+        CR.Truncate(0.2; into = :O); pools = (:O,)
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (pool, beds))
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -800,7 +854,7 @@ end
 function _soft_truncate(w, θ)
     x = TRUNC0 .+ θ
     logh, logR, logpool = _unpack(x, (S, L), (S, T), (S,))
-    form = ComposableRecurrences.SoftTruncate(x[length(x)])
+    form = ComposableRecurrences.Truncate(x[length(x)])
     d = depletion(PerStratum(exp.(logpool)); form = form)
     y = w(Recurrence(G0; coupling = K0, modifiers = (d,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* y)
@@ -879,8 +933,10 @@ end
 function _piecewise_parameter(w, θ)
     a, b1, b2, logh, logR = _unpack(θ, (2,), (S,), (S,), (S, L), (S, T))
     mods = (
-        ComposableRecurrences.Add(TimeVarying([1 => a[1], 8 => a[2]])),
-        ComposableRecurrences.Add(TimeVarying([1 => PerStratum(b1), 5 => PerStratum(b2)])),
+        added(TimeVarying([1 => a[1], 8 => a[2]])),
+        ComposableRecurrences.Transform(
+            +, TimeVarying([1 => PerStratum(b1), 5 => PerStratum(b2)])
+        ),
     )
     r = Recurrence(G0; coupling = K0, modifiers = mods)
     y = w(r)(exp.(logR); history = exp.(logh))
@@ -1018,6 +1074,19 @@ end
 # infections, as BVD's joint model reads them.
 function _trace_importation(w, θ)
     logh, logR, ε = _unpack(θ, (S, L), (S, T), (S,))
+    return _importation_loss(w, logh, logR, ε)
+end
+
+# The importation's trace through a sparse coupling, so the coupling's
+# product is differentiated with the trace as well as the output.
+function _trace_sparse(w, θ)
+    v, logh, logR, ε = _unpack(θ, (length(KS.nzval),), (S, L), (S, T), (S,))
+    K = SparseMatrixCSC(S, S, KS.colptr, KS.rowval, collect(v))
+    return _importation_loss(w, logh, logR, ε; coupling = K)
+end
+
+# The importation's loss, read from its output and trace.
+function _importation_loss(w, logh, logR, ε; kw...)
     CR = ComposableRecurrences
     # The intensity per origin and step keeps the movement a kernel and
     # an intensity, whose columns sum to one under any perturbation.
@@ -1025,8 +1094,9 @@ function _trace_importation(w, θ)
         CR.Redistribute(K0, ε .* ones(1, T)),
         CR.Depletion(PerStratum(POP)),
     )
-    y, tr = w(Recurrence(G0; modifiers = mods))(
-        exp.(logR); history = exp.(logh), trace = true
+    y, tr = returning_trace(
+        w(Recurrence(G0; modifiers = mods, kw...)), exp.(logR);
+        history = exp.(logh)
     )
     return sum(WS .* log.(y)) + sum(WS .* first(tr.modifiers))
 end
@@ -1037,7 +1107,7 @@ function _trace_pool(w, θ)
     logh, logR, doses, σ = _unpack(θ, (S, L), (S, T), (S, T), (1,))
     d = _leaky(PerStratum(POP), TimeVarying(PerStratum(doses)), only(σ))
     r = Recurrence(G0; coupling = K0, modifiers = (d,))
-    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
     M = only(tr.modifiers)
     return sum(WS .* log.(y)) + sum(WS .* M[(S + 1):(2S), :]) +
         sum(WS .* M[(3S + 1):(4S), :])
@@ -1085,9 +1155,178 @@ function _trace_pointwise(w, θ)
     logh, logR, a = _unpack(θ, (S, L), (S, T), (1,))
     mods = (TracedSmooth(only(a)), ComposableRecurrences.Depletion(PerStratum(POP)))
     r = Recurrence(G0; coupling = K0, modifiers = mods)
-    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
     T1, T2 = tr.modifiers
     return sum(WS .* log.(y)) + sum([WS; WS] .* T1) + sum([WS; WS; WS] .* T2)
+end
+
+# User modifiers' traces on every kind of step. The groups pair the
+# strata, so these scenarios have four.
+const CR = ComposableRecurrences
+const S4 = 4
+const WS4 = [cos(0.7 * a * t) for a in 1:S4, t in 1:T]
+const LOGR4 = [0.1 * sin(a + t) for a in 1:S4, t in 1:T]
+const POP4 = [60.0, 90.0, 70.0, 80.0]
+const USER_TRACES = isdefined(ComposableRecurrences, :_trace_series) &&
+    isdefined(ComposableRecurrences, :blocks)
+
+"A pointwise decay at rate `a`, whose state gathers what passes it."
+struct GatherDecay{A}
+    a::A
+end
+"Two values and two state entries per group, the first value scaled by `a`."
+struct GatherPairs{A}
+    a::A
+end
+"`GatherPairs` whose trace is the group's total after the step."
+struct TracedPairs{A}
+    a::A
+end
+"Each value mixed with the mean at weight `b`; its trace is the mean."
+struct TracedMean{B}
+    b::B
+end
+if USER_TRACES
+    CR.blocks(::GatherDecay) = (1, 1)
+    CR.uses_adjoint(::GatherDecay, ::CR.Step) = true
+    CR.forward!(::GatherDecay, ::CR.Init, s, history) = (fill!(s, 0); nothing)
+    function CR.forward!(m::GatherDecay, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            s[k] = m.a * s[k] + v[k]
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, m::GatherDecay, ::CR.Step, v, s, t)
+        v̄, s̄ = grads.v, grads.s
+        for k in eachindex(v, s)
+            CR.add_cotangent!(CR.cotangent(grads.piece, :a), s̄[k] * s[k])
+            v̄[k], s̄[k] = v̄[k] + s̄[k], m.a * s̄[k]
+        end
+        return nothing
+    end
+    for P in (GatherPairs, TracedPairs)
+        @eval begin
+            CR.blocks(::$P) = (2, 2)
+            function CR.forward!(m::$P, ::CR.Step, v::Tuple, s::Tuple, t, g)
+                v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
+                v[1][], v[2][] = v1 * m.a, v2 + s1
+                s[1][], s[2][] = s1 + v1, s2 + v2
+                return nothing
+            end
+            function CR.pullback!(
+                    grads, m::$P, ::CR.Step, v::Tuple, s::Tuple, t, g
+                )
+                v̄1, v̄2 = grads.v[1][], grads.v[2][]
+                s̄1, s̄2 = grads.s[1][], grads.s[2][]
+                CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1][])
+                grads.v[1][], grads.v[2][] = v̄1 * m.a + s̄1, v̄2 + s̄2
+                grads.s[1][], grads.s[2][] = v̄2 + s̄1, s̄2
+                return nothing
+            end
+        end
+    end
+    CR.ntrace(::TracedPairs, S) = S ÷ 2
+    function CR.forward!(
+            m::TracedPairs, ::CR.Trace, r::Tuple, v::Tuple, s::Tuple,
+            v′::Tuple, s′::Tuple, t, g
+        )
+        only(r)[] = v′[1][] + v′[2][]
+        return nothing
+    end
+    function CR.pullback!(
+            grads, m::TracedPairs, ::CR.Trace, v::Tuple, s::Tuple, t, g
+        )
+        r̄ = only(grads.trace)[]
+        grads.v′[1][] += r̄
+        grads.v′[2][] += r̄
+        return nothing
+    end
+    function CR.forward!(m::TracedMean, ::CR.Step, v, s, t)
+        μ = sum(v) / length(v)
+        v .= (1 - m.b) .* v .+ m.b * μ
+        return nothing
+    end
+    function CR.pullback!(grads, m::TracedMean, ::CR.Step, v, s, t)
+        v̄ = grads.v
+        μ, μ̄ = sum(v) / length(v), sum(v̄) / length(v)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :b), sum(v̄ .* (μ .- v)))
+        v̄ .= (1 - m.b) .* v̄ .+ m.b * μ̄
+        fill!(grads.s, zero(eltype(grads.s)))
+        return nothing
+    end
+    CR.ntrace(::TracedMean, S) = 1
+    function CR.forward!(m::TracedMean, ::CR.Trace, r, v, s, v′, s′, t)
+        r[1] = sum(v) / length(v)
+        return nothing
+    end
+    function CR.pullback!(grads, m::TracedMean, ::CR.Trace, v, s, t)
+        grads.v .+= grads.trace[1] / length(v)
+        return nothing
+    end
+end
+
+# A blockwise user modifier with a per-stratum parameter, without and with
+# a hand-written `pullback!`: the registry checks the one without against
+# ForwardDiff, and the benchmark matrix times the two.
+"""
+The value plus `a` times the mean of the values so far, one value and two
+state entries (their sum and count) per group, with `forward!` only.
+"""
+struct AddMean{A}
+    a::A
+end
+"`AddMean` with a hand-written `pullback!`."
+struct AddMeanHand{A}
+    a::A
+end
+if IN_PLACE && isdefined(ComposableRecurrences, :blocks)
+    for M in (AddMean, AddMeanHand)
+        @eval begin
+            CR.blocks(::$M) = (1, 2)
+            function CR.forward!(m::$M, ::CR.Step, v::Tuple, s::Tuple, t, g)
+                total, n = s[1][] + v[1][], s[2][] + 1
+                s[1][], s[2][] = total, n
+                v[1][] = v[1][] + CR.param(m.a, g, t) * total / n
+                return nothing
+            end
+        end
+    end
+    # With `total = s₁ + v` and `n = s₂ + 1` before the step, it gives
+    # `v′ = v + a total / n`, `s₁′ = total` and `s₂′ = n`.
+    function CR.pullback!(grads, m::AddMeanHand, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        a = CR.param(m.a, g, t)
+        total, n = s[1][] + v[1][], s[2][] + 1
+        v̄′, s̄₁′, s̄₂′ = grads.v[1][], grads.s[1][], grads.s[2][]
+        total̄ = s̄₁′ + v̄′ * a / n
+        CR.add_param!(CR.cotangent(grads.piece, :a), m.a, v̄′ * total / n, g, t)
+        grads.v[1][] = v̄′ + total̄
+        grads.s[1][] = total̄
+        grads.s[2][] = s̄₂′ - v̄′ * a * total / n^2
+        return nothing
+    end
+end
+
+# The default traces of a pointwise and a grouped user modifier, before a
+# depletion.
+function _trace_user_default(w, θ)
+    logh, logR, a = _unpack(θ, (S4, L), (S4, T), (2,))
+    mods = (
+        GatherDecay(a[1]), GatherPairs(a[2]), CR.Depletion(PerStratum(POP4)),
+    )
+    r = Recurrence(G0; modifiers = mods)
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
+    T1, T2, T3 = tr.modifiers
+    return sum(WS4 .* log.(y)) + sum(WS4 .* log.(T1)) + sum(WS4 .* T2) +
+        sum([WS4; WS4; WS4] .* T3)
+end
+
+# Traces a grouped and a whole-step user modifier write themselves.
+function _trace_user_written(w, θ)
+    logh, logR, a = _unpack(θ, (S4, L), (S4, T), (2,))
+    r = Recurrence(G0; modifiers = (TracedPairs(a[1]), TracedMean(a[2])))
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
+    T1, T2 = tr.modifiers
+    return sum(WS4 .* log.(y)) + sum(WS4[1:2, :] .* T1) + sum(W1' .* T2)
 end
 
 # The ward's flows, each flow's amount per stratum and step.
@@ -1097,7 +1336,7 @@ function _trace_ward(w, θ)
     )
     ward = _ward(confirm, ruleout, only(discharge), transfer)
     r = Recurrence([1.0]; modifiers = (ward,))
-    y, tr = w(r)(; history = zeros(2S, 1), add = adm, stop = T, trace = true)
+    y, tr = returning_trace(w(r); history = zeros(2S, 1), add = adm, stop = T)
     return sum([WS; WS] .* y) + sum([WS; WS; WS; WS] .* only(tr.modifiers))
 end
 
@@ -1125,7 +1364,7 @@ function _trace_budget(w, θ)
         CR.Truncate(; overflow = :queue); pools = (B = PerStratum(collect(init)),)
     )
     r = Recurrence(PerStratum(GCAP); modifiers = (doses,))
-    y, tr = w(r)(exp.(logR); history = exp.(logh), trace = true)
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
     return sum(WS .* y) + sum([WS; WS; WS] .* only(tr.modifiers))
 end
 
@@ -1138,6 +1377,39 @@ function _effective_reproduction(w, θ)
     r = Recurrence(G0; coupling = K0, modifiers = (d,))
     y = w(r)(exp.(logR); history = h)
     return sum(WS .* y ./ ComposableRecurrences.pressure(r, y; history = h))
+end
+
+# The same from the pressures the run's trace records, so with no second
+# pass.
+function _effective_reproduction_trace(w, θ)
+    logh, logR = _unpack(θ, (S, L), (S, T))
+    d = ComposableRecurrences.Depletion(PerStratum(POP))
+    r = Recurrence(G0; coupling = K0, modifiers = (d,))
+    y, tr = returning_trace(w(r), exp.(logR); history = exp.(logh))
+    return sum(WS .* y ./ tr.pressure) + sum(WS .* log.(tr.pressure))
+end
+
+# The pressures the trace records under a scalar and a diagonal coupling,
+# for one series, and for a run with no input and an integer coefficient,
+# which records no convolutions for the reverse pass but its pressures.
+function _pressure_trace_shapes(w, θ)
+    g, logh, logR, κ, ϵ = _unpack(θ, (L,), (S, L), (S, T), (1,), (S, T))
+    h, x = exp.(logh), exp.(logR)
+    d = CR.Depletion(PerStratum(POP))
+    scalar = Recurrence(g; coupling = only(κ) * I, modifiers = (d,))
+    y1, tr1 = returning_trace(w(scalar), x; history = h)
+    diagonal = Recurrence(
+        g; coupling = Diagonal(only(κ) .* [1.0, 0.8, 1.2]), modifiers = (d,)
+    )
+    y2, tr2 = returning_trace(w(diagonal), x; history = h)
+    series = Recurrence(g; modifiers = (CR.Depletion(POP[1]),))
+    y3, tr3 = returning_trace(w(series), x[1, :]; history = h[1, :])
+    integer = Recurrence(g; coupling = Diagonal([1, 2, 1]))
+    y4, tr4 = returning_trace(w(integer); history = h, add = ϵ)
+    return sum(WS .* log.(tr1.pressure)) + sum(WS .* log.(y1)) +
+        sum(WS .* log.(tr2.pressure)) + sum(WS .* log.(y2)) +
+        sum(W1 .* log.(tr3.pressure)) + sum(W1 .* log.(y3)) +
+        sum(WS .* tr4.pressure) + sum(WS .* y4)
 end
 
 # The relative tolerance of the rule testers in `test_adjoint`. They compare
@@ -1286,6 +1558,14 @@ const _SCENARIOS = [
         ),
     ),
     (
+        "Recurrence Redistribute with a leak", _movement_leak,
+        () -> _flat(
+            G0, [0.0 0.4 0.2; 0.5 0.0 0.3; 0.3 0.4 0.0],
+            [0.1 + 0.01 * k + 0.005 * t for k in 1:S, t in 1:T],
+            fill(log(5.0), S, L), LOGR,
+        ),
+    ),
+    (
         "Recurrence Redistribute of a movement read from recent outputs",
         _movement_recent,
         () -> _flat(
@@ -1416,12 +1696,17 @@ const _SCENARIOS = [
         () -> _flat(zeros(S, L), LOGR, W1 .- 1, [0.8], 0.5 .* WS),
     ),
     (
-        "Recurrence Redistribute, Add and Clamp", _clamp_redistribute_add,
+        "Recurrence Redistribute, Transform(+) and Transform(clamp)",
+        _clamp_redistribute_add,
         () -> zero(CRA0),
     ),
     (
         "Recurrence capacity, beds with overflow", _capacity_beds,
         () -> zero(CAPS0),
+    ),
+    (
+        "Recurrence bed cap with a stay that is not geometric",
+        _bed_cap_any_stay, () -> zero(BEDCAP0),
     ),
     (
         "Recurrence capacity, weekly budget with a queue", _capacity_budget,
@@ -1432,12 +1717,24 @@ const _SCENARIOS = [
         () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
     ),
     (
+        "Recurrence trace through a sparse coupling", _trace_sparse,
+        () -> _flat(KS.nzval, fill(log(5.0), S, L), 0.3 .+ LOGR, [0.1, 0.2, 0.05]),
+    ),
+    (
         "Recurrence trace of a protected pool", _trace_pool,
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3]),
     ),
     (
         "Recurrence trace of pointwise modifiers", _trace_pointwise,
         () -> _flat(zeros(S, L), 0.3 .+ LOGR, [0.6]),
+    ),
+    (
+        "Recurrence default traces of user modifiers", _trace_user_default,
+        () -> _flat(zeros(S4, L), 0.3 .+ LOGR4, [0.6, 0.8]),
+    ),
+    (
+        "Recurrence user traces on groups and over the whole step",
+        _trace_user_written, () -> _flat(zeros(S4, L), 0.3 .+ LOGR4, [0.8, 0.3]),
     ),
     (
         "Recurrence trace of a ward's flows", _trace_ward,
@@ -1450,6 +1747,16 @@ const _SCENARIOS = [
     (
         "Recurrence effective reproduction number from its pressure",
         _effective_reproduction, () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR),
+    ),
+    (
+        "Recurrence effective reproduction number from its trace",
+        _effective_reproduction_trace,
+        () -> _flat(fill(log(5.0), S, L), 0.3 .+ LOGR),
+    ),
+    (
+        "Recurrence pressure from its trace, by coupling and with no input",
+        _pressure_trace_shapes,
+        () -> _flat(G0, zeros(S, L), 0.3 .+ LOGR, [0.9], fill(0.5, S, T)),
     ),
     (
         "Recurrence capacity, dropped overflow after a truncated draw",
@@ -1724,12 +2031,12 @@ const _PROBES = Dict{Symbol, Function}(
         )
         return ext !== nothing && isdefined(ext, :_LocalTag)
     end,
-    # A call resumed from a returned state also returns the next state.
+    # A call resumed from a returned state.
     :resume_state => () -> _accepts(
         function ()
             r = Recurrence([0.5])
             _, st = returning_state(r, ones(2); history = [1.0], stop = 1)
-            return _, _ = r(ones(2); state = st)
+            return resumed(r, ones(2); state = st)
         end
     ),
     # Delays on lags of a width other than one unit.
@@ -1755,21 +2062,29 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence dense coupling, Redistribute and imports as Matrix" =>
         (:_AllocateImports,),
     "Recurrence Redistribute of a time-varying movement" => (:_kernel_movement,),
-    "Recurrence Redistribute, Add and Clamp" => (:_kernel_movement,),
+    "Recurrence Redistribute with a leak" => (:_kernel_movement,),
+    "Recurrence Redistribute, Transform(+) and Transform(clamp)" => (:_kernel_movement,),
     # A movement read from a parameter at each step came with `_intensity`.
     "Recurrence Redistribute of a movement read from recent outputs" =>
         (:_kernel_movement, :_intensity, :Recent),
     "Recurrence capacity, beds with overflow" => (:pool_fill,),
     "Recurrence capacity, weekly budget with a queue" => (:pool_fill,),
     "Recurrence trace of the importation (Redistribute)" => (:Trace,),
+    "Recurrence trace through a sparse coupling" => (:Trace,),
     "Recurrence trace of a protected pool" => (:Trace, :depletion_pools),
     # A trace written in place, with `forward!`.
     "Recurrence trace of pointwise modifiers" => (:_trace_series,),
+    # User modifiers' traces on groups and over the whole step, with their
+    # own pullbacks, as `blocks` declares the groups.
+    "Recurrence default traces of user modifiers" =>
+        (:_trace_series, :blocks, :depletion_pools),
+    "Recurrence user traces on groups and over the whole step" =>
+        (:_trace_series, :blocks),
     "Recurrence trace of a ward's flows" => (:Trace, :depletion_pools),
     "Recurrence trace of a weekly budget with a queue" => (:Trace, :pool_fill),
     "Recurrence capacity, dropped overflow after a truncated draw" => (:pool_fill,),
     "Recurrence depletion with truncated draws" => (:Truncate,),
-    "Recurrence depletion with smoothly truncated draws" => (:SoftTruncate,),
+    "Recurrence depletion with smoothly truncated draws" => (:_SoftTruncate,),
     "Recurrence vaccination into a protected pool" => (:depletion_pools,),
     "Recurrence ward with competing flows (Depletion without a draw)" => (:depletion_pools,),
     "Recurrence ward with competing flows, from the parameters as given" =>
@@ -1785,6 +2100,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence routes folded on scaled identities" => (:_Routes,),
     "Recurrence with a buffer deeper than the kernel" => (:depth,),
     "Recurrence feedback from recent outputs" => (:Recent,),
+    "Recurrence bed cap with a stay that is not geometric" => (:Recent, :Transform),
     "Recurrence removals from recent outputs" => (:Recent,),
     "Recurrence routes in a buffer deeper than the kernels" => (:_Routes, :depth),
     # The coupling on `Recent` came after `Recent`.
@@ -1839,6 +2155,34 @@ end
     return nothing
 end
 
+"""
+A pool per stratum that starts at `N` and caps each value at what is left
+of it, without a `pullback!` for its `Init` or its step.
+"""
+struct Pool{N}
+    N::N
+end
+@pointwise Pool
+if IN_PLACE
+    function ComposableRecurrences.forward!(
+            m::Pool, ::ComposableRecurrences.Init, s, history
+        )
+        for k in eachindex(s)
+            s[k] = ComposableRecurrences.param(m.N, k, 1)
+        end
+        return nothing
+    end
+    function ComposableRecurrences.forward!(
+            m::Pool, ::ComposableRecurrences.Step, v, s, t
+        )
+        for k in eachindex(v, s)
+            x = min(v[k], s[k])
+            v[k], s[k] = x, s[k] - x
+        end
+        return nothing
+    end
+end
+
 "Saturation at a per-stratum `κ`, scaled by a time-varying `β`."
 struct StrataCap{K, B}
     κ::K
@@ -1875,6 +2219,26 @@ function _strata_modifier(w, θ)
     logh, logR, logκ, β = _unpack(θ, (S, L), (S, T), (S,), (T,))
     m = StrataCap(PerStratum(exp.(logκ)), TimeVarying(β))
     r = Recurrence(G0; coupling = K0, modifiers = (m,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# A pointwise modifier with its own `Init` and no `pullback!`: the `Init`
+# derivative is taken stratum by stratum. A stratum whose pool runs out
+# gives zeros, so the loss takes `log1p`.
+function _pool_init(w, θ)
+    logh, logR, logN = _unpack(θ, (S, L), (S, T), (S,))
+    r = Recurrence(G0; coupling = K0, modifiers = (Pool(PerStratum(exp.(logN))),))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log1p.(y))
+end
+
+# A blockwise modifier without a `pullback!`, with a per-stratum parameter
+# read through `param` at its group: the local derivative seeds one group's
+# value, state and parameter entry at a time.
+function _block_modifier(w, θ)
+    logh, logR, a = _unpack(θ, (S, L), (S, T), (S,))
+    r = Recurrence(G0; coupling = K0, modifiers = (AddMean(PerStratum(a)),))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
@@ -1977,6 +2341,20 @@ end
     return nothing
 end
 
+"""
+The values rescaled so that they sum to `total[t]`, with `total` held as a
+vector over time and indexed by the step.
+"""
+struct Renorm{A}
+    total::A
+end
+@in_place function ComposableRecurrences.forward!(
+        m::Renorm, ::ComposableRecurrences.Step, v, s, t
+    )
+    v .*= m.total[t] / sum(v)
+    return nothing
+end
+
 function _whole_step_scalars(w, θ)
     logh, logR, p = _unpack(θ, (S, L), (S, T), (2,))
     r = Recurrence(G0; coupling = K0, modifiers = (ZoneMix(p[1], p[2]),))
@@ -1986,6 +2364,16 @@ end
 function _whole_step_array(w, θ)
     logh, logR, a = _unpack(θ, (S, L), (S, T), (S,))
     r = Recurrence(G0; modifiers = (StrataScale(a), ZoneMix(0.2, 0.5)))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
+# A whole-step modifier without a `pullback!` that reads one entry of a
+# vector over time each step: the local derivative seeds that entry rather
+# than all of them.
+function _whole_step_reads(w, θ)
+    logh, logR, logtot = _unpack(θ, (S, L), (S, T), (T,))
+    r = Recurrence(G0; coupling = K0, modifiers = (Renorm(exp.(logtot)),))
     y = w(r)(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
 end
@@ -2020,6 +2408,9 @@ end
 # zero, run from an empty history, so the first step's values sit at the
 # tie. The local derivative must take the branch the step takes: the other
 # divides zero by zero.
+# Without `_reads_fewer` its 61 parameters send the call to plain AD
+# (`backend_plain_scenarios`); the five-step balance below keeps the local
+# step at the tie there too.
 "A bed occupancy balance over four pools, each field typed."
 struct OccupancyBalance{A, B, D, R, O, K, H}
     A_bvd::A
@@ -2072,6 +2463,25 @@ function _occupancy(w, θ)
     return sum(WO .* (view(Y, 1, :) .+ view(Y, 2, :) .+ view(Y, 3, :)))
 end
 
+# The same balance over its first five steps: without `_reads_fewer`, its
+# local derivative seeds every array entry, 39 inputs, within two passes of
+# dual numbers, so on Mooncake the call takes the rule and the local step
+# meets the tie end to end.
+const TS = 5
+const OCC0_SHORT = _flat(A_BVD[1:TS], [0.1], CONF_HAZARD[1:TS])
+const A_BG_SHORT, DEATHS_SHORT, RECOVER_SHORT, RULEOUT_SHORT, WO_SHORT =
+    A_BG[1:TS], DEATHS[1:TS], RECOVER[1:TS], RULEOUT[1:TS], WO[1:TS]
+function _occupancy_short(w, θ)
+    A_bvd, κ, conf_hazard = _unpack(OCC0_SHORT .+ θ, (TS,), (1,), (TS,))
+    m = OccupancyBalance(
+        A_bvd, A_BG_SHORT, DEATHS_SHORT, RECOVER_SHORT, RULEOUT_SHORT,
+        only(κ), conf_hazard
+    )
+    r = Recurrence([1.0]; modifiers = (m,))
+    Y = w(r)(; history = zeros(4, 1), stop = TS)
+    return sum(WO_SHORT .* (view(Y, 1, :) .+ view(Y, 2, :) .+ view(Y, 3, :)))
+end
+
 push!(
     _SCENARIOS,
     (
@@ -2081,6 +2491,14 @@ push!(
     (
         "Recurrence per-stratum modifier without a pullback", _strata_modifier,
         () -> _flat(zeros(S, L), LOGR, [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
+    ),
+    (
+        "Recurrence pointwise modifier with an Init without a pullback", _pool_init,
+        () -> _flat(zeros(S, L), LOGR, [log(4.0), log(6.0), log(9.0)]),
+    ),
+    (
+        "Recurrence blockwise modifier without a pullback", _block_modifier,
+        () -> _flat(zeros(S, L), LOGR, [0.05, 0.1, 0.2]),
     ),
     (
         "Recurrence user coupling across 30 strata", _user_coupling_wide,
@@ -2113,6 +2531,10 @@ push!(
         () -> _flat(zeros(S, L), LOGR, [0.9, 1.0, 1.1]),
     ),
     (
+        "Recurrence whole-step modifier reading a vector by time", _whole_step_reads,
+        () -> _flat(zeros(S, L), LOGR, [log(3.0) + 0.1 * sin(t) for t in 1:T]),
+    ),
+    (
         "Recurrence checked at the call", _unchecked_parts,
         () -> _flat(zeros(S, L), LOGR, [0.3], [log(2.0), log(3.0), log(4.0)], 1 .+ 0.2 .* W1),
     ),
@@ -2120,12 +2542,19 @@ push!(
         "Recurrence whole-step modifier branching at a tie (occupancy)",
         _occupancy, () -> zero(OCC0),
     ),
+    (
+        "Recurrence whole-step modifier branching at a tie over five steps (occupancy)",
+        _occupancy_short, () -> zero(OCC0_SHORT),
+    ),
 )
 # The local derivatives of a coupling and of array parameters read one
 # entry per step came together.
 _REQUIRES["Recurrence user coupling without a pullback"] = (:_local_pressure!,)
 _REQUIRES["Recurrence user coupling across 30 strata"] = (:_local_pressure!,)
+_REQUIRES["Recurrence pointwise modifier with an Init without a pullback"] =
+    (:_init_strata_back!,)
 _REQUIRES["Recurrence per-stratum modifier without a pullback"] = (:_EntryParam,)
+_REQUIRES["Recurrence blockwise modifier without a pullback"] = (:_block_local_back,)
 # The rule took routes whose couplings have no pullback once they came with
 # a local derivative.
 let name = "Recurrence routes with a user coupling without a pullback"
@@ -2144,12 +2573,18 @@ _REQUIRES["Recurrence checked at the call"] = (:_check_now,)
 # The local derivative of a whole-step modifier.
 _REQUIRES["Recurrence whole-step modifier without a pullback"] = (:_StepDuals,)
 _REQUIRES["Recurrence whole-step modifier holding a vector"] = (:_StepDuals,)
+_REQUIRES["Recurrence whole-step modifier reading a vector by time"] = (:_reads_fewer,)
 # The local derivatives took the step's branch at a tie later.
 _REQUIRES["Recurrence whole-step modifier branching at a tie (occupancy)"] =
+    (:_StepDuals, :local_ties)
+_REQUIRES["Recurrence whole-step modifier branching at a tie over five steps (occupancy)"] =
     (:_StepDuals, :local_ties)
 _REQUIRES["Convolution Poisson delay distribution"] = (:delay_masses,)
 # The pressure recomputed from given outputs.
 _REQUIRES["Recurrence effective reproduction number from its pressure"] = (:pressure,)
+_REQUIRES["Recurrence effective reproduction number from its trace"] = (:_TracedPressure,)
+_REQUIRES["Recurrence pressure from its trace, by coupling and with no input"] =
+    (:_TracedPressure,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
 _REQUIRES["Convolution chain of two delays as masses"] = (:chained_delays,)
 _REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
@@ -2202,7 +2637,10 @@ const _CATEGORIES = (:marginal, :rules)
 const _PRECISIONS = (:all, :double, :single)
 
 """
-    scenarios(; with_reference = false, category = :marginal, precision = :all)
+    scenarios(;
+        with_reference = false, category = :marginal, precision = :all,
+        backend = nothing
+    )
 
 The AD gradient scenarios. Each is a `DIT.Scenario{:gradient, :out}` whose
 `res1` carries a ForwardDiff reference when `with_reference = true`.
@@ -2213,12 +2651,15 @@ backends where the twin takes the same path as its scenario.
 `precision = :single` keeps the scenarios with single-precision parameters
 and `:double` the others, so each set is checked at its own tolerance (see
 `gradient_rtol`).
+With `backend` set to a backend's name, a scenario that takes plain AD on
+that backend by design (see `backend_plain_scenarios`) keeps no twin there,
+since the twin would take the same plain path as its scenario.
 Scenarios the loaded ComposableRecurrences cannot run are left out (see
 `unsupported_scenarios`).
 """
 function scenarios(;
         with_reference::Bool = false, category::Symbol = :marginal,
-        precision::Symbol = :all
+        precision::Symbol = :all, backend::Union{Nothing, String} = nothing
     )
     category in _CATEGORIES || throw(
         ArgumentError(
@@ -2230,8 +2671,12 @@ function scenarios(;
             "unknown precision $(repr(precision)); choose one of $(join(_PRECISIONS, ", "))"
         )
     )
+    plain = isnothing(backend) ? Set{String}() :
+        get(backend_plain_scenarios(), backend, Set{String}())
     twins = filter(_TWINS) do (name, _, _, single)
-        (category === :marginal || !startswith(name, "NoAdjoint ")) &&
+        base = chopprefix(name, "NoAdjoint ")
+        twin = base != name
+        (category === :marginal || !twin) && !(twin && base in plain) &&
             (precision === :all || single == (precision === :single))
     end
     return map(twins) do (name, f, θ0, _)
@@ -2252,9 +2697,15 @@ The matrix-case losses are closures over constant data (weights,
 populations, kernels), which Enzyme cannot always prove read-only.
 Without the annotation, Enzyme reverse on Julia 1.13 throws an
 `EnzymeMutabilityException` on them.
+
+`Reactant` (Enzyme reverse mode compiled by Reactant) is listed only when
+Reactant is loaded, as it is in `test/reactant/`.
+DifferentiationInterface has no Reactant extension, so `test/reactant/`
+compiles each scenario itself rather than through its `backend`; the AD
+jobs and the benchmark suite do not load Reactant and so never see it.
 """
 function backends()
-    return [
+    list = [
         (name = "ForwardDiff", backend = AutoForwardDiff()),
         (name = "ReverseDiff (tape)", backend = AutoReverseDiff(compile = false)),
         (name = "ReverseDiff (compiled)", backend = AutoReverseDiff(compile = true)),
@@ -2263,7 +2714,31 @@ function backends()
         (name = "Mooncake reverse", backend = AutoMooncake(config = nothing)),
         (name = "Mooncake forward", backend = AutoMooncakeForward()),
     ]
+    if reactant_loaded()
+        push!(
+            list, (
+                name = "Reactant",
+                backend = AutoReactant(; mode = AutoEnzyme(; mode = Enzyme.Reverse)),
+            )
+        )
+    end
+    return list
 end
+
+"Whether Reactant, and with it the package's Reactant extension, is loaded."
+function reactant_loaded()
+    ext = :ComposableRecurrencesReactantExt
+    return Base.get_extension(ComposableRecurrences, ext) !== nothing
+end
+
+"""
+    backend_names()
+
+The names of every backend `backends` can list, Reactant included whether
+or not it is loaded, as a `Set{String}`: the keys the per-backend scenario
+lists may use.
+"""
+backend_names() = union(Set(b.name for b in backends()), Set(["Reactant"]))
 
 function _enzyme(mode)
     return AutoEnzyme(;
@@ -2279,18 +2754,91 @@ broken_scenario_names() = String[]
 Per-backend broken scenario names (`Dict{String, Set{String}}`): the
 scenarios expected to fail on a backend, by backend name.
 
-A compiled ReverseDiff tape keeps the branches taken where it is recorded,
-which the harness does at zero parameters. The ward from its parameters as
-given branches differently there, so its prepared calls on compiled
-ReverseDiff are wrong; the other scenarios start at zero to avoid this.
+`Reactant` lists the scenarios that do not run under Reactant, forward or
+reverse; `test/reactant/` reads it.
 """
 function backend_broken_scenarios()
-    return Dict(
-        "ReverseDiff (compiled)" => Set(
-            ["Recurrence ward with competing flows, from the parameters as given"]
-        ),
-    )
+    return Dict("Reactant" => Set(reduce(vcat, values(REACTANT_BROKEN))))
 end
+
+# The scenarios that do not compile, or compile to wrong values, under
+# Reactant, forward and reverse, by cause (see test/reactant/RESULTS.md).
+# `test/reactant/` runs the scenarios without their twins, so only the
+# scenario names are listed.
+const REACTANT_BROKEN = Dict(
+    # A traced number is not a `Real`, so the checks on a scalar parameter,
+    # a heterogeneity exponent or a softness refuse it.
+    "traced scalar refused by a parameter check" => [
+        "Recurrence depletion with a differentiated heterogeneity",
+        "Recurrence floored depletion with a differentiated heterogeneity",
+        "Recurrence array-field and scalar-field modifiers",
+        "Recurrence vaccination into a protected pool",
+        "Recurrence waning protection (Depletion flows)",
+        "Recurrence pool with twelve flows (over 32 leaves)",
+        "Recurrence two draws on one pool with a flow between",
+        "Recurrence ward with competing flows (Depletion without a draw)",
+        "Recurrence ward with competing flows, from the parameters as given",
+        "Recurrence protected pool in Float32",
+        "Recurrence grouped totals with time-varying imports (Allocate)",
+        "Recurrence empty pool with a differentiated heterogeneity",
+        "Recurrence capacity, beds with overflow",
+        "Recurrence trace of a protected pool",
+        "Recurrence trace of a ward's flows",
+        "Recurrence capacity, dropped overflow after a truncated draw",
+        "Recurrence depletion with smoothly truncated draws",
+    ],
+    # `Recent` and `Derived` have no arithmetic with, or constructor from,
+    # traced values.
+    "Recent or Derived built from traced values" => [
+        "Recurrence Redistribute of a movement read from recent outputs",
+        "Recurrence removals from recent outputs",
+        "Recurrence Derived modifier parameters",
+        "Recurrence feedback from recent outputs",
+        "Recurrence feedback from recent outputs across strata",
+        "Recurrence bed cap with a stay that is not geometric",
+    ],
+    # A modifier field read at the traced step indexes a view with a traced
+    # integer.
+    "modifier field read at a traced step" => [
+        "Recurrence per-stratum modifier without a pullback",
+        "Recurrence modifier with a vector field read by time",
+        "Recurrence checked at the call",
+        "Recurrence whole-step modifier branching at a tie (occupancy)",
+        "Recurrence whole-step modifier branching at a tie over five steps (occupancy)",
+    ],
+    "sparse coupling from traced values" => [
+        "Recurrence sparse coupling",
+        "Recurrence routes, dense and sparse",
+        "Recurrence routes in a buffer deeper than the kernels",
+        "Recurrence trace through a sparse coupling",
+    ],
+    "ragged kernel" => [
+        "Convolution ragged kernel truncated at the horizon",
+        "Convolution ragged kernel of views into the parameters",
+        "Recurrence ragged Primary kernel",
+    ],
+    "Distributions or delay masses from traced parameters" => [
+        "Convolution Poisson delay distribution",
+        "Convolution Poisson delay distribution on a step of two units",
+        "Convolution chain of two delays as masses",
+        "Recurrence negative binomial generation interval per stratum",
+    ],
+    "trace recorded into a traced buffer" => [
+        "Recurrence trace of the importation (Redistribute)",
+        "Recurrence trace of a weekly budget with a queue",
+        "Recurrence default traces of user modifiers",
+        "Recurrence user traces on groups and over the whole step",
+    ],
+    "kernel from change points with traced values" => [
+        "Recurrence kernel from change points",
+    ],
+    "lag contributions read a traced number (`_at`)" => [
+        "Convolution lag contributions",
+    ],
+    "a history given as a view, loaded into a Float64 buffer" => [
+        "Recurrence random walk and strata prepending a view history",
+    ],
+)
 
 """
 Per-backend skipped scenario names (`Dict{String, Set{String}}`): the
@@ -2298,20 +2846,52 @@ scenarios too unstable to run at all on a backend, by backend name.
 """
 backend_skip_scenarios() = Dict{String, Set{String}}()
 
+@doc raw"""
+    benchmarked_backends()
+
+The backends `benchmark/benchmarks.jl` times: every backend but ReverseDiff,
+which the AD tests run and the benchmark suite does not.
+"""
+function benchmarked_backends()
+    return filter(e -> !startswith(e.name, "ReverseDiff"), backends())
+end
+
+@doc raw"""
+    exclusion_reason(name, backend)
+
+Why the benchmark suite leaves scenario `name` out on the backend named
+`backend`, or `nothing` when it times the pair.
+"""
+function exclusion_reason(name, backend)
+    name in broken_scenario_names() && return "broken in the registry"
+    name in get(backend_broken_scenarios(), backend, Set{String}()) &&
+        return "broken on this backend in the registry"
+    name in get(backend_skip_scenarios(), backend, Set{String}()) &&
+        return "skipped on this backend in the registry"
+    return nothing
+end
+
 """
 Per-backend scenario names whose call takes plain AD by design, so the
 analytic reverse pass does not run: a coupling's local derivative in two
-passes of dual numbers is a rule on Mooncake only, as is a whole-step
-modifier's that takes more than one pass.
+passes of dual numbers is a rule on Mooncake only, and one in more than two
+passes is plain AD on every backend.
+The occupancy balance's whole-step modifier reads one entry of each of its
+six arrays a step, so with `_reads_fewer` it seeds 15 inputs, one pass,
+and takes the rule on both backends.
+Without it, it seeds its four values, its four states and its 61
+parameters, more than two passes; over five steps it seeds 39, within two.
 """
 function backend_plain_scenarios()
+    coupling = "Recurrence user coupling across 30 strata"
+    supports(:_reads_fewer) && return Dict(
+        "Enzyme reverse" => Set([coupling]), "Mooncake reverse" => Set{String}()
+    )
+    occupancy = "Recurrence whole-step modifier branching at a tie (occupancy)"
+    short = "Recurrence whole-step modifier branching at a tie over five steps (occupancy)"
     return Dict(
-        "Enzyme reverse" => Set(
-            [
-                "Recurrence user coupling across 30 strata",
-                "Recurrence whole-step modifier branching at a tie (occupancy)",
-            ]
-        )
+        "Enzyme reverse" => Set([coupling, occupancy, short]),
+        "Mooncake reverse" => Set([occupancy]),
     )
 end
 

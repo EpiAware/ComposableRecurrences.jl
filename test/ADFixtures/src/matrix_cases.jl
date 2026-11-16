@@ -14,9 +14,11 @@ module MatrixCases
 using ComposableRecurrences
 using ComposableRecurrences: Derived, Recent
 using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
-using LinearAlgebra: I, mul!
+using LinearAlgebra: I, dot, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
-using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion
+using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
+    added, clamped, returning_state, returning_trace, resumed
+using ..ADFixtures: AddMean, AddMeanHand, Pool, Renorm
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -243,7 +245,7 @@ function bvd_patches_call_rule(wrap, g, K, seeds, R, ε, N)
         depletion(CR.PerStratum(N); pool0),
     )
     r = wrap(Recurrence(g; modifiers = mods))
-    y, _ = r(R; history = seeds, start = L + 1, trace = true)
+    y, _ = returning_trace(r, R; history = seeds, start = L + 1)
     return hcat(seeds, y)
 end
 function bvd_patches_call(run)
@@ -377,7 +379,7 @@ function capacity_beds(wrap, z::Size)
         logh, logR, logC = _unpack(θ, (S, L), (S, T), (P,))
         beds = CR.Depletion(
             PerStratum(exp.(logC)), CR.Flow(:O => 0, 0.1; form = CR.Share()),
-            CR.SoftTruncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
+            CR.Truncate(0.1; into = :O, overflow = :stratum); pools = (:O,)
         )
         r = Recurrence(G; modifiers = (beds,))
         return sum(W .* log.(wrap(r)(exp.(logR); history = exp.(logh))))
@@ -478,14 +480,17 @@ function ar(wrap, z::Size)
 end
 
 # A random walk, a unit lag-1 recurrence from a seed with the seed in
-# front, as a latent-process package spells it; `L` is unused.
+# front; `L` is unused. As the loop's loss does, the operator is built once,
+# the seed and innovations are read as views and the seed's term is added
+# apart, so the loss measures the run rather than its own setup.
 function random_walk(wrap, z::Size)
     (; T) = z
     W = [_noise(t, 9) for t in 1:(T + 1)]
+    w0, Wt = W[1], W[2:end]
+    op = wrap(Recurrence([1.0]))
     f = function (θ)
-        walk = wrap(Recurrence([1.0]))(1.0; history = θ[1:1], add = θ[2:end])
-        y = vcat(θ[1:1], walk)
-        return sum(W .* y)
+        walk = op(; history = view(θ, 1:1), add = view(θ, 2:(T + 1)))
+        return w0 * θ[1] + sum(Wt .* walk)
     end
     return f, _flat([0.1], [0.1 * _noise(t, 10) for t in 1:T])
 end
@@ -651,13 +656,24 @@ end
 # binomial probability generating function per stratum, iterated through a
 # generation interval and a mixing matrix.
 _nb_pgf(q, θ) = (θ.p / (1 - (1 - θ.p) * q))^θ.r
+# The partial derivatives of `_nb_pgf` in `q` and in `θ`, in closed form, as
+# the transform tutorial passes them to its `Transform`.
+function _nb_pgf_derivative(q, θ)
+    D = 1 - (1 - θ.p) * q
+    y = (θ.p / D)^θ.r
+    ∂θ = (; r = y * log(θ.p / D), p = y * θ.r * (1 - q) / (θ.p * D))
+    return y * θ.r * (1 - θ.p) / D, ∂θ
+end
 function transform(wrap, z::Size)
     (; T, L, S) = z
     W = _weights(S, T)
     K = S == 1 ? ones(1, 1) : fill(0.2 / (S - 1), S, S) + (0.8 - 0.2 / (S - 1)) * I
     f = function (θ)
         g, r, p = _unpack(θ, (L,), (S,), (S,))
-        m = CR.Transform(_nb_pgf, (; r = PerStratum(r), p = PerStratum(p)))
+        m = CR.Transform(
+            _nb_pgf, (; r = PerStratum(r), p = PerStratum(p));
+            derivative = _nb_pgf_derivative
+        )
         y = wrap(Recurrence(g; coupling = K, modifiers = (m,)))(
             ; history = zeros(S, L), stop = T
         )
@@ -690,13 +706,26 @@ function renewal_imports(wrap, z::Size)
     N = 1.0e5
     f = function (θ)
         g, logh, logR, before, after = _unpack(θ, (L,), (L,), (T,), (T,), (T,))
-        r = Recurrence(g; modifiers = (depletion(N), CR.Add(TimeVarying(after))))
+        r = Recurrence(g; modifiers = (depletion(N), added(TimeVarying(after))))
         y = wrap(r)(exp.(logR); history = exp.(logh), add = before)
         return sum(W .* log.(y))
     end
     ι = [t <= 10 ? 3.0 : 0.1 for t in 1:T]
     logR = [0.05 + 0.05 * _noise(t, 14) for t in 1:T]
     return f, _flat(_gi(L), fill(log(10.0), L), logR, ι, ι)
+end
+
+# A renewal over strata with each value clamped to its stratum's bounds.
+function renewal_clamp(wrap, z::Size)
+    (; T, L, S) = z
+    W = _weights(S, T)
+    R = [1.1 + 0.3 * sin(t / 9 + k) for k in 1:S, t in 1:T]
+    f = function (θ)
+        g, lo, hi = _unpack(θ, (L,), (S,), (S,))
+        r = Recurrence(g; modifiers = (clamped(CR.PerStratum(lo), CR.PerStratum(hi)),))
+        return sum(W .* wrap(r)(R; history = ones(S, L)))
+    end
+    return f, _flat(_gi(L), fill(0.5, S), fill(4.0, S))
 end
 
 # Clinical outcomes as a chain of delays: onsets after infections, then
@@ -725,15 +754,17 @@ function renewal_forecast(wrap, z::Size)
         g, logh, logR = _unpack(θ, (L,), (L,), (T,))
         r = wrap(Recurrence(g))
         R = exp.(logR)
-        fitted, st = r(R; history = exp.(logh), stop = T ÷ 2, state = true)
-        forecast, _ = r(R; state = st)
+        fitted, st = returning_state(r, R; history = exp.(logh), stop = T ÷ 2)
+        forecast = resumed(r, R; state = st)
         return sum(W .* log.(vcat(fitted, forecast)))
     end
     return f, _flat(_gi(L), fill(log(10.0), L), [0.05 * _noise(t, 2) for t in 1:T])
 end
 
 # The effective reproduction number of the towns' depleted run: each day's
-# infections over the renewal sum they come from.
+# infections over the renewal sum they come from, read from the run's trace
+# where the release records it, else from a second pass.
+const TRACE_PRESSURE = isdefined(CR, :_TracedPressure)
 function reproduction(wrap, z::Size)
     (; T, L, S) = z
     pop, K = towns()
@@ -742,6 +773,10 @@ function reproduction(wrap, z::Size)
     f = function (θ)
         g, logR = _unpack(θ, (L,), (S, T))
         r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(PerStratum(pop)),))
+        if TRACE_PRESSURE
+            y, tr = returning_trace(wrap(r), exp.(logR); history = seed)
+            return sum(W .* y ./ tr.pressure)
+        end
         y = wrap(r)(exp.(logR); history = seed)
         sums = K * wrap(Convolution(vcat(zero(eltype(θ)), g)))(y; history = seed)
         return sum(W .* y ./ sums)
@@ -920,6 +955,10 @@ const CASES = [
         "renewal_imports",
         "seeded renewal, hazard depletion, imports before and after",
         renewal_imports, [1], false,
+    ),
+    Case(
+        "renewal_clamp", "renewal over strata, each value clamped to its bounds",
+        renewal_clamp, [1, 5, 20], false,
     ),
     Case(
         "outcome_chain", "onsets, admissions and deaths as a chain of delays",
@@ -1365,12 +1404,9 @@ if isfile(BVD_HANDRULE)
         ]
         I_bar = [20.0 * (1.2 + _noise(t, p + 20)) for p in 1:P, t in 1:T]
         force_pre = [10.0 * exp(-0.1 * t) for p in 1:P, t in 1:T]
-        # The pre-grid force of each zone's patch, as the rule arm reads it.
+        # The pre-grid force of each zone's patch, zones × days.
         zone_pre = force_pre[patch_of, :]
-        return (;
-            I_bar, g = _gi(L), force_pre, zone_pre, within, between, groups,
-            patch_of,
-        )
+        return (; I_bar, g = _gi(L), zone_pre, within, between, groups, patch_of)
     end
     function _bvd_zones(run)
         return function (wrap, z::Size)
@@ -1378,9 +1414,13 @@ if isfile(BVD_HANDRULE)
             d = _zone_data(z)
             P = length(d.groups)
             W = _weights(T, S)
+            # Both arms take the gain and the pre-grid drive formed here, so
+            # each times only its own run.
             f = function (θ)
                 δ, w0, ε, φ, ow = _unpack(θ, (T, S), (S,), (S,), (P, T), (S,))
-                return sum(W .* log.(run(wrap, δ, w0, ε, φ, ow, d)))
+                gain = exp.(permutedims(δ))
+                add = gain .* w0 .* d.zone_pre
+                return sum(W .* log.(run(wrap, gain, add, ε, φ, ow, d)))
             end
             θ = _flat(
                 [0.1 * _noise(t, k + 21) for t in 1:T, k in 1:S],
@@ -1391,10 +1431,8 @@ if isfile(BVD_HANDRULE)
             return f, θ
         end
     end
-    function _bvd_zones_rule(wrap, δ, w0, ε, φ, ow, d)
-        S = size(δ, 2)
-        gain = exp.(permutedims(δ))
-        add = gain .* w0 .* d.zone_pre
+    function _bvd_zones_rule(wrap, gain, add, ε, φ, ow, d)
+        S = size(gain, 1)
         split = CR.Allocate(
             d.groups, TimeVarying(PerStratum(d.I_bar));
             imports = (TimeVarying(PerStratum(φ)), d.between .* permutedims(ow)),
@@ -1404,12 +1442,104 @@ if isfile(BVD_HANDRULE)
         return permutedims(wrap(r)(gain; history = zeros(S, 1), add))
     end
     function _bvd_zones_hand(kernel)
-        return function (wrap, δ, w0, ε, φ, ow, d)
+        return function (wrap, gain, add, ε, φ, ow, d)
             return kernel(
-                collect(δ), collect(w0), collect(ε), collect(φ), collect(ow),
-                d.I_bar, d.g, d.force_pre, d.within, d.between, d.groups
+                collect(gain), collect(add), collect(ε), collect(φ),
+                collect(ow), d.I_bar, d.g, d.within, d.between, d.groups
             )
         end
+    end
+
+    # Computed kernels, each cohort's weights walked against a hazard:
+    # admissions confirmed and still present, two discharge flows thinned
+    # by absconding (a survival whose hazard is itself a survival), and the
+    # report-delay CDF table of each onset date.
+    function _bvd_two_clock(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(T)
+            f = function (θ)
+                A, h, S = _unpack(θ, (T,), (T,), (L,))
+                return sum(W .* run(wrap, A, h, S))
+            end
+            θ = _flat(
+                [50.0 + 40.0 * _noise(t, 31) for t in 1:T],
+                [0.1 + 0.05 * _noise(t, 32) for t in 1:T],
+                exp.(-0.05 .* (0:(L - 1)))
+            )
+            return f, θ
+        end
+    end
+    function _bvd_two_clock_rule(wrap, A, h, S)
+        confirmed = S * (1 - CR.Survival(TimeVarying(h); from = 1))
+        return wrap(Convolution(TimeVarying(confirmed, CR.Primary())))(A)
+    end
+    function _bvd_two_clock_hand(kernel)
+        return (wrap, A, h, S) -> kernel(collect(A), collect(h), collect(S))
+    end
+
+    function _bvd_abscond(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(2, T)
+            f = function (θ)
+                adm, pmf, κ, h = _unpack(θ, (T, 2), (L, 2), (1,), (T,))
+                return sum(W .* permutedims(run(wrap, adm, pmf, κ[1], h)))
+            end
+            # The second flow's delay is shorter, padded with zeros.
+            L2 = cld(7 * L, 10)
+            pmf = [
+                k == 1 || d < L2 ? exp(-(0.1 + 0.05 * k) * d) : 0.0
+                    for d in 0:(L - 1), k in 1:2
+            ]
+            θ = _flat(
+                [30.0 + 20.0 * _noise(t, k + 33) for t in 1:T, k in 1:2],
+                pmf ./ sum(pmf; dims = 1), [0.05],
+                [0.1 + 0.05 * _noise(t, 36) for t in 1:T]
+            )
+            return f, θ
+        end
+    end
+    # The package reads lag `d`'s hazard on the day it lands, the backend
+    # the day before, so the port shifts the hazard by a day.
+    function _bvd_abscond_rule(wrap, adm, pmf, κ, h)
+        h1 = vcat(h[1:1], h[1:(end - 1)])
+        stay = CR.Survival(κ * CR.Survival(TimeVarying(h1); from = 1); from = 1)
+        kernel = TimeVarying(PerStratum(permutedims(pmf)) * stay, CR.Primary())
+        # The flows are strata, so the input is flows × days.
+        return permutedims(wrap(Convolution(kernel))(permutedims(adm)))
+    end
+    function _bvd_abscond_hand(kernel)
+        return function (wrap, adm, pmf, κ, h)
+            return kernel(collect(adm), collect(pmf), κ, collect(h))
+        end
+    end
+
+    _logistic_sum(a, b) = BVD._logistic(a + b)
+    function _bvd_onset(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(L, T)
+            f = function (θ)
+                z0, γ = _unpack(θ, (L,), (T + L - 1,))
+                return sum(W .* run(wrap, z0, γ, T))
+            end
+            θ = _flat(
+                [-3.0 + 0.5 * _noise(j, 37) for j in 1:L],
+                [0.2 * _noise(t, 38) for t in 1:(T + L - 1)]
+            )
+            return f, θ
+        end
+    end
+    # `kernel_weights` as the operator it routes through, so `NoAdjoint`
+    # can wrap it.
+    function _bvd_onset_rule(wrap, z0, γ, nu)
+        hazard = CR.Derived(_logistic_sum, z0, TimeVarying(γ))
+        kernel = TimeVarying(1 - CR.Survival(hazard), CR.Primary())
+        return wrap(CR._KernelWeights(kernel))(nu)
+    end
+    function _bvd_onset_hand(kernel)
+        return (wrap, z0, γ, nu) -> kernel(collect(z0), collect(γ), nu)
     end
 
     for (name, description, loss, rule, hand, kernels, strata) in (
@@ -1432,6 +1562,24 @@ if isfile(BVD_HANDRULE)
                 "bvd_zones", "BVD zone_share_renewal: split with imports and a spill",
                 _bvd_zones, _bvd_zones_rule, _bvd_zones_hand,
                 (BVD.zone_loop, BVD.zone_infections), [5, 64],
+            ),
+            (
+                "bvd_two_clock",
+                "BVD two_clock_confirmed: a computed survival kernel",
+                _bvd_two_clock, _bvd_two_clock_rule, _bvd_two_clock_hand,
+                (BVD.two_clock_loop, BVD.two_clock_confirmed), [1],
+            ),
+            (
+                "bvd_abscond",
+                "BVD abscond_thinned_flows: a nested survival kernel",
+                _bvd_abscond, _bvd_abscond_rule, _bvd_abscond_hand,
+                (BVD.abscond_loop, BVD.abscond_thinned_flows), [1],
+            ),
+            (
+                "bvd_onset",
+                "BVD onset_report_cdf_table: computed kernel weights",
+                _bvd_onset, _bvd_onset_rule, _bvd_onset_hand,
+                (BVD.onset_table_loop, BVD.onset_report_cdf_table), [1],
             ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
@@ -1491,6 +1639,278 @@ if isfile(BVD_HANDRULE)
     push!(TIERS["realistic"].strata, 11, 64)
     push!(TIERS["docs"].strata, 11)
     REQUIRES["bvd_zones"] = (:_AllocateImports,)
+end
+
+# The BVDOutbreakSize bed occupancy balance as that backend's port spells it:
+# three pools carried forward by one `Depletion`, with share flows,
+# admissions and rule-outs as counts, and two discharge drains that split
+# each day's discharges by the previous day's pools (`Derived` over
+# `Recent(1)` reads), then a floor.
+const BVD_REFERENCES = joinpath(
+    @__DIR__, "..", "..", "usecases", "references"
+)
+if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
+    include(joinpath(BVD_REFERENCES, "bvd.jl"))
+    include(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
+    using .BVDReference: BVDReference as BVDRef
+
+    # The confirmed share of the day's discharges `b`, off the previous
+    # day's unconfirmed and confirmed pools `u` and `c`; the test is asked of
+    # `abs2`, whose derivative at zero is zero, so a dual number does not
+    # break the tie and divide zero by zero.
+    function _occ_conf_share(b, u, c)
+        s = u + c
+        return abs2(s) > zero(s) ? b * (c / s) : zero(b * s)
+    end
+    _occ_unconf_left(u, A, h, κ, o) = u * (1 - κ - h) + A - o
+    _occ_conf_left(u, c, h, o) = c + h * u - o
+    # Each true-case pool's discharges: its share, plus the other pool's
+    # overshoot below zero, so the total true-case stock takes the floor.
+    # Both drains take the port's one argument tuple, so the first takes
+    # `A` and `κ` without reading them.
+    function _occ_unconf_discharges(b, u, c, A, h, κ)
+        oc = _occ_conf_share(b, u, c)
+        return (b - oc) + max(-_occ_conf_left(u, c, h, oc), zero(oc))
+    end
+    function _occ_conf_discharges(b, u, c, A, h, κ)
+        oc = _occ_conf_share(b, u, c)
+        return oc + max(-_occ_unconf_left(u, A, h, κ, b - oc), zero(oc))
+    end
+    function _bvd_occupancy_rule(wrap, A_bvd, A_bg, deaths, recover, ruleout, κ, h)
+        n = length(A_bvd)
+        T = promote_type(
+            eltype(A_bvd), eltype(A_bg), eltype(deaths), eltype(recover),
+            eltype(ruleout), typeof(κ), eltype(h)
+        )
+        bvd_out = TimeVarying(deaths .+ recover)
+        adm = TimeVarying(A_bvd)
+        hz = TimeVarying(h)
+        conf = Recent(1; coupling = [0.0 1.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0])
+        args = (bvd_out, Recent(1), conf, adm, hz, κ)
+        flows = CR.Depletion(
+            CR.Flow(:unconf => :conf, Derived(identity, hz); form = CR.Share()),
+            CR.Flow(:unconf => 0, κ; form = CR.Share()),
+            CR.Flow(:bg => 0, κ; form = CR.Share()),
+            CR.Flow(0 => :unconf, adm; form = CR.Truncate()),
+            CR.Flow(0 => :bg, TimeVarying(A_bg); form = CR.Truncate()),
+            CR.Flow(
+                :unconf => 0, Derived(_occ_unconf_discharges, args...);
+                form = CR.Truncate()
+            ),
+            CR.Flow(
+                :conf => 0, Derived(_occ_conf_discharges, args...);
+                form = CR.Truncate()
+            ),
+            CR.Flow(:bg => 0, TimeVarying(ruleout); form = CR.Truncate());
+            pools = (:unconf, :conf, :bg)
+        )
+        floor_ = CR.Transform(clamp, zero(T), T(Inf))
+        r = Recurrence([true]; modifiers = (flows, floor_))
+        Y = wrap(r)(; history = zeros(T, 3, 1), stop = n)
+        O_conf = Y[2, :]
+        O_bvd = Y[1, :] .+ O_conf
+        O_bg = Y[3, :]
+        O_susp = Y[1, :] .+ O_bg
+        abscond = κ .* vcat(zero(eltype(Y)), O_susp[1:(end - 1)])
+        return (; demand = O_bvd .+ O_bg, O_bvd, O_conf, O_susp, abscond)
+    end
+    function _bvd_occupancy_hand(kernel)
+        return function (wrap, A_bvd, A_bg, deaths, recover, ruleout, κ, h)
+            return kernel(
+                collect(A_bvd), collect(A_bg), collect(deaths), collect(recover),
+                collect(ruleout), κ, collect(h)
+            )
+        end
+    end
+    _occ_loop(args...) = BVDRef._accumulate_occupancy(Val(false), args...)
+    # A delay of `L` days lag 0 first, on the backend's admission shapes.
+    function _occ_delay(L, seed)
+        p = [1.1 + _noise(d, seed) for d in 1:L]
+        return p ./ sum(p)
+    end
+    # The backend's production shapes: admissions peaking mid-run, deaths
+    # and recoveries delayed from them, rule-outs delayed from the non-case
+    # admissions, and a confirmation hazard that rises and falls weekly.
+    # Discharges are 0.8 of admissions, not all of them, so no pool drains
+    # to its floor at zero, where the port and the hand loop break the tie
+    # on opposite sides.
+    function _bvd_occupancy(run)
+        return function (wrap, z::Size)
+            (; T) = z
+            # One weight vector per output, built outside the loss, and `dot`
+            # rather than a broadcast sum: at T 220 Mooncake's loss overhead
+            # is about 38 µs a call this way against 96 µs with row slices
+            # and broadcast sums, beside the backend's rule's 8 µs.
+            Wm = _weights(5, T)
+            W1, W2, W3, W4, W5 = (Wm[k, :] for k in 1:5)
+            f = function (θ)
+                A_bvd, A_bg, deaths, recover, ruleout, κ, h = _unpack(
+                    θ, (T,), (T,), (T,), (T,), (T,), (1,), (T,)
+                )
+                y = run(wrap, A_bvd, A_bg, deaths, recover, ruleout, κ[1], h)
+                return dot(W1, y.demand) + dot(W2, y.O_bvd) + dot(W3, y.O_conf) +
+                    dot(W4, y.O_susp) + dot(W5, y.abscond)
+            end
+            days = 1:T
+            A_bvd = @. 20 * exp(-((days - T / 2) / 20)^2) + 0.5
+            A_bg = @. 30 * exp(-((days - T / 2) / 30)^2) + 2.0
+            θ = _flat(
+                A_bvd, A_bg,
+                BVDRef.convolve_delay(0.3 .* A_bvd, _occ_delay(15, 41)),
+                BVDRef.convolve_delay(0.5 .* A_bvd, _occ_delay(20, 42)),
+                BVDRef.convolve_delay(0.8 .* A_bg, _occ_delay(8, 43)), [0.02],
+                @. 0.1 + 0.3 * abs(sin(days / 7))
+            )
+            return f, θ
+        end
+    end
+    push!(
+        CASES,
+        Case(
+            "bvd_occupancy",
+            "BVD accumulate_occupancy: pools, share and count flows, Derived drains",
+            _bvd_occupancy(_bvd_occupancy_rule), [1], false,
+        ),
+    )
+    BASELINES["bvd_occupancy"] = [
+        "loop" => z -> _bvd_occupancy(_bvd_occupancy_hand(_occ_loop))(identity, z),
+        "handrule" => z -> _bvd_occupancy(
+            _bvd_occupancy_hand(BVDRef.accumulate_occupancy)
+        )(identity, z),
+    ]
+    push!(TIERS["realistic"].cases, "bvd_occupancy")
+end
+
+# The tutorials' hand loops with hand-written Mooncake rules: a `handrule`
+# arm beside each `loop` arm, with the same loss. Skipped where the file is
+# absent (a copied fixture package).
+const TUTORIAL_HANDRULE = joinpath(
+    @__DIR__, "..", "..", "..", "benchmark", "tutorial_handrule.jl"
+)
+# `HAND_RULE_CASES` in `benchmark/matrix_report.jl` repeats this list, since
+# the report runs without loading `MatrixCases`; a case added here goes there
+# too.
+"The cases with a `handrule` arm from `benchmark/tutorial_handrule.jl`."
+const TUTORIAL_HANDRULE_CASES = String[]
+if isfile(TUTORIAL_HANDRULE)
+    include(TUTORIAL_HANDRULE)
+    using .TutorialHandRule: TutorialHandRule as TH
+
+    function _handrule_arm(case, run)
+        arm = _tutorial_baseline(case.loss, run)
+        push!(BASELINES[case.name], "handrule" => arm)
+        push!(TUTORIAL_HANDRULE_CASES, case.name)
+        return nothing
+    end
+    _case(name) = only(c for c in CASES if c.name == name)
+
+    _handrule_arm(
+        _case("ar"), function (z)
+            W = _weights(z.T)
+            return function (θ)
+                φ, h, ϵ = _unpack(θ, (2,), (2,), (z.T,))
+                y = TH.ar2_handrule(collect(φ), collect(h), collect(ϵ))
+                return sum(W .* y)
+            end
+        end
+    )
+    _handrule_arm(
+        _case("renewal_depletion"), function (z)
+            (; T, L) = z
+            W = _weights(T)
+            return function (θ)
+                g, logh, logR = _unpack(θ, (L,), (L,), (T,))
+                y = TH.depletion_handrule(
+                    collect(g), exp.(logh), exp.(logR), 1.0e5
+                )
+                return sum(W .* log.(y))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("renewal_imports"), function (z)
+            (; T, L) = z
+            W = _weights(T)
+            return function (θ)
+                g, logh, logR, before, after = _unpack(
+                    θ, (L,), (L,), (T,), (T,), (T,)
+                )
+                y = TH.imports_handrule(
+                    collect(g), exp.(logh), exp.(logR), collect(before),
+                    collect(after), 1.0e5
+                )
+                return sum(W .* log.(y))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("transform"), function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            K = S == 1 ? ones(1, 1) :
+                fill(0.2 / (S - 1), S, S) + (0.8 - 0.2 / (S - 1)) * I
+            return function (θ)
+                g, r, p = _unpack(θ, (L,), (S,), (S,))
+                y = TH.transform_handrule(
+                    collect(g), K, collect(r), collect(p), T
+                )
+                return sum(W .* y)
+            end
+        end
+    )
+    _handrule_arm(
+        _case("delay_primary"), function (z)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            return function (θ)
+                y = TH.delay_primary_handrule(θ, S, L, T)
+                return sum(W .* y)
+            end
+        end
+    )
+    _handrule_arm(
+        _case("outcome_chain"), function (z)
+            (; T, L) = z
+            W = _weights(T)
+            V = [_noise(t, 15) for t in 1:T]
+            return function (θ)
+                d1, d2, d3, p, x = _unpack(
+                    θ, (L,), (L,), (L,), (2,), (T,)
+                )
+                y = TH.outcomes_handrule(
+                    collect(d1), collect(d2), collect(d3), collect(p),
+                    collect(x)
+                )
+                return sum(W .* view(y, :, 1)) + sum(V .* view(y, :, 2))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("renewal_forecast"), function (z)
+            (; T, L) = z
+            W = _weights(T)
+            return function (θ)
+                g, logh, logR = _unpack(θ, (L,), (L,), (T,))
+                y = TH.forecast_handrule(collect(g), exp.(logh), exp.(logR))
+                return sum(W .* log.(y))
+            end
+        end
+    )
+    _handrule_arm(
+        _case("reproduction"), function (z)
+            (; T, L, S) = z
+            pop, K = towns()
+            seed = overview_seed(S, L)
+            W = _weights(S, T)
+            return function (θ)
+                g, logR = _unpack(θ, (L,), (S, T))
+                y = TH.reproduction_handrule(
+                    collect(g), exp.(logR), seed, K, pop
+                )
+                return sum(W .* y)
+            end
+        end
+    )
 end
 
 # A user coupling and a user modifier with per-stratum parameters, each
@@ -1737,6 +2157,141 @@ if supports(:_read_pullback)
     end
 end
 
+# A blockwise user modifier with a per-stratum parameter, with `forward!`
+# only and with a hand-written `pullback!`: the local derivative runs group
+# by group, its dual numbers as wide as one group's values, state and
+# parameter entry at any number of strata.
+if supports(:_block_local_back)
+    function _custom_modifier_blocks(M)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            f = function (θ)
+                g, logh, logR, a = _unpack(θ, (L,), (S, L), (S, T), (S,))
+                r = Recurrence(g; modifiers = (M(PerStratum(a)),))
+                y = wrap(r)(exp.(logR); history = exp.(logh))
+                return sum(W .* log.(y))
+            end
+            θ = _flat(
+                _gi(L), fill(log(10.0), S, L),
+                [0.05 * _noise(t, k + 13) for k in 1:S, t in 1:T],
+                [0.05 + 0.01 * k for k in 1:S]
+            )
+            return f, θ
+        end
+    end
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_blocks",
+            "renewal across strata with a user blockwise modifier, forward only",
+            _custom_modifier_blocks(AddMean), [1, 5, 20, 50], false,
+        ),
+        Case(
+            "custom_modifier_blocks_pullback",
+            "renewal across strata with a user blockwise modifier and its pullback!",
+            _custom_modifier_blocks(AddMeanHand), [1, 5, 20, 50], false,
+        ),
+    )
+    for name in ("custom_modifier_blocks", "custom_modifier_blocks_pullback")
+        REQUIRES[name] = (:_block_local_back,)
+        for tier in ("smoke", "realistic")
+            push!(TIERS[tier].cases, name)
+        end
+    end
+end
+
+# A whole-step modifier without a `pullback!` that rescales the values to a
+# total read by time from a vector, and the built-in `Allocate` doing the
+# same with one group: the local derivative seeds the one entry each step
+# reads, so its cost does not grow with the number of times.
+if supports(:_reads_fewer)
+    function _renorm_case(build)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            f = function (θ)
+                g, logh, logR, logtot = _unpack(θ, (L,), (S, L), (S, T), (T,))
+                r = Recurrence(g; modifiers = (build(exp.(logtot), S, T),))
+                y = wrap(r)(exp.(logR); history = exp.(logh))
+                return sum(W .* log.(y))
+            end
+            θ = _flat(
+                _gi(L), fill(log(10.0), S, L),
+                [0.05 * _noise(t, k + 14) for k in 1:S, t in 1:T],
+                [log(50.0) + 0.2 * _noise(t, 15) for t in 1:T]
+            )
+            return f, θ
+        end
+    end
+    _renorm_user(tot, S, T) = Renorm(tot)
+    _renorm_builtin(tot, S, T) = CR.Allocate([1:S], TimeVarying(PerStratum(reshape(tot, 1, T))))
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_renorm",
+            "renewal across strata with a user whole-step modifier reading a total by time",
+            _renorm_case(_renorm_user), [5], false,
+        ),
+        Case(
+            "custom_modifier_renorm_allocate",
+            "the same total with the built-in Allocate",
+            _renorm_case(_renorm_builtin), [5], false,
+        ),
+    )
+    for name in ("custom_modifier_renorm", "custom_modifier_renorm_allocate")
+        REQUIRES[name] = (:_reads_fewer,)
+        for tier in ("smoke", "realistic")
+            push!(TIERS[tier].cases, name)
+        end
+    end
+end
+
+# A pointwise modifier without a `pullback!` whose `Init` starts a pool per
+# stratum at `N`, and the built-in `Depletion` with the same pools: the
+# `Init` derivative is taken stratum by stratum, so its cost grows with the
+# number of strata rather than its square.
+if supports(:_init_strata_back!)
+    function _pool_case(build)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            f = function (θ)
+                g, logh, logR, logN = _unpack(θ, (L,), (S, L), (S, T), (S,))
+                r = Recurrence(g; modifiers = (build(PerStratum(exp.(logN))),))
+                y = wrap(r)(exp.(logR); history = exp.(logh))
+                return sum(W .* log1p.(y))
+            end
+            θ = _flat(
+                _gi(L), fill(log(10.0), S, L),
+                [0.05 * _noise(t, k + 16) for k in 1:S, t in 1:T],
+                [log(6.0 * T) + 0.2 * _noise(k, 17) for k in 1:S]
+            )
+            return f, θ
+        end
+    end
+    _pool_builtin(N) = CR.Depletion(N, CR.Floor())
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_pool",
+            "renewal across strata with a user pointwise modifier whose Init starts a pool",
+            _pool_case(Pool), [50], false,
+        ),
+        Case(
+            "custom_modifier_pool_depletion",
+            "the same pools with the built-in Depletion",
+            _pool_case(_pool_builtin), [50], false,
+        ),
+    )
+    for name in ("custom_modifier_pool", "custom_modifier_pool_depletion")
+        REQUIRES[name] = (:_init_strata_back!,)
+        for tier in ("smoke", "realistic")
+            push!(TIERS[tier].cases, name)
+        end
+    end
+end
+
 # A whole-step modifier without a `pullback!`, as a mixed zone split with an
 # occupancy total: the local derivative seeds the values, the state and
 # the scalars, one pass while they fit in 24.
@@ -1782,6 +2337,50 @@ if supports(:_StepDuals)
     REQUIRES["custom_modifier_whole"] = (:_StepDuals,)
     for tier in ("smoke", "realistic")
         push!(TIERS[tier].cases, "custom_modifier_whole")
+    end
+
+    # A whole-step modifier without a `pullback!` holding an `S × S`
+    # matrix: its local derivative seeds `S + S + S²` inputs, more than two
+    # passes of dual numbers (48) from 7 strata.
+    # Of the sizes, 5 strata take `_ad_wide`, and 20 and 50 take plain AD.
+    "The values mixed over the strata by a matrix `M`, `v ← M v`."
+    struct MatrixMix{M}
+        M::M
+    end
+    @in_place function CR.forward!(m::MatrixMix, ::CR.Step, v, s, t)
+        w = m.M * v
+        copyto!(v, w)
+        return nothing
+    end
+
+    function custom_modifier_matrix(wrap, z::Size)
+        (; T, L, S) = z
+        W = _weights(S, T)
+        f = function (θ)
+            g, logh, logR, M = _unpack(θ, (L,), (S, L), (S, T), (S, S))
+            r = Recurrence(g; modifiers = (MatrixMix(M),))
+            y = wrap(r)(exp.(logR); history = exp.(logh))
+            return sum(W .* log.(y))
+        end
+        mix = [0.8 * (i == j) + 0.2 / S for i in 1:S, j in 1:S]
+        θ = _flat(
+            _gi(L), fill(log(10.0), S, L),
+            [0.05 * _noise(t, k + 14) for k in 1:S, t in 1:T], mix
+        )
+        return f, θ
+    end
+
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_matrix",
+            "renewal with a user whole-step modifier holding a mixing matrix",
+            custom_modifier_matrix, [5, 20, 50], false,
+        ),
+    )
+    REQUIRES["custom_modifier_matrix"] = (:_StepDuals,)
+    for tier in ("smoke", "realistic")
+        push!(TIERS[tier].cases, "custom_modifier_matrix")
     end
 end
 

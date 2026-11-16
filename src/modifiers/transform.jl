@@ -31,17 +31,30 @@ local forward-mode derivative of `f`.
 `derivative(v, θ)` returns
 ``(\partial f / \partial v, \partial f / \partial \theta)``, the second
 shaped as ``\theta_{t,i}``.
-Values captured inside `f` (a closure, or a callable struct with float
-fields) are not in ``\theta``: without `derivative` the
-[`Recurrence`](@ref) holding such a map is differentiated by the AD
-backend instead, so they keep their gradients.
+Values captured by `f` (a closure, or a callable struct with float fields)
+are not in ``\theta``, so without `derivative` the AD backend
+differentiates the [`Recurrence`](@ref) holding such a map.
+
+Two maps have their own pullbacks, used unless `derivative` is given.
+`Transform(+, b)` adds ``b_{t,i}`` where it sits in the tuple.
+After a [`ComposableRecurrences.Depletion`](@ref), the added values are
+neither scaled by nor drawn from the pool.
+Alone, `Transform(+, TimeVarying(PerStratum(B)))` gives the values of
+passing `B` as `add`.
+`Transform(clamp, lo, hi)` bounds each value to
+``[\ell_{t,i}, u_{t,i}]``, the parameters `lo` and `hi`, with
+``\ell_{t,i} \le u_{t,i}``.
+Its pullback sends the cotangent to the active bound, or to ``v_i`` when
+neither is.
 
 Scope: [`Recurrence`](@ref); pointwise; analytic adjoint from the local
-forward-mode derivative or `derivative`.
+forward-mode derivative or `derivative`, or a hand-written one for `+` and
+`clamp`.
 
 # Arguments
 - `f`: the map, called as `f(v)` or `f(v, θ)`.
 - `θ`: the parameters, or `nothing`.
+- `lo`, `hi`: with `clamp`, the lower and upper bounds, each a parameter.
 
 # Keyword Arguments
 - `derivative`: the derivative of `f`, or `nothing` for the local one.
@@ -72,16 +85,16 @@ round.(y; digits = 3)
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-# One saturation level per stratum.
-sat = CR.Transform((v, c) -> c * v / (c + v), PerStratum([5.0, 20.0]))
-y = Recurrence([0.5, 0.5]; modifiers = (sat,))(fill(1.5, 2, 6); history = ones(2, 2))
-round.(y; digits = 3)
+# Imports added after the depletion, so not drawn from the pool.
+mods = (CR.Depletion(50.0, CR.Floor()), CR.Transform(+, TimeVarying([1.0, 0.0, 2.0])))
+Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
 
 # output
 
-2×6 Matrix{Float64}:
- 1.154  1.221  1.313  1.377  1.438  1.484
- 1.395  1.648  2.049  2.435  2.879  3.324
+3-element Vector{Float64}:
+ 3.0
+ 2.88
+ 4.598912
 ```
 """
 struct Transform{F, P, D}
@@ -91,14 +104,27 @@ struct Transform{F, P, D}
     θ::P
     "The derivative of `f`, or `nothing` for the local one."
     derivative::D
-    function Transform(f::F, θ::P, derivative::D) where {F, P, D}
+    function Transform{F, P, D}(f::F, θ::P, derivative::D) where {F, P, D}
         _check_theta(θ)
         return new{F, P, D}(f, θ, derivative)
     end
 end
 
 function Transform(f, θ = nothing; derivative = nothing)
-    return Transform(f, θ, derivative)
+    return Transform{typeof(f), typeof(θ), typeof(derivative)}(f, θ, derivative)
+end
+# The bounds are held as `θ = (lo, hi)`, and passed only as `lo, hi`.
+function Transform(::typeof(clamp), lo, hi)
+    θ = (_check_param(:lo, lo), _check_param(:hi, hi))
+    return Transform{typeof(clamp), typeof(θ), Nothing}(clamp, θ, nothing)
+end
+@noinline function Transform(::typeof(clamp), θ = nothing; derivative = nothing)
+    throw(ArgumentError("pass clamp's bounds as Transform(clamp, lo, hi)"))
+end
+# `Adapt` and the dual-number rebuild construct it from its fields.
+ConstructionBase.constructorof(::Type{<:Transform}) = _transform
+function _transform(f, θ, derivative)
+    return Transform{typeof(f), typeof(θ), typeof(derivative)}(f, θ, derivative)
 end
 
 _check_theta(::Nothing) = nothing
@@ -108,16 +134,17 @@ function _check_theta(θ::Union{Tuple, NamedTuple})
 end
 _check_theta(θ) = (_check_param(:θ, θ); nothing)
 
-# Whether the local derivative covers every parameter: a supplied
-# derivative, or a map with no float fields of its own.
-_local_derivative(m::Transform) = m.derivative !== nothing || _fieldfree(m.f)
-_fieldfree(f) = param_eltype(f) <: Union{Bool, Integer}
+# == Traits ==
+
+# Whether the local derivative covers every parameter: a supplied derivative,
+# or a map with no float fields of its own. Otherwise plain AD runs, as the
+# default pointwise pullback does not reach a closure's fields.
+function _local_derivative(m::Transform)
+    return m.derivative !== nothing || param_eltype(m.f) <: Union{Bool, Integer}
+end
 
 blocks(::Transform) = (1, 1)
 _stateless(::Transform) = true
-# The reverse pass below covers every parameter type when the derivative
-# is local. A map with float fields of its own is left to plain AD, not to
-# the default pointwise pullback, which does not reach a closure's fields.
 uses_adjoint(m::Transform, ::Step) = _local_derivative(m)
 _scalar_params(::Transform) = false
 _local_params(::Transform) = false
@@ -126,6 +153,8 @@ _array_params(::Transform) = false
 _theta_pairs(::Nothing) = ()
 _theta_pairs(θ::Union{Tuple, NamedTuple}) = map(x -> :θ => x, Tuple(θ))
 _theta_pairs(θ) = (:θ => θ,)
+
+# == Init and Step ==
 
 forward!(m::Transform, ::Init, s, history) = _zero_state!(s, _theta_pairs(m.θ)...)
 pullback!(grads, ::Transform, ::Init, s, history) = nothing
@@ -137,6 +166,7 @@ _theta_at(θ, k, t) = param(θ, k, t)
 
 _call(f, v, ::Nothing) = f(v)
 _call(f, v, θ) = f(v, θ)
+_call(::typeof(clamp), v, θ::Tuple{Any, Any}) = clamp(v, θ...)
 
 function forward!(m::Transform, ::Step, v, s, t)
     for k in eachindex(v)
@@ -144,6 +174,8 @@ function forward!(m::Transform, ::Step, v, s, t)
     end
     return nothing
 end
+
+# == Pullbacks ==
 
 function pullback!(grads, m::Transform, ::Step, v, s, t)
     _local_derivative(m) || throw(
@@ -161,10 +193,40 @@ function pullback!(grads, m::Transform, ::Step, v, s, t)
     return nothing
 end
 
-# Add `ȳ ∂θ` into the mirror of `θ` at stratum `k` and time `t`. Each
-# entry's `∂θ` depends on every entry of `(v, θ)`, so a mirror holds the
-# modifier's `param_eltype` (a dual for forward-over-reverse), not each
-# entry's own type.
+function pullback!(grads, m::Transform{typeof(+), <:Any, Nothing}, ::Step, v, s, t)
+    b̄ = cotangent(grads.piece, :θ)
+    for k in eachindex(v)
+        add_param!(b̄, m.θ, grads.v[k], k, t)
+    end
+    return nothing
+end
+# Without `b`, `Transform(+)` is the identity.
+pullback!(grads, ::Transform{typeof(+), Nothing, Nothing}, ::Step, v, s, t) = nothing
+
+# `Transform(clamp, lo, hi)` matches `clamp`'s branches: above `hi`, then
+# below `lo`, else `v`.
+function pullback!(
+        grads, m::Transform{typeof(clamp), <:Tuple{Any, Any}, Nothing}, ::Step, v, s, t
+    )
+    v̄ = grads.v
+    lo, hi = m.θ
+    θ̄ = _arg_mirrors(cotangent(grads.piece, :θ), m.θ)
+    l̄o, h̄i = θ̄ === nothing ? (nothing, nothing) : Tuple(θ̄)
+    for k in eachindex(v)
+        if v[k] > param(hi, k, t)
+            add_param!(h̄i, hi, v̄[k], k, t)
+            v̄[k] = zero(v̄[k])
+        elseif v[k] < param(lo, k, t)
+            add_param!(l̄o, lo, v̄[k], k, t)
+            v̄[k] = zero(v̄[k])
+        end
+    end
+    return nothing
+end
+
+# Add `ȳ ∂θ` into the mirror of `θ` at stratum `k` and time `t`. A mirror
+# holds the modifier's `param_eltype` (a dual for forward-over-reverse), as
+# each entry's `∂θ` depends on every entry of `(v, θ)`.
 _add_theta!(θ̄, ::Nothing, ∂θ, ȳ, k, t) = nothing
 function _add_theta!(θ̄, θ::Union{Tuple, NamedTuple}, ∂θ, ȳ, k, t)
     θ̄ = _arg_mirrors(θ̄, θ)
@@ -176,21 +238,23 @@ function _add_theta!(θ̄, θ::Union{Tuple, NamedTuple}, ∂θ, ȳ, k, t)
 end
 _add_theta!(θ̄, θ, ∂θ, ȳ, k, t) = add_param!(θ̄, θ, ȳ * ∂θ, k, t)
 
+# == Local derivative ==
+
 # `(∂f/∂v, ∂f/∂θ)`: from a supplied derivative, or else the local
-# forward-mode derivative.
-_derivative(df, f, v, θ) = _supplied_derivative(df, v, θ)
+# forward-mode derivative, one dual per scalar of `(v, θ)`.
+_derivative(df, f, v, θ) = θ === nothing ? (df(v), nothing) : df(v, θ)
 _derivative(::Nothing, f, v, θ) = _forward_derivative(f, v, θ)
 
-_supplied_derivative(df, v, ::Nothing) = (df(v), nothing)
-_supplied_derivative(df, v, θ) = df(v, θ)
-
-# The local forward-mode derivative of the map: one dual per scalar of
-# `(v, θ)`, evaluated once.
 struct _TransformTag end
 
-# The partial derivatives of `f(xs...)` in each of its scalar arguments.
+# The value of `f(xs...)` with its partial derivatives in each of its
+# scalar arguments, from one evaluation.
+function _forward_value_and_derivative(f, xs::Tuple{Real, Vararg{Real}})
+    y = f(_transform_seeds(promote(xs...))...)
+    return _transform_value(y), _transform_partials(y, Val(length(xs)))
+end
 function _forward_derivative(f, xs::Tuple{Real, Vararg{Real}})
-    return _transform_partials(f(_transform_seeds(promote(xs...))...), Val(length(xs)))
+    return last(_forward_value_and_derivative(f, xs))
 end
 _forward_derivative(f, v::Real, ::Nothing) = (only(_forward_derivative(f, (v,))), nothing)
 _forward_derivative(f, v::Real, θ::Real) = _forward_derivative(f, (v, θ))
@@ -210,6 +274,7 @@ function _transform_seeds(xs...)
     return _need_forwarddiff("`Transform` without a `derivative`")
 end
 _transform_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))
+_transform_value(y::Real) = y
 
 @implements PieceInterface{(:pointwise, :nstate, :pullback)} Transform [
     Arguments(;
@@ -220,5 +285,16 @@ _transform_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))
     ),
     Arguments(;
         piece = Transform(log1p), role = Init(), args = (zeros(2), ones(2, 3))
+    ),
+    Arguments(;
+        piece = Transform(+, TimeVarying(PerStratum([0.5 1.0; 0.2 0.1]))),
+        role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 2)
+    ),
+    Arguments(;
+        piece = Transform(+, 0.5), role = Init(), args = (zeros(2), ones(2, 3))
+    ),
+    Arguments(;
+        piece = Transform(clamp, 0.0, 2.5), role = Step(),
+        args = ([2.0, 3.0], [0.0, 0.0], 1)
     ),
 ]
