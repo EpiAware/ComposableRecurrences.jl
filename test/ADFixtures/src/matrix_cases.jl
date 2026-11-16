@@ -18,7 +18,7 @@ using LinearAlgebra: I, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
     added, clamped, returning_state, returning_trace, resumed
-using ..ADFixtures: AddMean, AddMeanHand
+using ..ADFixtures: AddMean, AddMeanHand, Pool
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
     available
@@ -1450,6 +1450,127 @@ if isfile(BVD_HANDRULE)
         end
     end
 
+    # Computed kernels, each cohort's weights walked against a hazard:
+    # admissions confirmed and still present, two discharge flows thinned
+    # by absconding (a survival whose hazard is itself a survival), and the
+    # report-delay CDF table of each onset date.
+    function _bvd_two_clock(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(T)
+            f = function (θ)
+                A, h, S = _unpack(θ, (T,), (T,), (L,))
+                return sum(W .* run(wrap, A, h, S))
+            end
+            θ = _flat(
+                [50.0 + 40.0 * _noise(t, 31) for t in 1:T],
+                [0.1 + 0.05 * _noise(t, 32) for t in 1:T],
+                exp.(-0.05 .* (0:(L - 1)))
+            )
+            return f, θ
+        end
+    end
+    function _bvd_two_clock_rule(wrap, A, h, S)
+        confirmed = S * (1 - CR.Survival(TimeVarying(h); from = 1))
+        return wrap(Convolution(TimeVarying(confirmed, CR.Primary())))(A)
+    end
+    function _bvd_two_clock_hand(kernel)
+        return (wrap, A, h, S) -> kernel(collect(A), collect(h), collect(S))
+    end
+
+    function _bvd_abscond(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(2, T)
+            f = function (θ)
+                adm, pmf, κ, h = _unpack(θ, (T, 2), (L, 2), (1,), (T,))
+                return sum(W .* permutedims(run(wrap, adm, pmf, κ[1], h)))
+            end
+            # The second flow's delay is shorter, padded with zeros.
+            L2 = cld(7 * L, 10)
+            pmf = [
+                k == 1 || d < L2 ? exp(-(0.1 + 0.05 * k) * d) : 0.0
+                    for d in 0:(L - 1), k in 1:2
+            ]
+            θ = _flat(
+                [30.0 + 20.0 * _noise(t, k + 33) for t in 1:T, k in 1:2],
+                pmf ./ sum(pmf; dims = 1), [0.05],
+                [0.1 + 0.05 * _noise(t, 36) for t in 1:T]
+            )
+            return f, θ
+        end
+    end
+    # The package reads lag `d`'s hazard on the day it lands, the backend
+    # the day before, so the port shifts the hazard by a day.
+    function _bvd_abscond_rule(wrap, adm, pmf, κ, h)
+        h1 = vcat(h[1:1], h[1:(end - 1)])
+        stay = CR.Survival(κ * CR.Survival(TimeVarying(h1); from = 1); from = 1)
+        kernel = TimeVarying(PerStratum(permutedims(pmf)) * stay, CR.Primary())
+        # The flows are strata, so the input is flows × days.
+        return permutedims(wrap(Convolution(kernel))(permutedims(adm)))
+    end
+    function _bvd_abscond_hand(kernel)
+        return function (wrap, adm, pmf, κ, h)
+            return kernel(collect(adm), collect(pmf), κ, collect(h))
+        end
+    end
+
+    _logistic_sum(a, b) = BVD._logistic(a + b)
+    function _bvd_onset(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(L, T)
+            f = function (θ)
+                z0, γ = _unpack(θ, (L,), (T + L - 1,))
+                return sum(W .* run(wrap, z0, γ, T))
+            end
+            θ = _flat(
+                [-3.0 + 0.5 * _noise(j, 37) for j in 1:L],
+                [0.2 * _noise(t, 38) for t in 1:(T + L - 1)]
+            )
+            return f, θ
+        end
+    end
+    # `kernel_weights` as the operator it routes through, so `NoAdjoint`
+    # can wrap it.
+    function _bvd_onset_rule(wrap, z0, γ, nu)
+        hazard = CR.Derived(_logistic_sum, z0, TimeVarying(γ))
+        kernel = TimeVarying(1 - CR.Survival(hazard), CR.Primary())
+        return wrap(CR._KernelWeights(kernel))(nu)
+    end
+    function _bvd_onset_hand(kernel)
+        return (wrap, z0, γ, nu) -> kernel(collect(z0), collect(γ), nu)
+    end
+
+    # BVD's `bin_increments`: sums of a positive daily series over the
+    # windows between report days, `L` days apart, the last window cut at the
+    # series' end. The package arm is the running-total recipe of the
+    # window-aggregation use case: a unit lag-1 `Recurrence`, differenced at
+    # the window ends. Only the registered sizes check the arms agree; there
+    # the last window is always cut, and an empty window gives zero in all
+    # three, as each reads the days clamped to the series.
+    function _bvd_bins(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            days = collect(L:L:(T + L - 1))
+            W = _weights(length(days))
+            f = function (θ)
+                return sum(W .* run(wrap, exp.(θ), days))
+            end
+            return f, [log(50.0) + 0.5 * _noise(t, 14) for t in 1:T]
+        end
+    end
+    function _bvd_bins_rule(wrap, daily, days)
+        total = vcat(
+            zero(eltype(daily)),
+            wrap(Recurrence([1.0]))(1.0; history = [0.0], add = daily)
+        )
+        hi = min.(days, length(daily))
+        lo = vcat(0, hi[1:(end - 1)])
+        return total[hi .+ 1] .- total[lo .+ 1]
+    end
+    _bvd_bins_hand(kernel) = (wrap, daily, days) -> kernel(daily, days)
+
     for (name, description, loss, rule, hand, kernels, strata) in (
             (
                 "bvd_renewal", "BVD renewal_infections: seeded hazard depletion",
@@ -1471,6 +1592,29 @@ if isfile(BVD_HANDRULE)
                 _bvd_zones, _bvd_zones_rule, _bvd_zones_hand,
                 (BVD.zone_loop, BVD.zone_infections), [5, 64],
             ),
+            (
+                "bvd_two_clock",
+                "BVD two_clock_confirmed: a computed survival kernel",
+                _bvd_two_clock, _bvd_two_clock_rule, _bvd_two_clock_hand,
+                (BVD.two_clock_loop, BVD.two_clock_confirmed), [1],
+            ),
+            (
+                "bvd_abscond",
+                "BVD abscond_thinned_flows: a nested survival kernel",
+                _bvd_abscond, _bvd_abscond_rule, _bvd_abscond_hand,
+                (BVD.abscond_loop, BVD.abscond_thinned_flows), [1],
+            ),
+            (
+                "bvd_onset",
+                "BVD onset_report_cdf_table: computed kernel weights",
+                _bvd_onset, _bvd_onset_rule, _bvd_onset_hand,
+                (BVD.onset_table_loop, BVD.onset_report_cdf_table), [1],
+            ),
+            (
+                "bvd_bins", "BVD bin_increments: window sums as a running total",
+                _bvd_bins, _bvd_bins_rule, _bvd_bins_hand,
+                (BVD.bin_loop, BVD.bin_increments), [1],
+            ),
         )
         push!(CASES, Case(name, description, loss(rule), strata, false))
         BASELINES[name] = [
@@ -1482,6 +1626,8 @@ if isfile(BVD_HANDRULE)
         push!(TIERS["docs"].cases, name)
         TIERS["docs"].bycase[name] = [(T = 200, L = 20), (T = 400, L = 60)]
     end
+    # Weekly and 30-day bins over the backend's 220 days.
+    TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
     # The backend's call shape against the same loops, which read the series
     # over the seed's days too and return those days first.
     _renewal_call_hand(kernel) = (wrap, g, seed, R, N) -> kernel(R, collect(g), seed, N)
@@ -1505,48 +1651,6 @@ if isfile(BVD_HANDRULE)
             "handrule" => z -> loss(hand(kernels[2]))(identity, z),
         ]
     end
-    # BVD's `bin_increments`: sums of a positive daily series over the
-    # windows between report days, `L` days apart, the last window cut at the
-    # series' end. The package arm is the running-total recipe of the
-    # window-aggregation use case: a unit lag-1 `Recurrence`, differenced at
-    # the window ends.
-    function _bvd_bins(run)
-        return function (wrap, z::Size)
-            (; T, L) = z
-            days = collect(L:L:(T + L - 1))
-            W = _weights(length(days))
-            f = function (θ)
-                return sum(W .* run(wrap, exp.(θ), days))
-            end
-            return f, [log(50.0) + 0.5 * _noise(t, 14) for t in 1:T]
-        end
-    end
-    function _bvd_bins_rule(wrap, daily, days)
-        total = vcat(
-            zero(eltype(daily)),
-            wrap(Recurrence([1.0]))(1.0; history = [0.0], add = daily)
-        )
-        hi = min.(days, length(daily))
-        lo = vcat(0, hi[1:(end - 1)])
-        return total[hi .+ 1] .- total[lo .+ 1]
-    end
-    _bvd_bins_hand(kernel) = (wrap, daily, days) -> kernel(daily, days)
-    push!(
-        CASES,
-        Case(
-            "bvd_bins", "BVD bin_increments: window sums as a running total",
-            _bvd_bins(_bvd_bins_rule), [1], false
-        )
-    )
-    BASELINES["bvd_bins"] = [
-        "loop" => z -> _bvd_bins(_bvd_bins_hand(BVD.bin_loop))(identity, z),
-        "handrule" => z -> _bvd_bins(_bvd_bins_hand(BVD.bin_increments))(identity, z),
-    ]
-    push!(TIERS["realistic"].cases, "bvd_bins")
-    # Weekly and 30-day bins over the backend's 220 days.
-    push!(TIERS["docs"].cases, "bvd_bins")
-    TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
-
     # The patch movement built as an `S × S × T` array before the run, the
     # form `Redistribute(K, ε)` is timed against: the package reads it lazily
     # from the kernel and the intensity.
@@ -1931,6 +2035,51 @@ if supports(:_block_local_back)
     )
     for name in ("custom_modifier_blocks", "custom_modifier_blocks_pullback")
         REQUIRES[name] = (:_block_local_back,)
+        for tier in ("smoke", "realistic")
+            push!(TIERS[tier].cases, name)
+        end
+    end
+end
+
+# A pointwise modifier without a `pullback!` whose `Init` starts a pool per
+# stratum at `N`, and the built-in `Depletion` with the same pools: the
+# `Init` derivative is taken stratum by stratum, so its cost grows with the
+# number of strata rather than its square.
+if supports(:_init_strata_back!)
+    function _pool_case(build)
+        return function (wrap, z::Size)
+            (; T, L, S) = z
+            W = _weights(S, T)
+            f = function (θ)
+                g, logh, logR, logN = _unpack(θ, (L,), (S, L), (S, T), (S,))
+                r = Recurrence(g; modifiers = (build(PerStratum(exp.(logN))),))
+                y = wrap(r)(exp.(logR); history = exp.(logh))
+                return sum(W .* log1p.(y))
+            end
+            θ = _flat(
+                _gi(L), fill(log(10.0), S, L),
+                [0.05 * _noise(t, k + 16) for k in 1:S, t in 1:T],
+                [log(6.0 * T) + 0.2 * _noise(k, 17) for k in 1:S]
+            )
+            return f, θ
+        end
+    end
+    _pool_builtin(N) = CR.Depletion(N, CR.Floor())
+    push!(
+        CASES,
+        Case(
+            "custom_modifier_pool",
+            "renewal across strata with a user pointwise modifier whose Init starts a pool",
+            _pool_case(Pool), [50], false,
+        ),
+        Case(
+            "custom_modifier_pool_depletion",
+            "the same pools with the built-in Depletion",
+            _pool_case(_pool_builtin), [50], false,
+        ),
+    )
+    for name in ("custom_modifier_pool", "custom_modifier_pool_depletion")
+        REQUIRES[name] = (:_init_strata_back!,)
         for tier in ("smoke", "realistic")
             push!(TIERS[tier].cases, name)
         end

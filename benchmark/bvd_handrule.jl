@@ -1,6 +1,7 @@
 # Hand-written reference kernels in the style of the BVDOutbreakSize
 # backend, timed by the benchmark matrix (cases `bvd_renewal`, `bvd_patches`,
-# `bvd_delay`, `bvd_zones` and `bvd_bins`) against the package's operators.
+# `bvd_delay`, `bvd_zones`, `bvd_two_clock`, `bvd_abscond`, `bvd_onset` and
+# `bvd_bins`) against the package's operators.
 #
 # The forward loops follow `test/usecases/references/bvd.jl`. The reverse
 # passes are hand-written Mooncake rules, as the backend writes its own, so
@@ -22,7 +23,8 @@ using LinearAlgebra: axpy!, dot, mul!
 
 export renewal_loop, patch_loop, delay_loop, zone_loop, bin_loop,
     renewal_infections, patch_infections, convolve_delay, zone_infections,
-    bin_increments
+    bin_increments, two_clock_loop, abscond_loop, onset_table_loop,
+    two_clock_confirmed, abscond_thinned_flows, onset_report_cdf_table
 
 # ---- forward loops ----------------------------------------------------------
 
@@ -187,16 +189,19 @@ window giving zero.
 function bin_loop(daily::AbstractVector, days::AbstractVector{<:Integer})
     n = length(daily)
     out = zeros(eltype(daily), length(days))
-    prev = 0
-    for (i, d) in enumerate(days)
-        hi = clamp(d, 0, n)
-        lo = clamp(prev, 0, n)
-        for t in (lo + 1):hi
+    for i in eachindex(days)
+        for t in _bin_window(days, i, n)
             out[i] += daily[t]
         end
-        prev = hi
     end
     return out
+end
+
+# The days of window `i`: from the day after the last report to report day
+# `days[i]`, each clamped to the series of `n` days.
+function _bin_window(days, i, n)
+    lo = i == firstindex(days) ? 0 : clamp(days[i - 1], 0, n)
+    return (lo + 1):clamp(days[i], 0, n)
 end
 
 @doc raw"""
@@ -286,6 +291,99 @@ function _zone_state(gain, add, ε, φ, ow, I_bar, g, within, between, groups)
     return (;
         infections = I, u = U, c = C, v = V, h = H, patch_total, share_total,
     )
+end
+
+# ---- computed kernels: each cohort's weights walked in place -----------------
+
+@doc raw"""
+    two_clock_loop(A, h, S)
+
+Admissions confirmed by a hazard and still present: cohort ``u`` lands on
+day ``u + d`` with weight ``S_{d+1} (1 - P_{u,d})``, where
+``P_{u,d} = \prod_{j=1}^{d} (1 - h_{u+j})``,
+
+```math
+O_t = \sum_{d=0}^{\min(L, t) - 1} A_{t-d} S_{d+1} (1 - P_{t-d,d}).
+```
+"""
+function two_clock_loop(A::AbstractVector, h::AbstractVector, S::AbstractVector)
+    n = length(A)
+    T = promote_type(eltype(A), eltype(h), eltype(S))
+    O = zeros(T, n)
+    L = length(S)
+    @inbounds for u in 1:n
+        a = A[u]
+        P = one(T)
+        O[u] += a * (one(T) - P) * S[1]
+        for d in 1:min(L - 1, n - u)
+            P *= one(T) - h[u + d]
+            O[u + d] += a * (one(T) - P) * S[d + 1]
+        end
+    end
+    return O
+end
+
+@doc raw"""
+    abscond_loop(adm, pmf, κ, h)
+
+Discharges thinned by absconding, two flows sharing one cohort survival:
+cohort ``t`` of flow ``k`` lands on day ``t + d`` with weight
+``\mathrm{pmf}_{d+1,k} V_d``, where ``U_d = \prod_{j=1}^{d}(1 - h_{t+j-1})``
+is the share not yet confirmed and
+``V_d = \prod_{j=1}^{d} (1 - κ U_j)`` the share not absconded. `adm` is
+days × flows and `pmf` lags × flows, the shorter flow's padded with zeros.
+Returns days × flows.
+"""
+function abscond_loop(adm::AbstractMatrix, pmf::AbstractMatrix, κ::Real, h)
+    n, nf = size(adm)
+    L = size(pmf, 1)
+    T = promote_type(eltype(adm), eltype(pmf), typeof(κ), eltype(h))
+    out = zeros(T, n, nf)
+    @inbounds for t in 1:n
+        for k in 1:nf
+            out[t, k] += adm[t, k] * pmf[1, k]
+        end
+        U = one(T)
+        V = one(T)
+        for d in 1:min(L - 1, n - t)
+            U *= one(T) - h[t + d - 1]
+            V *= one(T) - κ * U
+            for k in 1:nf
+                out[t + d, k] += adm[t, k] * pmf[d + 1, k] * V
+            end
+        end
+    end
+    return out
+end
+
+_logistic(x) = inv(one(x) + exp(-x))
+
+@doc raw"""
+    onset_table_loop(logit_h0, γ, nu)
+
+The report-delay CDF of each onset date ``k = 1, \dots, nu``: with the
+hazard ``η_{j,k} = \mathrm{logistic}(\mathrm{logit\_h0}_j + γ_{k+j-1})``,
+
+```math
+F_{j,k} = 1 - \prod_{i=1}^{j} (1 - η_{i,k}).
+```
+
+`γ` covers the days up to `nu + length(logit_h0) - 1`.
+"""
+function onset_table_loop(
+        logit_h0::AbstractVector, γ::AbstractVector, nu::Integer
+    )
+    T = promote_type(eltype(logit_h0), eltype(γ))
+    D = length(logit_h0)
+    F = Matrix{T}(undef, D, nu)
+    @inbounds for k in 1:nu
+        s = one(T)
+        for j in 1:D
+            s *= one(T) - _logistic(logit_h0[j] + γ[k + j - 1])
+            F[j, k] = one(T) - s
+        end
+    end
+    return F
 end
 
 # ---- the same loops with hand-written Mooncake rules ------------------------
@@ -588,6 +686,166 @@ function _zone_back!(
     return nothing
 end
 
+"`two_clock_loop` with a hand-written Mooncake rule."
+two_clock_confirmed(A, h, S) = two_clock_loop(A, h, S)
+
+"`abscond_loop` with a hand-written Mooncake rule."
+abscond_thinned_flows(adm, pmf, κ, h) = abscond_loop(adm, pmf, κ, h)
+
+"`onset_table_loop` with a hand-written Mooncake rule."
+onset_report_cdf_table(logit_h0, γ, nu) = onset_table_loop(logit_h0, γ, nu)
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Tuple{typeof(two_clock_confirmed), _Vec, _Vec, _Vec}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(two_clock_confirmed)}, A::CoDual{_Vec},
+        h::CoDual{_Vec}, S::CoDual{_Vec}
+    )
+    Ap, hp, Sp = primal(A), primal(h), primal(S)
+    O = two_clock_loop(Ap, hp, Sp)
+    Ō = zero(O)
+    function two_clock_confirmed_pb(::NoRData)
+        _two_clock_back!(tangent(A), tangent(h), tangent(S), Ō, Ap, hp, Sp)
+        return NoRData(), NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(O, Ō), two_clock_confirmed_pb
+end
+
+# Each cohort's walk again, keeping its survival `P`, then back along the
+# lags with the running cotangent `acc` of the survival from lag `d` on:
+# `h̄_{u+d} = -P_{d-1} acc`.
+function _two_clock_back!(Ā, h̄, S̄, Ō, A, h, S)
+    n = length(A)
+    L = length(S)
+    P = ones(L)
+    @inbounds for u in 1:n
+        a = A[u]
+        dm = min(L - 1, n - u)
+        for d in 1:dm
+            P[d + 1] = P[d] * (1.0 - h[u + d])
+        end
+        acc = 0.0
+        ā = 0.0
+        for d in dm:-1:0
+            ō = Ō[u + d]
+            c = 1.0 - P[d + 1]
+            ā += c * S[d + 1] * ō
+            S̄[d + 1] += a * c * ō
+            acc -= a * S[d + 1] * ō
+            d == 0 && break
+            h̄[u + d] -= P[d] * acc
+            acc *= 1.0 - h[u + d]
+        end
+        Ā[u] += ā
+    end
+    return nothing
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx,
+    Tuple{typeof(abscond_thinned_flows), _Mat, _Mat, Float64, _Vec}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(abscond_thinned_flows)}, adm::CoDual{_Mat},
+        pmf::CoDual{_Mat}, κ::CoDual{Float64}, h::CoDual{_Vec}
+    )
+    args = (primal(adm), primal(pmf), primal(κ), primal(h))
+    out = abscond_loop(args...)
+    ō = zero(out)
+    function abscond_thinned_flows_pb(::NoRData)
+        κ̄ = _abscond_back!(tangent(adm), tangent(pmf), tangent(h), ō, args...)
+        return NoRData(), NoRData(), NoRData(), κ̄, NoRData()
+    end
+    return CoDual(out, ō), abscond_thinned_flows_pb
+end
+
+# Each cohort's walk again, keeping `U` and `V`, then back along the lags
+# with the running cotangents of both survivals: the outer one's hazard
+# `κ U_d` passes `-V_{d-1} accV` to `κ` and to `U_d`, whose own sweep then
+# passes `-U_{d-1} accU` to `h_{t+d-1}`.
+function _abscond_back!(ādm, p̄mf, h̄, ō, adm, pmf, κ, h)
+    n, nf = size(adm)
+    L = size(pmf, 1)
+    U = ones(L)
+    V = ones(L)
+    κ̄ = 0.0
+    @inbounds for t in 1:n
+        dm = min(L - 1, n - t)
+        for d in 1:dm
+            U[d + 1] = U[d] * (1.0 - h[t + d - 1])
+            V[d + 1] = V[d] * (1.0 - κ * U[d + 1])
+        end
+        accV = 0.0
+        accU = 0.0
+        for d in dm:-1:0
+            v = V[d + 1]
+            V̄ = 0.0
+            for k in 1:nf
+                o = ō[t + d, k]
+                ādm[t, k] += pmf[d + 1, k] * v * o
+                p̄mf[d + 1, k] += adm[t, k] * v * o
+                V̄ += adm[t, k] * pmf[d + 1, k] * o
+            end
+            d == 0 && break
+            accV += V̄
+            η̄ = -V[d] * accV
+            accV *= 1.0 - κ * U[d + 1]
+            κ̄ += η̄ * U[d + 1]
+            accU += η̄ * κ
+            h̄[t + d - 1] -= U[d] * accU
+            accU *= 1.0 - h[t + d - 1]
+        end
+    end
+    return κ̄
+end
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Tuple{typeof(onset_report_cdf_table), _Vec, _Vec, Int}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(onset_report_cdf_table)}, logit_h0::CoDual{_Vec},
+        γ::CoDual{_Vec}, nu::CoDual{Int}
+    )
+    z, γp, n = primal(logit_h0), primal(γ), primal(nu)
+    D = length(z)
+    H = Matrix{Float64}(undef, D, n)
+    S = Matrix{Float64}(undef, D, n)
+    @inbounds for k in 1:n
+        s = 1.0
+        for j in 1:D
+            η = _logistic(z[j] + γp[k + j - 1])
+            s *= 1.0 - η
+            H[j, k] = η
+            S[j, k] = s
+        end
+    end
+    F = 1.0 .- S
+    F̄ = zero(F)
+    function onset_report_cdf_table_pullback!!(::NoRData)
+        _onset_back!(tangent(logit_h0), tangent(γ), F̄, H, S)
+        return NoRData(), NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(F, F̄), onset_report_cdf_table_pullback!!
+end
+
+# The forward pass keeps each column's hazards and survivals. `1 - s_j` has
+# derivative `s_j η_i` in the logit of hazard `i ≤ j`, so a column's
+# adjoint is one backward running sum, `x̄_i = η_i Σ_{j ≥ i} F̄_j s_j`.
+function _onset_back!(z̄, γ̄, F̄, H, S)
+    D, nu = size(H)
+    @inbounds for k in 1:nu
+        acc = 0.0
+        for j in D:-1:1
+            acc += F̄[j, k] * S[j, k]
+            x̄ = H[j, k] * acc
+            z̄[j] += x̄
+            γ̄[k + j - 1] += x̄
+        end
+    end
+    return nothing
+end
+
 "`bin_loop` with a hand-written Mooncake rule."
 bin_increments(daily, days) = bin_loop(daily, days)
 
@@ -605,14 +863,10 @@ function Mooncake.rrule!!(
     function bin_increments_pb(::NoRData)
         x̄ = tangent(daily)
         n = length(xp)
-        prev = 0
-        for (i, d) in enumerate(dp)
-            hi = clamp(d, 0, n)
-            lo = clamp(prev, 0, n)
-            for t in (lo + 1):hi
+        for i in eachindex(dp)
+            for t in _bin_window(dp, i, n)
                 x̄[t] += ȳ[i]
             end
-            prev = hi
         end
         return NoRData(), NoRData(), NoRData()
     end
