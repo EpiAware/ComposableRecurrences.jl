@@ -1,8 +1,8 @@
 # Hand-written reference kernels in the style of the BVDOutbreakSize
 # backend, timed by the benchmark matrix (cases `bvd_renewal`, `bvd_patches`,
 # `bvd_delay`, `bvd_zones`, `bvd_two_clock`, `bvd_abscond`, `bvd_onset`,
-# `bvd_bins`, `bvd_pre_zones`, `bvd_window_weights` and `bvd_bin_rows`)
-# against the package's operators.
+# `bvd_bins`, `bvd_pre_zones`, `bvd_window_weights`, `bvd_bin_rows` and
+# `bvd_knots`) against the package's operators.
 #
 # The forward loops follow `test/usecases/references/bvd.jl`. The reverse
 # passes are hand-written Mooncake rules, as the backend writes its own, so
@@ -14,15 +14,18 @@
 # The loops and rules were written in this repository, not copied, except
 # `zone_pre_loop` and its rule, which follow BVDOutbreakSize's
 # `zone_pre_convolution` (`src/models/zone.jl` and `src/mooncake_rules.jl` at
-# commit 73c575bd), and `zone_window_loop` and its rule, which are
+# commit 73c575bd), `zone_window_loop` and its rule, which are
 # BVDOutbreakSize's `zone_window_weights` (`src/models/zone.jl` L1244-L1263
 # and `src/mooncake_rules.jl` L1678-L1684 and L1719-L1751 at commit
-# 73c575bd), and `bvd_bin_loop`, `bin_rows_loop` and `bin_row_increments`'s
+# 73c575bd), `bvd_bin_loop`, `bin_rows_loop` and `bin_row_increments`'s
 # rule, which are BVDOutbreakSize's `bin_increments` and `bin_row_increments`
 # (`src/models/observations.jl` L18-L50 and `src/mooncake_rules.jl` L43-L49
-# and L123-L150 at commit 73c575bd) with the loops renamed. The other loops
-# follow `references/bvd.jl`, a frozen copy of BVDOutbreakSize at commit
-# 95be3b22, and none is kept in step with BVDOutbreakSize.
+# and L123-L150 at commit 73c575bd) with the loops renamed, and
+# `sum_to_zero_knots_loop` and `sum_to_zero_ar1!`, copied from
+# BVDOutbreakSize's `sum_to_zero_knots` (`src/sum_to_zero.jl` at commit
+# 73c575bd) with the level given rather than built. The other loops follow
+# `references/bvd.jl`, a frozen copy of BVDOutbreakSize at commit 95be3b22,
+# and none is kept in step with BVDOutbreakSize.
 #
 # Included by `test/ADFixtures/src/matrix_cases.jl` inside `MatrixCases`.
 module BVDHandRule
@@ -36,7 +39,8 @@ export renewal_loop, patch_loop, delay_loop, zone_loop, bin_loop,
     bin_increments, two_clock_loop, abscond_loop, onset_table_loop,
     two_clock_confirmed, abscond_thinned_flows, onset_report_cdf_table,
     zone_pre_loop, zone_pre_convolution, zone_window_loop,
-    zone_window_weights, bin_rows_loop, bin_row_increments
+    zone_window_weights, bin_rows_loop, bin_row_increments,
+    sum_to_zero_knots_loop
 
 # ---- forward loops ----------------------------------------------------------
 
@@ -275,6 +279,40 @@ function zone_window_loop(
         end
     end
     return weights
+end
+
+@doc raw"""
+    sum_to_zero_knots_loop(lvl, F_drift, Z, φ)
+
+The knots of BVD's sum-to-zero drift: the level `lvl` as the first column,
+then an AR(1) across the columns driven by the innovations ``F Z``,
+
+```math
+k_{i,1} = \ell_i, \qquad
+k_{i,j+1} = \varphi\, k_{i,j} + (F Z)_{i,j}.
+```
+"""
+function sum_to_zero_knots_loop(
+        lvl::AbstractVector, F_drift::AbstractMatrix, Z::AbstractMatrix, φ::Real
+    )
+    T = promote_type(eltype(lvl), eltype(F_drift), eltype(Z), typeof(φ))
+    knots = zeros(T, length(lvl), size(Z, 2) + 1)
+    @inbounds for i in eachindex(lvl)
+        knots[i, 1] = lvl[i]
+    end
+    return sum_to_zero_ar1!(knots, F_drift, Z, φ, 1)
+end
+
+# BVD's `sum_to_zero_ar1!`: the AR(1) knots from column `k0` on.
+function sum_to_zero_ar1!(
+        knots::AbstractMatrix, F::AbstractMatrix, Z::AbstractMatrix,
+        φ::Real, k0::Integer
+    )
+    innovations = F * Z
+    @inbounds for j in axes(Z, 2), i in axes(knots, 1)
+        knots[i, k0 + j] = φ * knots[i, k0 + j - 1] + innovations[i, j]
+    end
+    return knots
 end
 
 @doc raw"""

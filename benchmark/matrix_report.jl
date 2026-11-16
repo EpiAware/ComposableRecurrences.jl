@@ -616,6 +616,14 @@ const DOCS_BLOCKS = [
             ("bvd_bin_rows", "handrule") => "hand rules",
         ],
     ),
+    (
+        "backend knots", "bvd_knots", "ComposableRecurrences",
+        [
+            ("bvd_knots", "rule") => "ComposableRecurrences",
+            ("bvd_knots", "NoAdjoint") => "plain AD",
+            ("bvd_knots", "loop") => "hand loop",
+        ],
+    ),
 ]
 # The tutorials' models against their hand loops, one block per page. The
 # forecast's loop runs every day in one pass, with no state to resume. The

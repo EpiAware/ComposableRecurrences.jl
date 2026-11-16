@@ -1233,7 +1233,7 @@ function _run_forward(r::Recurrence, gain, add, h, s0, τ0, stop, cache = Val(tr
     Y, _, _, cache = _recur(r, gain, add, h, s0, τ0, stop, cache)
     return Y, cache
 end
-_primal(r::Recurrence, args...) = first(_recur(r, args..., Val(false)))
+_primal(r::Recurrence, args...) = first(_recur(r, args..., Val(:primal)))
 
 function _run_forward(w::_WithState, gain, add, h, s0, τ0, stop, cache = Val(true))
     Y, H, states, cache = _recur(w.r, gain, add, h, s0, τ0, stop, cache)
@@ -1699,6 +1699,81 @@ function _run(
     return _with_executor() do ex
         _run(Tp, ex, r, gain, add, h, s0, τ0, L, D, S, T, cache)
     end
+end
+
+# A plain call returns only the output. Independent strata may run
+# strata-major (`_strata_major`); AD never does (see `_untraced`).
+function _run(
+        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{:primal}
+    ) where {Tp}
+    if _strata_major(Tp, ex, r, gain, add, h, s0, L, S) && _untraced()
+        return (_strata_major_run(Tp, r, gain, add, h, τ0, L, D, S, T),)
+    end
+    y, = _run(Tp, ex, r, gain, add, h, s0, τ0, L, D, S, T, Val(false))
+    return (y,)
+end
+
+# The most lags the strata-major run takes. Past them the time-major buffer,
+# which reads each stratum's window contiguously, is the faster layout.
+const _STRATA_MAJOR_LAGS = 3
+
+# The recurrences the strata-major run takes: a fixed kernel, a pointwise
+# coupling and no modifiers.
+const _StrataMajorCoupling = Union{
+    UniformScaling, Diagonal{<:Real, <:Vector},
+}
+const _StrataMajorOp = Recurrence{
+    <:Vector{<:Real}, <:_StrataMajorCoupling, Tuple{},
+}
+function _strata_major(::Type{Tp}, ex, r, gain, add, h, s0, L, S) where {Tp}
+    # One stratum runs as a chained run, which rounds differently.
+    return Tp <: _IEEEFloat && ex isa Serial && r isa _StrataMajorOp &&
+        _on_host(gain) && _on_host(add) && h isa AbstractMatrix &&
+        _on_host(h) && s0 === nothing && S >= 2 &&
+        1 <= L <= _STRATA_MAJOR_LAGS
+end
+
+# Whether `x` is nothing, a number or an array of numbers in host memory: an
+# `Array`, or a view or reshape of one, with axes from 1, which the
+# strata-major run indexes element by element without bounds checks.
+function _on_host(x)
+    (x === nothing || x isa Real) && return true
+    return x isa AbstractVecOrMat{<:Real} && _host_array(typeof(x)) &&
+        !Base.has_offset_axes(x)
+end
+_host_array(::Type{A}) where {A} = A <: Array
+_host_array(::Type{<:SubArray{T, N, P}}) where {T, N, P} = _host_array(P)
+function _host_array(::Type{<:Base.ReshapedArray{T, N, P}}) where {T, N, P}
+    return _host_array(P)
+end
+
+# The run of independent strata in a strata × time buffer: the history's
+# columns, right aligned, then one column per step. Each step is the general
+# step's arithmetic, so the two runs agree exactly, and the output takes
+# over the buffer's memory after the history with no transpose or copy.
+function _strata_major_run(
+        ::Type{Tp}, r, gain, add, h, τ0, L, D, S, T
+    ) where {Tp}
+    g = _oldest_first(r.kernel)
+    C = r.coupling
+    Hs = Matrix{Tp}(undef, S, D + T)
+    m = size(h, 2)
+    n = min(m, D)
+    @inbounds for j in 1:(D - n), k in 1:S
+        Hs[k, j] = zero(Tp)
+    end
+    @inbounds for i in 1:n, k in 1:S
+        Hs[k, D - n + i] = h[k, m - n + i]
+    end
+    Ht = transpose(Hs)
+    for t in 1:T
+        τ = τ0 + t - 1
+        @inbounds for k in 1:S
+            pk = _window_dot(g, Ht, t + D - L, L, k)
+            Hs[k, D + t] = _core(C, gain, add, k, τ, pk, nothing)
+        end
+    end
+    return reshape(deleteat!(vec(Hs), 1:(D * S)), S, T)
 end
 
 function _run(

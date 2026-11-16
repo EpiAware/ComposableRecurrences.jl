@@ -163,6 +163,14 @@ end
     U = 1 .- W.confirmed_loop(ones(L), h, T, 1)
     Ks = [P[k, i] * U[i, u] for k in 1:2, i in 1:L, u in 1:T]
     @test rs(TimeVarying(gs, CR.Primary())) ≈ rs(primary(triangle(Ks, 1, T)))
+    # A plain call equals a call that keeps no cache, with one stratum or two.
+    for (k, gain, hist) in (
+            (g, fill(1.1, T), [1.0]), (gs, fill(1.1, 2, T), ones(2, 1)),
+        )
+        rk = Recurrence(TimeVarying(k, CR.Primary()))
+        args = (CR._run_args(rk, gain, hist, nothing, nothing, 2)..., nothing)
+        @test CR._primal(rk, args...) == first(CR._recur(rk, args..., Val(false)))
+    end
     # Under NoAdjoint the operator is differentiated by plain AD, with the
     # same values.
     c = Convolution(TimeVarying(W.confirmed(p, h), CR.Primary()))

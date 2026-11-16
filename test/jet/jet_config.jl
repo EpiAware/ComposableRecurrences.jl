@@ -60,3 +60,25 @@ let CR = ComposableRecurrences
     isempty(reports) || error("runtime dispatch in the reverse pass with imports: $rep")
     println("JET: the reverse pass with batched imports compiles to one path")
 end
+
+# A plain call of independent strata, which may run strata-major, compiles to
+# one path for each kind of gain and added input under the default executor.
+# (Another executor is reached behind a deliberate function barrier.)
+let CR = ComposableRecurrences
+    S, T = 11, 31
+    θ = collect(range(-1.0, 1.0; length = S))
+    for r in (Recurrence([0.7]), Recurrence([0.5, 0.2, 0.1]; coupling = 0.9 * CR.I)),
+            gain in (true, 0.8, fill(0.9, T), fill(0.9, S, T)),
+            add in (nothing, fill(0.1, T), fill(0.1, S, T)),
+            h in (reshape(θ, :, 1), reshape(view(θ, 1:S), :, 1))
+        L = CR._nlags(r.kernel)
+        D = CR._buffer_depth(r, L)
+        rep = JET.@report_opt target_modules = (CR,) CR._run(
+            Float64, CR.Serial(), r, gain, add, h, nothing, 1, L, D, S, T,
+            Val(:primal)
+        )
+        reports = JET.get_reports(rep)
+        isempty(reports) || error("runtime dispatch in a plain strata call: $rep")
+    end
+    println("JET: a plain call of independent strata compiles to one path")
+end
