@@ -24,9 +24,9 @@ end
     test_gradients("Enzyme forward"; category = :rules)
 end
 
-# One item per slice of the scenarios: there must be
-# `ADFixtures.REVERSE_SLICES` items per backend, and the fixtures item below
-# checks that the slices cover every scenario once.
+# One item per slice of the scenarios and backend; the fixtures item below
+# checks that there is one for each of `ADFixtures.REVERSE_SLICES` and that
+# the slices cover every scenario once.
 # Tagged `compat_floor`, so the Threads workflow runs them on Julia 1.11.
 @testitem "Enzyme reverse gradients, and every scenario fires its rule and no twin does (slice 1 of 4)" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] setup = [ADHelpers, GradientChecks] begin
     test_reverse_slice("Enzyme reverse", 1)
@@ -124,17 +124,26 @@ end
     @test length(rules) == length(ADFixtures._SCENARIOS)
     @test all(s -> !startswith(s.name, "NoAdjoint"), rules)
     @test all(isempty, values(ADFixtures.backend_skip_scenarios()))
-    # The slices the reverse-mode items check hold every scenario once.
+    # Each reverse backend has one item per slice, and its slices hold every
+    # scenario it checks once.
     n = ADFixtures.REVERSE_SLICES
-    for precision in (:double, :single)
-        whole = [s.name for s in ADFixtures.scenarios(; precision)]
+    reverse = ("Enzyme reverse", "Mooncake reverse")
+    @test ADFixtures.slice_items("scenarios.jl", "test_reverse_slice") ==
+        Dict(name => collect(1:n) for name in reverse)
+    for name in reverse, precision in (:double, :single)
+        kw = (; category = :marginal, precision, backend = name)
+        whole = [s.name for s in ADFixtures.scenarios(; kw...)]
         sliced = [
             s.name for k in 1:n
-                for s in ADFixtures.scenarios(; precision, slice = (k, n))
+                for s in ADFixtures.scenarios(; kw..., slice = (k, n))
         ]
         @test sort(sliced) == sort(whole)
     end
     @test_throws ArgumentError ADFixtures.scenarios(; slice = (n + 1, n))
+    # Each `test_adjoint` backend has one item per slice.
+    @test ADFixtures.slice_items("adjoints.jl", "test_adjoint_slice") == Dict(
+        name => collect(1:ADFixtures.ADJOINT_SLICES) for name in reverse
+    )
     # A backend's scenarios drop only the twins of the scenarios that take
     # plain AD there by design, and keep those scenarios.
     for (backend, plain) in ADFixtures.backend_plain_scenarios()

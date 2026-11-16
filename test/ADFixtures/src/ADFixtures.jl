@@ -2879,17 +2879,27 @@ function take_slice(xs, slice::Tuple{Int, Int})
     return xs[k:n:end]
 end
 
-"""
-The number of slices the reverse-mode gradient items split the scenarios
-into, one `@testitem` per slice in `test/ad/scenarios.jl`.
-"""
+# The slices of the reverse-mode gradient items and of the `test_adjoint`
+# items, one `@testitem` per slice and backend (see `slice_items`).
 const REVERSE_SLICES = 4
+const ADJOINT_SLICES = 2
 
 """
-The number of slices the `test_adjoint` items split the operators into, one
-`@testitem` per slice in `test/ad/adjoints.jl`.
+    slice_items(file, call)
+
+The slices each backend's items in the test file `file` (in `test/ad`) run,
+read from the calls `call("<backend>", ..., k)` in it, as a `Dict` from the
+backend's name to its sorted slice numbers.
 """
-const ADJOINT_SLICES = 2
+function slice_items(file, call)
+    src = read(joinpath(dirname(@__DIR__), "..", "ad", file), String)
+    pattern = Regex(call * raw"""\("([^"]+)"[^\n]*?(\d+)\)\s*$""", "m")
+    out = Dict{String, Vector{Int}}()
+    for m in eachmatch(pattern, src)
+        push!(get!(out, m[1], Int[]), parse(Int, m[2]))
+    end
+    return Dict(k => sort(v) for (k, v) in out)
+end
 
 """
     backends()
