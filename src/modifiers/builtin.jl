@@ -975,10 +975,9 @@ function _add_diag!(M̄, M::TimeVarying{<:Any, <:_Movement}, x, p, t)
     return _add_movement_entry!(cotangent(M̄, :x), M.x, x, p, p, t)
 end
 
-# The same over a movement, in one pass per column as the step's forward:
-# column `b`'s sum `o` and `c = K[:, b]ᵀ q̄` come from one loop, which also
-# adds the diagonal term's share `−x e` to every entry of `K̄[:, b]`, with
-# `x = −s̄′_b v_b`, so no entry of `M` is rebuilt from its column sum.
+# The same over a movement, fused with its `Pressure` pullback so no entry
+# of `M` is rebuilt from its column sum. It must agree with the general
+# pullback above through `_add_movement_entry!` and that `Pressure` pullback.
 function pullback!(
         grads, m::Redistribute{<:Any, <:TimeVarying{Secondary, <:_Movement}},
         ::Step, v, s, t
@@ -988,7 +987,8 @@ function pullback!(
     (; K, E) = m.M.x
     X̄ = cotangent(cotangent(grads.piece, :M), :x)
     K̄, Ē = cotangent(X̄, :K), cotangent(X̄, :E)
-    # `s̄` takes `q̄ = v̄′ + s̄′`; `v̄` keeps `s̄′` until its column is done.
+    # `v̄` holds `s̄′` until its column is done, which reads it for the
+    # diagonal.
     for p in eachindex(v, v̄, s̄)
         d = s̄[p]
         s̄[p] = v̄[p] + d
