@@ -1021,12 +1021,65 @@ function pullback!(
     return nothing
 end
 
+# == Linear steps ==
+
+# The matrix of a whole-step modifier declared linear (`islinear`) over `S`
+# strata: its `forward!` on each basis vector gives a column. The step keeps
+# no state of its own, so its state stays at the default zeros.
+function _step_matrix(m, S::Integer)
+    nstate(m, S) == S || throw(
+        ArgumentError(
+            "$(_describe(m)) is declared linear, so it keeps no state of its " *
+                "own and nstate is left at its default, S = $S; got " *
+                "$(nstate(m, S))"
+        )
+    )
+    T = float(param_eltype(m))
+    A = zeros(T, S, S)::AbstractMatrix
+    s = zeros(T, S)
+    for b in 1:S
+        A[b, b] = one(T)
+        forward!(m, Step(), view(A, :, b), s, 1)
+    end
+    return A
+end
+
+# The step `v′ = A v` of a whole-step modifier declared linear, run in its
+# place. The state, zero, holds `A v` during the step.
+struct _LinearStep{M <: AbstractMatrix}
+    A::M
+end
+function forward!(m::_LinearStep, ::Step, v, s, t)
+    forward!(m.A, Pressure(), s, v, t)
+    copyto!(v, s)
+    fill!(s, zero(eltype(s)))
+    return nothing
+end
+# `v̄ = Aᵀ v̄′` and `Ā += v̄′ vᵀ`; the state after the step is zero whatever
+# came before, so its cotangent goes nowhere.
+function pullback!(grads, m::_LinearStep, ::Step, v, s, t)
+    v̄, s̄ = grads.v, grads.s
+    copyto!(s̄, v̄)
+    fill!(v̄, zero(eltype(v̄)))
+    piece = cotangent(grads.piece, :A)
+    pullback!((; piece, q = s̄, p = v̄), m.A, Pressure(), nothing, v, t)
+    fill!(s̄, zero(eltype(s̄)))
+    return nothing
+end
+
 @implements PieceInterface{(:pullback,)} Hazard [
     Arguments(; piece = Hazard(), role = Step(), args = ([2.0], [80.0], 100.0)),
 ]
 
 @implements PieceInterface{(:pullback,)} Floor [
     Arguments(; piece = Floor(1.5), role = Step(), args = ([2.0], [80.0], 100.0)),
+]
+
+@implements PieceInterface{(:nstate, :pullback)} _LinearStep [
+    Arguments(;
+        piece = _LinearStep([0.9 0.3; 0.2 1.1]),
+        role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
+    ),
 ]
 
 @implements PieceInterface{(:nstate, :pullback)} Redistribute [

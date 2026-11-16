@@ -250,6 +250,37 @@ end
 Recurrence([0.5, 0.5]; coupling = ToFirst(0.2))(1.0; history = ones(2, 2), stop = 4)
 ```
 
+### [A linear coupling](@id extending-linear)
+
+A coupling whose `forward!` is linear in `p` and does not read `t` is a matrix, and can say so with [`islinear`](@ref ComposableRecurrences.islinear).
+Each call then builds that matrix from `forward!` on the basis vectors,
+
+```math
+q = A p, \qquad A_{\cdot b} = f(e_b), \quad b = 1, \dots, S,
+```
+
+where ``f`` is the coupling's `forward!` and ``e_b`` the ``b``-th basis vector, and runs the built-in dense coupling in its place, whose `pullback!` the gradient uses.
+The same declaration on a whole-step modifier with no state of its own runs the matrix product as its step.
+
+```@example extending
+using LinearAlgebra: mul!
+struct Mixing{M}
+    K::M
+end
+function CR.forward!(C::Mixing, ::CR.Pressure, q, p, t)
+    mul!(q, C.K, p)
+    return nothing
+end
+CR.islinear(::Mixing) = true
+
+K = [0.9 0.2; 0.1 0.8]
+r = Recurrence([0.5, 0.5]; coupling = Mixing(K))
+r(1.0; history = ones(2, 2), stop = 4)
+```
+
+For a `forward!` written as a matrix product, as here, the gradient is then close to the built-in dense coupling's; for one written as scalar loops a hand-written `pullback!` is still faster, as the declared route differentiates those loops once per call.
+A coupling that is not linear, or that changes in time, needs a `pullback!` to be fast ([issue #472](https://github.com/EpiAware/ComposableRecurrences.jl/issues/472) proposes another route).
+
 ## [A vector step](@id extending-vector)
 
 A modifier that reads other strata is not pointwise, and its step reads the whole vectors.
