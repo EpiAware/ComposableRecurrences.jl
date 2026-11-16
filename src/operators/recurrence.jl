@@ -375,9 +375,7 @@ end
 
 # Fixed kernels are reversed once per call so each step is one `dot` of
 # the kernel with a contiguous, oldest-first window. A host vector of one
-# lag is its own reverse, so it is read as it is, with no copy. A reversed
-# view of a longer kernel would also save the copy, but its steps read
-# against the window's order and the strata runs lost up to a quarter.
+# lag is its own reverse, so it is returned without a copy.
 _oldest_first(g::Vector) = length(g) == 1 ? g : _reverse_dim(g, 1)
 _oldest_first(g::AbstractVector) = _reverse_dim(g, 1)
 _oldest_first(g::PerStratum) = PerStratum(_reverse_dim(g.x, 2))
@@ -1192,6 +1190,8 @@ _with_times(Y::AbstractMatrix, n) = (size(Y, 1), n)
 
 _tape(x::AbstractArray) = copy(x)
 _tape(x) = x
+# A kernel the run reads as given, such as one lag, is copied too.
+_tape_kernel(kernel, given) = kernel === given ? _tape(kernel) : kernel
 
 # A resumed state must have each modifier's `nstate` entries, as an
 # `Init` would have written, and the modifiers must fit the strata, as
@@ -1682,7 +1682,8 @@ function _run(
     # gradient.
     cache = keep ?
         (;
-            r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, D, S,
+            r, kernel = _tape_kernel(kernel, r.kernel), gain = _tape(gain), add,
+            h = _tape(h), s0, τ0, L, D, S,
             T, H, pr, rec, init, states,
         ) : _sink_trace(rec, pr, h)
     return Y, H, states, cache

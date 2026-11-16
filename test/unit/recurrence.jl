@@ -39,6 +39,11 @@ end
     g3 = rand(rng, 3)
     @test CR._oldest_first(g3) == reverse(g3)
     @test CR._oldest_first(g3) !== g3
+    # The rule's cache holds its own copy of a kernel read in place, so a
+    # caller changing the kernel after the call cannot change the gradient.
+    c = last(CR._recur(Recurrence(g), true, randn(rng, 5), [1.0], nothing, 1, nothing, Val(true)))
+    @test c.kernel == g
+    @test c.kernel !== g
 
     T = 15
     ϵ = randn(rng, T)
