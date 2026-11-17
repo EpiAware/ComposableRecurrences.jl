@@ -94,12 +94,37 @@ function markdown_prose(text::AbstractString; indented::Bool = false)
     return out
 end
 
-# The comment lines of a Literate tutorial as Markdown, one line per source
-# line, with code lines left blank.
+# Which lines of a Literate script sit inside an `md"""` string block,
+# the opening and closing lines included.
+function md_block_lines(lines)
+    inside = falses(length(lines))
+    open = false
+    for (i, line) in enumerate(lines)
+        s = strip(line)
+        if !open && startswith(s, "md\"\"\"")
+            open = true
+            inside[i] = true
+        elseif open
+            inside[i] = true
+            s == "\"\"\"" && (open = false)
+        end
+    end
+    return inside
+end
+
+# The prose of a Literate script as Markdown, one line per source line:
+# its `# ` comment lines and the body of its `md"""` blocks, with code lines
+# and the block delimiters left blank.
 function literate_markdown(lines)
-    md = map(lines) do line
-        m = match(r"^#(?: (.*))?$", line)
-        m === nothing ? "" : something(m.captures[1], "")
+    inside = md_block_lines(lines)
+    md = map(enumerate(lines)) do (i, line)
+        s = strip(line)
+        if inside[i]
+            startswith(s, "md\"\"\"") || s == "\"\"\"" ? "" : String(line)
+        else
+            m = match(r"^#(?: (.*))?$", line)
+            m === nothing ? "" : something(m.captures[1], "")
+        end
     end
     return join(md, '\n')
 end
@@ -276,13 +301,14 @@ function markdown_code(text::AbstractString)
     return out
 end
 
-# Code lines of a Literate tutorial: every line that is not a comment, and
-# the fenced Julia blocks in its comments.
+# Code lines of a Literate tutorial: every line that is neither a comment
+# nor in an `md"""` block, and the fenced Julia blocks of its prose.
 function literate_code(text::AbstractString)
     lines = split(text, '\n')
+    inside = md_block_lines(lines)
     out = [
         (i, String(l)) for (i, l) in enumerate(lines)
-            if !startswith(l, "#") && !isempty(strip(l))
+            if !inside[i] && !startswith(l, "#") && !isempty(strip(l))
     ]
     append!(out, markdown_code(literate_markdown(lines)))
     return sort!(out)

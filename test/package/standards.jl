@@ -207,6 +207,9 @@ end
     @test markdown_code(md) == [(3, "x = 1"), (9, "z")]
     @test literate_code("# a\nx = 1\n# ```julia\n# y\n# ```\n") ==
         [(2, "x = 1"), (4, "y")]
+    block = "x = 1\nmd\"\"\"\nProse. More\n```julia\ny = 2\n```\n\"\"\"\nz = 3\n"
+    @test literate_code(block) == [(1, "x = 1"), (5, "y = 2"), (8, "z = 3")]
+    @test [l for (_, l) in literate_prose(block)] == ["Prose. More"]
     @test is_pending("docs/a.md:3: 36 words", "docs/a.md")
     @test is_pending("docstring A, line 2: 36 words", "docstring A")
     @test !is_pending("docstring AB, line 2: 36 words", "docstring A")

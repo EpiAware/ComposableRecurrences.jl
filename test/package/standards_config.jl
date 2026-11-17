@@ -54,7 +54,6 @@ const PENDING_SENTENCE_LENGTH = (
 )
 const PENDING_CODE_LENGTH = (
     "README.md",
-    "docs/src/benchmarks/ad-comparison.jl",
     "docs/src/developer/extending.md",
     "docs/src/developer/testing.md",
     "docs/src/explanation/adjoints-and-backends.md",
@@ -183,14 +182,17 @@ const ONE_HOME = (
 )
 
 # Markdown sources for the prose checks: the README and every page and
-# Literate tutorial under docs/src.
+# Literate tutorial under docs/src, apart from pages the scaffold renders,
+# whose first line says they are managed and whose prose is the kit's.
 function standards_prose_files()
     files = [joinpath(STANDARDS_ROOT, "README.md")]
     for (dir, _, names) in walkdir(joinpath(STANDARDS_ROOT, "docs", "src"))
         occursin("node_modules", dir) && continue
         for name in names
             endswith(name, ".md") || endswith(name, ".jl") || continue
-            push!(files, joinpath(dir, name))
+            file = joinpath(dir, name)
+            occursin("MANAGED by", readline(file)) && continue
+            push!(files, file)
         end
     end
     return sort!(files)
