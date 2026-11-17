@@ -9,17 +9,13 @@ s_v = \sum_{t = e_{v - 1} + 1}^{e_v} x_t, \qquad e_0 = 0,
 ```
 
 with ``e_v`` = `ends[v]` clamped to `0:n`, ``n`` the length of `x` along
-`dims`.
+`dims`, the time axis.
+An end not after the one before it gives an empty window, whose sum is
+zero, and the next window starts after it, so a time can fall in more than
+one window.
 A matrix gives its sums in place of dimension `dims`.
 It is differentiable in `x`, with a reverse pass that adds each window's
 cotangent to its times.
-
-# Arguments
-- `x`: a vector, or a matrix with time along `dims`.
-- `ends`: the last time of each window; one not after the end before it
-  gives an empty window, whose sum is zero, and the next window starts
-  after it, so a time can fall in more than one window.
-- `dims`: the dimension of `x` that is time.
 
 # Examples
 ```jldoctest
@@ -49,9 +45,10 @@ function window_sums(
     return _WindowSums(ends, size(x, dims), Int(dims))(x)
 end
 
-# `window_sums` routes through the rules as an operator of its own. It
-# holds the ends as given, so a backend that traces the call has no loop to
-# trace before the rule; the rule finds the windows.
+# == _WindowSums ==
+
+# `window_sums` as an operator of its own. It holds the ends as given, so a
+# backend that traces the call has no loop to trace before the rule.
 struct _WindowSums{E <: AbstractVector{<:Integer}} <: AbstractOperator
     ends::E
     n::Int
