@@ -1,8 +1,6 @@
-# Small `Float64` calls of the shapes most models start from, run at
-# precompile time, so that their first call in a session does not compile
-# them: a single series, and strata with a dense coupling and a depletion,
-# each followed by a convolution. The backends' extensions are left out, as
-# their compile time dwarfs any gain here.
+# The README model's shapes, a single series and strata with a coupling and
+# a depletion, on small `Float64` inputs, so that their first call in a
+# session does not compile. The AD extensions get no workload.
 @setup_workload begin
     g = [0.5, 0.3, 0.2]
     K = [0.9 0.1; 0.2 0.8]
