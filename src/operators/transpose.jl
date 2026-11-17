@@ -29,8 +29,8 @@ the absolute times `start:stop`:
 
   - `x`: the series, length `n` or `S × n`, read at absolute time `t`.
   - `tail`: the series after `t = n`, oldest first (any length `m`, or
-    `S × m`); later values are zero. A series extended by its last value
-    is `tail = fill(x[end], L - 1)`.
+    `S × m`); later values are zero.
+    A series extended by its last value is `tail = fill(x[end], L - 1)`.
   - `start`: the first time; `1` by default.
   - `stop`: the last time; `n` by default.
     It may pass `n + m`, where the series is zero, so an output that reads

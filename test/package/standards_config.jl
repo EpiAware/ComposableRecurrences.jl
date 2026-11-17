@@ -16,8 +16,74 @@ const MATHS_ALLOW = (
 # unexpected pass: remove it from the list.
 const PENDING_MATHS = ()
 const PENDING_EXAMPLES = ()
-# Labels of sources whose prose still uses a banned word, marked broken.
-const PENDING_WORDING = ()
+# Sources whose prose still uses a banned word, marked broken. Each entry
+# is a file path relative to the package root or a docstring label such as
+# `docstring Recurrence`.
+const PENDING_WORDING = (
+    "docstring Allocate",
+    "docstring NoAdjoint",
+    "docstring Pairwise",
+    "docstring PieceInterface",
+    "docstring Recent",
+    "docstring Step",
+    "docstring Transform",
+    "docstring forward!",
+    "docstring pullback!",
+    "docstring test_adjoint",
+    "docstring uses_adjoint",
+    "src/ComposableRecurrences.jl",
+    "src/interface/roles.jl",
+)
+
+# The longest prose sentence, in words, and the longest code line, in
+# characters, in the pages, tutorials and docstrings.
+const MAX_SENTENCE_WORDS = 35
+const MAX_CODE_CHARS = 80
+# Sources still holding a longer sentence or code line, marked broken, in
+# the form of `PENDING_WORDING`.
+const PENDING_SENTENCE_LENGTH = (
+    "docs/src/developer/extending.md",
+    "docs/src/developer/testing.md",
+    "docs/src/explanation/adjoints-and-backends.md",
+    "docs/src/explanation/modifiers.md",
+    "docs/src/extensions/distributions.md",
+    "docs/src/extensions/enzyme.md",
+    "docs/src/extensions/forward-diff.md",
+    "docs/src/extensions/reactant.md",
+    "docs/src/getting-started/tutorials/forecasting.jl",
+)
+const PENDING_CODE_LENGTH = (
+    "README.md",
+    "docs/src/benchmarks/ad-comparison.jl",
+    "docs/src/developer/extending.md",
+    "docs/src/developer/testing.md",
+    "docs/src/explanation/adjoints-and-backends.md",
+    "docs/src/getting-started/api-overview.md",
+    "docs/src/getting-started/index.md",
+    "docs/src/getting-started/time-units.md",
+    "docs/src/getting-started/tutorials/backend-case-study.jl",
+    "docs/src/getting-started/tutorials/clinical-outcomes.jl",
+    "docs/src/getting-started/tutorials/forecasting.jl",
+    "docs/src/getting-started/tutorials/imported-cases.jl",
+    "docs/src/getting-started/tutorials/latent-processes.jl",
+    "docs/src/getting-started/tutorials/occupancy.jl",
+    "docs/src/getting-started/tutorials/renewal-then-delay.jl",
+    "docs/src/getting-started/tutorials/reproduction-number.jl",
+    "docs/src/getting-started/tutorials/spatial-strata.jl",
+    "docs/src/getting-started/tutorials/time-varying-delays.jl",
+    "docs/src/getting-started/tutorials/transform.jl",
+    "docs/src/getting-started/tutorials/vaccination.jl",
+    "docs/src/performance/summary.md",
+    "docstring Allocate",
+    "docstring Depletion",
+    "docstring Direct",
+    "docstring FFTMethod",
+    "docstring Redistribute",
+    "docstring Run",
+    "docstring Transform",
+    "docstring depth",
+    "docstring forward!",
+)
 
 # Words that read as filler in docs, docstrings and comments: the shared
 # `BANNED_README_WORDS` from EpiAwarePackageTools, minus the entries this
@@ -25,7 +91,10 @@ const PENDING_WORDING = ()
 # by stem, case-insensitively, at a word boundary. The word "piece" is
 # checked separately, so that "piecewise" passes.
 const BANNED_SHARED_SKIP = ()
-const BANNED_EXTRA = ("seamless", "stock")
+const BANNED_EXTRA = (
+    "seamless", "stock", "variant", "analytic adjoint",
+    "hand-written adjoint", "exogenous",
+)
 
 # Package names that docstrings and src comments must not use: sibling
 # packages and automatic differentiation backends. Matched case-sensitively.

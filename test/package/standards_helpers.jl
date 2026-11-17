@@ -4,6 +4,7 @@
 # the tokeniser, and prose from Markdown pages and Literate comment lines.
 
 using EpiAwarePackageTools: BANNED_README_WORDS
+using Test: @test, @testset
 include(joinpath(@__DIR__, "standards_config.jl"))
 
 # The authored text of every docstring attached to `name` in `mod`.
@@ -55,8 +56,10 @@ end
 
 # Prose lines of a Markdown text as `(line number, text)`, dropping fenced
 # code, display maths, front matter, tables, HTML, admonition markers and
-# the scaffold-managed README sections.
-function markdown_prose(text::AbstractString)
+# the scaffold-managed README sections. Lines indented four or more spaces
+# with no list marker are dropped unless `indented` is set, as docstrings
+# use them for continued list items.
+function markdown_prose(text::AbstractString; indented::Bool = false)
     out = Tuple{Int, String}[]
     lines = split(text, '\n')
     fence = false
@@ -84,21 +87,26 @@ function markdown_prose(text::AbstractString)
         dollars && continue
         (isempty(s) || startswith(s, "|") || startswith(s, "<")) && continue
         (startswith(s, ":::") || startswith(s, "!!!")) && continue
-        startswith(line, "    ") && !startswith(s, "-") && continue
+        !indented && startswith(line, "    ") && !startswith(s, "-") &&
+            continue
         push!(out, (i, String(line)))
     end
     return out
 end
 
-# Literate tutorial prose: the `# ` comment lines, as Markdown.
-function literate_prose(text::AbstractString)
-    lines = split(text, '\n')
+# The comment lines of a Literate tutorial as Markdown, one line per source
+# line, with code lines left blank.
+function literate_markdown(lines)
     md = map(lines) do line
         m = match(r"^#(?: (.*))?$", line)
         m === nothing ? "" : something(m.captures[1], "")
     end
-    return markdown_prose(join(md, '\n'))
+    return join(md, '\n')
 end
+
+# Literate tutorial prose: the `# ` comment lines, as Markdown.
+literate_prose(text::AbstractString) =
+    markdown_prose(literate_markdown(split(text, '\n')))
 
 prose_of(file) = endswith(file, ".jl") ?
     literate_prose(read(file, String)) : markdown_prose(read(file, String))
@@ -214,7 +222,7 @@ end
 function docstring_sources(mod::Module)
     out = Tuple{String, String}[]
     for (label, text) in all_authored_docs(mod)
-        for (i, line) in markdown_prose(text)
+        for (i, line) in markdown_prose(text; indented = true)
             push!(out, ("$label, line $i", line))
         end
     end
@@ -229,6 +237,90 @@ function comment_sources()
         end
     end
     return out
+end
+
+# The number of words in a prose line, with inline code, links and maths
+# counted as one word each and any list marker dropped.
+function sentence_words(line::AbstractString)
+    s = replace(plain_words(line), r"^\s*(?:[-*+]|\d+[.)])\s+" => "")
+    return length(split(s))
+end
+
+function long_sentence_hits(line)
+    n = sentence_words(line)
+    return n > MAX_SENTENCE_WORDS ? ["$n words"] : String[]
+end
+
+function long_code_hits(line)
+    n = length(rstrip(line))
+    return n > MAX_CODE_CHARS ? ["$n characters"] : String[]
+end
+
+# Code lines of the fenced Julia blocks of a Markdown text as
+# `(line number, text)`: ```julia, ```@example, ```@repl, ```@setup and
+# ```jldoctest blocks.
+function markdown_code(text::AbstractString)
+    out = Tuple{Int, String}[]
+    lang = nothing
+    for (i, line) in enumerate(split(text, '\n'))
+        s = strip(line)
+        if lang === nothing
+            m = match(r"^(?:```|~~~)\s*(\S*)", s)
+            m === nothing || (lang = m.captures[1])
+        elseif startswith(s, "```") || startswith(s, "~~~")
+            lang = nothing
+        elseif occursin(r"^(julia|@example|@repl|@setup|jldoctest)", lang)
+            push!(out, (i, String(line)))
+        end
+    end
+    return out
+end
+
+# Code lines of a Literate tutorial: every line that is not a comment, and
+# the fenced Julia blocks in its comments.
+function literate_code(text::AbstractString)
+    lines = split(text, '\n')
+    out = [
+        (i, String(l)) for (i, l) in enumerate(lines)
+            if !startswith(l, "#") && !isempty(strip(l))
+    ]
+    append!(out, markdown_code(literate_markdown(lines)))
+    return sort!(out)
+end
+
+code_of(file) = endswith(file, ".jl") ?
+    literate_code(read(file, String)) : markdown_code(read(file, String))
+
+# Every `(label, line)` of code in the pages, tutorials and docstrings.
+function code_sources(mod::Module)
+    out = Tuple{String, String}[]
+    for file in standards_prose_files()
+        for (i, line) in code_of(file)
+            push!(out, ("$(relpath_root(file)):$i", line))
+        end
+    end
+    for (label, text) in all_authored_docs(mod)
+        for (i, line) in markdown_code(text)
+            push!(out, ("$label, line $i", line))
+        end
+    end
+    return out
+end
+
+# True when the violation `v` belongs to the pending source `label`: a file
+# path or a docstring label such as `docstring Recurrence`.
+is_pending(v, label) = startswith(v, label * ":") || startswith(v, label * ",")
+
+# Test that every violation in `found` belongs to a source in `pending`, and
+# mark each pending source broken until its last violation is fixed.
+function test_pending(found, pending)
+    @test filter(v -> !any(l -> is_pending(v, l), pending), found) == String[]
+    for label in pending
+        @testset "$label" begin
+            @test !any(v -> is_pending(v, label), found) broken = true
+        end
+    end
+    return nothing
 end
 
 violations(f, sources) =
