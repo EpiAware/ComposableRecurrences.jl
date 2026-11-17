@@ -1,7 +1,7 @@
-# The trace of a modifier: a series it computes on the way, recorded per
-# step when a call asks for it (`record = (:trace,)`). Each step's trace is a
-# function of the step's inputs and outputs, read from the records the
-# rule keeps, so a call without a trace runs as before.
+# ---- modifier traces --------------------------------------------------------
+
+# A step's trace is read from the records the rule keeps, so a call that
+# does not ask for one runs as before.
 
 @doc raw"""
 The role of a modifier's trace: what a call with `record = (:trace,)` records
@@ -73,10 +73,6 @@ n_r = r S \quad \text{or} \quad n_r = r G;
 the default is the modifier's [`ComposableRecurrences.nstate`](@ref), its
 state after each step, or none for a modifier whose state never changes.
 
-# Arguments
-- `m`: the modifier.
-- `S`: the number of strata.
-
 # Examples
 ```jldoctest
 using ComposableRecurrences
@@ -90,14 +86,14 @@ CR.ntrace(CR.Transform(clamp, 0.0, 1.0), 3), CR.ntrace(CR.Depletion(100.0), 3)
 """
 ntrace(m, S) = _stateless(m) ? 0 : nstate(m, S)
 
-# The defaults: the state after the step, per stratum, per group or for
-# the whole step, and its pullback, which adds the trace's cotangent into
-# that of the state after the step.
+# By default the trace is the state after the step.
 function forward!(m, ::Trace, r, v, s, v′, s′, t)
     _copy_trace!(r, s′)
     return nothing
 end
-function forward!(m, ::Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)
+function forward!(
+        m, ::Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g
+    )
     foreach((x, y) -> x[] = y[], r, s′)
     return nothing
 end
@@ -109,9 +105,8 @@ function pullback!(grads, m, ::Trace, v::Tuple, s::Tuple, t, g)
     foreach((x̄, r̄) -> x̄[] += r̄[], grads.s′, grads.trace)
     return nothing
 end
-# A pointwise modifier's trace is a tuple of series, one per value, and a
-# whole-step modifier's one vector. On the host a step's few entries are
-# copied by a loop, which costs less than setting up `copyto!` of views.
+# On the host a step's few entries are copied by a loop, which costs less
+# than setting up `copyto!` of views.
 _copy_trace!(r::Tuple, s′) = _copy_trace!(first(r), s′)
 _copy_trace!(r::AbstractVector, s′) = (copyto!(r, s′); nothing)
 function _copy_trace!(r::_CPUArray, s′::_CPUArray)
@@ -128,16 +123,14 @@ function _add_trace!(s̄′, r̄::AbstractVector)
     return nothing
 end
 
-# A modifier's trace at one step into its column `col`, from its inputs
-# `v` and `s` and outputs `v′` and `s′`: a pointwise modifier's as one
-# series per value over the strata, a blockwise one's per group from
-# one-entry views, and any other's as the whole column.
+# A modifier's trace at one step into its column `col`.
 _trace!(col, m, v, s, v′, s′, t) = _trace!(_blocks(m), col, m, v, s, v′, s′, t)
 function _trace!(::Nothing, col, m, v, s, v′, s′, t)
     r = _strata_loop(m) ? _trace_series(col, Val(ntrace(m, 1)), length(v)) : col
     _written(m, forward!(m, Trace(), r, v, s, v′, s′, t))
     return nothing
 end
+# A blockwise modifier's trace, one group at a time on one-entry views.
 function _trace!(::Val{B}, col, m, v, s, v′, s′, t) where {B}
     G = _ngroups(Val(B), length(v))
     for g in 1:G
@@ -145,10 +138,8 @@ function _trace!(::Val{B}, col, m, v, s, v′, s′, t) where {B}
     end
     return nothing
 end
-# Group `g`'s trace: the modifier's `forward!` on one-entry views. A
-# built-in's group trace (`_trace_values`) is a function of the group's
-# gathered values, which it returns, so its trace runs without views, as
-# its step does.
+# Kept apart from the loop: folded into it, a traced two-pool run took 1.27
+# times as long.
 function _group_trace!(m, ::Val{B}, col, v, s, v′, s′, t, G, g) where {B}
     nv, ns = B
     r = _group_views(col, Val(ntrace(m, nv)), G, g)
@@ -161,8 +152,11 @@ function _group_trace!(m, ::Val{B}, col, v, s, v′, s′, t, G, g) where {B}
     )
     return nothing
 end
-# The `n` series of a column, rows `(j - 1) * S + 1` to `j * S` for the
-# `j`th, and a group's one-entry views of them, entry `g` of each. A group
-# reads its views as `x[]`, so each points at its entry of `x` directly.
-_trace_series(col, ::Val{n}, S) where {n} = ntuple(j -> view(col, ((j - 1) * S + 1):(j * S)), Val(n))
-_group_views(x, ::Val{n}, G, g) where {n} = ntuple(j -> _At(x, (j - 1) * G + g), Val(n))
+# The `n` series of a column, the `j`th in rows `(j - 1) * S + 1` to
+# `j * S`, and a group's one-entry views of them.
+function _trace_series(col, ::Val{n}, S) where {n}
+    return ntuple(j -> view(col, ((j - 1) * S + 1):(j * S)), Val(n))
+end
+function _group_views(x, ::Val{n}, G, g) where {n}
+    return ntuple(j -> _At(x, (j - 1) * G + g), Val(n))
+end
