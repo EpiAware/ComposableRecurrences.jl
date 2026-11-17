@@ -1,5 +1,9 @@
+# == Shared ==
+
 # Marks the constructor that takes the flat fields as they are.
 struct _Flat end
+
+# == Indexing ==
 
 @doc raw"""
 The default indexing of a [`TimeVarying`](@ref) coefficient: column `t` is
@@ -84,6 +88,8 @@ round.(vcat(h, r(fill(1.5, 6); history = h, start = 3)); digits = 3)
 ```
 """
 struct Primary end
+
+# == PerStratum and Pairwise ==
 
 @doc raw"""
 A coefficient given per stratum: adds a leading strata axis to its slot.
@@ -201,6 +207,8 @@ struct Pairwise{A <: AbstractArray}
     x::A
 end
 
+# == TimeVarying ==
+
 @doc raw"""
 A coefficient that changes over time: adds a trailing time axis to its slot.
 
@@ -229,7 +237,8 @@ A modifier parameter is length `T`, or `TimeVarying(PerStratum(B))` with
 `B` `S × T`.
 
 A coefficient that changes at a few times is given by its change points,
-`[t_1 => c_1, t_2 => c_2, ..., t_J => c_J]` with ``1 = t_1 < t_2 < \dots < t_J``:
+`[t_1 => c_1, t_2 => c_2, ..., t_J => c_J]` with
+``1 = t_1 < t_2 < \dots < t_J``:
 
 ```math
 c(\tau) = c_j, \qquad t_j \le \tau < t_{j+1}, \quad t_{J+1} = \infty,
@@ -248,18 +257,9 @@ it.
 Values and gradients equal those of the dense array that repeats each
 value over its segment.
 
-The indexing sets which time a kernel's column belongs to, and is held as
-a type parameter so nothing branches on it:
-
-  - [`ComposableRecurrences.Secondary`](@ref) (the default): column `t`
-    weights the inputs reaching output `t`. This is the only meaning
-    outside a kernel.
-  - [`ComposableRecurrences.Primary`](@ref): column `c` is the kernel of
-    the input at time `c`, which spreads forward through it. In a
-    [`Recurrence`](@ref) the input is the output at time `c`, so each
-    output keeps the kernel of the time it was produced.
-
-The two agree for a fixed kernel.
+The indexing, [`ComposableRecurrences.Secondary`](@ref) (the default) or
+[`ComposableRecurrences.Primary`](@ref), sets which time a kernel's column
+belongs to; it is a type parameter, so nothing branches on it.
 
 # Arguments
 - `x`: the coefficients, time on the last axis, a [`PerStratum`](@ref)
@@ -339,19 +339,17 @@ end
     )
 end
 
-# What `TimeVarying` can wrap: an array, a `PerStratum`, a `Pairwise`,
-# kernel columns or change points, and a movement read from its kernel and
-# intensity.
-_over_time(x) = x isa Union{AbstractArray, PerStratum, Pairwise, _AnyRagged, _Piecewise}
+# What `TimeVarying` can wrap.
+function _over_time(x)
+    return x isa
+        Union{AbstractArray, PerStratum, Pairwise, _AnyRagged, _Piecewise}
+end
+
+# == Kernel columns ==
 
 # A kernel's columns, of any lengths, stacked: column `τ` is
-# `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first. Loops read each
-# column to its own end, so no padding is stored or visited, and the
-# integer offsets carry no cotangent. The offsets live where the values
-# do, so a device loop reads them. The checked constructor validates the
-# offsets on the host, so a loop that reads column `τ ≤ ncols` within its
-# range skips bounds checks; the `_Flat` form takes the fields of a checked
-# one as they are, as `adapt` does.
+# `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first, with no padding.
+# The checked constructor validates the offsets, so loops skip bounds checks.
 struct _Ragged{V <: AbstractVector, O <: AbstractVector{Int}}
     values::V
     offsets::O
@@ -401,7 +399,9 @@ function _column_eltype(ks)
 end
 
 _ncols(g::_Ragged) = length(g.offsets) - 1
-Base.@propagate_inbounds _colrange(g::_Ragged, τ) = (g.offsets[τ] + 1):g.offsets[τ + 1]
+Base.@propagate_inbounds function _colrange(g::_Ragged, τ)
+    return (g.offsets[τ] + 1):g.offsets[τ + 1]
+end
 function _maxlen(g::_Ragged)
     n = 0
     for τ in 1:_ncols(g)
@@ -411,10 +411,8 @@ function _maxlen(g::_Ragged)
 end
 param_eltype(x::_Ragged) = param_eltype(x.values)
 
-# A kernel's columns as the caller gave them, lag first: column `τ` is
-# `columns[τ]`. Holding them rather than stacking them saves a copy of every
-# weight on each call that builds the kernel, as a loss differentiating the
-# weights does. Each column's mirror is the column's own cotangent.
+# A kernel's columns as the caller gave them, lag first, held rather than
+# stacked to save a copy of every weight each time a loss builds the kernel.
 struct _Columns{K <: AbstractVector{<:AbstractVector}}
     columns::K
     function _Columns(ks::K) where {K <: AbstractVector{<:AbstractVector}}
@@ -444,7 +442,9 @@ const _AnyRagged = Union{_Ragged, _Columns}
 
 # Column `τ` of a column-form kernel, and the same column of the mirror `m`
 # of its storage, or `nothing` without one.
-Base.@propagate_inbounds _colview(g::_Ragged, τ) = view(g.values, _colrange(g, τ))
+Base.@propagate_inbounds function _colview(g::_Ragged, τ)
+    return view(g.values, _colrange(g, τ))
+end
 Base.@propagate_inbounds _colview(g::_Columns, τ) = g.columns[τ]
 function _column_mirror(m, g::_Ragged, τ)
     return _mirror_view(cotangent(m, :values), _colrange(g, τ))
@@ -457,24 +457,23 @@ function TimeVarying{I}(ks::AbstractVector{<:AbstractVector}) where {I}
     return TimeVarying{I}(_ragged(ks))
 end
 
+# == Change points ==
+
 # A coefficient that holds its value between change points: segment `j`
-# covers the times from `starts[j]` to `starts[j + 1] - 1`, the last one
-# every later time, and its value is column `j` of `x`. `x` has the form of
-# a dense coefficient (an array, or a `PerStratum` of one) with one column
-# per segment in place of one per time, so the readers of a dense
-# coefficient read it at column `_segment(p, t)`. The starts rise from 1 and
-# carry no cotangent. The `_Flat` form takes the fields of a checked one as
-# they are.
+# covers `starts[j]:(starts[j + 1] - 1)`, the last every later time, and its
+# value is column `j` of the dense coefficient `x`.
 struct _Piecewise{X, P <: AbstractVector{Int}}
     x::X
     starts::P
-    function _Piecewise(::_Flat, x::X, starts::P) where {X, P <: AbstractVector{Int}}
+    function _Piecewise(
+            ::_Flat, x::X, starts::P
+        ) where {X, P <: AbstractVector{Int}}
         return new{X, P}(x, starts)
     end
     function _Piecewise(x::X, starts::AbstractVector{<:Integer}) where {X}
         Base.require_one_based_indexing(starts)
         s = convert(Vector{Int}, starts)
-        ok = !isempty(s) && first(s) == 1 && all(i -> s[i] < s[i + 1], 1:(length(s) - 1))
+        ok = !isempty(s) && first(s) == 1 && issorted(s; lt = <=)
         ok || throw(
             ArgumentError(
                 "change points start at time 1 and rise, got the starts " *
@@ -492,9 +491,8 @@ end
 _array(p::_Piecewise) = _array(p.x)
 param_eltype(p::_Piecewise) = param_eltype(p.x)
 
-# The segment of time `t`: the last whose start is at or before `t`, the
-# first for a time before 1. A linear scan from the last segment, as there
-# are few and a run reads them in time order.
+# The segment of time `t`, the first for a time before 1. A linear scan, as
+# there are few segments.
 Base.@propagate_inbounds _segment(p::_Piecewise, t) = _segment_of(p.starts, t)
 Base.@propagate_inbounds function _segment_of(s, t)
     j = length(s)
@@ -504,10 +502,8 @@ Base.@propagate_inbounds function _segment_of(s, t)
     return j
 end
 
-# The values `start => value` of a coefficient given by change points,
-# stacked along a new last axis: numbers into a vector, arrays into an array
-# with one more axis, and `PerStratum` values into a `PerStratum` of that.
-# Kernels of different lengths are padded with zero weights.
+# The values of `start => value` change points stacked along a new last
+# axis, kernels of different lengths padded with zero weights.
 function _piecewise(ps::AbstractVector{<:Pair})
     Base.require_one_based_indexing(ps)
     isempty(ps) && throw(
@@ -521,21 +517,21 @@ _start_time(p::Pair{<:Integer}) = first(p)
 function _start_time(p::Pair)
     throw(
         ArgumentError(
-            "a change point is an integer start time => value, got " * _describe(p)
+            "a change point is an integer start time => value, got " *
+                _describe(p)
         )
     )
 end
 _value_type(::Type{<:Pair{<:Any, V}}) where {V} = V
-# The type that picks how the values `get(p)` stack: `V` when it is
-# concrete, else the join of the values' own types, so that a vector of
-# pairs typed `Pair{Int, Any}`, or of `PerStratum` values with different
-# eltypes, takes the form its values share.
-_values_type(::Type{V}, get, ps) where {V} = isconcretetype(V) ? V : _join_types(get, ps)
-_join_types(get, ps) = mapreduce(p -> typeof(get(p)), typejoin, ps)
+# The type that picks how the values `get(p)` stack: `V` when concrete, else
+# the join of the values' own types, as for pairs typed `Pair{Int, Any}`.
+function _values_type(::Type{V}, get, ps) where {V}
+    isconcretetype(V) && return V
+    return mapreduce(p -> typeof(get(p)), typejoin, ps)
+end
 
-# The values `get(p)` of the pairs `ps`, of type `V`, read from the pairs
-# where they are: a vector of the values would be a copy of each that
-# reverse-mode AD cannot always type.
+# The values `get(p)` read from the pairs where they are: a vector of the
+# values would be a copy that reverse-mode AD cannot always type.
 _stack_values(::Type{<:Real}, get, ps) = [float(get(p)) for p in ps]
 function _stack_values(::Type{V}, get, ps) where {V <: AbstractVector}
     n = 0
@@ -547,17 +543,22 @@ end
 function _stack_values(::Type{V}, get, ps) where {V <: AbstractArray}
     sz = size(get(first(ps)))
     for p in ps
-        size(get(p)) == sz || _size_error(sz, size(get(p)))
+        size(get(p)) == sz || throw(
+            DimensionMismatch(
+                "the values between change points have one size, got $sz " *
+                    "and $(size(get(p)))"
+            )
+        )
     end
     return _stack(V, get, ps, sz)
 end
 _stack_values(::Type{<:Pairwise}, get, ps) = _pairwise_piecewise(map(get, ps))
 function _stack_values(::Type{V}, get, ps) where {V <: PerStratum}
     getx = p -> get(p).x
-    x = _stack_values(_values_type(_field_type(V), getx, ps), getx, ps)
+    X = isconcretetype(V) ? fieldtype(V, :x) : Any
+    x = _stack_values(_values_type(X, getx, ps), getx, ps)
     return constructorof(V)(x)
 end
-_field_type(::Type{V}) where {V} = isconcretetype(V) ? fieldtype(V, :x) : Any
 function _stack_values(::Type, get, ps)
     throw(
         ArgumentError(
@@ -566,22 +567,12 @@ function _stack_values(::Type, get, ps)
         )
     )
 end
-@noinline function _size_error(sz, other)
-    throw(
-        DimensionMismatch(
-            "the values between change points have one size, got $sz and $other"
-        )
-    )
-end
-# Each value copied into its slice of one zeroed array, where its type and
-# device are, as `_Ragged` stacks columns: AD backends differentiate the
-# copies as block copies. A shorter vector leaves zeros after its entries.
-# The eltype comes from the values' type `V`, read off the pairs' type, so
-# no inference runs at call time.
-_stack(::Type{V}, get, ps, sz) where {V} = _stack(V, get, ps, sz, get(first(ps)))
-function _stack(::Type{V}, get, ps, sz, v1) where {V}
+# Each value copied into its slice of one zeroed array, on its device, which
+# AD backends differentiate as block copies. The eltype is read off `V` when
+# it is concrete, so no inference runs at call time.
+function _stack(::Type{V}, get, ps, sz) where {V}
     T = _values_eltype(V, get, ps)
-    A = _zeros(v1, T, sz..., length(ps))
+    A = _zeros(get(first(ps)), T, sz..., length(ps))
     n = prod(sz)
     for (j, p) in enumerate(ps)
         v = get(p)
@@ -589,9 +580,8 @@ function _stack(::Type{V}, get, ps, sz, v1) where {V}
     end
     return A
 end
-_values_eltype(::Type{V}, get, ps) where {V} = _values_eltype(Val(isconcretetype(V)), V, get, ps)
-_values_eltype(::Val{true}, ::Type{V}, get, ps) where {V} = eltype(V)
-function _values_eltype(::Val{false}, ::Type{V}, get, ps) where {V}
+function _values_eltype(::Type{V}, get, ps) where {V}
+    isconcretetype(V) && return eltype(V)
     T = Bool
     for p in ps
         T = promote_type(T, eltype(get(p)))
@@ -603,10 +593,14 @@ function TimeVarying{I}(ps::AbstractVector{<:Pair}) where {I}
     return TimeVarying{I}(_piecewise(ps))
 end
 
+# == Constructors ==
+
 TimeVarying(x) = TimeVarying{Secondary}(x)
 # The indexing is a type parameter with no field, so a rebuild from the
 # fields names it, or `TimeVarying(x)` would read the kernel as `Secondary()`.
-ConstructionBase.constructorof(::Type{<:TimeVarying{I}}) where {I} = TimeVarying{I}
+function ConstructionBase.constructorof(::Type{<:TimeVarying{I}}) where {I}
+    return TimeVarying{I}
+end
 TimeVarying(x, ::I) where {I <: Union{Primary, Secondary}} = TimeVarying{I}(x)
 function TimeVarying(x, indexing)
     throw(
@@ -644,6 +638,8 @@ function _strata_ragged(x)
         )
     )
 end
+
+# == Kernel storage ==
 
 # A fixed pairwise kernel as a call prepares it: `x[L + 1 - i, b, a]` is
 # the weight of stratum `b`'s value at lag `i` in stratum `a`, so the dot of
