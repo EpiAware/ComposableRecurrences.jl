@@ -1,3 +1,5 @@
+# == delay_masses ==
+
 @doc raw"""
     delay_masses(k, lags; step = 1)
 
@@ -48,13 +50,6 @@ A delay on continuous time has masses only once a censoring choice turns it
 into one on whole steps, so a method for it belongs with that choice.
 A [package extension](@ref overview-delays) adds one that double interval
 censors the delay.
-
-# Arguments
-- `k`: the delay, or a vector of masses.
-- `lags`: the number of lags, from lag 0.
-
-# Keyword Arguments
-- `step`: the width of a lag in the delay's own unit; `1` by default.
 
 # Examples
 ```jldoctest
@@ -144,8 +139,10 @@ function _cut(a, lags)
     return map(l -> l < n ? a[i + l] : zero(eltype(a)), 0:(lags - 1))
 end
 
-# The full linear convolution of `a` and `b` on lags `0` to `lags - 1`,
-# added to `c`: only the products of entries that both exist are taken.
+# == Chained masses ==
+
+# The full linear convolution of `a` and `b` on lags `0` to `lags - 1`:
+# only the products of entries that both exist are taken.
 function _convolve_masses(a, b, lags)
     c = zeros(promote_type(eltype(a), eltype(b)), lags)
     return _convolve_masses!(c, a, b)
@@ -199,6 +196,8 @@ function _correlate_masses!(x̄, c̄, y)
     return x̄
 end
 
+# == Delay kernels ==
+
 # The masses of a continuous delay, from the extension that makes the
 # censoring choice; until it loads, the error says which package to load.
 _continuous_masses(d, lags; kwargs...) = _no_censoring(d)
@@ -211,10 +210,8 @@ _continuous_masses(d, lags; kwargs...) = _no_censoring(d)
     )
 end
 
-# A delay is a value whose type has a `delay_masses` method. An array of
-# masses has the vector method but is a kernel, not a delay. Read from the
-# type, so the branches on it fold, and a method added later invalidates
-# them.
+# A delay is a value whose type has a `delay_masses` method, read from the
+# type so the branches fold; an array of masses is a kernel, not a delay.
 function _isdelay(::Type{T}) where {T}
     return !(T <: AbstractArray) &&
         Core._hasmethod(Tuple{typeof(delay_masses), T, Int})
@@ -282,17 +279,17 @@ function _check_lags(lags, origin)
     lags isa Integer && lags > origin || throw(
         ArgumentError(
             "lags counts the lags from 0 and must be an integer above " *
-                "$(origin), as a $(origin == 0 ? "Convolution" : "Recurrence") " *
-                "kernel starts at lag $(origin); got $(repr(lags))"
+                "$(origin), as a " *
+                "$(origin == 0 ? "Convolution" : "Recurrence") kernel " *
+                "starts at lag $(origin); got $(repr(lags))"
         )
     )
     return nothing
 end
 
-# The kernel with each delay replaced by its masses from lag `origin`, the
-# lag axis where the wrapper reads it. Arrays of masses, such as a route
-# kernel beside a route of delays, stay as they are, but a kernel with no
-# delays at all takes no `lags`.
+# The kernel with each delay replaced by its masses from lag `origin`.
+# Arrays of masses stay as they are, but a kernel with no delays takes no
+# `lags`.
 function _delay_kernel(kernel, lags, origin, step)
     _check_lags(lags, origin)
     _check_step(step)

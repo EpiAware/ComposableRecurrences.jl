@@ -1,7 +1,8 @@
 # Kernels computed from coefficients: a `Derived` maps coefficients entry by
 # entry and a `Survival` takes each cohort's survival through the lags
-# against a hazard. A call fills the weights it reads, and its reverse pass
-# takes their cotangent back to the coefficients.
+# against a hazard.
+
+# == Survival ==
 
 @doc raw"""
 The survival of each cohort through each lag of a kernel against a hazard.
@@ -13,10 +14,10 @@ cohort ``\tau`` in stratum ``k`` is
 s_{k,l}(\tau) = \prod_{j = \max(f, l_0)}^{l} \big(1 - \eta_{k,j}(\tau)\big),
 ```
 
-where ``\eta_{k,j}(\tau)`` is the hazard at lag ``j``, read as in a
-[`Derived`](@ref) kernel, ``f`` = `from` is the first lag the hazard acts
-at and ``l_0`` is the kernel's first lag (0 in a [`Convolution`](@ref), 1
-in a [`Recurrence`](@ref)).
+where ``\eta_{k,j}(\tau)`` is the hazard at lag ``j``, any argument of a
+[`Derived`](@ref) kernel read as there, ``f`` = `from` (0 by default) is the
+first lag the hazard acts at and ``l_0`` is the kernel's first lag (0 in
+a [`Convolution`](@ref), 1 in a [`Recurrence`](@ref)).
 Lags before `from` have survival one.
 A hazard that changes with calendar time is `TimeVarying(h)`, read at the
 time ``\tau + j`` each lag lands; one that changes with the lag is a vector
@@ -25,12 +26,6 @@ of lag weights.
 This is the [`Recurrence`](@ref) `Recurrence([1])` with gain ``1 - \eta``
 and a history of one, run over each cohort's lags, computed as part of the
 kernel: one pass per cohort forward, and one back.
-
-# Arguments
-- `hazard`: the hazard, any argument of a `Derived` kernel.
-
-# Keyword Arguments
-- `from`: the first lag the hazard acts at, `0` by default.
 
 # Examples
 ```jldoctest
@@ -60,13 +55,16 @@ struct Survival{H}
         _check_coefficient(hazard)
         from >= 0 || throw(
             ArgumentError(
-                "from is the first lag the hazard acts at, at least 0; got $from"
+                "from is the first lag the hazard acts at, at least 0; " *
+                    "got $from"
             )
         )
         return new{H}(hazard, Int(from))
     end
 end
 Survival(hazard; from::Integer = 0) = Survival(hazard, from)
+
+# == Coefficients ==
 
 # A kernel computed from coefficients, and the kernel it is part of.
 const _Computed = Union{Derived, Survival}
@@ -75,7 +73,9 @@ _over_time(::_Computed) = true
 
 # The coefficients a computed kernel reads: numbers, lag weights, values per
 # stratum or per time, and other computed weights.
-const _TimeAxis = Union{AbstractVector{<:Real}, PerStratum{<:AbstractMatrix{<:Real}}}
+const _TimeAxis = Union{
+    AbstractVector{<:Real}, PerStratum{<:AbstractMatrix{<:Real}},
+}
 const _ArrayCoefficient = Union{
     AbstractVector{<:Real}, PerStratum{<:AbstractVecOrMat{<:Real}},
     TimeVarying{<:Any, <:_TimeAxis},
@@ -147,16 +147,17 @@ function _joined(f::F, args::Tuple, what) where {F}
     return max(n, m)
 end
 
-# Whether a coefficient of type `T` has a strata axis, from the type, so the
-# kernel's shape infers.
-_typed_strata(::Type) = false
-_typed_strata(::Type{<:PerStratum}) = true
-_typed_strata(::Type{<:TimeVarying{<:Any, <:PerStratum}}) = true
-_typed_strata(::Type{<:Survival{H}}) where {H} = _typed_strata(H)
-function _typed_strata(::Type{<:Derived{F, A}}) where {F, A}
-    return any(_typed_strata, fieldtypes(A))
+# Whether a coefficient of type `T` has a strata axis (`_coef_strata` is
+# then its count), from the type alone, so the kernel's shape infers.
+_stratified_type(::Type) = false
+_stratified_type(::Type{<:PerStratum}) = true
+_stratified_type(::Type{<:TimeVarying{<:Any, <:PerStratum}}) = true
+_stratified_type(::Type{<:Survival{H}}) where {H} = _stratified_type(H)
+function _stratified_type(::Type{<:Derived{F, A}}) where {F, A}
+    return any(_stratified_type, fieldtypes(A))
 end
-@generated _has_strata(x) = _typed_strata(x)
+# After its helpers: a generator sees only the methods defined before it.
+@generated _stratified(x) = _stratified_type(x)
 
 function _check_kernel_shape(k::_ComputedKernel)
     _check_kernel_args(k.x)
@@ -184,7 +185,9 @@ function _check_kernel_strata(x::_Computed, S)
     )
     return nothing
 end
-_check_kernel_times(k::_ComputedKernel, stop) = _check_coef_times(k.x, stop, stop)
+function _check_kernel_times(k::_ComputedKernel, stop)
+    return _check_coef_times(k.x, stop, stop)
+end
 
 # Each time-varying coefficient covers the cohorts up to `n` and the times
 # up to `last` that the weights read.
@@ -209,35 +212,34 @@ function _no_adjoint_kernel(k::_ComputedKernel)
     return ("the kernel has a Derived map that holds floats",)
 end
 
-# ---- the weights, a block of cohorts at a time --------------------------------
+# == The weights, a block of cohorts at a time ==
 
-# A computed kernel is filled a block of `_BLOCK` cohorts at a time, lag
-# outermost and cohort innermost: each cohort's survival is a product along
-# its lags, so the cohorts of a block run side by side. Each `Survival`
-# keeps the block's values `S` and hazards `H`, and in the reverse pass
-# their cotangents `S̄` (cohorts × lags × the strata of its hazard, or one),
-# in a scratch tree that mirrors the kernel, and the reverse pass
-# recomputes a block before taking its cotangent back. So no weight is
-# stored past its block; `_fill_kernel` says when a dense kernel keeps every
-# block. A recurrence and a convolution off the serial executor fill this
-# way; a serial convolution and `kernel_weights` walk each cohort (see
-# `walk.jl`).
+# A computed kernel is filled `_BLOCK` cohorts at a time, lag outermost and
+# cohort innermost, so a block's survival products run side by side. Each
+# `Survival` keeps the block's values `S`, hazards `H` and, in the reverse
+# pass, their cotangents `S̄` in a scratch tree that mirrors the kernel.
 const _BLOCK = 32
 
 # `P` is whether the hazard has a strata axis; without one, row 1 serves all.
-struct _SurvivalScratch{P, C, A <: AbstractArray{<:Any, 3}, V <: AbstractVector}
+struct _SurvivalScratch{
+        P, C, A <: AbstractArray{<:Any, 3}, V <: AbstractVector,
+    }
     hazard::C
     S::A
     H::A
     S̄::A
     acc::V
-    function _SurvivalScratch{P}(hazard::C, S::A, H::A, S̄::A, acc::V) where {P, C, A, V}
+    function _SurvivalScratch{P}(
+            hazard::C, S::A, H::A, S̄::A, acc::V
+        ) where {P, C, A, V}
         return new{P, C, A, V}(hazard, S, H, S̄, acc)
     end
 end
 # A scratch buffer of element type `T`, its entries written before they are
 # read; an extension may give another array type for its own element types.
-_alloc(::Type{T}, dims::Vararg{Int, N}) where {T, N} = Array{T}(undef, dims...)
+function _alloc(::Type{T}, dims::Vararg{Int, N}) where {T, N}
+    return Array{T}(undef, dims...)
+end
 _scratch(x, ::Type, L, B = _BLOCK) = nothing
 function _scratch(x::Derived, ::Type{Tp}, L, B = _BLOCK) where {Tp}
     return map(a -> _scratch(a, Tp, L, B), x.args)
@@ -259,18 +261,6 @@ function _back_scratch(sc::_SurvivalScratch{P}) where {P}
 end
 _row(sc::_SurvivalScratch{false}, k) = 1
 _row(sc::_SurvivalScratch{true}, k) = k
-
-# Whether a coefficient of type `T` has a strata axis (`_coef_strata` is
-# then its count), from the type alone.
-_stratified_type(::Type) = false
-_stratified_type(::Type{<:PerStratum}) = true
-_stratified_type(::Type{<:TimeVarying{<:Any, <:PerStratum}}) = true
-_stratified_type(::Type{Survival{H}}) where {H} = _stratified_type(H)
-function _stratified_type(::Type{Derived{F, A}}) where {F, A}
-    return any(_stratified_type, fieldtypes(A))
-end
-# After its helpers: a generator sees only the methods defined before it.
-@generated _stratified(x) = _stratified_type(x)
 
 # The last lag index of cohort `τ` whose weight lands by `last`, for lags
 # from `o`.
@@ -345,7 +335,8 @@ Base.@propagate_inbounds function _value(
     return x.x[_time(x, τ, l)]
 end
 Base.@propagate_inbounds function _value(
-        x::TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix}}, sc, k, i, τ, l, b
+        x::TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix}}, sc, k, i, τ, l,
+        b
     )
     return x.x.x[k, _time(x, τ, l)]
 end
@@ -359,17 +350,23 @@ end
 # The arguments' values, one tuple entry at a time, so a tuple of mixed
 # types infers.
 _values_at(::Tuple{}, ::Tuple{}, k, i, τ, l, b) = ()
-@inline Base.@propagate_inbounds function _values_at(a::Tuple, sc::Tuple, k, i, τ, l, b)
+@inline Base.@propagate_inbounds function _values_at(
+        a::Tuple, sc::Tuple, k, i, τ, l, b
+    )
     v = _value(first(a), first(sc), k, i, τ, l, b)
     return (v, _values_at(Base.tail(a), Base.tail(sc), k, i, τ, l, b)...)
 end
 
 # Add `v` to the cotangent of a coefficient's value at an entry, through
 # its mirror `x̄`; a `Survival` adds it to its scratch.
-Base.@propagate_inbounds function _add_value!(x̄, x::Real, sc, v, k, i, τ, l, b)
+Base.@propagate_inbounds function _add_value!(
+        x̄, x::Real, sc, v, k, i, τ, l, b
+    )
     return add_cotangent!(x̄, v)
 end
-Base.@propagate_inbounds function _add_value!(x̄, x::AbstractVector, sc, v, k, i, τ, l, b)
+Base.@propagate_inbounds function _add_value!(
+        x̄, x::AbstractVector, sc, v, k, i, τ, l, b
+    )
     return add_cotangent!(x̄, v, i)
 end
 Base.@propagate_inbounds function _add_value!(
@@ -388,9 +385,11 @@ Base.@propagate_inbounds function _add_value!(
     return add_cotangent!(cotangent(x̄, :x), v, _time(x, τ, l))
 end
 Base.@propagate_inbounds function _add_value!(
-        x̄, x::TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix}}, sc, v, k, i, τ, l, b
+        x̄, x::TimeVarying{<:Any, <:PerStratum{<:AbstractMatrix}}, sc, v, k,
+        i, τ, l, b
     )
-    return add_cotangent!(cotangent(cotangent(x̄, :x), :x), v, k, _time(x, τ, l))
+    x̄x = cotangent(cotangent(x̄, :x), :x)
+    return add_cotangent!(x̄x, v, k, _time(x, τ, l))
 end
 _add_value!(::Nothing, x::Derived, sc, v, k, i, τ, l, b) = nothing
 _add_value!(::Nothing, x::Survival, sc, v, k, i, τ, l, b) = nothing
@@ -414,8 +413,11 @@ end
         x̄, x::Derived{F, A}, sc, v, ∂, k, i, τ, l, b
     ) where {F, A}
     calls = (
-        :(@inbounds _add_value!(ā[$j], x.args[$j], sc[$j], v * ∂[$j], k, i, τ, l, b))
-            for j in 1:fieldcount(A)
+        :(
+            @inbounds _add_value!(
+                ā[$j], x.args[$j], sc[$j], v * ∂[$j], k, i, τ, l, b
+            )
+        ) for j in 1:fieldcount(A)
     )
     return quote
         $(Expr(:meta, :inline))
@@ -502,22 +504,21 @@ function _back_block!(x̄, x, sc, W̄, τ0, nb, o, last)
     for k in _strata_axis(W̄), b in 1:nb
         @inbounds for i in 1:_imax(τ0 + b - 1, length(_lag_axis(W̄)), o, last)
             v = W̄[b, i, k]
-            iszero(v) || _add_value!(x̄, x, sc, v, k, i, τ0 + b - 1, i - 1 + o, b)
+            iszero(v) ||
+                _add_value!(x̄, x, sc, v, k, i, τ0 + b - 1, i - 1 + o, b)
         end
     end
     _block_back!(x̄, x, sc, τ0, nb, o, last)
     return nothing
 end
 
-# The weights of a computed kernel for cohorts `1:n`, lags from `o`, each
-# one whose weight lands by `last`, as an array (lags × cohorts, or strata
-# × lags × cohorts; unfilled weights are zero), and the scratch of its last
-# block. A kernel whose maps are only arithmetic is filled in blocks of
-# `_BLOCK` cohorts, and its reverse pass recomputes each block, which costs
-# less than keeping them; any other map is costly enough to recompute that
-# a call that `keep`s its fill for the reverse pass fills every cohort in
-# one block, which the reverse pass reuses.
-function _fill_kernel(kernel::_ComputedKernel, o, n, last, keep::Val = Val(true))
+# The weights of a computed kernel for cohorts `1:n`, lags from `o`, that
+# land by `last`, as lags × cohorts (or strata × lags × cohorts), and the
+# scratch of the last block. Arithmetic maps fill in blocks the reverse pass
+# recomputes; costlier maps fill one block of every cohort, kept for it.
+function _fill_kernel(
+        kernel::_ComputedKernel, o, n, last, keep::Val = Val(true)
+    )
     x = kernel.x
     n = max(n, 0)
     _check_coef_times(x, n, last)
@@ -526,15 +527,22 @@ function _fill_kernel(kernel::_ComputedKernel, o, n, last, keep::Val = Val(true)
     ns = max(_coef_strata(x), 1)
     B = _block_size(x, n, keep)
     sc = _scratch(x, Tp, L, B)
-    K = _weights_array(Val(_has_strata(x)), Tp, ns, L, n)
+    K = _weights_array(Val(_stratified(x)), Tp, ns, L, n)
     for τ0 in 1:B:n
-        _fill_block!(_KernelBlock(K, τ0), x, sc, τ0, min(B, n - τ0 + 1), o, last)
+        nb = min(B, n - τ0 + 1)
+        _fill_block!(_KernelBlock(K, τ0), x, sc, τ0, nb, o, last)
     end
     return K, sc
 end
-_block_size(x, n, ::Val{keep}) where {keep} = keep && _keeps_fill(x) ? max(n, 1) : _BLOCK
-_weights_array(::Val{false}, ::Type{Tp}, ns, L, n) where {Tp} = zeros(Tp, L, n)
-_weights_array(::Val{true}, ::Type{Tp}, ns, L, n) where {Tp} = zeros(Tp, ns, L, n)
+function _block_size(x, n, ::Val{keep}) where {keep}
+    return keep && _keeps_fill(x) ? max(n, 1) : _BLOCK
+end
+function _weights_array(::Val{false}, ::Type{Tp}, ns, L, n) where {Tp}
+    return zeros(Tp, L, n)
+end
+function _weights_array(::Val{true}, ::Type{Tp}, ns, L, n) where {Tp}
+    return zeros(Tp, ns, L, n)
+end
 
 # The weights array `K` read and written as the block of cohorts from `τ0`:
 # entry `[b, i, k]` is stratum `k`'s weight on lag index `i` of cohort
@@ -550,7 +558,9 @@ _lag_axis(W::_KernelBlock{<:AbstractMatrix}) = axes(W.K, 1)
 _strata_axis(W::_KernelBlock{<:AbstractMatrix}) = Base.OneTo(1)
 _lag_axis(W::_KernelBlock{<:AbstractArray{<:Any, 3}}) = axes(W.K, 2)
 _strata_axis(W::_KernelBlock{<:AbstractArray{<:Any, 3}}) = axes(W.K, 1)
-Base.@propagate_inbounds function Base.getindex(W::_KernelBlock{<:AbstractMatrix}, b, i, k)
+Base.@propagate_inbounds function Base.getindex(
+        W::_KernelBlock{<:AbstractMatrix}, b, i, k
+    )
     return W.K[i, W.τ0 + b - 1]
 end
 Base.@propagate_inbounds function Base.getindex(
@@ -608,13 +618,14 @@ _dense_mirror(K̄::AbstractArray{<:Any, 3}) = (; x = (; x = K̄))
 _weights_cotangent(::Nothing, K) = nothing
 _weights_cotangent(x̄, K) = zero(K)
 
-# ---- arithmetic --------------------------------------------------------------
+# == Arithmetic ==
 
 # Arithmetic with a `Survival` on either side lowers to `Derived`, for the
 # four operations a kernel has closed-form partials for.
 for op in (:+, :-, :*, :/)
     @eval begin
-        Base.$op(a::Survival, b::Union{_Operand, _Computed}) = Derived($op, a, b)
+        Base.$op(a::Survival, b::Union{_Operand, _Computed}) =
+            Derived($op, a, b)
         Base.$op(a::Union{_Operand, Derived}, b::Survival) = Derived($op, a, b)
     end
 end
