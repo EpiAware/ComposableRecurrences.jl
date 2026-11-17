@@ -1,7 +1,6 @@
-# A `TimeVarying` coefficient given by change points (`_Piecewise`). Each
-# segment holds one value, so a call runs each segment with the fixed
-# coefficient's loops. Readers without such a path read the values as a dense
-# coefficient with one column per segment.
+# A `TimeVarying` coefficient given by change points (`_Piecewise`). A call
+# runs each segment with the fixed coefficient's loops; other readers read the
+# values as a dense coefficient with one column per segment.
 
 # == Shared ==
 
@@ -9,7 +8,7 @@ const _TVPiecewise{I} = TimeVarying{I, <:_Piecewise}
 
 # The values as a dense coefficient with one column per segment, and the same
 # view of the `TimeVarying`'s mirror `x̄`, or `nothing` without one.
-_values(g::TimeVarying{I, <:_Piecewise}) where {I} = TimeVarying{I}(g.x.x)
+_values(g::_TVPiecewise{I}) where {I} = TimeVarying{I}(g.x.x)
 _values_cotangent(x̄) = cotangent(cotangent(x̄, :x), :x)
 function _values_mirror(x̄)
     V̄ = _values_cotangent(x̄)
@@ -27,8 +26,11 @@ end
 Base.@propagate_inbounds function _weight(g::_TVPiecewise, a, b, i, τ)
     return _weight(_values(g), a, b, i, _segment(g.x, τ))
 end
-Base.@propagate_inbounds function _add_weight!(ḡ, g::_TVPiecewise, v, a, b, i, τ)
-    return _add_weight!(_values_mirror(ḡ), _values(g), v, a, b, i, _segment(g.x, τ))
+Base.@propagate_inbounds function _add_weight!(
+        ḡ, g::_TVPiecewise, v, a, b, i, τ
+    )
+    j = _segment(g.x, τ)
+    return _add_weight!(_values_mirror(ḡ), _values(g), v, a, b, i, j)
 end
 
 # A coefficient given by change points reads its segments on the host, so a
@@ -52,12 +54,14 @@ function _check_param(
     )
     return x
 end
-function _float_param(x::TimeVarying{I, <:_Piecewise}) where {I}
+function _float_param(x::_TVPiecewise{I}) where {I}
     p = x.x
     v = p.x isa PerStratum ? _float_param(p.x) : float(p.x)
     return TimeVarying{I}(_Piecewise(_Flat(), v, p.starts))
 end
-_check_values(name, x::_Piecewise, ok, what) = _check_values(name, x.x, ok, what)
+function _check_values(name, x::_Piecewise, ok, what)
+    return _check_values(name, x.x, ok, what)
+end
 
 # == Kernels ==
 
@@ -65,7 +69,9 @@ _check_values(name, x::_Piecewise, ok, what) = _check_values(name, x.x, ok, what
 function _check_kernel_shape(
         k::TimeVarying{
             <:Any,
-            <:_Piecewise{<:Union{AbstractMatrix, PerStratum{<:AbstractArray{<:Any, 3}}}},
+            <:_Piecewise{
+                <:Union{AbstractMatrix, PerStratum{<:AbstractArray{<:Any, 3}}},
+            },
         }
     )
     return nothing
@@ -101,13 +107,19 @@ function _OldestFirstPiecewise{I}(ks::K, starts::P) where {I, K, P}
     end
     return _OldestFirstPiecewise{I, K, P}(ks, starts, cols)
 end
-const _VectorSegments = _OldestFirstPiecewise{<:Any, <:AbstractVector{<:AbstractVector}}
-const _StrataSegments = _OldestFirstPiecewise{<:Any, <:AbstractVector{<:PerStratum}}
+const _VectorSegments = _OldestFirstPiecewise{
+    <:Any, <:AbstractVector{<:AbstractVector},
+}
+const _StrataSegments = _OldestFirstPiecewise{
+    <:Any, <:AbstractVector{<:PerStratum},
+}
 
 @inline function _segment(g::_OldestFirstPiecewise, t)
     return @inbounds g.cols[clamp(t, 1, length(g.cols))]
 end
-function _oldest_first(g::TimeVarying{I, <:_Piecewise{<:AbstractMatrix}}) where {I}
+function _oldest_first(
+        g::TimeVarying{I, <:_Piecewise{<:AbstractMatrix}}
+    ) where {I}
     G = g.x.x
     ks = [_oldest_first(view(G, :, j)) for j in axes(G, 2)]
     return _OldestFirstPiecewise{I}(ks, g.x.starts)
@@ -128,8 +140,14 @@ function _kernel_buffer(ḡ, g::_OldestFirstPiecewise, H, S, L)
     dims = g isa _StrataSegments ? (S, L) : (L, S)
     return _PiecewiseBuffer([_zeros(H, eltype(H), dims...) for _ in g.ks])
 end
-_run_buffer(kbuf::_PiecewiseBuffer, ::_OldestFirstPiecewise{Secondary}, j) = kbuf.x[j]
-_kernel_finish!(ḡ, kb::_PiecewiseBuffer) = _piecewise_finish!(_values_cotangent(ḡ), kb.x)
+function _run_buffer(
+        kbuf::_PiecewiseBuffer, ::_OldestFirstPiecewise{Secondary}, j
+    )
+    return kbuf.x[j]
+end
+function _kernel_finish!(ḡ, kb::_PiecewiseBuffer)
+    return _piecewise_finish!(_values_cotangent(ḡ), kb.x)
+end
 function _piecewise_finish!(V̄::AbstractMatrix, bufs)
     for j in eachindex(bufs)
         _kernel_finish!(view(V̄, :, j), bufs[j])
@@ -149,8 +167,12 @@ end
 @inline _seg_weights(g::_VectorSegments, a, j) = g.ks[j]
 @inline _seg_weights(g::_StrataSegments, a, j) = view(g.ks[j].x, a, :)
 _seg_buffer(::Nothing, g, a, j) = nothing
-_seg_buffer(kbuf::_PiecewiseBuffer, ::_VectorSegments, a, j) = view(kbuf.x[j], :, a)
-_seg_buffer(kbuf::_PiecewiseBuffer, ::_StrataSegments, a, j) = view(kbuf.x[j], a, :)
+function _seg_buffer(kbuf::_PiecewiseBuffer, ::_VectorSegments, a, j)
+    return view(kbuf.x[j], :, a)
+end
+function _seg_buffer(kbuf::_PiecewiseBuffer, ::_StrataSegments, a, j)
+    return view(kbuf.x[j], a, :)
+end
 
 # Secondary: each segment's steps run with its weights as a fixed kernel.
 function _kernel_runs(g::_OldestFirstPiecewise{Secondary}, τ0, T)
@@ -171,7 +193,8 @@ function _kernel_back_at!(
         kbuf, ḡ, g::_OldestFirstPiecewise{Secondary}, a, H, H̄, t, τ, L, k
     )
     j = _segment(g, τ)
-    return _kernel_back_at!(_run_buffer(kbuf, g, j), ḡ, g.ks[j], a, H, H̄, t, τ, L, k)
+    kb = _run_buffer(kbuf, g, j)
+    return _kernel_back_at!(kb, ḡ, g.ks[j], a, H, H̄, t, τ, L, k)
 end
 
 # Primary: the window's value at oldest-first position `u` is from time
@@ -219,7 +242,8 @@ end
     return acc
 end
 @inline function _span_back!(kb, w, a, H, H̄, t, lo, hi, k)
-    @inbounds @_float_simd promote_type(eltype(w), eltype(H)) ivdep for i in lo:hi
+    T = promote_type(eltype(w), eltype(H))
+    @inbounds @_float_simd T ivdep for i in lo:hi
         _add_at!(kb, a * H[t + i - 1, k], i)
         H̄[t + i - 1, k] += a * w[i]
     end
@@ -230,11 +254,9 @@ end
 
 # Stratum `k`'s weights in segment `j`, and the same view of the values'
 # cotangent `V̄`, or `nothing` without one.
-function _conv_weights(c::TimeVarying{<:Any, <:_Piecewise{<:AbstractMatrix}}, k, j)
-    return view(c.x.x, :, j)
-end
-function _conv_weights(c::TimeVarying{<:Any, <:_Piecewise{<:PerStratum}}, k, j)
-    return view(c.x.x.x, k, :, j)
+function _conv_weights(c::_TVPiecewise, k, j)
+    v = c.x.x
+    return v isa PerStratum ? view(v.x, k, :, j) : view(v, :, j)
 end
 _conv_mirror(::Nothing, c, k, j) = nothing
 _conv_mirror(V̄::AbstractMatrix, c, k, j) = view(V̄, :, j)
@@ -268,11 +290,9 @@ function _strata_back!(ks, X̄, c̄, c::_TVPiecewise{Secondary}, X, Ȳ, m, start
     return nothing
 end
 
-# Primary: the output is the sum over segments of a fixed convolution of the
-# input masked to the segment. Segment `j`'s inputs at times `a:b` give the
-# outputs `a:b`, which do not overlap between segments, so the fixed loop
-# writes them first; their tails after `b` are added after. The buffer has no
-# history, so its rows from `m + lo` hold the times from `lo`.
+# Primary: the sum over segments of a fixed convolution of the input masked
+# to the segment. Segment `j`'s outputs `a:b` do not overlap the other
+# segments', so the fixed loop writes them first and the tails are added.
 function _convolve_body!(k, Y, c::_TVPiecewise{Primary}, X, m, start)
     p = c.x
     D = _nlags(c)
@@ -283,14 +303,16 @@ function _convolve_body!(k, Y, c::_TVPiecewise{Primary}, X, m, start)
         b < max(a, start) && continue
         Xj = view(X, (m + a):(m + b), k:k)
         y = view(Y, (max(a, start) - start + 1):(b - start + 1), k)
-        _convolve_series!(y, _conv_weights(c, k, j), Xj, 1, 0, max(a, start) - a + 1)
+        w = _conv_weights(c, k, j)
+        _convolve_series!(y, w, Xj, 1, 0, max(a, start) - a + 1)
     end
     for j in 1:(_nsegments(p) - 1)
         a, b = _span(p.starts, j, lo, stop)
         a > b && continue
         w = _conv_weights(c, k, j)
         for t in max(b + 1, start):min(b + D - 1, stop)
-            @inbounds Y[t - start + 1, k] += _tail_dot(w, X, k, m + t, t - b, min(D - 1, t - a))
+            @inbounds Y[t - start + 1, k] +=
+                _tail_dot(w, X, k, m + t, t - b, min(D - 1, t - a))
         end
     end
     return nothing
@@ -308,7 +330,8 @@ function _strata_back!(ks, X̄, c̄, c::_TVPiecewise{Primary}, X, Ȳ, m, start)
         w̄ = _conv_mirror(V̄, c, k, j)
         if b >= max(a, start)
             _convolve_series_back!(
-                view(X̄, (m + a):(m + b), k), w̄, w, view(X, (m + a):(m + b), k),
+                view(X̄, (m + a):(m + b), k), w̄, w,
+                view(X, (m + a):(m + b), k),
                 view(Ȳ, (max(a, start) - start + 1):(b - start + 1), k), 0,
                 max(a, start) - a + 1
             )
@@ -333,7 +356,8 @@ end
     return acc
 end
 @inline function _tail_back!(w̄, X̄, w, X, ȳ, k, r, lo, hi)
-    @inbounds @_float_simd promote_type(eltype(w), eltype(X)) ivdep for d in lo:hi
+    T = promote_type(eltype(w), eltype(X))
+    @inbounds @_float_simd T ivdep for d in lo:hi
         _add_at!(w̄, ȳ * X[r - d, k], d + 1)
         X̄[r - d, k] += w[d + 1] * ȳ
     end
