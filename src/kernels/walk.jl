@@ -1,16 +1,12 @@
 # A computed kernel's weights for the calls that read each weight once (a
 # convolution, `kernel_weights`): one walk per cohort along its lags, each
-# `Survival` carrying its survival as state in a tuple that mirrors the
-# kernel. The reverse pass walks the cohort again, then goes back along
-# its lags once.
+# `Survival` carrying its survival as state; the reverse pass walks back.
+
+# == Scratch ==
 
 # Each `Survival`'s survival `S`, hazard `H` and added cotangent `P` at each
-# lag index of the cohort walked: vectors of the lags, or for `S` and `H`
-# columns of `n` cohorts' (lags × `n`), read one at a time through
-# `_walk_column`; `P` is cleared as it is read, so one serves every cohort. When
-# every walk is kept, `D` keeps the partials of a hazard whose map is
-# costly to evaluate again (see `_keeps_fill`), formed with its value;
-# otherwise it is `nothing`.
+# lag of the cohort walked, or for `S` and `H` a column per kept cohort.
+# `D` keeps the partials of a costly hazard map when every walk is kept.
 struct _WalkScratch{C, A <: AbstractArray, V <: AbstractVector, D}
     hazard::C
     S::A
@@ -65,7 +61,7 @@ end
 _partials_column(::Nothing, j) = nothing
 _partials_column(D::AbstractMatrix, j) = view(D, :, j)
 
-# ---- forward ----------------------------------------------------------------
+# == Walk ==
 
 # The state of the walk: each `Survival`'s survival at the current lag and
 # its hazard's state, a tuple per `Derived`, `nothing` elsewhere.
@@ -130,7 +126,9 @@ end
 # The value of `f` at `xs` and its partial derivatives there, from one
 # local forward-mode evaluation for a map without closed forms.
 _value_and_partials(f, xs::Tuple) = _forward_value_and_derivative(f, xs)
-function _value_and_partials(f::Union{_Arithmetic, typeof(identity)}, xs::Tuple)
+function _value_and_partials(
+        f::Union{_Arithmetic, typeof(identity)}, xs::Tuple
+    )
     return f(xs...), _partials(f, xs)
 end
 
@@ -169,11 +167,13 @@ end
 _walk_groups(x, ks) = _walks_strata(x) ? ks : (first(ks):first(ks))
 _walk_strata(x, ks, k0) = _walks_strata(x) ? (k0:k0) : ks
 
-# ---- reverse ----------------------------------------------------------------
+# == Reverse ==
 
 # A `Survival` keeps the cotangent added to its value at a lag for its step
 # back.
-function _add_value!(::Nothing, x::Survival, sc::_WalkScratch, v, k, i, τ, l, b)
+function _add_value!(
+        ::Nothing, x::Survival, sc::_WalkScratch, v, k, i, τ, l, b
+    )
     return nothing
 end
 Base.@propagate_inbounds function _add_value!(
@@ -211,7 +211,9 @@ end
     return _walk_back_args(ā, x.args, sc, a, k, i, τ, l)
 end
 @inline _walk_back_args(ā, ::Tuple{}, ::Tuple{}, ::Tuple{}, k, i, τ, l) = ()
-@inline function _walk_back_args(ā, x::Tuple, sc::Tuple, a::Tuple, k, i, τ, l)
+@inline function _walk_back_args(
+        ā, x::Tuple, sc::Tuple, a::Tuple, k, i, τ, l
+    )
     head = _walk_back(
         _first_mirror(ā), first(x), first(sc), first(a), k, i, τ, l
     )
@@ -236,10 +238,8 @@ _first_mirror(ā::Tuple) = first(ā)
 _tail_mirrors(::Nothing) = nothing
 _tail_mirrors(ā::Tuple) = Base.tail(ā)
 # A `Survival` carries `a`, the cotangent of its survival from the current
-# lag on. At lag index `i` the cotangent its parent added joins it,
-# `-s_{i-1} a` goes to its hazard at the same lag, and `a (1 - η_i)` goes on
-# to the lag before. Its parent reads it once per lag, so `a` is whole once
-# the parent's share is added.
+# lag on: at lag index `i` its parent's share joins it, `-s_{i-1} a` goes to
+# its hazard and `a (1 - η_i)` on to the lag before.
 @inline _walk_back(::Nothing, x::Survival, sc, a, k, i, τ, l) = a
 @inline function _walk_back(x̄, x::Survival, sc, a, k, i, τ, l)
     h̄ = cotangent(x̄, :hazard)
@@ -257,14 +257,11 @@ _tail_mirrors(ā::Tuple) = Base.tail(ā)
     return (c, _walk_back(h̄, x.hazard, sc.hazard, a[2], k, i, τ, l))
 end
 
-# ---- the weights as an array, by the walk -----------------------------------
+# == The weights as an array ==
 
-# The weights of cohorts `1:n`, lags from `o`, each one whose weight lands
-# by `last`, into `K` (lags × cohorts, or strata × lags × cohorts), and the
-# scratch of the walks. A kernel whose maps are only arithmetic walks each
-# cohort again in the reverse pass, which costs less than keeping its walk;
-# any other map is costly enough to recompute that `keep` keeps every
-# cohort's walk, as a column of the scratch, and returns it.
+# The weights of cohorts `1:n`, lags from `o`, that land by `last`, into `K`,
+# and the walks' scratch. Arithmetic maps are walked again in the reverse
+# pass; costlier ones keep every cohort's walk when `keep` is set.
 function _walk_fill!(
         K, kernel::_ComputedKernel, o, last, keep::Val = Val(false)
     )
@@ -274,15 +271,14 @@ function _walk_fill!(
     ks = _weights_strata(K)
     gs = _walk_groups(x, ks)
     n = size(K, ndims(K))
-    sc = _walk_keeps(x, keep) ? _walk_scratch(x, T, (L, length(gs) * n), keep) :
-        _walk_scratch(x, T, (L, 1), keep)
+    cols = _walk_keeps(x, keep) ? length(gs) * n : 1
+    sc = _walk_scratch(x, T, (L, cols), keep)
     for (g, k0) in enumerate(gs), τ in 1:n
         imax = _imax(τ, L, o, last)
         scj = _walk_column(sc, _walk_index(sc, g, τ, n))
         kw = _walk_strata(x, ks, k0)
-        # One stratum writes each weight as its lag is walked. Several read
-        # the finished walk, so no strata loop sits inside the chain of
-        # products.
+        # One stratum writes each weight as its lag is walked; several read
+        # the finished walk, keeping the strata loop out of the products.
         if length(kw) == 1
             k1 = first(kw)
             scw = keep isa Val{true} ? scj : _no_record(scj)
