@@ -43,6 +43,10 @@ const SW = 1000
 const RSW = [0.9 + 0.2 * k / SW + 0.01 * t for k in 1:SW, t in 1:T]
 const HSW = [1.0 + k / SW + 0.1 * i for k in 1:SW, i in 1:L]
 const WSW = reshape(collect(range(0.5, 2.0; length = SW * T)), SW, T)
+# The wide call's strata reading one another through a dense coupling, each
+# drawn from its own pool.
+const KSW = [i == j ? 0.8 : 0.2 / SW for i in 1:SW, j in 1:SW]
+const PSW = fill(1.0e3, SW)
 
 # Loss weights, one per output entry.
 const W1 = collect(range(0.5, 2.0; length = T))
@@ -113,6 +117,14 @@ end
 
 rec_strata_wide(θ) = Recurrence(θ)(RSW; history = HSW)
 
+function rec_strata_wide_coupled(θ)
+    r = Recurrence(
+        θ; coupling = KSW,
+        modifiers = (ComposableRecurrences.Depletion(PerStratum(PSW)),)
+    )
+    return r(RSW; history = HSW)
+end
+
 conv_fixed(θ) = Convolution(θ[1:L])(θ[(L + 1):end]; history = HX)
 
 # A per-stratum parameter given by change points, held as host constants
@@ -151,6 +163,11 @@ const CASES = [
     Case(
         "rec_strata_wide", "Recurrence, $SW strata, I coupling, traced kernel",
         rec_strata_wide, copy(g0), WSW
+    ),
+    Case(
+        "rec_strata_wide_coupled",
+        "Recurrence, $SW strata, dense K and depletion, traced kernel",
+        rec_strata_wide_coupled, copy(g0), WSW
     ),
     Case(
         "rec_joined", "Recurrence, $S strata, dense K, traced history joined",
