@@ -165,6 +165,31 @@ end
 # its fields; its type is the answer, as for a `Real`.
 ComposableRecurrences.param_eltype(x::TracedRNumber) = typeof(x)
 
+# A traced scalar parameter, heterogeneity exponent or softness is one
+# value, as a `Real` is. Its value is not known while tracing, so the
+# softness's range is not checked.
+ComposableRecurrences._check_param(name, x::TracedRNumber) = x
+ComposableRecurrences._check_exponent(α::TracedRNumber) = α
+ComposableRecurrences._check_softness(::TracedRNumber) = nothing
+# Read and made float as a `Real` parameter is.
+ComposableRecurrences.param(x::TracedRNumber, k, t) = x
+ComposableRecurrences._float_param(x::TracedRNumber) = float(x)
+# A traced number first is a pool's population, as a `Real` is.
+@inline function ComposableRecurrences.Depletion(N::TracedRNumber, pieces...)
+    return ComposableRecurrences._depletion(
+        ComposableRecurrences._population(N), pieces, nothing
+    )
+end
+@inline function Core.kwcall(
+        kw::NamedTuple, ::Type{ComposableRecurrences.Depletion},
+        N::TracedRNumber, pieces...
+    )
+    return ComposableRecurrences._depletion(
+        ComposableRecurrences._population(N), pieces,
+        ComposableRecurrences._pools_keyword(kw)
+    )
+end
+
 # Traced `reverse` also reverses its argument in place, so a second call
 # with the same kernel (as when resuming from a returned state) would read
 # it backwards; reversing a copy leaves the caller's kernel intact.
@@ -347,7 +372,9 @@ end
 
 # The soft minimum of `Truncate(κ)` with a traced value picks its arms
 # with `ifelse`, as a traced `Bool` has no branch. The arm not taken sees
-# the ratio 1, so it makes no NaN that a derivative would carry.
+# the ratio 1, so it makes no NaN that a derivative would carry: both ends
+# of the ratio are replaced, as a zero numerator still gives a NaN
+# softness gradient once compiled.
 const _MaybeTraced = Union{Real, TracedRNumber}
 function ComposableRecurrences._soft_min(
         κ::_MaybeTraced, a::TracedRNumber, b::_MaybeTraced
@@ -362,7 +389,7 @@ function _traced_soft_min(κ, a, b)
     takes_a = a <= b
     lo, hi = ifelse(takes_a, a, b), ifelse(takes_a, b, a)
     smooth = (lo > 0) & !isinf(hi)
-    r = ifelse(smooth, lo / ifelse(smooth, hi, one(hi)), one(lo))
+    r = ifelse(smooth, lo, one(lo)) / ifelse(smooth, hi, one(hi))
     return ifelse(smooth, lo * (1 + r^inv(κ))^(-κ), lo)
 end
 
