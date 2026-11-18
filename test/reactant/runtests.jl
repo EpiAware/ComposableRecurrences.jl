@@ -34,6 +34,8 @@
 #                       hand-written cases (default "20,400")
 #   REACTANT_REUSE      "1" rebuilds RESULTS.md and the tests from results.tsv,
 #                       keeping the lines that say where the rows were run
+#   REACTANT_MIN_STRATA the `TRACED_MIN_STRATA` the cases run under (default
+#                       the package's); "1" runs every strata loop as a kernel
 #   REACTANT_RESULTS    a name for a run with its own results, such as "gpu":
 #                       it reads and writes results-<name>.tsv and
 #                       RESULTS-<name>.md, so a GPU run does not change the

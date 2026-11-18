@@ -2,8 +2,9 @@
 # Reactant extension, that the extension adds no method ambiguities, and
 # that it still checks a traced coefficient's shape, says CUDA.jl is needed
 # when it is not loaded, compiles a program that does not grow with the
-# number of strata, and launches kernels from `TRACED_MIN_STRATA` strata. Run by `runtests.jl` in
-# its own process, as the probes are, so the runner does not load Reactant.
+# number of strata, and launches kernels from `TRACED_MIN_STRATA` strata.
+# Run by `runtests.jl` in its own process, as the probes are, so the runner
+# does not load Reactant.
 using ComposableRecurrences, Reactant, KernelAbstractions, CUDA, Enzyme, Test
 using Base.ScopedValues: with
 
@@ -82,4 +83,7 @@ end
         @test kernels(3) == 0
         @test kernels(4) > 0
     end
+    # The default threshold, 32.
+    @test kernels(31) == 0
+    @test kernels(32) > 0
 end

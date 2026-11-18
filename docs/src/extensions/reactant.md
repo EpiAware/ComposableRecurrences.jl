@@ -1,8 +1,10 @@
 # [Reactant extension](@id extension-reactant)
 
 `ComposableRecurrencesReactantExt` is loaded automatically when Reactant and KernelAbstractions are available alongside ComposableRecurrences.
-A traced call runs its strata loops as KernelAbstractions kernels, and Reactant compiles a kernel through CUDA.jl, on the CPU too.
-So load CUDA.jl as well, whatever the target; a traced call without it throws an error that says so.
+Without KernelAbstractions the extension does not load, and nothing says so: a traced call then runs the package's plain loops, which do not compile under Reactant.
+A traced call runs a loop over many strata as a KernelAbstractions kernel, and Reactant compiles a kernel through CUDA.jl, on the CPU too.
+So load CUDA.jl as well, whatever the target.
+Without it, a traced call throws an error that says so once a loop has [`TRACED_MIN_STRATA`](@ref ComposableRecurrences.TRACED_MIN_STRATA) strata; a call with fewer strata runs without it.
 
 Operator calls on traced arrays compile with `Reactant.@compile`:
 

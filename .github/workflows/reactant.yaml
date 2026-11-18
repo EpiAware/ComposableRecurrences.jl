@@ -63,6 +63,24 @@ jobs:
             "$RUNNER_TEMP/committed.tsv" test/reactant/results.tsv --subset \
             | tee -a "$GITHUB_STEP_SUMMARY"
           exit "${PIPESTATUS[0]}"
+      # The smoke cases have too few strata to launch a kernel, so they run
+      # again with every strata loop as one, with a dense coupling's
+      # pressure, into results-kernel.tsv.
+      - name: Every strata loop as a kernel
+        if: ${{ !cancelled() }}
+        env:
+          REACTANT_MIN_STRATA: '1'
+          REACTANT_RESULTS: kernel
+          REACTANT_SCENARIOS: >-
+            Recurrence renewal;Recurrence strata, coupling and depletion;Convolution delay with history;Recurrence effective reproduction number from its pressure
+        run: julia --project=test/reactant --startup-file=no test/reactant/runtests.jl
+      - name: Compare the kernel run with the committed results
+        if: ${{ !cancelled() }}
+        run: |
+          julia --startup-file=no test/reactant/compare.jl \
+            "$RUNNER_TEMP/committed.tsv" test/reactant/results-kernel.tsv --subset \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "${PIPESTATUS[0]}"
 
   reactant:
     if: github.event_name != 'pull_request'
