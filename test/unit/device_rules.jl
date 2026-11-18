@@ -11,6 +11,7 @@
     using JLArrays
     using LinearAlgebra: Diagonal, I
     const CR = ComposableRecurrences
+    JLArrays.allowscalar(false)
 
     T, L = 30, 5
     pmf = collect(range(1.0, 2.0; length = L)) ./ (1.5L)
@@ -28,8 +29,8 @@
         r = Recurrence(pmf; coupling)
         op = dev ? adapt(JLArray, r) : r
         x, h = inputs(S), fill(1.0, S, L)
-        args = dev ? CR._run_args(op, JLArray(x), JLArray(h), nothing, nothing, 1) :
-            CR._run_args(op, x, h, nothing, nothing, 1)
+        x, h = dev ? (JLArray(x), JLArray(h)) : (x, h)
+        args = CR._run_args(op, x, h, nothing, nothing, 1)
         return op, (args..., nothing)
     end
 
@@ -50,10 +51,9 @@
 end
 
 @testitem "JLArrays: the rule passes of a fixed convolution and of independent strata match the CPU" setup = [DeviceRules] begin
-    JLArrays.allowscalar(false)
-    # 300 strata run in more blocks than one, so the blocks' copies of the
-    # shared kernel cotangent are summed.
-    for S in (4, 300)
+    # More strata than blocks, so the blocks' copies of the shared kernel
+    # cotangent are summed.
+    for S in (4, CR._KERNEL_BLOCKS + 1)
         cases = [
             "vector kernel" => (
                 dev -> convolution_case(pmf, S, dev),
@@ -61,7 +61,9 @@ end
             ),
             "per-stratum kernel" => (
                 dev -> convolution_case(PerStratum(repeat(pmf', S)), S, dev),
-                dev -> (; kernel = (; x = dev ? JLArray(zeros(S, L)) : zeros(S, L))),
+                dev -> (;
+                    kernel = (; x = dev ? JLArray(zeros(S, L)) : zeros(S, L)),
+                ),
             ),
             "recurrence, identity coupling" => (
                 dev -> recurrence_case(I, S, dev),
@@ -83,7 +85,8 @@ end
             ),
         ]
         @testset "$name, $S strata" for (name, (case, mirror)) in cases
-            y0, x̄0, p̄0 = rule_cotangents(case(false)..., mirror(false), S, false)
+            host = rule_cotangents(case(false)..., mirror(false), S, false)
+            y0, x̄0, p̄0 = host
             y1, x̄1, p̄1 = rule_cotangents(case(true)..., mirror(true), S, true)
             @test y1 ≈ y0
             @test x̄1 ≈ x̄0
@@ -110,8 +113,26 @@ end
     r = Recurrence(pmf; modifiers = (pool,))
     rd = adapt(JLArray, r)
     x, h = JLArray(inputs(S)), JLArray(fill(1.0, S, L))
-    @test route(rd, (CR._run_args(rd, x, h, nothing, nothing, 1)..., nothing)) === Val(:plain)
+    args = (CR._run_args(rd, x, h, nothing, nothing, 1)..., nothing)
+    @test route(rd, args) === Val(:plain)
     # Numbers other than IEEE floats keep plain AD.
     xq, cq = JLArray(fill(1 // 2, S, T)), Convolution(JLArray(fill(1 // 5, L)))
     @test route(cq, (xq, true, nothing, nothing, 1, nothing)) === Val(:plain)
+end
+
+@testitem "JLArrays: the reverse pass stacks shared cotangents with an inferred choice" tags = [:threads] setup = [DeviceRules] begin
+    S = 6
+    x = JLArray(inputs(S))
+    acc = (; ḡ = JLArray(zeros(L)), λ = Ref(0.0))
+    # Under a set executor the choice follows the arrays' type.
+    c = CR._Current(CR.Threaded())
+    accs = @inferred CR._accumulators(c, x, S, S, acc)
+    @test last(accs) isa CR._Stacked
+    accs = @inferred CR._accumulators(CR.Serial(), x, S, S, acc)
+    @test last(accs) isa CR._Stacked
+    # Host arrays keep their copies per thread.
+    accs = CR._accumulators(c, inputs(S), S, S, (; ḡ = zeros(L)))
+    @test !(last(accs) isa CR._Stacked)
+    # A cotangent that cannot be stacked is an error, not a wrong result.
+    @test_throws ArgumentError CR._stack(:x, 2, x)
 end

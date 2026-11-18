@@ -141,7 +141,9 @@ _slots(x̄::AbstractMatrix) = _Owned(x̄)
 # pass on a device, so a call on device arrays takes the rule (see
 # `_device_gate`).
 const _DeviceReadyRecurrence = Recurrence{
-    <:Union{AbstractVector, PerStratum}, <:Union{UniformScaling, Diagonal}, Tuple{},
+    <:Union{AbstractVector, PerStratum},
+    <:Union{UniformScaling, Diagonal},
+    Tuple{},
 }
 _device_ready(::_DeviceReadyRecurrence) = true
 
@@ -658,7 +660,31 @@ end
 
 # Add the oldest-first buffer into the lag-first kernel cotangent.
 _kernel_finish!(ḡ, ::Nothing) = nothing
-# Each is one array operation, so it runs where the arrays live.
+# Host arrays add in loops, which allocate nothing; device arrays in one
+# array operation each, which runs where they live.
+function _kernel_finish!(ḡ::Vector, kbuf::Matrix)
+    L = size(kbuf, 1)
+    for k in axes(kbuf, 2), i in 1:L
+        ḡ[i] += kbuf[L + 1 - i, k]
+    end
+    return nothing
+end
+function _kernel_finish!(ḡ::NamedTuple, kbuf::Matrix)
+    Ḡ = cotangent(ḡ, :x)
+    L = size(kbuf, 2)
+    for i in 1:L, k in axes(kbuf, 1)
+        Ḡ[k, i] += kbuf[k, L + 1 - i]
+    end
+    return nothing
+end
+function _kernel_finish!(ḡ::NamedTuple, kbuf::Array{<:Any, 3})
+    Ḡ = cotangent(ḡ, :x)
+    L = size(kbuf, 1)
+    for i in 1:L, b in axes(kbuf, 2), a in axes(kbuf, 3)
+        Ḡ[a, b, i] += kbuf[L + 1 - i, b, a]
+    end
+    return nothing
+end
 function _kernel_finish!(ḡ::AbstractVector, kbuf::AbstractMatrix)
     L = size(kbuf, 1)
     ḡ .+= vec(sum(view(kbuf, L:-1:1, :); dims = 2))
@@ -671,7 +697,8 @@ function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractMatrix)
 end
 function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractArray{<:Any, 3})
     L = size(kbuf, 1)
-    cotangent(ḡ, :x) .+= PermutedDimsArray(view(kbuf, L:-1:1, :, :), (3, 2, 1))
+    reversed = view(kbuf, L:-1:1, :, :)
+    cotangent(ḡ, :x) .+= PermutedDimsArray(reversed, (3, 2, 1))
     return nothing
 end
 

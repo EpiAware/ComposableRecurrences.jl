@@ -167,8 +167,8 @@ function adjoint_call(n::NoAdjoint, args::Vararg{Any, N}) where {N}
     return _plain(n.op, args...)
 end
 function _route_val(op, args...)
-    rule = _type_adjoint(op) && (_gate(op, args...) || _device_gate(op, args...))
-    return Val(rule ? :rule : :plain)
+    ok = _gate(op, args...) || _device_gate(op, args...)
+    return Val(_type_adjoint(op) && ok ? :rule : :plain)
 end
 
 # A call on device arrays takes the rule when the operator's reverse pass
@@ -181,7 +181,11 @@ function _device_gate(op, args...)
 end
 _any_on_gpu() = false
 _any_on_gpu(x, rest...) = _on_gpu(x) || _any_on_gpu(rest...)
+# Whether `x` lives on a GPU; the GPUArraysCore extension says so for its
+# arrays.
 _on_gpu(x) = false
+# Whether operator `op`'s reverse pass runs on a device; each operator file
+# says so for the operators it can.
 _device_ready(op) = false
 _type_adjoint(op) = uses_adjoint(op, Run())
 _route(::Val{:plain}, op, args::Vararg{Any, N}) where {N} = _hooked_plain(op, args...)

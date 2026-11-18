@@ -584,8 +584,9 @@ function _accumulators(ex::Serial, x, n, work, acc)
     r isa Parallel && return _stacked_accumulators(r, x, n, acc)
     return (acc, ())
 end
-# On device arrays the copies are stacked whatever the executor, so the
-# choice follows the arrays' type and stays a constant.
+# On device arrays the copies are stacked on the arrays' own backend,
+# whatever executor is set: a kernel can only read them there. The choice
+# follows the arrays' type, so it is a constant.
 function _accumulators(c::_Current, x, n, work, acc)
     _on_gpu(x) && return _stacked_accumulators(_resolve(Serial(), x), x, n, acc)
     m = _copyable(acc) ? _nblocks(c.ex, n, work) : 1
@@ -692,7 +693,6 @@ struct _Stacked{E, C}
     m::Int
     copies::C
 end
-# The most blocks a loop runs in, so the copies stay small.
 const _KERNEL_BLOCKS = 256
 
 function _stacked_accumulators(ex::Parallel, x, n, acc)
@@ -700,7 +700,6 @@ function _stacked_accumulators(ex::Parallel, x, n, acc)
     return acc, _Stacked(ex, m, _stack(acc, m, x))
 end
 
-# The stacked copies of a mirror, allocated like the call's array `x`.
 struct _ArrayStack{A}
     a::A
 end
@@ -725,19 +724,17 @@ function _stack(a, m, x)
     )
 end
 
-# Block `b`'s view of the copies.
 _block(::Nothing, b) = nothing
 _block(a::_Owned, b) = a
 _block(s::_ArrayStack, b) = _last_slice(s.a, b)
-# Slice `b` along the last dimension, with no checks that build strings,
-# which a kernel cannot.
+# No checks: a kernel cannot build their error strings.
 @inline function _last_slice(a::AbstractArray{T, N}, b) where {T, N}
     return @inbounds view(a, ntuple(_ -> Colon(), Val(N - 1))..., b)
 end
 _block(s::_ScalarStack, b) = _Slot(s.v, b)
 _block(a::Union{Tuple, NamedTuple}, b) = map(y -> _block(y, b), a)
 
-# Entry `b` of `v`, read and written as a scalar mirror is, with `x[]`.
+# A scalar mirror's slot, read and written with `x[]`.
 struct _Slot{V}
     v::V
     b::Int
@@ -746,7 +743,6 @@ Base.@propagate_inbounds Base.getindex(s::_Slot) = s.v[s.b]
 Base.@propagate_inbounds Base.setindex!(s::_Slot, x) = (s.v[s.b] = x; s)
 add_cotangent!(x̄::_Slot, v, idx...) = (x̄[] += v; nothing)
 
-# Block `b` of a loop of `n` strata in `m` blocks, as one kernel index.
 struct _StackedBlock{F}
     body::F
     n::Int
@@ -762,7 +758,8 @@ end
     ) where {F, N}
     st = last(accs)
     n == 0 && return nothing
-    each!(_StackedBlock(body, n, st.m), st.ex, st.m, typemax(Int), st.copies, args...)
+    block = _StackedBlock(body, n, st.m)
+    each!(block, st.ex, st.m, typemax(Int), st.copies, args...)
     return nothing
 end
 
