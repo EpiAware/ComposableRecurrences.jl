@@ -388,9 +388,11 @@ end
             g; modifiers = (CR.Transform(*, Derived(exp, -κ * Recent(w; coupling = C))),)
         )
         @test r(R; history = h) ≈ naive(C)
+        # Threaded, the strata no longer run on their own.
+        @test CR._reads_across(r.modifiers)
+        @test !CR._independent(I, g, r.modifiers)
         # Split into one task per stratum, so a stratum run on its own
-        # would read the others' outputs before they are written: the
-        # strata must run together.
+        # would read the others' outputs before they are written.
         y = Base.ScopedValues.with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = S)) do
             r(R; history = h)
         end
