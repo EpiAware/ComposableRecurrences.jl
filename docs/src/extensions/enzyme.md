@@ -24,7 +24,8 @@ Under Enzyme reverse mode, joining a view to a matrix with `hcat`, or with `[a b
 This happens when a caller puts a run's history in front of its output, `hcat(h, r(; history = reshape(h, :, 1), add = A))`, and `h` is a view, as a parameter read from a flat vector is.
 The error comes from Enzyme's type analysis of Base's `hcat`, with no package code involved; `vcat` fails the same way ([issue #299](https://github.com/EpiAware/ComposableRecurrences.jl/issues/299)).
 Join with `cat(h, r(; history = reshape(h, :, 1), add = A); dims = 2)` instead, which Enzyme compiles, or `collect` the view first.
-Calling `Enzyme.API.strictAliasing!(false)` at the start of the session, before the first Enzyme gradient, also avoids the error, but it changes Enzyme's analysis for every later gradient; turning it off after the error, in the same session, can crash on Julia 1.12 and 1.13.
+Calling `Enzyme.API.strictAliasing!(false)` at the start of the session, before the first Enzyme gradient, also avoids the error.
+It changes Enzyme's analysis for every later gradient, and turning it off after the error, in the same session, can crash on Julia 1.12 and 1.13.
 
 On Julia 1.12 and later, repeated Enzyme forward-mode gradients can corrupt memory and crash the process in the garbage collector, after seconds or minutes of calls ([issue #321](https://github.com/EpiAware/ComposableRecurrences.jl/issues/321)).
 The fault is in Enzyme's batch mode, which takes several tangents per pass, and needs no package code: a `copyto!` into a view is enough.
