@@ -144,7 +144,7 @@ I_t = S_{t-1} \big(1 - e^{-\lambda_t}\big), \qquad
 S_t = S_{t-1} \, e^{-\lambda_t},
 ```
 
-where ``v_t`` is the right-hand side of the renewal equation and ``\lambda_t`` is the hazard.
+where ``v_t`` is the number of new infections before depletion and ``\lambda_t`` the hazard.
 
 ```@example overview
 one_depleted = Recurrence(gi; modifiers = (Depletion(pop[1]),))(fill(1.8, T); history = one_seed)
@@ -188,11 +188,7 @@ Once the reproduction number is below one, infections fall by about 6% a day.
 
 ### [Putting it all together](@id overview-together)
 
-Three towns share an outbreak.
-Infections in each town come from earlier infections in that town and, through travel, in the other towns.
-Each town has a finite number of people who can be infected.
-A share of infections is reported after a delay.
-An intervention from day 50 lowers the reproduction number in every town.
+The finished model joins the four steps for three towns:
 
 ```math
 \begin{aligned}
@@ -204,14 +200,7 @@ R_{t,i} &= 1.8 - \min\Big(\max\Big(\frac{t - 50}{6}, 0\Big), 1\Big),
 \end{aligned}
 ```
 
-where ``I_{t,i}`` is the number of infections in town ``i`` on day ``t``, ``C_{t,i}`` the number of reports and ``R_{t,i}`` the reproduction number.
-The value ``v_{t,i}`` is the number of new infections before depletion, and the susceptible pool ``S_{t,i}`` starts at the population ``N_i``.
-The generation interval has weight ``g_l`` on lag ``l`` over ``L`` lags, the reporting delay has weight ``w_l`` over ``L_w`` lags, and a share ``\rho = 0.4`` of infections is reported.
-The gravity coupling ``K_{ij}`` comes from the populations and the distances ``d_{ij}`` between towns, with ``G_{ii} = 0``.
-The term ``\delta_{ij}`` is 1 when ``i = j`` and 0 otherwise.
-Town A has 10 infections on each of the six days before day 1, and the other towns none.
-The renewal and the delay both read these as their `history`, so the reports from day 1 include them.
-In the code, `PerStratum(pop)` gives each town its own population.
+The susceptible pool ``S_{t,i}`` of town ``i`` starts at ``N_i``, and [`PerStratum(pop)`](@ref PerStratum) gives each town its own population.
 
 ```@example overview
 R = [1.8 - clamp((t - 50) / 6, 0, 1) for _ in towns, t in 1:T]
@@ -256,7 +245,7 @@ I_{t,i} = D_{t,i} + \iota_{t,i},
 ```
 
 where ``D_{t,i}`` is the number drawn from the pool and ``\iota_{t,i}`` the imported infections.
-Imports added after the `Depletion` do not draw down the pool, unlike [imports added before it](@ref tutorial-imports).
+Imports added after the [`Depletion`](@ref ComposableRecurrences.Depletion) do not draw down the pool, unlike [imports added before it](@ref tutorial-imports).
 
 ```diff
 -renewal = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))

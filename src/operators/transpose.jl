@@ -82,7 +82,7 @@ end
 function _primal(t::_TransposedConvolution, x, tail, start, stop)
     kernel = t.c.kernel
     Tp, S, n, stop, last = _check_transpose(kernel, x, tail, start, stop)
-    _conv_path(Tp, kernel, x) isa _Gathered ||
+    kernel isa _FixedKernel && _conv_path(Tp, kernel, x) isa _Gathered ||
         return first(_run_forward(t, x, tail, start, stop))
     L = _nlags(kernel)
     series = _padded(x, tail, stop + L - 1)
@@ -104,7 +104,7 @@ function _run_forward(t::_TransposedConvolution, x, tail, start, stop)
         _load_input!(A, tail, n + 1 - start, last - n, start - n)
     o = 1 - clamp(start - _nlags(kernel) + 1, 1, last + 1)
     Z = _zeros(x, Tp, o + max(last, stop), S)
-    _transpose_back!(Z, nothing, kernel, Z, A, o, start)
+    _with_executor(_convolve_back!, Z, nothing, kernel, Z, A, o, start)
     out = _public(Z, (o + start):(o + stop), x)
     return out, (; A, n, o, start, stop, last)
 end
@@ -121,16 +121,11 @@ function pullback!(grads, t::_TransposedConvolution, ::Run, cache)
     Ā = zero(A)
     _with_executor(_convolve!, Ā, kernel, Z̄, o, start)
     k̄ = cotangent(cotangent(grads.piece, :c), :kernel)
-    k̄ === nothing ||
-        _transpose_back!(zero(Z̄), k̄, kernel, Z̄, A, o, start)
+    k̄ === nothing || _with_executor(
+        _convolve_back!, zero(Z̄), k̄, kernel, Z̄, A, o, start
+    )
     _add_rows!(x̄, Ā, 1 - start, start, min(n, last))
     _add_rows!(t̄, Ā, n + 1 - start, max(start - n, 1), last - n)
-    return nothing
-end
-
-# The convolution's reverse body with the set executor.
-function _transpose_back!(X̄, k̄, kernel, X, Ȳ, o, start)
-    _with_executor(_convolve_back!, X̄, k̄, kernel, X, Ȳ, o, start)
     return nothing
 end
 
@@ -155,9 +150,18 @@ function _check_transpose(kernel, x, tail, start, stop)
     _check_unwrapped(:tail, tail)
     S = _nstrata(x)
     n = _extent(x)
-    tail === nothing || _check_tail(tail, x)
+    m = 0
+    if tail !== nothing
+        ndims(tail) == ndims(x) && _nstrata(tail) == _nstrata(x) || throw(
+            DimensionMismatch(
+                "tail is $(summary(tail)) but x is $(summary(x)): tail " *
+                    "must have the strata of x"
+            )
+        )
+        Base.require_one_based_indexing(tail)
+        m = size(tail, ndims(tail))
+    end
     _check_kernel_strata(kernel, S)
-    m = tail === nothing ? 0 : size(tail, ndims(tail))
     stop = stop === nothing ? n : stop
     start >= 1 || throw(ArgumentError("start ($start) must be at least 1"))
     stop >= start - 1 || throw(
@@ -172,15 +176,4 @@ function _check_transpose(kernel, x, tail, start, stop)
     _check_device(x, (kernel, tail))
     Tp = float(param_eltype((kernel, x, tail)))
     return Tp, S, n, stop, last
-end
-
-function _check_tail(tail, x)
-    ndims(tail) == ndims(x) && _nstrata(tail) == _nstrata(x) || throw(
-        DimensionMismatch(
-            "tail is $(summary(tail)) but x is $(summary(x)): tail must " *
-                "have the strata of x"
-        )
-    )
-    Base.require_one_based_indexing(tail)
-    return nothing
 end

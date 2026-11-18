@@ -57,7 +57,7 @@ const TUTORIAL_STUBS = [
     "transform.md" =>
         "# [Branching processes](@id tutorial-branching)",
     "backend-case-study.md" =>
-        "# [Case study: a backend model](@id tutorial-backend-case-study)\n\n" *
+        "# [Porting a patch model from hand-written loops](@id tutorial-backend-case-study)\n\n" *
         "## [Porting from a hand-written loop](@id porting-hand-loops)",
 ]
 

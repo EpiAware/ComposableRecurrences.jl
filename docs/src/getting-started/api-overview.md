@@ -1,12 +1,7 @@
 # [API overview](@id api-overview)
 
-This page lists the public names of ComposableRecurrences and what each does.
-It covers what one step computes, the two operators, how to call them, the shapes of their inputs, delay distributions, couplings, modifiers and depletion forms.
-It then covers time-series processes, executors, and the names for writing new types and checking their gradients.
-
 Some public names are not exported, so `using ComposableRecurrences` does not bring them in.
-This page writes them without the package prefix.
-Load them with `using ComposableRecurrences: Depletion, Floor, Recent`, and so on.
+They are written here without the package prefix, and `using ComposableRecurrences: Depletion, Floor, Recent` loads them.
 Internal names, such as `ComposableRecurrences.State`, keep the prefix.
 The neural network package Lux also exports a `Recurrence`, so with both loaded write [`ComposableRecurrences.Recurrence`](@ref Recurrence).
 The examples load these packages and names:
@@ -26,7 +21,7 @@ include(joinpath(pkgdir(ComposableRecurrences), "docs", "getting_started_model.j
 
 ## [A step](@id overview-step)
 
-`Recurrence` and `Convolution`, the two operators, compute their outputs one step at a time.
+`Recurrence` and [`Convolution`](@ref), the two operators, compute their outputs one step at a time.
 A recurrence computes each value from its own past values, and a convolution from the past values of another series.
 Time is the integer step ``t``, counted from 1, and the model sets its [time unit](@ref time-units).
 In the Getting started model one step is one day.
@@ -62,16 +57,10 @@ and a convolution computes
 y_t = \gamma_t \odot \sum_{l=0}^{L-1} k_l \, x_{t-l} + a_t ,
 ```
 
-where ``y_t`` is the output, with one entry per stratum.
-For a recurrence, the outputs before `start` are the `history`.
-For a convolution, the `history` holds the inputs before time 1.
-The input of a convolution is ``x_t``.
-The kernel has weight ``k_l`` on lag ``l``, and ``L`` lags.
-The weighted sum of past outputs is ``p_t``.
-The coupling is ``K_t``, and ``v_t`` is the value before the modifiers.
-The gain is ``\gamma_t``, and ``a_t`` is `add`.
-The modifiers are ``M_1, \dots, M_m``, applied in order.
-The symbol ``\odot`` multiplies element by element.
+where ``y_t`` is the output, one entry per stratum, ``x_t`` the input of a convolution and ``p_t`` the weighted sum of past outputs.
+The kernel has weight ``k_l`` on lag ``l`` over ``L`` lags, ``K_t`` is the coupling, ``\gamma_t`` the gain and ``a_t`` the `add` input.
+The value before the modifiers ``M_1, \dots, M_m``, which act in order, is ``v_t``, and ``\odot`` multiplies element by element.
+For a recurrence the `history` holds the outputs before `start`, and for a convolution the inputs before time 1.
 
 ## [Operators](@id overview-operators)
 
@@ -90,9 +79,7 @@ delay([10.0, 20.0, 30.0])
 | [`Convolution(kernel; lags, step, method)`](@ref Convolution) | computes each value from the current and past inputs; `kernel[1]` weights lag 0 | a `Convolution` to call |
 
 `lags` and `step` apply when the kernel is a [delay distribution](@ref overview-delays).
-The keyword `method` sets how a convolution sums its lags.
-The method [`Direct()`](@ref ComposableRecurrences.Direct) sums them one by one.
-The method [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) uses a fast Fourier transform.
+The keyword `method` sets how a convolution sums its lags: [`Direct()`](@ref ComposableRecurrences.Direct) sums them one by one, and [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) uses a fast Fourier transform.
 By default a convolution takes the transform for a kernel of at least 300 lags over at least 1000 steps.
 
 An operator, modifier or shape wrapper prints as one line with its size and parts, such as `Convolution(7 lags)` for `delay`.
@@ -134,10 +121,8 @@ c_t = \sum_{l=0}^{\min(L_w, T - t + 1) - 1} w_l ,
 and `delay'(ones(T))` returns ``c_1, \dots, c_T``.
 For a delay whose weights sum to 1, it is 1 up to ``T - L_w + 1`` and falls to ``w_0`` at ``T``.
 
-Every input that changes over time is [indexed by the time ``t``](@ref explanation-time-base), counted from the first entry of the gain, whatever `start` is.
-So the gain at time ``t`` is always `gain[t]`.
-`stop` defaults to the common length of those inputs.
-Inputs of different lengths without a `stop` are an error.
+Every input that changes over time is [indexed by the time ``t``](@ref explanation-time-base), counted from the first entry of the gain, whatever `start` is, so the gain at time ``t`` is always `gain[t]`.
+The keyword `stop` defaults to the common length of those inputs, and inputs of different lengths without a `stop` are an error.
 Without a gain, a recurrence takes a gain of 1.
 A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per step, and the pressure of each step in `trace.pressure`, shaped like `y`.
 The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [joins the history in front](@ref explanation-returns).
@@ -146,7 +131,7 @@ The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [join
 
 A [slot](@ref explanation-slots) is a place an operator reads numbers from: a kernel, a coupling or a modifier parameter.
 A plain array gives one set of numbers for every stratum and time.
-A wrapper, such as `PerStratum`, gives one set per stratum, per pair of strata or per step.
+A wrapper, such as [`PerStratum`](@ref PerStratum), gives one set per stratum, per pair of strata or per step.
 In Getting started, `PerStratum(pop)` gives each town its own population.
 
 ```@example api-overview
@@ -277,7 +262,7 @@ The matrix can be dense, `Diagonal` or sparse.
 ## [Modifiers](@id overview-modifiers)
 
 A modifier changes the value of each step after the gain and `add`.
-In Getting started, `Depletion(PerStratum(pop))` draws each town's infections from the people left to infect.
+In Getting started, a [`Depletion`](@ref ComposableRecurrences.Depletion) of `PerStratum(pop)` draws each town's infections from the people left to infect.
 
 ```@example api-overview
 depleted = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
@@ -287,7 +272,7 @@ round.(Int, vec(sum(depleted(R; history = seed); dims = 2)))
 The result is each town's total infections over the 75 days.
 
 Modifiers act in [tuple order](@ref explanation-modifier-order), and each keeps its own [state](@ref explanation-modifier-state).
-The `add` input enters before every modifier, and a `Transform(+, b)` enters where it sits in the tuple.
+The `add` input enters before every modifier, and a [`Transform(+, b)`](@ref ComposableRecurrences.Transform) enters where it sits in the tuple.
 A [`Convolution`](@ref) has no modifiers.
 
 A `Depletion` holds pools, such as the people left to infect.
@@ -306,7 +291,7 @@ The value a step asks for is drawn from the pools.
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | `θ` |
 
 The parts of a `Depletion` are draws and flows, and they act in the order given.
-A draw is a [depletion form](@ref overview-variants), and `Depletion(N)` alone draws with `Hazard()`.
+A draw is a [depletion form](@ref overview-variants), and `Depletion(N)` alone draws with [`Hazard()`](@ref ComposableRecurrences.Hazard).
 A `Flow` names pools by their names in `pools`, and `0` stands for outside the model.
 A draw takes each pool's share of the draw as a keyword of its form, such as `Hazard(; weights = (S = 1, V = σ))`.
 A small pool cannot give all a step asks for.
@@ -319,10 +304,7 @@ With `leak = true` a column can sum to less than one, for a share lost on the wa
 An `Allocate` keeps each stratum's share of its group.
 With `imports = (fraction, pattern)`, a fraction of each total is shared out by a second pattern instead.
 Every parameter is a number, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a `Recent` or a `Derived` of these.
-A [pointwise](@ref explanation-modifier-scope) modifier acts on each stratum on its own.
-`Transform` is pointwise.
-So is a `Depletion` with one pool whose draws leave nothing over.
-`Redistribute` and `Allocate` act on several strata.
+`Transform`, and a `Depletion` with one pool whose draws leave nothing over, are [pointwise](@ref explanation-modifier-scope): they act on each stratum on its own, while `Redistribute` and `Allocate` act on several strata.
 Each modifier here has its own [hand-written gradient](@ref adjoint-routing).
 A `Transform` has one when it is given a `derivative`, or when `f` holds no numbers of its own.
 
@@ -351,12 +333,12 @@ The result is the total infections over 75 days in a single pool of `N` people.
 The heterogeneity exponent `α` of `Hazard(α)` and `Floor(α)` is one by default; above one, infections slow sooner as the pool shrinks, as when the most susceptible are infected first.
 A flow's form is `Hazard()` by default: a rate that competes with the pool's other flows.
 With `Truncate()` or `Truncate(κ)` a flow is a count, capped by what remains.
-A new depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for one step, `Step()`.
+A new depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for one step, [`Step()`](@ref ComposableRecurrences.Step).
 
 ## [Time-series processes](@id overview-time-series)
 
-A time-series process, such as a random walk or an autoregression, builds a series from noise ``\epsilon_t``.
-Each is a recurrence or a convolution: a recurrence takes the noise as `add`, and a convolution as its input.
+A time-series process, such as a random walk or an autoregression, builds a series from innovations ``\epsilon_t``.
+Each is a recurrence or a convolution: a recurrence takes the innovations as `add`, and a convolution as its input.
 As a latent process, one that is not observed, it can drive a gain, such as the reproduction number through its logarithm.
 
 ```@example api-overview
@@ -405,8 +387,8 @@ A model built from the package's own parts needs none of them.
 A role is one job a new type can do, such as computing a step.
 Each role is named by a type with no fields, such as `Step()`.
 A new type does its work in a [`forward!`](@ref ComposableRecurrences.forward!) method for each role it has.
-The role `Step()` computes one step, and `Init()` the starting state.
-The role `Pressure()` is a coupling's mixing, and `ComposableRecurrences.Trace()` a modifier's record for a call with `record = (:trace,)`.
+The role `Step()` computes one step, and [`Init()`](@ref ComposableRecurrences.Init) the starting state.
+The role [`Pressure()`](@ref ComposableRecurrences.Pressure) is a coupling's mixing, and `ComposableRecurrences.Trace()` a modifier's record for a call with `record = (:trace,)`.
 The role `ComposableRecurrences.Run()` is an operator's whole call.
 An operator's hand-written gradient is its rule.
 

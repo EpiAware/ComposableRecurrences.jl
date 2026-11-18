@@ -25,10 +25,8 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # z^{\text{MA}}_t = \epsilon_t + \theta_1 \epsilon_{t-1} + \theta_2 \epsilon_{t-2}.
 # ```
 #
-# ``z_t`` is each process's value on day ``t``.
-# ``\epsilon_t`` is the innovation on day ``t``, drawn with standard deviation 0.1.
-# ``\phi_1 = 0.6`` and ``\phi_2 = 0.3`` are the AR coefficients.
-# ``\theta_1 = 0.8`` and ``\theta_2 = 0.4`` are the MA coefficients.
+# where ``z_t`` is each process's value on day ``t`` and ``\epsilon_t`` the innovation on that day, drawn with standard deviation 0.1.
+# Here the AR coefficients are ``\phi_1 = 0.6`` and ``\phi_2 = 0.3``, and the MA coefficients ``\theta_1 = 0.8`` and ``\theta_2 = 0.4``.
 # Each recurrence has the AR coefficients as its kernel and takes the innovations as `add`.
 # The MA(2) process is a [`Convolution`](@ref) of the innovations with the kernel ``(1, \theta_1, \theta_2)``.
 # With no gain the call runs over the length of `add`.
@@ -57,9 +55,8 @@ end
 # z_t = \phi_t \, z_{t-1} + \epsilon_t.
 # ```
 #
-# ``\phi_t`` is the AR coefficient on day ``t``, falling in equal steps from 0.95 on day 1 to 0.5 on day 100.
-# ``\epsilon_t`` are the innovations above.
-# ``\phi_t`` can be a [`TimeVarying`](@ref) kernel, one column per day.
+# where ``\phi_t`` is the AR coefficient on day ``t``, falling in equal steps from 0.95 on day 1 to 0.5 on day 100, and ``\epsilon_t`` the innovations above.
+# The coefficient can be a [`TimeVarying`](@ref) kernel, one column per day.
 # With a single lag it can also be the gain ``\gamma_t`` on the unit kernel.
 # The gain scales the lag sum before the `add` input is added, so both forms give the same process.
 # The comparison holds ``\phi`` at 0.95 throughout.
@@ -89,11 +86,9 @@ end
 # I_t = \gamma_t \sum_{l=1}^{L} g_l \, I_{t-l}.
 # ```
 #
-# ``z_t`` is the log reproduction number, an AR(1) process with coefficient ``\phi = 0.95``.
-# ``\epsilon_t`` are new innovations with standard deviation 0.05.
-# ``R_t`` is the reproduction number on day ``t``, the gain ``\gamma_t`` of the renewal.
-# ``I_t`` is the number of infections on day ``t``.
-# ``g_l`` is the generation interval on lag ``l``, with ``L = 5`` lags.
+# where ``z_t`` is the log reproduction number, an AR(1) process, ``R_t`` the reproduction number on day ``t`` and ``I_t`` the number of infections on day ``t``.
+# The reproduction number is the gain ``\gamma_t`` of the renewal, the innovations ``\epsilon_t`` are new draws with standard deviation 0.05, and ``g_l`` is the generation interval on lag ``l``.
+# Here ``\phi = 0.95`` and there are ``L = 5`` lags.
 # Each run starts from ten infections on each of the five days before day 1.
 # An AR(1) process with a coefficient below one reverts to zero, so ``R_t`` stays near 1.
 # Twenty draws of the innovations give twenty paths of ``R_t`` and their infections.
@@ -129,10 +124,9 @@ end
 # I_t = M_1(v_t) = \frac{v_t}{1 + v_t / \kappa}.
 # ```
 #
-# ``v_t`` is the renewal value on day ``t``, with a constant gain ``\gamma = R = 1.5``.
-# ``g_l`` and ``I_t`` are the generation interval and infections of the previous model.
-# ``M_1`` is a [`Transform`](@ref ComposableRecurrences.Transform) modifier, the only one.
-# ``\kappa`` is the level daily infections stay below.
+# where ``v_t`` is the value before the modifiers on day ``t``, ``M_1`` the only modifier, a [`Transform`](@ref ComposableRecurrences.Transform), and ``\kappa`` the level daily infections stay below.
+# The generation interval ``g_l`` and the infections ``I_t`` are as in the previous model.
+# Here the gain is constant, ``\gamma = R = 1.5``.
 # Each run starts from five infections on the day before day 1.
 # With ``R > 1`` infections settle at ``\kappa (R - 1) / R``, which is 33.3 for ``\kappa = 100`` and 100 for ``\kappa = 300``.
 
@@ -160,7 +154,7 @@ end
 # C(\kappa, R) = \sum_{t=1}^{T} I_t.
 # ```
 #
-# ``T = 100`` is the number of days.
+# where ``T = 100`` is the number of days.
 # [ForwardDiff](https://github.com/JuliaDiff/ForwardDiff.jl) gives the gradient of ``C`` at ``\kappa = 100`` and ``R = 1.5``.
 # Each panel varies one parameter and holds the other at that point.
 # The dashed line in each panel is the tangent the gradient gives.
@@ -200,7 +194,7 @@ end
 # The saturating response reacts to the current day only.
 # A response to the last week's incidence is built from existing modifiers.
 # The parameter [`Recent`](@ref ComposableRecurrences.Recent) reads the recurrence's own past outputs, [`Derived`](@ref ComposableRecurrences.Derived) maps them, and any modifier parameter takes the result.
-# The response scales the renewal value, and a [`Depletion`](@ref ComposableRecurrences.Depletion) of a pool of ``N`` then draws from it.
+# The response scales the new infections before depletion, and a [`Depletion`](@ref ComposableRecurrences.Depletion) of a pool of ``N`` then draws from it.
 # The same source can drive ring vaccination, removing doses from the susceptible pool in proportion to recent cases:
 #
 # ```math
@@ -213,11 +207,10 @@ end
 # \end{aligned}
 # ```
 #
-# ``v_t`` is the renewal value with gain ``\gamma = 1.5``, and ``v'_t`` the value after the response.
-# ``M_1`` is the response, a [`Transform`](@ref ComposableRecurrences.Transform) with strength ``\lambda = 10``.
-# ``S_t`` is the susceptible pool after day ``t``, starting at ``N = 5000``.
+# where ``v_t`` is the number of new infections before depletion and ``v'_t`` that number after the response ``M_1``, a [`Transform`](@ref ComposableRecurrences.Transform).
+# The susceptible pool after day ``t`` is ``S_t``, and the ring vaccination doses on day ``t``, half the last week's infections, are ``D_t``.
 # The depletion is the second modifier ``M_2``, which draws ``I_t`` from the pool by the [hazard form](@ref ComposableRecurrences.Hazard).
-# ``D_t`` is the ring vaccination doses on day ``t``, half the last week's infections.
+# Here ``\gamma = 1.5``, the response strength is ``\lambda = 10`` and the pool starts at ``N = 5000``.
 # The models without a response take ``v'_t = v_t``, and those without ring vaccination take ``D_t = 0``.
 
 N = 5_000.0
@@ -240,9 +233,7 @@ feedback = [
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
 
-# Depletion alone peaks at 111 infections on day 37.
-# The response lowers the peak to 23 and ring vaccination to 36.
-# Together they lower it to 16.
+# With depletion alone infections peak at 111 on day 37, and the response lowers the peak to 23, ring vaccination to 36 and both together to 16.
 #
 # The [reverse-mode rule](@ref adjoint-routing) sends gradients back through the outputs `Recent` reads, so Mooncake and Enzyme follow the feedback.
 # ForwardDiff gives the gradient of the total infections ``C(\lambda, R)`` of the response-and-depletion model at ``\lambda = 10`` and ``R = 1.5``.
@@ -266,7 +257,7 @@ end
 
 # ## Performance
 #
-# Each bar times an AR(2) process over 200 days, written with the operators or as a preallocated hand-written loop.
+# Each bar times an AR(2) process over 200 days, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("latent processes")
@@ -279,5 +270,5 @@ performance_plot("latent processes")
 
 # ## Learning more
 #
-# - See every operator, coupling and modifier on the [API overview](@ref api-overview).
-# - Want the full interface? See the [Public API](@ref public-api).
+# - [API overview](@ref api-overview): every operator, coupling and modifier.
+# - [Public API](@ref public-api): every public name with its docstring.
