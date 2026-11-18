@@ -121,6 +121,9 @@ abstractly typed fields count; a `Real` gives its type and an array of reals
 its eltype.
 Add a method for a type whose parameters this does not reach.
 
+# Arguments
+- `x`: any object, such as a modifier, coupling or kernel.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
