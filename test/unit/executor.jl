@@ -91,6 +91,12 @@ end
     ex = CR.Device(b)
     @test ex isa CR.Parallel
     @test ex.backend === b
+    # `Device` is the type itself, so code that dispatches on it still runs.
+    @test CR.Parallel(b) isa CR.Device
+    @test CR.Device{typeof(b)} === CR.Parallel{typeof(b)}
+    on_device(::CR.Device) = true
+    on_device(::Any) = false
+    @test on_device(CR.Parallel(b))
     @test ex.min_work == 0
     @test CR.Parallel(b).min_work == 0
     @test CR.Parallel(b; min_work = 10).min_work == 10

@@ -7,7 +7,9 @@ using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
 using SparseArrays: SparseMatrixCSC
 
-ComposableRecurrences._resolve(::Serial, x::AbstractGPUArray) = Parallel(get_backend(x))
+function ComposableRecurrences._resolve(::Serial, x::AbstractGPUArray)
+    return Parallel(get_backend(x))
+end
 
 # Device arrays reverse by indexing with a reversed range, one gather,
 # where `reverse` would index each entry from the host.

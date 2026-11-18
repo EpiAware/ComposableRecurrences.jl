@@ -417,16 +417,20 @@ struct Parallel{B} <: Executor
         return new{B}(backend, min_work)
     end
 end
-Parallel(backend::B; min_work = 0) where {B} = Parallel{B}(backend, Int(min_work))
+function Parallel(backend::B; min_work = 0) where {B}
+    return Parallel{B}(backend, Int(min_work))
+end
 
 @doc raw"""
     Device(backend)
 
-The earlier name of [`Parallel(backend)`](@ref Parallel), kept so that
-existing code runs.
+The earlier name of [`Parallel`](@ref), kept as an alias of the type so
+that existing code, including methods that dispatch on it, runs.
 
 # Arguments
 - `backend`: a `KernelAbstractions` backend, such as `CUDABackend()`.
+- `min_work`: the smallest loop `work` that runs as a kernel, as for
+  [`Parallel`](@ref); `0` by default.
 
 # Examples
 ```jldoctest; setup = :(using KernelAbstractions)
@@ -439,7 +443,7 @@ CR.Device(KernelAbstractions.CPU()) isa CR.Parallel
 true
 ```
 """
-Device(backend) = Parallel(backend)
+const Device = Parallel
 
 # == Running operator loops ==
 
@@ -515,7 +519,9 @@ end
     return nothing
 end
 @noinline function _unknown_executor()
-    throw(ArgumentError("`EXECUTOR` must be `Serial`, `Threaded` or `Parallel`"))
+    throw(
+        ArgumentError("`EXECUTOR` must be `Serial`, `Threaded` or `Parallel`")
+    )
 end
 
 # The time loop, in order, each step reading the steps before it. A traced
