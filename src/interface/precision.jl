@@ -1,4 +1,4 @@
-# ---- float precision of a model ----------------------------------------------
+# == Float precision of a model ==
 
 @doc raw"""
 Convert every float `x` holds to the float type `T`: float arrays, which
