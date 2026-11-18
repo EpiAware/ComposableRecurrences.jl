@@ -13,7 +13,7 @@ An operator reads numbers of two kinds.
 - Coefficients belong to the operator and are set when it is built: its kernel, its coupling and its modifiers' parameters.
 
 A *slot* is a place in an operator that holds a coefficient.
-There are four: a `Recurrence` kernel, a `Convolution` kernel, a coupling and a modifier parameter.
+There are three kinds: a kernel, of a `Recurrence` or a `Convolution`, a coupling and a modifier parameter.
 The name is that of a slot in a form: the operator fixes where a number goes, and the model chooses what goes there.
 
 ```text
@@ -30,14 +30,17 @@ The name is that of an array's shape, its size along each axis.
 - A [wrapper](@ref overview-shapes) adds axes: [`PerStratum`](@ref) a leading strata axis, [`Pairwise`](@ref) leading `S × S` axes and [`TimeVarying`](@ref) a trailing time axis.
 
 Slot and shape are separate because one slot takes many shapes.
-The kernel slot of a `Recurrence` holds one kernel for every stratum, one per stratum or one per step:
+The kernel slot of a `Recurrence` holds one kernel for every stratum, one per stratum or one per step.
+On two strata, the last output of each shows the difference: the per-stratum kernel gives the strata different values, and the per-step kernel changes the value over time.
 
 ```@example shapes
 g = [0.5, 0.3, 0.2]
+x = fill(1.1, 2, 10)
+h = ones(2, 3)
 shared = Recurrence(g)
 per_stratum = Recurrence(PerStratum([0.5 0.3 0.2; 0.6 0.3 0.1]))
-per_step = Recurrence(TimeVarying(repeat(g, 1, 10)))
-nothing # hide
+per_step = Recurrence(TimeVarying([g .* (1 + 0.05t) for t in 1:10]))
+[r(x; history = h)[:, end] for r in (shared, per_stratum, per_step)]
 ```
 
 Data are not slots and are not wrapped; their shapes are in the [API overview](@ref overview-shapes).
