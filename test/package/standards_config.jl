@@ -23,13 +23,9 @@ const PENDING_EXAMPLES = ()
 # `docstring Recurrence`.
 const PENDING_WORDING = (
     "docstring NoAdjoint",
-    "docstring Step",
-    "docstring forward!",
-    "docstring pullback!",
     "docstring test_adjoint",
     "docstring uses_adjoint",
     "src/ComposableRecurrences.jl",
-    "src/interface/roles.jl",
 )
 
 # The longest prose sentence, in words, and the longest code line, in
@@ -68,9 +64,6 @@ const PENDING_CODE_LENGTH = (
     "docs/src/performance/summary.md",
     "docstring Direct",
     "docstring FFTMethod",
-    "docstring Run",
-    "docstring depth",
-    "docstring forward!",
 )
 
 # Words that read as filler in docs, docstrings and comments: the shared
