@@ -282,6 +282,36 @@ end
     @test s ≈ M * v .- diag(M) .* v
 end
 
+@testitem "Redistribute: pullback with a zero state cotangent at some strata" setup = [ReferenceAD] begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    M = [0.7 0.2 0.1; 0.2 0.5 0.3; 0.1 0.3 0.6]
+    v = [4.0, 2.0, 1.0]
+    function step(x)
+        Mx, vx = reshape(x[1:9], 3, 3), x[10:12]
+        vv, ss = copy(vx), zeros(eltype(x), 3)
+        CR.forward!(CR.Redistribute(Mx), CR.Step(), vv, ss, 1)
+        return vcat(vv, ss)
+    end
+    J = ReferenceAD.jacobian(step, vcat(vec(M), v))
+    # Zero state cotangents at the first and last strata, and at all of
+    # them: each gives the transposed Jacobian's product.
+    for s̄0 in ([0.0, -0.2, 0.0], zeros(3), [0.3, -0.2, 0.5])
+        v̄0 = [0.7, 0.1, -0.4]
+        expected = transpose(J) * vcat(v̄0, s̄0)
+        m̄ = (; M = zeros(3, 3))
+        grads = (; piece = m̄, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(grads, CR.Redistribute(M), CR.Step(), v, zeros(3), 1)
+        @test vcat(vec(m̄.M), grads.v) ≈ expected
+        @test grads.s == zeros(3)
+        # A time-varying matrix and no mirror give the same input cotangent.
+        tv = CR.Redistribute(TimeVarying(cat(M, M; dims = 3)))
+        gt = (; piece = nothing, v = copy(v̄0), s = copy(s̄0))
+        CR.pullback!(gt, tv, CR.Step(), v, zeros(3), 2)
+        @test gt.v ≈ expected[10:12]
+    end
+end
+
 @testitem "Redistribute: a movement that varies over time" setup = [ReferenceAD] begin
     using ComposableRecurrences: Derived
     using ComposableRecurrences, ForwardDiff
