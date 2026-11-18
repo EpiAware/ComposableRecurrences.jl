@@ -1,6 +1,9 @@
 # == Depletion: type and construction ==
 
-# The number of pools and the parts are in the type, so each kind of
+# A `Depletion`'s parts act on the step's value and its pools in the order
+# given: a draw takes the value from the pools, or fills one, and flows move
+# between them. The step is a fold of the parts, and its pullback the fold in
+# reverse. The number of pools and the parts are in the type, so each kind of
 # `Depletion` has methods of its own.
 
 @doc raw"""
@@ -665,7 +668,8 @@ function blocks(m::Depletion)
 end
 # One pool drawn from once, then flows or none, with nothing left over,
 # steps per stratum; any other runs the group kernel, a group of one
-# included, as a per-stratum loop through the group step is slower.
+# included, as a per-stratum loop through the group step is slower. The
+# shape needs no check here: `blocks` above always gives positive integers.
 _blocks(m::_Pointwise) = nothing
 _blocks(m::Depletion) = Val(blocks(m))
 
@@ -1434,8 +1438,9 @@ function _amounts_back(grads, m, x, s, t, g)
     return x̄, zs, map(_ -> z, x), zs
 end
 
-const _DEPLETION_ROLES = (:pointwise, :blocks, :nstate, :pullback)
-@implements PieceInterface{_DEPLETION_ROLES} Depletion [
+@implements PieceInterface{
+    (:pointwise, :blocks, :nstate, :pullback),
+} Depletion [
     Arguments(;
         piece = Depletion(
             PerStratum([100.0, 50.0]); pools = (S = PerStratum([97.0, 46.0]),)
