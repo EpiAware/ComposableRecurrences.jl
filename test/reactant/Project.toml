@@ -20,7 +20,7 @@ ComposableRecurrences = {path = "../.."}
 ADTypes = "1.24.0"
 BenchmarkTools = "1"
 DifferentiationInterface = "0.7.21"
-Enzyme = "0.13.221"
+Enzyme = "0.13.207"
 ForwardDiff = "1.4.6"
 LinearAlgebra = "1"
 Printf = "1"
