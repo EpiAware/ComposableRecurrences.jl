@@ -10,6 +10,7 @@ using SparseArrays: SparseMatrixCSC
 function ComposableRecurrences._resolve(::Serial, x::AbstractGPUArray)
     return Parallel(get_backend(x))
 end
+ComposableRecurrences._on_gpu(::AbstractGPUArray) = true
 
 # Device arrays reverse by indexing with a reversed range, one gather,
 # where `reverse` would index each entry from the host.

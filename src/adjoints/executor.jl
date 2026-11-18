@@ -612,8 +612,16 @@ end
 # task, so copies written by different tasks do not share cache lines.
 # `_reduce!` adds the copies in block order, so split runs match serial ones
 # up to rounding. A mirror `_private` cannot copy runs as one block.
-_accumulators(::Serial, x, n, work, acc) = (acc, ())
+function _accumulators(ex::Serial, x, n, work, acc)
+    r = _resolve(ex, x)
+    r isa Parallel && return _stacked_accumulators(r, x, n, acc)
+    return (acc, ())
+end
+# On device arrays the copies are stacked on the arrays' own backend,
+# whatever executor is set: a kernel can only read them there. The choice
+# follows the arrays' type, so it is a constant.
 function _accumulators(c::_Current, x, n, work, acc)
+    _on_gpu(x) && return _stacked_accumulators(_resolve(Serial(), x), x, n, acc)
     m = _copyable(acc) ? _nblocks(c.ex, n, work) : 1
     P = Base.promote_op(_private, typeof(acc))
     return acc, Vector{Union{Nothing, P}}(nothing, m - 1)
@@ -704,3 +712,104 @@ function _add_into!(x::Union{Tuple, NamedTuple}, y::Union{Tuple, NamedTuple})
     return nothing
 end
 _add_into!(::_Owned, ::_Owned) = nothing
+
+# == Shared cotangents on a kernel backend ==
+
+# Under `Parallel`, the strata run in `m` blocks, one kernel index each, and
+# every cotangent the blocks share has `m` zeroed copies stacked along a
+# new last dimension: an array of size `(size(x)..., m)`, or a vector of `m`
+# for a scalar. Block `b` writes slice `b`, and `_reduce!` adds the slices
+# after the loop, so the result does not depend on the order the blocks
+# run in. Mirrors each stratum writes only at its own slots are shared.
+struct _Stacked{E, C}
+    ex::E
+    m::Int
+    copies::C
+end
+const _KERNEL_BLOCKS = 256
+
+function _stacked_accumulators(ex::Parallel, x, n, acc)
+    m = max(min(n, _KERNEL_BLOCKS), 1)
+    return acc, _Stacked(ex, m, _stack(acc, m, x))
+end
+
+struct _ArrayStack{A}
+    a::A
+end
+struct _ScalarStack{V}
+    v::V
+end
+_stack(::Nothing, m, x) = nothing
+_stack(a::_Owned, m, x) = a
+function _stack(a::AbstractArray{T}, m, x) where {T <: Number}
+    return _ArrayStack(fill!(similar(a, T, size(a)..., m), zero(T)))
+end
+function _stack(r::Base.RefValue{T}, m, x) where {T <: Number}
+    return _ScalarStack(fill!(similar(x, T, m), zero(T)))
+end
+_stack(a::Union{Tuple, NamedTuple}, m, x) = map(y -> _stack(y, m, x), a)
+function _stack(a, m, x)
+    throw(
+        ArgumentError(
+            "a reverse pass on a kernel backend cannot copy a cotangent " *
+                "of type $(typeof(a)); use the Serial() executor"
+        )
+    )
+end
+
+_block(::Nothing, b) = nothing
+_block(a::_Owned, b) = a
+_block(s::_ArrayStack, b) = _last_slice(s.a, b)
+# No checks: a kernel cannot build their error strings.
+@inline function _last_slice(a::AbstractArray{T, N}, b) where {T, N}
+    return @inbounds view(a, ntuple(_ -> Colon(), Val(N - 1))..., b)
+end
+_block(s::_ScalarStack, b) = _Slot(s.v, b)
+_block(a::Union{Tuple, NamedTuple}, b) = map(y -> _block(y, b), a)
+
+# A scalar mirror's slot, read and written with `x[]`.
+struct _Slot{V}
+    v::V
+    b::Int
+end
+Base.@propagate_inbounds Base.getindex(s::_Slot) = s.v[s.b]
+Base.@propagate_inbounds Base.setindex!(s::_Slot, x) = (s.v[s.b] = x; s)
+add_cotangent!(x̄::_Slot, v, idx...) = (x̄[] += v; nothing)
+
+struct _StackedBlock{F}
+    body::F
+    n::Int
+    m::Int
+end
+@inline function (s::_StackedBlock)(b, copies, args::Vararg{Any, N}) where {N}
+    s.body(_chunk(b, s.n, s.m), _block(copies, b), args...)
+    return nothing
+end
+
+@inline function _reduce_blocks!(
+        body::F, accs::Tuple{Any, _Stacked}, n, args::Vararg{Any, N}
+    ) where {F, N}
+    st = last(accs)
+    n == 0 && return nothing
+    block = _StackedBlock(body, n, st.m)
+    each!(block, st.ex, st.m, typemax(Int), st.copies, args...)
+    return nothing
+end
+
+function _reduce!(accs::Tuple{Any, _Stacked})
+    acc, st = accs
+    _add_stack!(acc, st.copies)
+    return nothing
+end
+_add_stack!(::Nothing, ::Nothing) = nothing
+_add_stack!(::_Owned, ::_Owned) = nothing
+function _add_stack!(x::AbstractArray, s::_ArrayStack)
+    d = ndims(s.a)
+    x .+= dropdims(sum(s.a; dims = d); dims = d)
+    return nothing
+end
+_add_stack!(x::Base.RefValue, s::_ScalarStack) = (x[] += sum(s.v); nothing)
+function _add_stack!(x::Union{Tuple, NamedTuple}, s::Union{Tuple, NamedTuple})
+    foreach(_add_stack!, x, s)
+    return nothing
+end

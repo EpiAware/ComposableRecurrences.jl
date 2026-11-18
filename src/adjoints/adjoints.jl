@@ -167,8 +167,26 @@ function adjoint_call(n::NoAdjoint, args::Vararg{Any, N}) where {N}
     return _plain(n.op, args...)
 end
 function _route_val(op, args...)
-    return Val(_type_adjoint(op) && _gate(op, args...) ? :rule : :plain)
+    ok = _gate(op, args...) || _device_gate(op, args...)
+    return Val(_type_adjoint(op) && ok ? :rule : :plain)
 end
+
+# A call on device arrays takes the rule when the operator's reverse pass
+# runs on a device (`_device_ready`) and every float is an IEEE float; the
+# GPUArraysCore extension says which arrays live on a device (`_on_gpu`).
+# Each part folds from the types, so the route stays a constant.
+function _device_gate(op, args...)
+    return _device_ready(op) && _any_on_gpu(args...) &&
+        param_eltype((op, args)) <: _IEEEFloat
+end
+_any_on_gpu() = false
+_any_on_gpu(x, rest...) = _on_gpu(x) || _any_on_gpu(rest...)
+# Whether `x` lives on a GPU; the GPUArraysCore extension says so for its
+# arrays.
+_on_gpu(x) = false
+# Whether operator `op`'s reverse pass runs on a device; each operator file
+# says so for the operators it can.
+_device_ready(op) = false
 _type_adjoint(op) = uses_adjoint(op, Run())
 _route(::Val{:plain}, op, args::Vararg{Any, N}) where {N} = _hooked_plain(op, args...)
 function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
