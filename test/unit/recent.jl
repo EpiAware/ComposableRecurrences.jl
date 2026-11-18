@@ -66,6 +66,13 @@ end
     @test CR.depth((inner, Recent(3))) == 3
     @test_throws "n >= 1" Recent(0)
     @test_throws "at least one weight" Recent(Float64[])
+    # Weights of any real type are kept as given; others are refused.
+    @test Recent([1, 2]).w == [1, 2]
+    @test Recent(Float32[0.5]).w isa Vector{Float32}
+    @test Recent(view([0.5, 0.2, 0.1], 1:2)).w == [0.5, 0.2]
+    @test_throws ArgumentError Recent(["a"])
+    @test_throws "weights are real numbers" Recent([1.0 + 2.0im])
+    @test_throws MethodError Recent(0.5)
     err = try
         CR.param(Recent(2), 1, 1)
     catch e
@@ -410,6 +417,9 @@ end
     using ComposableRecurrences: Recent
     const CR = ComposableRecurrences
     @test_throws "S × S matrix" Recent(3; coupling = 2.0)
+    @test_throws "S × S matrix" Recent(3; coupling = fill("a", 2, 2))
+    @test_throws "S × S matrix" Recent(3; coupling = ones(ComplexF64, 2, 2))
+    @test Recent(3; coupling = ones(Int, 2, 2)).coupling == ones(2, 2)
     @test_throws MethodError Recent(3, ones(2, 2))
     # Errors describe a Recent by its sizes, not its contents.
     @test_throws "Recent(2 weights; coupling 40 × 40)" CR.Depletion(
