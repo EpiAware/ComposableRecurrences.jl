@@ -483,7 +483,8 @@ function _conv_weight(c::TimeVarying{Primary}, k, d, t)
 end
 
 # A dense coupling mixes a traced step's pressures as one broadcast and sum,
-# rather than one multiply-add per pair of strata written out.
+# rather than one multiply-add per pair of strata written out. A matrix
+# product here compiled to wrong values once a weighted sum followed it.
 function ComposableRecurrences._mix!(q::AnyTracedRVector, C, p)
     q .= vec(sum(_traced(C) .* reshape(p, 1, :); dims = 2))
     return nothing
