@@ -106,8 +106,7 @@ forms = ["Hazard" => Depletion(N), "Floor" => Depletion(N, Floor())]
 end
 
 # Both forms end the outbreak as the pool empties.
-# The hazard form draws slightly less at the peak and leaves more susceptibles.
-# This is because ``1 - e^{-x}`` is below ``x``, so the hazard form draws less than the floored form from the same pool.
+# The hazard form draws less at the peak and leaves more susceptibles, because ``1 - e^{-x}`` is below ``x``.
 
 # ## Reported cases
 #
@@ -135,13 +134,15 @@ end
 
 # ## Performance
 #
-# Each bar times a seeded renewal with hazard depletion over 200 days with a 20-day generation interval, written with the operators or as a preallocated hand-written loop.
+# Each bar times a seeded renewal with hazard depletion over 200 days with a 20-day generation interval, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("renewal")
 
 # ## Learning more
 #
-# - [Vaccination](@ref tutorial-vaccination), [imported cases](@ref tutorial-imports) and [clinical outcomes](@ref tutorial-clinical-outcomes) extend this model.
-# - The [API overview](@ref api-overview) lists every operator, coupling and modifier.
-# - Want the full interface? See the [Public API](@ref public-api).
+# - [Vaccination](@ref tutorial-vaccination): this model with a protected pool of the vaccinated.
+# - [Imported cases](@ref tutorial-imports): this model with imports before and after depletion.
+# - [Clinical outcomes](@ref tutorial-clinical-outcomes): onsets, admissions and deaths as a chain of delays.
+# - [API overview](@ref api-overview): every operator, coupling and modifier.
+# - [Public API](@ref public-api): every public name with its docstring.

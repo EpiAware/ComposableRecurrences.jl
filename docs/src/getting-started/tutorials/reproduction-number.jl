@@ -2,7 +2,7 @@
 #
 # ## Introduction
 #
-# This tutorial gets the reproduction number on each day from the infections a renewal run returns.
+# The reproduction number on each day can be read back from the infections a renewal run returns.
 # A renewal's infections on a day are the reproduction number times the pressure, a weighted sum of earlier infections.
 # A call with `record = (:trace,)` returns the pressure of each day with the infections, so dividing the infections by it gives the reproduction number.
 
@@ -101,12 +101,14 @@ end
 
 # ## Performance
 #
-# Each bar times the effective reproduction number of the three towns of [Getting started](@ref overview-build), with depletion, over 200 days with a 20-day generation interval, written with the operators or as a preallocated hand-written loop.
+# Each bar times the effective reproduction number of the three towns of [Getting started](@ref overview-build), with depletion, over 200 days with a 20-day generation interval, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("reproduction number")
 
 # ## Learning more
 #
-# - [Vaccination](@ref tutorial-vaccination), [imported cases](@ref tutorial-imports) and [clinical outcomes](@ref tutorial-clinical-outcomes) extend the renewal.
-# - [Spatial models](@ref tutorial-spatial-strata) builds the couplings the pressure mixes.
+# - [Vaccination](@ref tutorial-vaccination): the renewal with a protected pool of the vaccinated.
+# - [Imported cases](@ref tutorial-imports): the renewal with imports before and after depletion.
+# - [Clinical outcomes](@ref tutorial-clinical-outcomes): onsets, admissions and deaths as a chain of delays.
+# - [Spatial models](@ref tutorial-spatial-strata): the couplings the pressure mixes.

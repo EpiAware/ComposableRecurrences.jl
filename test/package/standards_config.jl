@@ -47,7 +47,6 @@ const PENDING_SENTENCE_LENGTH = (
     "docs/src/explanation/adjoints-and-backends.md",
     "docs/src/extensions/enzyme.md",
     "docs/src/extensions/reactant.md",
-    "docs/src/getting-started/tutorials/forecasting.jl",
 )
 const PENDING_CODE_LENGTH = (
     "README.md",
