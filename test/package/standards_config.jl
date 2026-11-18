@@ -25,7 +25,6 @@ const PENDING_WORDING = (
     "docstring NoAdjoint",
     "docstring test_adjoint",
     "docstring uses_adjoint",
-    "src/ComposableRecurrences.jl",
 )
 
 # The longest prose sentence, in words, and the longest code line, in
