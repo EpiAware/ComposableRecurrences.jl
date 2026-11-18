@@ -358,6 +358,15 @@ function ComposableRecurrences._recent_row(b::_BoundRecent, k, t::TracedRNumber)
 end
 ComposableRecurrences._cached(b::_BoundRecent, i::TracedRNumber) = true
 ComposableRecurrences._cache_row!(b::_BoundRecent, i::TracedRNumber) = nothing
+# The fill itself runs at every traced step: a traced row is never known to
+# be the one filled before, so it cannot be skipped as cached.
+function ComposableRecurrences._refresh_one!(b::_BoundRecent, i::TracedRNumber)
+    u, w, H = b.u, b.x.w, b.H
+    for j in axes(H, 2)
+        u[j] = ComposableRecurrences._recent_window(w, H, i, j)
+    end
+    return nothing
+end
 
 # Traced weights or a traced coupling stand for real numbers, and a traced
 # number scales a `Recent` or a `Derived` as a real one does.
