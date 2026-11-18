@@ -124,7 +124,7 @@ end
 #
 # Traced and untraced cases are two types.
 # A share ``\psi`` of each case's contacts is traced, and traced cases use the thinned kernel.
-# A `Pairwise` kernel gives each pair of types its interval.
+# A [`Pairwise`](@ref Pairwise) kernel gives each pair of types its interval.
 # Rows are the infectee type and columns the infector type:
 #
 # ```math
@@ -169,7 +169,7 @@ end
 #
 # Here ``G`` is the offspring probability generating function.
 # The recurrence has the unit kernel `[1.0]` and no gain, so the value entering the modifiers is ``q_{n-1}``.
-# Its one modifier ``M_1`` is a `Transform` that applies ``G`` with parameters ``\theta = (R, \kappa)``.
+# Its one modifier ``M_1`` is a [`Transform`](@ref ComposableRecurrences.Transform) that applies ``G`` with parameters ``\theta = (R, \kappa)``.
 # Here ``R = 1.5``, and the history is ``q_0 = 0``.
 #
 # The `Transform` is also given the partial derivatives of ``G`` in ``s`` and in ``\theta`` as `derivative`.
@@ -218,7 +218,7 @@ nothing #hide
 
 # ## Performance
 #
-# Each bar times extinction by generation for five mixing types with a 20-lag generation interval over 200 steps, written with the operators or as a preallocated hand-written loop.
+# Each bar times extinction by generation for five mixing types with a 20-lag generation interval over 200 steps, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("transform")
@@ -231,5 +231,5 @@ performance_plot("transform")
 
 # ## Learning more
 #
-# - The [API overview](@ref api-overview) lists every operator, coupling and modifier.
-# - Want the full interface? See the [Public API](@ref public-api).
+# - [API overview](@ref api-overview): every operator, coupling and modifier.
+# - [Public API](@ref public-api): every public name with its docstring.

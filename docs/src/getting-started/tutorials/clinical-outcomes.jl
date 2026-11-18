@@ -31,17 +31,15 @@ nothing #hide
 
 # ## A chain of delays
 #
-# Onsets ``O_t`` follow infections.
-# Admissions ``A_t`` follow onsets with probability ``h``.
-# Deaths ``D_t`` follow admissions with probability ``f``:
+# Onsets ``O_t`` follow infections, admissions ``A_t`` follow onsets with probability ``h``, and deaths ``D_t`` follow admissions with probability ``f``:
 #
 # ```math
-# O_t = \sum_{l=0}^{3} d^O_l \, I_{t-l}, \qquad
-# A_t = h \sum_{l=0}^{3} d^A_l \, O_{t-l}, \qquad
-# D_t = f \sum_{l=0}^{4} d^D_l \, A_{t-l},
+# O_t = \sum_{l=0}^{3} w^O_l \, I_{t-l}, \qquad
+# A_t = h \sum_{l=0}^{3} w^A_l \, O_{t-l}, \qquad
+# D_t = f \sum_{l=0}^{4} w^D_l \, A_{t-l},
 # ```
 #
-# where ``d^O_l``, ``d^A_l`` and ``d^D_l`` are the weights of the three delays on lag ``l``.
+# where ``w^O_l``, ``w^A_l`` and ``w^D_l`` are the weights of the three delays on lag ``l``.
 # Each transition is a [`Convolution`](@ref) with its probability as the gain.
 # Here ``h`` is 0.1 and ``f`` is 0.25.
 
@@ -68,8 +66,8 @@ end
 # Two delays one after the other are one delay whose weights are the convolution of theirs:
 #
 # ```math
-# D_t = h f \sum_{l=0}^{7} \big(d^A \circledast d^D\big)_l \, O_{t-l}, \qquad
-# \big(d^A \circledast d^D\big)_l = \sum_{j=0}^{l} d^A_j \, d^D_{l-j}.
+# D_t = h f \sum_{l=0}^{7} \big(w^A \circledast w^D\big)_l \, O_{t-l}, \qquad
+# \big(w^A \circledast w^D\big)_l = \sum_{j=0}^{l} w^A_j \, w^D_{l-j}.
 # ```
 #
 # A [chain of delays](@ref time-units-chained), the tuple `(dA, dD)`, is this delay.
@@ -91,7 +89,7 @@ end
 
 # ## Performance
 #
-# Each bar times onsets, admissions and deaths as a chain of three delays over 200 days with 20-day delays, written with the operators or as a preallocated hand-written loop.
+# Each bar times onsets, admissions and deaths as a chain of three delays over 200 days with 20-day delays, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("clinical outcomes")
@@ -99,4 +97,4 @@ performance_plot("clinical outcomes")
 # ## Learning more
 #
 # - [Time-varying delays and kernels](@ref tutorial-time-varying-kernels): delays that change over time.
-# - Want the full interface? See the [Public API](@ref public-api).
+# - [Public API](@ref public-api): every public name with its docstring.
