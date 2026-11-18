@@ -99,8 +99,9 @@ end
 end
 
 # The exact and the smooth form, told apart by the type of the softness.
-# The constructor checks that a softness is a real number, so any number
-# here is a smooth form's, including one that is not a `Real` subtype.
+# The constructor lets through a real softness in [0, 1), or a number that
+# an extension's `_check_softness` method accepts, such as a traced one
+# that is not a `Real` subtype.
 const _HardTruncate = Truncate{Nothing}
 const _SoftTruncate = Truncate{<:Number}
 
