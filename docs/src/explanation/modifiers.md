@@ -11,12 +11,12 @@ The modifiers of a [`Recurrence`](@ref) act on each step's value in tuple order,
 With modifiers ``M_1, \dots, M_m``, each with its own state ``s^{(n)}``, a step computes
 
 ```math
-u^{(0)}_t = v_t, \qquad
-\big(u^{(n)}_t,\ s^{(n)}_t\big) = M_n\big(u^{(n-1)}_t,\ s^{(n)}_{t-1}\big), \qquad
-y_t = u^{(m)}_t,
+v^{(0)}_t = v_t, \qquad
+\big(v^{(n)}_t,\ s^{(n)}_t\big) = M_n\big(v^{(n-1)}_t,\ s^{(n)}_{t-1}\big), \qquad
+y_t = v^{(m)}_t,
 ```
 
-where ``v_t`` is the value after the gain and `add`, ``u^{(n)}_t`` the value modifier ``n`` passes on, and ``y_t`` the output.
+where ``v_t`` is the value after the gain and `add`, ``v^{(n)}_t`` the value modifier ``n`` passes on, and ``y_t`` the output.
 Each sees the value the one before it passed on, so the order belongs to the model.
 A cap applied before a `Depletion` draws the capped value from its pool, the quantity it carries from step to step, while a cap applied after it only limits what is reported.
 With the cap ``c(v) = \min(\max(v, 0), 8)`` and the [hazard form](@ref ComposableRecurrences.Hazard) of a pool ``S_t`` of ``N``, the two orders give
