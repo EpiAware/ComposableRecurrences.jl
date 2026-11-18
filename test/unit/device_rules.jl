@@ -126,6 +126,8 @@ end
 end
 
 @testitem "JLArrays: the rule passes of built-in modifiers match the CPU" setup = [DeviceRules] begin
+    # A `Transform` without a `derivative` takes its derivative with dual
+    # numbers, which needs ForwardDiff.
     using ForwardDiff
     # More strata than blocks, so the blocks' copies of a shared pool's
     # cotangent are summed.
@@ -139,6 +141,9 @@ end
             "a clamp and a pool" => (
                 CR.Transform(clamp, 0.0, 5.0), first(pools(S)),
             ),
+            "a function of its own" => (
+                CR.Transform((v, a) -> v * exp(-a), 0.1),
+            ),
         ]
         @testset "$name, $S strata" for (name, ms) in cases
             op0, args0 = modified_case(ms, S, false)
@@ -151,6 +156,27 @@ end
             @test agree(p̄1, p̄0)
         end
     end
+end
+
+@testitem "JLArrays: a dense coupling's pullback with and without its own mirror" setup = [DeviceRules] begin
+    S = 4
+    C, p, q̄ = dense(S), collect(1.0:S), collect(0.5:0.5:(S / 2))
+    for C̄ in (nothing, zeros(S, S))
+        p̄ = zeros(S)
+        grads = (; piece = C̄, q = q̄, p = p̄)
+        CR.pullback!(grads, C, CR.Pressure(), zeros(S), p, 1)
+        d̄ = C̄ === nothing ? nothing : JLArray(C̄ .* 0)
+        dgrads = (; piece = d̄, q = JLArray(q̄), p = JLArray(zeros(S)))
+        Cd, pd = JLArray(C), JLArray(p)
+        CR.pullback!(dgrads, Cd, CR.Pressure(), JLArray(zeros(S)), pd, 1)
+        @test Array(dgrads.p) ≈ p̄
+        C̄ === nothing || @test Array(d̄) ≈ C̄
+    end
+    # Pressures of the wrong length are an error, not a wrong result.
+    bad = (; piece = nothing, q = JLArray(q̄), p = JLArray(zeros(S + 1)))
+    @test_throws DimensionMismatch CR.pullback!(
+        bad, JLArray(C), CR.Pressure(), JLArray(zeros(S)), bad.p, 1
+    )
 end
 
 @testitem "JLArrays: calls whose reverse pass runs on a device take the rule" setup = [DeviceRules] begin
@@ -175,6 +201,13 @@ end
     # A modifier that reads a group of strata reverses on the host.
     groups = CR.Allocate([1:2, 3:4], PerStratum(fill(1.0, 2)))
     op, args = modified_case((groups,), S, true)
+    @test (@inferred route(op, args)) === Val(:plain)
+    # So does a pool whose overflow joins a queue.
+    flow = CR.Flow(0 => :B, 2.0; form = CR.Truncate())
+    queued = CR.Depletion(
+        flow, CR.Truncate(; overflow = :queue); pools = (B = 50.0,)
+    )
+    op, args = modified_case((queued,), S, true)
     @test (@inferred route(op, args)) === Val(:plain)
     # Numbers other than IEEE floats keep plain AD.
     xq, cq = JLArray(fill(1 // 2, S, T)), Convolution(JLArray(fill(1 // 5, L)))

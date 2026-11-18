@@ -137,10 +137,8 @@ end
 
 _slots(x̄) = x̄
 _slots(x̄::AbstractMatrix) = _Owned(x̄)
-# A fixed kernel runs its reverse pass on a device, so a call on device
-# arrays takes the rule (see `_device_gate`), when its coupling is pointwise
-# or a dense matrix on the device and each modifier is a built-in one whose
-# steps reverse per stratum.
+# Takes the rule on device arrays (`_device_gate`): a fixed kernel, a
+# pointwise or on-device dense coupling and per-stratum built-in modifiers.
 function _device_ready(r::Recurrence{<:Union{AbstractVector, PerStratum}})
     return _device_coupling(r.coupling) && _device_modifiers(r.modifiers)
 end

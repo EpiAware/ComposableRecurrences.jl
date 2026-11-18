@@ -217,15 +217,17 @@ function _mix!(q, C, p)
 end
 
 function pullback!(grads, C::AbstractMatrix, ::Pressure, q, p, t)
-    _matrix_back!(Val(_on_gpu(C)), grads.p, grads.piece, C, grads.q, p)
+    p̄, C̄, q̄ = grads.p, grads.piece, grads.q
+    if _on_gpu(C)
+        _device_coupling_back!(p̄, C̄, C, q̄, p)
+    else
+        _coupling_back!(p̄, C̄, C, q̄, p)
+    end
     return nothing
 end
-function _matrix_back!(::Val{false}, p̄, C̄, C, q̄, p)
-    return _coupling_back!(p̄, C̄, C, q̄, p)
-end
-# On a device the two sums are products, one kernel each, since the loops
-# above index the arrays one entry at a time from the host.
-function _matrix_back!(::Val{true}, p̄, C̄, C, q̄, p)
+# On a device the two sums of `_coupling_back!` are products, one kernel
+# each, since its loops index the arrays one entry at a time.
+function _device_coupling_back!(p̄, C̄, C, q̄, p)
     _check_pressure(C, q̄, p)
     mul!(p̄, transpose(C), q̄, true, true)
     _add_outer!(_array_mirror(C̄), q̄, p)
