@@ -1,9 +1,10 @@
 # The package's own rules on device arrays, run on JLArrays without a GPU:
 # a fixed convolution and a recurrence of independent strata, or of strata
-# mixed by a dense coupling, run their forward pass and their pullback on the
-# device, without scalar indexing, and give the CPU's cotangents; calls whose
-# reverse pass needs the host keep plain AD. AD backends cannot differentiate
-# JLArrays themselves, so the rule passes run directly.
+# mixed by a dense coupling, with or without built-in pointwise modifiers,
+# run their forward pass and their pullback on the device, without scalar
+# indexing, and give the CPU's cotangents; calls whose reverse pass needs the
+# host keep plain AD. AD backends cannot differentiate JLArrays themselves,
+# so the rule passes run directly.
 
 @testsnippet DeviceRules begin
     using ComposableRecurrences
@@ -36,6 +37,24 @@
         return op, (args..., nothing)
     end
 
+    # A recurrence with modifiers `ms`, as `recurrence_case` builds one.
+    function modified_case(ms, S, dev)
+        r = Recurrence(pmf; modifiers = ms)
+        op = dev ? adapt(JLArray, r) : r
+        x, h = inputs(S), fill(1.0, S, L)
+        x, h = dev ? (JLArray(x), JLArray(h)) : (x, h)
+        args = CR._run_args(op, x, h, nothing, nothing, 1)
+        return op, (args..., nothing)
+    end
+    # A pool every stratum shares, with a flow out, and one per stratum.
+    function pools(S)
+        flow = CR.Flow(:S => 0, 0.1; form = CR.Share())
+        return (
+            CR.Depletion(200.0, CR.Hazard(), flow),
+            CR.Depletion(PerStratum(fill(150.0, S)), CR.Floor()),
+        )
+    end
+
     # The input's cotangent and the parameter mirror after the rule's
     # forward pass and pullback with output cotangent `weights(S)`.
     function rule_cotangents(op, args, piece, S, dev)
@@ -49,7 +68,9 @@
     # Whether the mirrors `a` (device) and `b` (host) hold the same values.
     agree(a::AbstractArray, b::AbstractArray) = Array(a) ≈ b
     agree(a::Base.RefValue, b::Base.RefValue) = a[] ≈ b[]
-    agree(a::NamedTuple, b::NamedTuple) = all(map(agree, values(a), values(b)))
+    agree(a::Union{Tuple, NamedTuple}, b::Union{Tuple, NamedTuple}) =
+        all(map(agree, values(a), values(b)))
+    agree(::Nothing, ::Nothing) = true
 end
 
 @testitem "JLArrays: the rule passes of a fixed convolution and of a recurrence match the CPU" setup = [DeviceRules] begin
@@ -104,6 +125,34 @@ end
     end
 end
 
+@testitem "JLArrays: the rule passes of built-in modifiers match the CPU" setup = [DeviceRules] begin
+    using ForwardDiff
+    # More strata than blocks, so the blocks' copies of a shared pool's
+    # cotangent are summed.
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        cases = [
+            "a shared pool and one per stratum" => pools(S),
+            "a scale and a shift" => (
+                CR.Transform(*, PerStratum(fill(0.9, S))),
+                CR.Transform(+, 0.5),
+            ),
+            "a clamp and a pool" => (
+                CR.Transform(clamp, 0.0, 5.0), first(pools(S)),
+            ),
+        ]
+        @testset "$name, $S strata" for (name, ms) in cases
+            op0, args0 = modified_case(ms, S, false)
+            op1, args1 = modified_case(ms, S, true)
+            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
+            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
+            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test agree(p̄1, p̄0)
+        end
+    end
+end
+
 @testitem "JLArrays: calls whose reverse pass runs on a device take the rule" setup = [DeviceRules] begin
     S = 4
     route(op, args) = CR._route_val(op, args...)
@@ -120,13 +169,13 @@ end
     X = JLArray(repeat(dense(S), 1, 1, T))
     op, args = recurrence_case(TimeVarying(X), S, true)
     @test route(op, args) === Val(:plain)
-    # So do modifiers.
-    pool = CR.Depletion(PerStratum(fill(200.0, S)), CR.Hazard())
-    r = Recurrence(pmf; modifiers = (pool,))
-    rd = adapt(JLArray, r)
-    x, h = JLArray(inputs(S)), JLArray(fill(1.0, S, L))
-    args = (CR._run_args(rd, x, h, nothing, nothing, 1)..., nothing)
-    @test route(rd, args) === Val(:plain)
+    # Built-in modifiers that reverse per stratum take the rule.
+    op, args = modified_case((pools(S)...,), S, true)
+    @test (@inferred route(op, args)) === Val(:rule)
+    # A modifier that reads a group of strata reverses on the host.
+    groups = CR.Allocate([1:2, 3:4], PerStratum(fill(1.0, 2)))
+    op, args = modified_case((groups,), S, true)
+    @test (@inferred route(op, args)) === Val(:plain)
     # Numbers other than IEEE floats keep plain AD.
     xq, cq = JLArray(fill(1 // 2, S, T)), Convolution(JLArray(fill(1 // 5, L)))
     @test route(cq, (xq, true, nothing, nothing, 1, nothing)) === Val(:plain)

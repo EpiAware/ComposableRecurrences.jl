@@ -137,19 +137,24 @@ end
 
 _slots(x̄) = x̄
 _slots(x̄::AbstractMatrix) = _Owned(x̄)
-# A fixed kernel with no modifiers runs its reverse pass on a device, so a
-# call on device arrays takes the rule (see `_device_gate`): independent
-# strata, or strata mixed by a dense coupling that lives on the device.
-const _DeviceReadyRecurrence = Recurrence{
-    <:Union{AbstractVector, PerStratum},
-    <:Union{UniformScaling, Diagonal},
-    Tuple{},
-}
-_device_ready(::_DeviceReadyRecurrence) = true
-const _DenseRecurrence = Recurrence{
-    <:Union{AbstractVector, PerStratum}, <:AbstractMatrix, Tuple{},
-}
-_device_ready(r::_DenseRecurrence) = _on_gpu(r.coupling)
+# A fixed kernel runs its reverse pass on a device, so a call on device
+# arrays takes the rule (see `_device_gate`), when its coupling is pointwise
+# or a dense matrix on the device and each modifier is a built-in one whose
+# steps reverse per stratum.
+function _device_ready(r::Recurrence{<:Union{AbstractVector, PerStratum}})
+    return _device_coupling(r.coupling) && _device_modifiers(r.modifiers)
+end
+_device_coupling(C) = false
+_device_coupling(::Union{UniformScaling, Diagonal}) = true
+_device_coupling(C::AbstractMatrix) = _on_gpu(C)
+# A modifier of another type keeps plain AD: its pullback may index the
+# arrays from the host.
+_device_modifiers(::Tuple{}) = true
+function _device_modifiers(ms::Tuple)
+    return _device_modifier(first(ms)) && _device_modifiers(Base.tail(ms))
+end
+_device_modifier(m) = false
+_device_modifier(m::Union{Transform, Depletion}) = _strata_loop(m)
 
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)
 _kernel_slots(ḡ, kernel::TimeVarying) = ḡ
