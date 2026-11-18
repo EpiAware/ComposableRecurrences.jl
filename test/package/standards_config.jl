@@ -21,9 +21,7 @@ const PENDING_EXAMPLES = ()
 # Sources whose prose still uses a banned word, marked broken. Each entry
 # is a file path relative to the package root or a docstring label such as
 # `docstring Recurrence`.
-const PENDING_WORDING = (
-    "src/ComposableRecurrences.jl",
-)
+const PENDING_WORDING = ()
 
 # The longest prose sentence, in words, and the longest code line, in
 # characters, in the pages, tutorials and docstrings.
