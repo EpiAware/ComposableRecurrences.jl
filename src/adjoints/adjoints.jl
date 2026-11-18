@@ -12,7 +12,7 @@ abstract type AbstractOperator end
 
 @doc raw"""
 An operator wrapper that the AD backend differentiates through its forward
-loop, bypassing the operator's rule.
+loop, bypassing the operator's rule, the package's own reverse pass.
 
 Called exactly like the wrapped operator, it computes the same output,
 
