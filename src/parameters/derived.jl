@@ -1,3 +1,5 @@
+# == Derived: type and construction ==
+
 @doc raw"""
     Derived(f, args...)
 
@@ -137,6 +139,8 @@ end
 
 Derived(f, args...) = Derived(f, args)
 
+# == Reads and cotangents ==
+
 param(x::Derived, k, t) = x.f(_params_at(x.args, k, t)...)
 
 function add_param!(x̄, x::Derived, v, k, t)
@@ -161,10 +165,9 @@ end
     end
 end
 
-# The value of parameter `x` at `(k, t)` and the partials of a `Derived`'s
-# map that has mirrors, else `nothing`, from one read of its arguments, for
-# `_add_param_partials!`. Only the outer map's partials are kept: a nested
-# `Derived` argument reads its own arguments again in its `add_param!`.
+# The value of `x` at `(k, t)` and, for a `Derived` with mirrors, its map's
+# partials (else `nothing`), from one read of the arguments. Only the outer
+# map's are kept: a nested `Derived` reads its own again in `add_param!`.
 _param_partials(x̄, x, k, t) = (param(x, k, t), nothing)
 function _param_partials(x̄, x::Derived, k, t)
     xs = _params_at(x.args, k, t)
@@ -184,6 +187,8 @@ _params_at(::Tuple{}, k, t) = ()
 function _params_at(a::Tuple, k, t)
     return (param(first(a), k, t), _params_at(Base.tail(a), k, t)...)
 end
+
+# == Checks ==
 
 # As a modifier parameter every argument is a parameter.
 function _check_param(name, x::Derived)
@@ -206,6 +211,8 @@ function _check_constant(name, x::Derived)
 end
 _float_param(x::Derived) = x
 
+# == Local derivative ==
+
 # Whether every `Derived` inside a value of type `T` has a map without float
 # fields of its own, so its local derivative covers every parameter.
 # Type-only, so `_derived_local` folds at compile time.
@@ -227,6 +234,8 @@ function _fieldfree_type(::Type{T}) where {T}
 end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _derived_local(x) = _derived_local_type(x)
+
+# == Arithmetic ==
 
 # Arithmetic with a `Derived` on either side lowers to `Derived`; the other
 # side is any parameter, or a vector of lag weights for a kernel.
