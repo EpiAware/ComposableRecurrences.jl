@@ -167,11 +167,18 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
         )
     end
     function Recurrence(
-            ::_Checked, kernel::K, coupling::C, modifiers::M, rebuilds::B
-        ) where {K, C, M <: Tuple, B}
-        return new{K, C, M, B}(kernel, coupling, modifiers, rebuilds)
+            ::_Checked, kernel::K, coupling, modifiers::M, rebuilds::B
+        ) where {K, M <: Tuple, B}
+        C = _stored_coupling(coupling)
+        return new{K, typeof(C), M, B}(kernel, C, modifiers, rebuilds)
     end
 end
+
+# The identity coupling `I` is stored with an integer scale: a source-level AD
+# tool on Julia 1.11 loses the gradient of a scalar field beside a field that
+# wraps a `Bool`, in an operator built in code Julia cannot infer.
+_stored_coupling(J::UniformScaling{Bool}) = UniformScaling(Int(J.λ))
+_stored_coupling(C) = C
 
 # Only a kernel takes `Primary()` indexing: the coupling and modifiers are
 # walked once here, so the walk at each call checks only that they cover

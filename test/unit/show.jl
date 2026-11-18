@@ -111,6 +111,11 @@
         "NoAdjoint(Recurrence(3 lags))"
     @test plain(Recurrence(ones(3); coupling = 2.0 * CR.I)) ==
         "Recurrence(3 lags, coupling 2.0I)"
+    # The identity coupling is stored with an integer scale and not shown.
+    @test plain(Recurrence(ones(3); coupling = CR.I)) == "Recurrence(3 lags)"
+    @test Recurrence(ones(3)).coupling === CR.UniformScaling(1)
+    @test plain(Recurrence(ones(3); coupling = 2 * CR.I)) ==
+        "Recurrence(3 lags, coupling 2I)"
 
     r = Recurrence(ones(3) / 3; modifiers = (CR.Depletion(10.0),))
     (; state) = r(fill(1.1, 6); history = ones(3), stop = 3, record = (:state,))
