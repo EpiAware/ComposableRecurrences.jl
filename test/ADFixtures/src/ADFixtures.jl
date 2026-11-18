@@ -1911,8 +1911,7 @@ function _generation_distribution(w, θ)
 end
 
 # A delay for each pair of strata, as a `Pairwise` kernel of distributions:
-# the gradient reaches each one's parameters through its masses. Each pair's
-# masses sum to about one, so the reproduction numbers start near `1 / S`.
+# the gradient reaches each one's parameters through its masses.
 function _pairwise_generation_distribution(w, θ)
     logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
     p = 1 / (1 + exp(-only(logitp)))
@@ -1947,7 +1946,7 @@ push!(
     (
         "Recurrence negative binomial generation interval per pair of strata",
         _pairwise_generation_distribution,
-        () -> _flat([log(3.0)], [0.2], fill(log(5.0), S, L), LOGR .- log(S)),
+        () -> _flat([log(3.0)], [0.2], fill(log(5.0), S, L), LOGR),
     ),
 )
 
