@@ -22,6 +22,7 @@ ComposableRecurrences = {path = ".."}
 [compat]
 BenchmarkTools = "1"
 DifferentiationInterface = "0.6, 0.7"
+Enzyme = "0.13.221"
 EpiAwarePackageTools = "0.3, 0.4"
 FFTW = "1.10"
 Mooncake = "0.5.70"
