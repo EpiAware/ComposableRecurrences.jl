@@ -71,7 +71,8 @@ n_r = r S \quad \text{or} \quad n_r = r G;
 ```
 
 the default is the modifier's [`ComposableRecurrences.nstate`](@ref), its
-state after each step, or none for a modifier whose state never changes.
+state after each step, or none for a modifier whose state never changes
+([`ComposableRecurrences.isstateless`](@ref)).
 
 # Examples
 ```jldoctest
@@ -84,7 +85,7 @@ CR.ntrace(CR.Transform(clamp, 0.0, 1.0), 3), CR.ntrace(CR.Depletion(100.0), 3)
 (0, 9)
 ```
 """
-ntrace(m, S) = _stateless(m) ? 0 : nstate(m, S)
+ntrace(m, S) = isstateless(m) ? 0 : nstate(m, S)
 
 # By default the trace is the state after the step.
 function forward!(m, ::Trace, r, v, s, v′, s′, t)

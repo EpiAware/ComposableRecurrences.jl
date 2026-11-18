@@ -144,7 +144,7 @@ function _local_derivative(m::Transform)
 end
 
 blocks(::Transform) = (1, 1)
-_stateless(::Transform) = true
+isstateless(::Transform) = true
 uses_adjoint(m::Transform, ::Step) = _local_derivative(m)
 _scalar_params(::Transform) = false
 _local_params(::Transform) = false
