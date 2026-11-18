@@ -1281,12 +1281,11 @@ end
     end
 end
 
-# A scalar field of an operator built by a call Enzyme cannot infer, here a
-# `NoAdjoint` called through a global that is not constant. On Julia 1.11
-# Enzyme reverse mode lost its gradient while the operator held the identity
-# coupling with a `Bool` scale, which the operator no longer stores. Tagged
-# `compat_floor`, so the Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme reverse keeps scalar gradients through uninferred construction" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+# Guards the gradient of a scalar field of an operator built by a call Enzyme
+# cannot infer, here a `Depletion` inside a `NoAdjoint` called through a
+# global that is not constant. Tagged `compat_floor`, so the Threads workflow
+# runs it on Julia 1.11.
+@testitem "Enzyme reverse keeps a Depletion scalar's gradient through an uninferred NoAdjoint" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
     import Enzyme, ForwardDiff
@@ -1451,7 +1450,8 @@ end
     ḡ = gradient(f, backend, θ)
     if VERSION < v"1.12"
         # Enzyme reverse on Julia 1.11 loses the gradient of the scalar in
-        # `ε`, built by a call it cannot infer; the kernel's gradient is right.
+        # `ε`, built by a call it cannot infer, though it keeps a `Depletion`
+        # scalar's in the same setting; the kernel's gradient is right.
         @test ḡ[1:9] ≈ ref[1:9]
         @test_broken ḡ ≈ ref
     else
