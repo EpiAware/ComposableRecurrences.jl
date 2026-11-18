@@ -5,8 +5,10 @@
 # == Scratch ==
 
 # Each `Survival`'s survival `S`, hazard `H` and added cotangent `P` at each
-# lag of the cohort walked, or for `S` and `H` a column per kept cohort.
-# `D` keeps the partials of a costly hazard map when every walk is kept.
+# lag of the cohort walked, or for `S` and `H` a column per kept cohort, read
+# through `_walk_column`. `P` is cleared as it is read, so one serves every
+# cohort. `D` keeps the partials of a costly hazard map when every walk is
+# kept.
 struct _WalkScratch{C, A <: AbstractArray, V <: AbstractVector, D}
     hazard::C
     S::A
@@ -61,7 +63,7 @@ end
 _partials_column(::Nothing, j) = nothing
 _partials_column(D::AbstractMatrix, j) = view(D, :, j)
 
-# == Walk ==
+# == Forward ==
 
 # The state of the walk: each `Survival`'s survival at the current lag and
 # its hazard's state, a tuple per `Derived`, `nothing` elsewhere.
@@ -239,7 +241,8 @@ _tail_mirrors(::Nothing) = nothing
 _tail_mirrors(ā::Tuple) = Base.tail(ā)
 # A `Survival` carries `a`, the cotangent of its survival from the current
 # lag on: at lag index `i` its parent's share joins it, `-s_{i-1} a` goes to
-# its hazard and `a (1 - η_i)` on to the lag before.
+# its hazard and `a (1 - η_i)` on to the lag before. Its parent reads it once
+# per lag, so `a` is whole once the parent's share is added.
 @inline _walk_back(::Nothing, x::Survival, sc, a, k, i, τ, l) = a
 @inline function _walk_back(x̄, x::Survival, sc, a, k, i, τ, l)
     h̄ = cotangent(x̄, :hazard)
@@ -259,9 +262,10 @@ end
 
 # == The weights as an array ==
 
-# The weights of cohorts `1:n`, lags from `o`, that land by `last`, into `K`,
-# and the walks' scratch. Arithmetic maps are walked again in the reverse
-# pass; costlier ones keep every cohort's walk when `keep` is set.
+# The weights of cohorts `1:n`, lags from `o`, that land by `last`, into `K`
+# (lags × cohorts, or strata × lags × cohorts), and the walks' scratch.
+# Arithmetic maps are walked again in the reverse pass, which costs less
+# than keeping the walk; costlier ones keep every cohort's walk when `keep`.
 function _walk_fill!(
         K, kernel::_ComputedKernel, o, last, keep::Val = Val(false)
     )
