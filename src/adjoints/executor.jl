@@ -584,9 +584,10 @@ function _accumulators(ex::Serial, x, n, work, acc)
     r isa Parallel && return _stacked_accumulators(r, x, n, acc)
     return (acc, ())
 end
+# On device arrays the copies are stacked whatever the executor, so the
+# choice follows the arrays' type and stays a constant.
 function _accumulators(c::_Current, x, n, work, acc)
-    r = _resolve(c.ex, x)
-    r isa Parallel && return _stacked_accumulators(r, x, n, acc)
+    _on_gpu(x) && return _stacked_accumulators(_resolve(Serial(), x), x, n, acc)
     m = _copyable(acc) ? _nblocks(c.ex, n, work) : 1
     P = Base.promote_op(_private, typeof(acc))
     return acc, Vector{Union{Nothing, P}}(nothing, m - 1)
