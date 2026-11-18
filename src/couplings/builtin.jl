@@ -220,7 +220,9 @@ function pullback!(grads, C::AbstractMatrix, ::Pressure, q, p, t)
     _matrix_back!(Val(_on_gpu(C)), grads.p, grads.piece, C, grads.q, p)
     return nothing
 end
-_matrix_back!(::Val{false}, p̄, C̄, C, q̄, p) = _coupling_back!(p̄, C̄, C, q̄, p)
+function _matrix_back!(::Val{false}, p̄, C̄, C, q̄, p)
+    return _coupling_back!(p̄, C̄, C, q̄, p)
+end
 # On a device the two sums are products, one kernel each, since the loops
 # above index the arrays one entry at a time from the host.
 function _matrix_back!(::Val{true}, p̄, C̄, C, q̄, p)

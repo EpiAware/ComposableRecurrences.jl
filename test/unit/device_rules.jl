@@ -2,8 +2,8 @@
 # a fixed convolution and a recurrence of independent strata, or of strata
 # mixed by a dense coupling, run their forward pass and their pullback on the
 # device, without scalar indexing, and give the CPU's cotangents; calls whose
-# reverse pass needs the host keep plain AD. AD backends cannot differentiate JLArrays themselves, so
-# the rule passes run directly.
+# reverse pass needs the host keep plain AD. AD backends cannot differentiate
+# JLArrays themselves, so the rule passes run directly.
 
 @testsnippet DeviceRules begin
     using ComposableRecurrences

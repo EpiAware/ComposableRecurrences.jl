@@ -146,11 +146,10 @@ const _DeviceReadyRecurrence = Recurrence{
     Tuple{},
 }
 _device_ready(::_DeviceReadyRecurrence) = true
-function _device_ready(
-        r::Recurrence{<:Union{AbstractVector, PerStratum}, <:AbstractMatrix, Tuple{}}
-    )
-    return _on_gpu(r.coupling)
-end
+const _DenseRecurrence = Recurrence{
+    <:Union{AbstractVector, PerStratum}, <:AbstractMatrix, Tuple{},
+}
+_device_ready(r::_DenseRecurrence) = _on_gpu(r.coupling)
 
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)
 _kernel_slots(ḡ, kernel::TimeVarying) = ḡ
