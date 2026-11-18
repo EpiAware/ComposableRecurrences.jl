@@ -28,8 +28,8 @@
     end
     # A coupling that mixes every pair of strata.
     dense(S) = Matrix(0.5I, S, S) .+ 0.5 / S
-    function recurrence_case(coupling, S, dev)
-        r = Recurrence(pmf; coupling)
+    function recurrence_case(coupling, S, dev; kernel = pmf)
+        r = Recurrence(kernel; coupling)
         op = dev ? adapt(JLArray, r) : r
         x, h = inputs(S), fill(1.0, S, L)
         x, h = dev ? (JLArray(x), JLArray(h)) : (x, h)
@@ -84,6 +84,14 @@ end
             ),
             "per-stratum kernel" => (
                 dev -> convolution_case(PerStratum(repeat(pmf', S)), S, dev),
+                dev -> (;
+                    kernel = (; x = dev ? JLArray(zeros(S, L)) : zeros(S, L)),
+                ),
+            ),
+            "recurrence, per-stratum kernel" => (
+                dev -> recurrence_case(
+                    I, S, dev; kernel = PerStratum(repeat(pmf', S))
+                ),
                 dev -> (;
                     kernel = (; x = dev ? JLArray(zeros(S, L)) : zeros(S, L)),
                 ),
@@ -209,6 +217,17 @@ end
     )
     op, args = modified_case((queued,), S, true)
     @test (@inferred route(op, args)) === Val(:plain)
+    # The gate's defaults, called directly: inference folds them into the
+    # routes above, so those calls never run them.
+    @test !CR._on_gpu(zeros(2))
+    @test !CR._any_on_gpu()
+    @test !CR._device_ready(sum)
+    @test CR._device_ready(first(convolution_case(pmf, S, false)))
+    @test CR._device_ready(first(recurrence_case(I, S, false)))
+    @test CR._device_coupling(I) && CR._device_coupling(Diagonal(ones(S)))
+    @test !CR._device_coupling(TimeVarying(X))
+    @test CR._device_modifiers(())
+    @test !CR._device_modifier(groups)
     # Numbers other than IEEE floats keep plain AD.
     xq, cq = JLArray(fill(1 // 2, S, T)), Convolution(JLArray(fill(1 // 5, L)))
     @test route(cq, (xq, true, nothing, nothing, 1, nothing)) === Val(:plain)
@@ -227,6 +246,10 @@ end
     # Host arrays keep their copies per thread.
     accs = CR._accumulators(c, inputs(S), S, S, (; ḡ = zeros(L)))
     @test !(last(accs) isa CR._Stacked)
+    # A block's slot of a stacked scalar adds into its own entry.
+    v = zeros(3)
+    CR._add_slot!(CR._Slot(v, 2), 1.5, 1, 1)
+    @test v == [0.0, 1.5, 0.0]
     # A cotangent that cannot be stacked is an error, not a wrong result.
     @test_throws ArgumentError CR._stack(:x, 2, x)
 end

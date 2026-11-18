@@ -702,12 +702,6 @@ function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractMatrix)
     cotangent(ḡ, :x) .+= view(kbuf, :, L:-1:1)
     return nothing
 end
-function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractArray{<:Any, 3})
-    L = size(kbuf, 1)
-    reversed = view(kbuf, L:-1:1, :, :)
-    cotangent(ḡ, :x) .+= PermutedDimsArray(reversed, (3, 2, 1))
-    return nothing
-end
 
 # The buffer's first `D` rows back into the last `D` history columns; the
 # zero-padded rows of a short history have no cotangent.
