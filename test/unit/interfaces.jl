@@ -690,3 +690,33 @@ end
         NoStep(), CR.Step(), [1.0, 2.0], [0.0, 0.0], 1
     )
 end
+
+@testitem "Interfaces: the stateless component checks the declaration" begin
+    using ComposableRecurrences, Interfaces
+    CR = ComposableRecurrences
+    struct Halve end
+    CR.blocks(::Halve) = (1, 1)
+    CR.isstateless(::Halve) = true
+    function CR.forward!(::Halve, ::CR.Step, v, s, t)
+        v ./= 2
+        return nothing
+    end
+    # Declared stateless, but its step moves the state.
+    struct Drift end
+    CR.blocks(::Drift) = (1, 1)
+    CR.isstateless(::Drift) = true
+    function CR.forward!(::Drift, ::CR.Step, v, s, t)
+        s .+= 1
+        return nothing
+    end
+    step(m) = Interfaces.Arguments(;
+        piece = m, role = CR.Step(), args = (ones(3), zeros(3), 1)
+    )
+    stateless = CR.PieceInterface{(:stateless,)}
+    @test Interfaces.test(stateless, Halve, (step(Halve()),); show = false)
+    @test !Interfaces.test(stateless, Drift, (step(Drift()),); show = false)
+    # A modifier not declared stateless passes whatever its step does.
+    @test Interfaces.test(
+        stateless, CR.Depletion, (step(CR.Depletion(9.0)),); show = false
+    )
+end

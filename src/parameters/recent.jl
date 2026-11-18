@@ -97,7 +97,9 @@ struct Recent{W <: AbstractVector{<:Real}, C}
             w::W; coupling::C = nothing
         ) where {W <: AbstractVector{<:Real}, C}
         isempty(w) && throw(
-            ArgumentError("Recent needs at least one weight; got $(_describe(w))")
+            ArgumentError(
+                "Recent needs at least one weight; got $(_describe(w))"
+            )
         )
         coupling === nothing || coupling isa AbstractMatrix{<:Real} || throw(
             ArgumentError(
@@ -109,16 +111,18 @@ struct Recent{W <: AbstractVector{<:Real}, C}
     end
 end
 function Recent(n::Integer; coupling = nothing)
-    n >= 1 || throw(ArgumentError("Recent(n) needs n >= 1 outputs; got n = $n"))
+    n >= 1 ||
+        throw(ArgumentError("Recent(n) needs n >= 1 outputs; got n = $n"))
     return Recent(_Ones(n); coupling)
 end
 # Rebuilt from its fields, which have no positional constructor.
-_recent_flat(w, coupling) = Recent(w; coupling)
-ConstructionBase.constructorof(::Type{<:Recent}) = _recent_flat
+function ConstructionBase.constructorof(::Type{<:Recent})
+    return (w, coupling) -> Recent(w; coupling)
+end
 
-# The weights of `Recent(n)`: `n` ones, held as their count. A parameter
-# such as `κ * Recent(n)` then holds no array beside its scalar, a value
-# that some reverse-mode AD cannot pass through a dynamic call.
+# The weights of `Recent(n)`, held as their count, so `κ * Recent(n)` holds no
+# array beside its scalar, which some reverse-mode AD cannot pass through a
+# dynamic call.
 struct _Ones <: AbstractVector{Bool}
     n::Int
 end
@@ -131,7 +135,8 @@ end
 
 # A short description for errors: the weights and the coupling's size.
 function _describe(x::Recent)
-    C = x.coupling === nothing ? "" : "; coupling $(join(size(x.coupling), " × "))"
+    C = x.coupling === nothing ? "" :
+        "; coupling $(join(size(x.coupling), " × "))"
     return "Recent($(length(x.w)) weights$C)"
 end
 
@@ -154,18 +159,26 @@ _check_param(name, x::Recent) = x
 _check_constant(name, x::Recent) = _not_constant_error(name, x)
 _float_param(x::Recent) = x
 
+# Arithmetic with a `Recent` on either side lowers to `Derived`.
+const _Param = Union{Real, PerStratum, TimeVarying, Derived}
+for op in (:+, :-, :*, :/, :^)
+    @eval begin
+        Base.$op(a::Recent, b::Union{_Param, Recent}) = Derived($op, a, b)
+        Base.$op(a::Union{_Param, Recent}, b::Recent) = Derived($op, a, b)
+        Base.$op(a::Recent, b::Recent) = Derived($op, a, b)
+    end
+end
+Base.:-(a::Recent) = Derived(-, a)
+
+# == _BoundRecent ==
+
 # A `Recent` bound to a call's buffer `H`, whose row `t + o` holds the
-# output at absolute time `t`. In the reverse pass `H̄` is the buffer's
-# cotangent, else `nothing`. Binding checks the coupling against the
-# buffer's strata.
-#
-# With a coupling, every stratum's read at a step mixes the same `S`
-# windows, so the recurrence fills them once per step into `u`
-# (`_refresh!`, run serially before the strata read them) and `row` names
-# the buffer row they belong to. In the reverse pass each read adds the
-# cotangent of the windows into `z`, and `_flush!` sends it to the buffer
-# and the weights once per step, into the weights' mirror kept in `w̄`
-# (with no `H̄`, only into the weights). Without a coupling these are
+# output at time `t`, and its cotangent `H̄` in a reverse pass. With a
+# coupling every stratum mixes the same `S` windows, filled once per step
+# into `u` for buffer row `row` (`_refresh!`, run serially before the
+# strata read them); the reverse pass adds their cotangents into `z`, which
+# `_flush!` sends on once per step, the weights' share into the mirror kept
+# in `w̄` (with no `H̄`, only into the weights). Without a coupling these are
 # `nothing`.
 struct _BoundRecent{R <: Recent, B, G, U, I, Z, M}
     x::R
@@ -247,7 +260,9 @@ param(b::_BoundRecent, k, t) = _read(b.x.coupling, b, k, _recent_row(b, k, t))
 # A read's float type, from the weights, the coupling and the history: the
 # weights' mirror is a cotangent slot, not a parameter.
 function param_eltype(b::_BoundRecent)
-    return promote_type(param_eltype(b.x), param_eltype(b.H), param_eltype(b.u))
+    return promote_type(
+        param_eltype(b.x), param_eltype(b.H), param_eltype(b.u)
+    )
 end
 
 # Stratum `j`'s weighted window ending before row `i`.
@@ -377,6 +392,8 @@ _add_buffer!(::Nothing, v, i, k) = nothing
 
 _check_param(name, x::_BoundRecent) = x
 
+# == Type walks ==
+
 # Whether a value of type `T` holds a value that `leaf` decides, from the
 # type alone: `leaf(T)` is `true` or `false` for a type it decides and
 # `nothing` otherwise, in which case the fields are walked.
@@ -432,7 +449,8 @@ end
 # reads with the same `n` share.
 _shared_leaf(::Type{T}) where {T} = T <: Recent ? _shares_windows(T) : nothing
 function _shares_windows(::Type{R}) where {R <: Recent}
-    return fieldtype(R, :w) <: _Ones && fieldtype(R, :coupling) <: AbstractMatrix
+    return fieldtype(R, :w) <: _Ones &&
+        fieldtype(R, :coupling) <: AbstractMatrix
 end
 # The field paths from `ex`, a value of type `T`, to the `n` of each
 # coupled `Recent(n)` inside it, bound or not.
@@ -451,6 +469,8 @@ end
 # helpers: a generator sees only the methods defined before it.
 @generated _shared_counts(x) = Expr(:tuple, _shared_paths(x, :x)...)
 
+# == Binding ==
+
 # Bind every `Recent` inside `x` to the buffer `H` (and its cotangent `H̄`),
 # rebuilding only the values that hold one, with one set of shared windows
 # for the call (`_shared_windows`).
@@ -460,8 +480,12 @@ _bind(::Val{true}, x, H, H̄, o) = _bound(x, H, H̄, o, _shared_windows(x, H))
 _bound(x, H, H̄, o, s) = _bound(Val(_reads_outputs(x)), x, H, H̄, o, s)
 _bound(::Val{false}, x, H, H̄, o, s) = x
 _bound(::Val{true}, x::Recent, H, H̄, o, s) = _BoundRecent(x, H, H̄, o, s)
-_bound(::Val{true}, x::_BoundRecent, H, H̄, o, s) = _BoundRecent(x.x, H, H̄, o, s)
-_bound(::Val{true}, x::Tuple, H, H̄, o, s) = map(y -> _bound(y, H, H̄, o, s), x)
+function _bound(::Val{true}, x::_BoundRecent, H, H̄, o, s)
+    return _BoundRecent(x.x, H, H̄, o, s)
+end
+function _bound(::Val{true}, x::Tuple, H, H̄, o, s)
+    return map(y -> _bound(y, H, H̄, o, s), x)
+end
 function _bound(::Val{true}, x::NamedTuple{K}, H, H̄, o, s) where {K}
     return NamedTuple{K}(_bound(Tuple(x), H, H̄, o, s))
 end
@@ -472,16 +496,6 @@ function _bound(::Val{true}, x, H, H̄, o, s)
     fs = map(f -> _bound(f, H, H̄, o, s), Tuple(ConstructionBase.getfields(x)))
     return constructorof(typeof(x))(fs...)
 end
-
-# Arithmetic with a `Recent` on either side lowers to `Derived`.
-for op in (:+, :-, :*, :/, :^)
-    @eval begin
-        Base.$op(a::Recent, b::Union{_Param, Recent}) = Derived($op, a, b)
-        Base.$op(a::Union{_Param, Recent}, b::Recent) = Derived($op, a, b)
-        Base.$op(a::Recent, b::Recent) = Derived($op, a, b)
-    end
-end
-Base.:-(a::Recent) = Derived(-, a)
 
 # The mirrors of a parameter's arguments. Without a mirror the cotangent of
 # an argument that reads the outputs must still reach the buffer, so each

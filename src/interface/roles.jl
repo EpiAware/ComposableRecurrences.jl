@@ -557,9 +557,40 @@ function _check_blocks(::Val{B}) where {B}
     return B[1]
 end
 
-# Whether a modifier's Step returns its state unchanged, so the reverse pass
-# reads the state it started from instead of a record per step.
-_stateless(m) = false
+@doc raw"""
+Whether modifier `m` leaves its state unchanged in its
+[`ComposableRecurrences.Step`](@ref).
+
+A stateless modifier's state after every step is the state it started
+with,
+
+```math
+s_t = s_0, \qquad t = 1, \dots, T,
+```
+
+where ``s_t`` is the state after the step at time ``t`` and ``T`` the
+number of steps.
+Its [trace](@ref ComposableRecurrences.Trace) then has no rows, and the
+reverse pass reads ``s_0`` in place of a record of the state per step.
+The default is `false`; a modifier declares it for its type, and the
+optional `stateless` component of
+[`ComposableRecurrences.PieceInterface`](@ref) checks the declaration.
+
+# Arguments
+- `m`: the modifier.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+CR.isstateless(CR.Transform(clamp, 0.0, 1.0)), CR.isstateless(CR.Depletion(9.0))
+
+# output
+
+(true, false)
+```
+"""
+isstateless(m) = false
 
 @doc raw"""
 The number of past outputs `x` reads from a recurrence's buffer, before

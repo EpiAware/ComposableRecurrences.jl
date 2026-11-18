@@ -581,6 +581,52 @@ end
     end
 end
 
+@testitem "Adjoint: a user modifier declared stateless" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    struct Scale{A}
+        a::A
+    end
+    CR.blocks(::Scale) = (1, 1)
+    function CR.forward!(m::Scale, ::CR.Step, v, s, t)
+        for k in eachindex(v)
+            v[k] *= CR.param(m.a, k, t)
+        end
+        return nothing
+    end
+    struct StatelessScale{A}
+        a::A
+    end
+    CR.blocks(::StatelessScale) = (1, 1)
+    CR.isstateless(::StatelessScale) = true
+    function CR.forward!(m::StatelessScale, ::CR.Step, v, s, t)
+        for k in eachindex(v)
+            v[k] *= CR.param(m.a, k, t)
+        end
+        return nothing
+    end
+    S, L, T = 3, 2, 4
+    h = ones(S, L)
+    R = fill(1.2, S, T)
+    a = PerStratum([0.5, 0.8, 1.1])
+    @test !CR.isstateless(Scale(a))
+    @test CR.isstateless(StatelessScale(a))
+    @test CR.ntrace(Scale(a), S) == S
+    @test CR.ntrace(StatelessScale(a), S) == 0
+    plain = Recurrence([0.4, 0.3]; modifiers = (Scale(a),))
+    declared = Recurrence([0.4, 0.3]; modifiers = (StatelessScale(a),))
+    out = declared(R; history = h, record = (:trace,))
+    @test size(only(out.trace.modifiers)) == (0, T)
+    @test size(only(plain(R; history = h, record = (:trace,)).trace.modifiers)) ==
+        (S, T)
+    @test out.y == plain(R; history = h)
+    # The reverse pass keeps the starting state, not a record per step.
+    _, c = CR._run_forward(declared, recargs(R, nothing, h)...)
+    @test length(only(c.rec).S) == S
+    _, c = CR._run_forward(plain, recargs(R, nothing, h)...)
+    @test size(only(c.rec).S) == (S, T)
+    @test pullback_matches(declared, recargs(R, nothing, h)...)
+end
+
 @testitem "Adjoint: Recurrence cache keeps only what the reverse pass reads" setup = [AdjointCheck] begin
     using ComposableRecurrences
     S, L, T = 3, 2, 5
@@ -604,11 +650,11 @@ end
         @test c.rec[3].S == zeros(S)
     end
     @test all(
-        CR._stateless,
+        CR.isstateless,
         (CR.Transform(+, 0.1), CR.Transform(clamp, 0.0, 1.0), CR.Allocate([1:3], 1.0)),
     )
-    @test CR._stateless(CR.Transform(exp))
-    @test !CR._stateless(CR.Depletion(50.0))
+    @test CR.isstateless(CR.Transform(exp))
+    @test !CR.isstateless(CR.Depletion(50.0))
     # A resumed stateless modifier reads the state it was given.
     r = Recurrence([0.4, 0.3]; modifiers = (CR.Transform(+, 0.1),))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([0.5, 1.0, 2.0],))...)
@@ -1934,7 +1980,7 @@ end
     )
 end
 
-@testitem "Adjoint: local pullback over entry parameters" setup = [ReferenceAD, AdjointCheck] begin
+@testitem "Adjoint: local pullback over entry parameters" setup = [AdjointCheck] begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived
     # A pointwise modifier whose array parameters a step reads one entry of
@@ -1963,17 +2009,7 @@ end
         @test CR._modifier_adjoint(m) === :local
         @test !CR._scalar_params(m)
         @test CR.uses_adjoint(@inferred(Recurrence([0.3, 0.2], I, (m,))), CR.Run())
-        # Against ForwardDiff over every parameter entry at (k, t) = (2, 3).
-        x0 = [2.0; 1.5; CR._params(m)]
-        J = ReferenceAD.jacobian(x0) do x
-            md = CR._rebuild(m, view(x, 3:length(x)))
-            return collect(CR._step(md, x[1], x[2], 3, 2))
-        end
-        ref = transpose(J) * [0.3, 0.7]
-        m̄ = zero_mirror(m)
-        got = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
-        @test collect(got) ≈ ref[1:2]
-        @test mirror_vec(m̄, m) ≈ ref[3:end]
+        # Against ForwardDiff over every parameter entry, at every step.
         r = Recurrence([0.3, 0.2]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
         @test pullback_matches(r, recargs(ones(S, 6), nothing, ones(S, 2))...)
     end
@@ -2163,19 +2199,8 @@ end
         @test r.rebuilds === true
         @test CR.uses_adjoint(r, CR.Run())
         @test CR._fit(r, args...) === :one
+        # Against ForwardDiff over every entry, at every step.
         @test pullback_matches(r, args...)
-        # One step against ForwardDiff over every entry at (k, t) = (2, 3).
-        x0 = [2.0; 1.5; CR._params(m)]
-        J = ReferenceAD.jacobian(x0) do x
-            md = CR._rebuild(m, view(x, 3:length(x)))
-            return collect(CR._step(md, x[1], x[2], 3, 2))
-        end
-        ref = transpose(J) * [0.3, 0.7]
-        m̄ = zero_mirror(m)
-        got = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
-        @test collect(got) ≈ ref[1:2]
-        # A Float32 array keeps Float32 cotangents.
-        @test mirror_vec(m̄, m) ≈ ref[3:end] rtol = 1.0e-6
     end
     # The step infers and allocates only its record of the reads.
     m = ByT(a)
