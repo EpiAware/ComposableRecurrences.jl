@@ -4,7 +4,8 @@ using ComposableRecurrences: ComposableRecurrences, Allocate,
     Convolution, Depletion, Derived, Flow, Pairwise, Parallel, PerStratum,
     Recurrence, Redistribute, TimeVarying, Transform, _AllocateImports,
     _Columns, _DrawFrom, _DrawInto, _Flat, _Movement, _OldestFirstPairwise,
-    _PIECEWISE_DEVICE, _Piecewise, _Ragged, Serial, _kernel_args
+    _PIECEWISE_DEVICE, _Piecewise, _Ragged, Serial, _kernel_args, _Owned,
+    _ArrayStack, _ScalarStack
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using KernelAbstractions: @index, @kernel
@@ -48,6 +49,12 @@ const _Adapted = Union{
 function Adapt.adapt_structure(to, x::_Adapted)
     return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)
 end
+
+# The wrappers a reverse pass hands its kernels: mirrors each stratum
+# writes at its own slots, and the stacked copies of shared ones.
+Adapt.adapt_structure(to, x::_Owned) = _Owned(adapt(to, x.x))
+Adapt.adapt_structure(to, x::_ArrayStack) = _ArrayStack(adapt(to, x.a))
+Adapt.adapt_structure(to, x::_ScalarStack) = _ScalarStack(adapt(to, x.v))
 
 # A ragged kernel moves its offsets with its values, rebuilt without the
 # host check, as a kernel launch adapts it.

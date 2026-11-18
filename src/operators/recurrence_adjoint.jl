@@ -137,6 +137,16 @@ end
 
 _slots(x̄) = x̄
 _slots(x̄::AbstractMatrix) = _Owned(x̄)
+# Independent strata with a fixed kernel and no modifiers run their reverse
+# pass on a device, so a call on device arrays takes the rule (see
+# `_device_gate`).
+const _DeviceReadyRecurrence = Recurrence{
+    <:Union{AbstractVector, PerStratum},
+    <:Union{UniformScaling, Diagonal},
+    Tuple{},
+}
+_device_ready(::_DeviceReadyRecurrence) = true
+
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)
 _kernel_slots(ḡ, kernel::TimeVarying) = ḡ
 _kernel_slots(ḡ, kernel::TimeVarying{<:Any, <:Pairwise}) = _Owned(ḡ)
@@ -437,6 +447,7 @@ _mirrors(m̄s, ms) = m̄s
 # A gain or add slot's cotangent at stratum `k`, step `t`.
 _add_slot!(::Nothing, v, k, t) = nothing
 _add_slot!(x̄::Base.RefValue, v, k, t) = (x̄[] += v; nothing)
+_add_slot!(x̄::_Slot, v, k, t) = (x̄[] += v; nothing)
 Base.@propagate_inbounds _add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v; nothing)
 Base.@propagate_inbounds _add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
 Base.@propagate_inbounds _add_slot!(x̄::_Owned, v, k, t) = _add_slot!(x̄.x, v, k, t)
@@ -649,14 +660,16 @@ end
 
 # Add the oldest-first buffer into the lag-first kernel cotangent.
 _kernel_finish!(ḡ, ::Nothing) = nothing
-function _kernel_finish!(ḡ::AbstractVector, kbuf::AbstractMatrix)
+# Host arrays add in loops, which allocate nothing; device arrays in one
+# array operation each, which runs where they live.
+function _kernel_finish!(ḡ::Vector, kbuf::Matrix)
     L = size(kbuf, 1)
     for k in axes(kbuf, 2), i in 1:L
         ḡ[i] += kbuf[L + 1 - i, k]
     end
     return nothing
 end
-function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractMatrix)
+function _kernel_finish!(ḡ::NamedTuple, kbuf::Matrix)
     Ḡ = cotangent(ḡ, :x)
     L = size(kbuf, 2)
     for i in 1:L, k in axes(kbuf, 1)
@@ -664,12 +677,22 @@ function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractMatrix)
     end
     return nothing
 end
-function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractArray{<:Any, 3})
+function _kernel_finish!(ḡ::NamedTuple, kbuf::Array{<:Any, 3})
     Ḡ = cotangent(ḡ, :x)
     L = size(kbuf, 1)
     for i in 1:L, b in axes(kbuf, 2), a in axes(kbuf, 3)
         Ḡ[a, b, i] += kbuf[L + 1 - i, b, a]
     end
+    return nothing
+end
+function _kernel_finish!(ḡ::AbstractVector, kbuf::AbstractMatrix)
+    L = size(kbuf, 1)
+    ḡ .+= vec(sum(view(kbuf, L:-1:1, :); dims = 2))
+    return nothing
+end
+function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractMatrix)
+    L = size(kbuf, 2)
+    cotangent(ḡ, :x) .+= view(kbuf, :, L:-1:1)
     return nothing
 end
 
