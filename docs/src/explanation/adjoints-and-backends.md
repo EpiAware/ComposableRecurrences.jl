@@ -160,7 +160,7 @@ It was also slower: at 10 000 independent strata it ran 1.36 times faster than `
 |---|---|---|---|---|---|
 | `Serial()` | all operators | yes | yes | yes | yes |
 | `Threaded()` | all operators | yes, threaded | not tested | yes, serial | rule's forward and reverse passes threaded, all else serial |
-| `Parallel(backend)` | all operators, couplings and built-in modifiers | dual-number inputs only | not tested | not tested | not tested |
+| `Parallel(backend)` | all operators, couplings and built-in modifiers | dual-number inputs only | not tested | not tested | the rules of a fixed convolution and of independent strata; not tested on a GPU |
 
 Mooncake and Enzyme do not differentiate tasks, so code they trace runs serially whatever executor is set.
 A rule's forward pass is not traced, so it uses the set executor.
@@ -207,6 +207,10 @@ Array(y) ≈ Recurrence([0.4, 0.3, 0.2, 0.1]; coupling = [0.9 0.1; 0.2 0.8])(
 )
 ```
 
-Gradients through the package's own pullbacks do not run on device arrays yet: the reverse passes index the arrays from the host, and calls on device arrays take plain AD.
+The package's own rules run on device arrays for a convolution with a fixed kernel (a vector or `PerStratum`) and for a recurrence of independent strata with a fixed kernel, an identity, scalar or `Diagonal` coupling and no modifiers.
+Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
+Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
+Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host.
+These rule passes are checked on JLArrays, whose kernels compile through OpenCL; the reverse-mode backends themselves are not.
 On JLArrays no reverse-mode backend gets that far: Enzyme's KernelAbstractions rules have no JLArrays backend, and Mooncake does not differentiate the JLArray allocator.
 Dual-number inputs on device arrays give forward-mode derivatives through the device forward pass; `ForwardDiff.gradient` seeds its inputs by scalar indexing, so build the duals directly.

@@ -1027,6 +1027,13 @@ function _convolve!(ex, Y, c, X, m, start)
     return Y
 end
 
+# A fixed kernel convolves and pulls back on a device, so a call on device
+# arrays takes the rule (see `_device_gate`).
+const _DeviceReadyConvolution = Convolution{
+    <:Union{AbstractVector, PerStratum}, <:Union{Direct, Auto},
+}
+_device_ready(::_DeviceReadyConvolution) = true
+
 # Whether each output of kernel `c` is one dot of its weights with the
 # window it reads, so an output can run on its own.
 _gathers(c) = false
