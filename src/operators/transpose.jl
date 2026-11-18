@@ -82,7 +82,7 @@ end
 function _primal(t::_TransposedConvolution, x, tail, start, stop)
     kernel = t.c.kernel
     Tp, S, n, stop, last = _check_transpose(kernel, x, tail, start, stop)
-    _conv_path(Tp, kernel, x) isa _Gathered ||
+    kernel isa _FixedKernel && _conv_path(Tp, kernel, x) isa _Gathered ||
         return first(_run_forward(t, x, tail, start, stop))
     L = _nlags(kernel)
     series = _padded(x, tail, stop + L - 1)
