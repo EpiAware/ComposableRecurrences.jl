@@ -100,6 +100,17 @@ param(x::Real, k, t) = x
 param(x::PerStratum, k, t) = x.x[k]
 param(x::TimeVarying{<:Any, <:AbstractVector}, k, t) = x.x[t]
 param(x::TimeVarying{<:Any, <:PerStratum}, k, t) = x.x.x[k, t]
+param(x::AbstractArray, k, t) = _bare_param_error(x)
+@noinline function _bare_param_error(x)
+    throw(
+        ArgumentError(
+            "param reads a parameter wrapped as PerStratum(x) with one " *
+                "value per stratum, TimeVarying(x) with one per time or " *
+                "TimeVarying(PerStratum(x)) strata × time; got a bare " *
+                _describe(x)
+        )
+    )
+end
 add_param!(x̄, ::Real, v, k, t) = add_cotangent!(x̄, v)
 add_param!(x̄, ::PerStratum, v, k, t) = add_cotangent!(x̄, v, k)
 function add_param!(x̄, ::TimeVarying{<:Any, <:AbstractVector}, v, k, t)
@@ -135,6 +146,30 @@ end
 
 # Check a parameter against `S` strata.
 _check_param_strata(name, x, S) = _check_rows(name, x, S, "strata")
+
+# Check a modifier's per-stratum fields against the call's strata
+# (pointwise) or groups (blockwise); whole-step modifiers are skipped.
+_check_modifier_params(m, S) = _check_modifier_params(m, blocks(m), S)
+# A malformed `blocks` is reported where the state is sized.
+_check_modifier_params(m, b, S) = nothing
+function _check_modifier_params(m, b::Tuple{Int, Int}, S)
+    nv = first(b)
+    # A count that is not a multiple of the group size is reported later.
+    rem(S, nv) == 0 || return nothing
+    _check_field_rows(m, S ÷ nv, nv == 1 ? "strata" : "groups")
+    return nothing
+end
+
+# Each field against `n` rows, unrolled so fields with no wrapped parameter
+# fold away. Mutable objects are not walked.
+@generated function _check_field_rows(m, n, what)
+    ismutabletype(m) && return :(nothing)
+    calls = (
+        :(_check_rows($(QuoteNode(fieldname(m, i))), getfield(m, $i), n, what))
+            for i in 1:fieldcount(m)
+    )
+    return :($(calls...); nothing)
+end
 
 # A zero initial state, once the parameters are checked against the state's
 # strata. `foreach` unrolls the pairs, so each keeps its concrete type: in a

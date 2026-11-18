@@ -190,6 +190,11 @@ function _check_param_strata(name, x::Derived, S)
     _tuple_foreach(a -> _check_param_strata(name, a, S), x.args)
     return nothing
 end
+# A derived modifier field's arguments against `n` rows.
+function _check_rows(name, x::Derived, n, what)
+    _tuple_foreach(a -> _check_rows(name, a, n, what), x.args)
+    return nothing
+end
 # Constant over time when every argument is.
 function _check_constant(name, x::Derived)
     foreach(a -> _check_constant(name, a), x.args)
