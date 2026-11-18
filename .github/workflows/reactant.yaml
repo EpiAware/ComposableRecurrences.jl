@@ -86,7 +86,8 @@ jobs:
       # The test set marks expected failures broken, so any failure or an
       # unexpected pass fails this step and the job; the comparison below
       # still runs and reports which cells changed.
-      - run: julia --project=test/reactant --startup-file=no test/reactant/runtests.jl
+      # Each case's subprocess takes the coverage flag from `Base.julia_cmd()`.
+      - run: julia --project=test/reactant --startup-file=no --code-coverage=user test/reactant/runtests.jl
       - name: Compare with the committed results
         if: ${{ !cancelled() }}
         run: |
@@ -94,6 +95,17 @@ jobs:
             "$RUNNER_TEMP/committed.tsv" test/reactant/results.tsv \
             | tee -a "$GITHUB_STEP_SUMMARY"
           exit "${PIPESTATUS[0]}"
+      # What the traced calls cover, kept as an artifact: Codecov has no
+      # Reactant flag yet, and the flags are set by the managed codecov.yml.
+      - uses: julia-actions/julia-processcoverage@v1
+        if: ${{ !cancelled() }}
+        with:
+          directories: src,ext
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: reactant-coverage
+          path: lcov.info
       - uses: actions/upload-artifact@v7
         if: always()
         with:
