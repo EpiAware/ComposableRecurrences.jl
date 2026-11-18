@@ -13,7 +13,7 @@ using Base.ScopedValues: with
 using Distributions, CensoredDistributions
 ```
 
-They use `gi`, `T`, `pop`, `K`, `seed` and `R` from the three-town model of [Getting started](@ref getting-started).
+They use `gi`, `T`, `pop`, `K`, `seed` and `R` from the model of [Three towns, step by step](@ref tutorial-three-towns).
 
 ```@setup api-overview
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "getting_started_model.jl"))
