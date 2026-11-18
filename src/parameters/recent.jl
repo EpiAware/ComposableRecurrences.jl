@@ -40,7 +40,8 @@ with ``K = I`` without a coupling.
 These run inside the recurrence's own reverse pass, so the gradient
 follows the feedback through the outputs.
 
-Scope: modifier parameters of a [`Recurrence`](@ref); analytic adjoint.
+It is a parameter of the modifiers of a [`Recurrence`](@ref), and the
+recurrence's rule differentiates it.
 
 # Arguments
 - `w`: the weights, lag 1 first, or an integer `n` for the sum of the last
