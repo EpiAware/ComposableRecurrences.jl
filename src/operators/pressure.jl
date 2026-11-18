@@ -1,6 +1,6 @@
 @doc raw"""
-The pressure each step of `r` draws against, given its outputs `y`: the
-kernel convolution of the past values, mixed by the coupling, before the
+Compute the pressure each step of `r` draws against, given its outputs `y`:
+the kernel convolution of the past values, mixed by the coupling, before the
 gain, add input and modifiers,
 
 ```math
