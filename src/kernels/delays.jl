@@ -3,7 +3,7 @@
 @doc raw"""
     delay_masses(k, lags; step = 1)
 
-The masses of a delay `k` on lags `0` to `lags - 1`, lag 0 first, as a
+Return the masses of a delay `k` on lags `0` to `lags - 1`, lag 0 first, as a
 vector of length `lags`:
 
 ```math
@@ -92,10 +92,8 @@ Recurrence(GeometricDelay(0.5); lags = 3, step = 2).kernel
 delay_masses(k::AbstractVector, lags; step = 1) = k
 
 @doc raw"""
-    delay_masses(ds::Tuple, lags; step = 1)
-
-The masses of a chain of delays `ds`, each a delay or a vector of masses:
-the first `lags` masses of their full linear convolution,
+Return the masses of a chain of delays `ds`, each a delay or a vector of
+masses: the first `lags` masses of their full linear convolution,
 
 ```math
 (a \circledast b)_l = \sum_{j=0}^{l} a_j\, b_{l-j},

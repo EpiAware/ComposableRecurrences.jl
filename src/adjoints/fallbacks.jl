@@ -1,8 +1,11 @@
-# Default pullbacks for modifiers and couplings without a hand-written one:
-# a local forward-mode derivative of that one step, including the
-# parameters. The dual-number code is in the dual-number extension; here
-# are the parameter walks it uses, and for each local derivative a method
-# that says to load the extension when it is not.
+# Default pullbacks for modifiers, couplings, depletion forms and initial
+# states without a hand-written one: a local forward-mode derivative of one
+# step, parameters included. The dual-number code is in the dual-number
+# extension; this file holds the parameter walks it uses and, for each local
+# derivative, a method that says to load the extension.
+
+# == Parameter walks ==
+
 # A parameter is a float leaf of the object: a float scalar, the entries of a
 # float array (a view or reshape is rebuilt as an `Array`), the nonzeros of a
 # sparse matrix or the diagonal of a `Diagonal`, found by recursing through
@@ -17,7 +20,9 @@ _descends(f, x) = _holds_floats(x)
 _into_stored(f) = true
 _fields(x) = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
 const _FloatArray = AbstractArray{<:AbstractFloat}
-const _Stored = Union{SparseMatrixCSC{<:AbstractFloat}, Diagonal{<:AbstractFloat}}
+const _Stored = Union{
+    SparseMatrixCSC{<:AbstractFloat}, Diagonal{<:AbstractFloat},
+}
 _stored(x::SparseMatrixCSC) = nonzeros(x)
 _stored(x::Diagonal) = x.diag
 _stored_name(::SparseMatrixCSC) = :nzval
@@ -32,7 +37,9 @@ _lfold(f, ::_Leafless, s) = s
 _lfold(f, x::Union{Tuple, NamedTuple}, s) = _lfold_all(f, values(x), s)
 _lfold(f, x, s) = _descends(f, x) ? _lfold_all(f, _fields(x), s) : s
 _lfold_all(f, ::Tuple{}, s) = s
-_lfold_all(f, xs::Tuple, s) = _lfold_all(f, Base.tail(xs), _lfold(f, first(xs), s))
+function _lfold_all(f, xs::Tuple, s)
+    return _lfold_all(f, Base.tail(xs), _lfold(f, first(xs), s))
+end
 _fold_scalar(f, x, s) = s
 _fold_array(f, x, s) = s
 _fold_entry(f, x, s) = _lfold_all(f, _fields(x), s)
@@ -161,7 +168,9 @@ struct _WalkLeaves{F, G}
     leaf!::F
     g::G
 end
-_walkparams!(leaf!::F, x̄, x, g, o) where {F} = _mfold(_WalkLeaves(leaf!, g), x̄, x, o)
+function _walkparams!(leaf!::F, x̄, x, g, o) where {F}
+    return _mfold(_WalkLeaves(leaf!, g), x̄, x, o)
+end
 _mfold_scalar(f::_WalkLeaves, x̄, x, o) = f.leaf!(x̄, x, f.g, o)
 _mfold_array(f::_WalkLeaves, x̄, x, o) = f.leaf!(x̄, x, f.g, o)
 
@@ -179,6 +188,8 @@ _field_mirror(x̄, n::Integer) = x̄ === nothing ? nothing : x̄[n]
 
 # The number of parameters to differentiate: none without a mirror.
 _nactive(x̄, x) = x̄ === nothing ? 0 : _nparams(x)
+
+# == Pointwise local pullback ==
 
 # A pointwise modifier's scalar step pullback: its own when it uses one,
 # else the local derivative.
@@ -217,11 +228,15 @@ _init_strata_back!(m̄, h̄, m, args...) = _need_forwarddiff(m)
 _dual_pressure_buffers(C̄, C, args...) = nothing
 function _need_forwarddiff(piece)
     name = nameof(typeof(piece))
-    return _need_forwarddiff("$name has no `pullback!`, and its local derivative")
+    return _need_forwarddiff(
+        "$name has no `pullback!`, and its local derivative"
+    )
 end
 function _need_forwarddiff(what::AbstractString)
     throw(ArgumentError("$what needs `ForwardDiff`: add `using ForwardDiff`"))
 end
+
+# == Read steps ==
 
 # The reads of a modifier's float arrays in one dual step, with room for
 # `R` after the first `lo`: for each, the array (its position among them,
@@ -245,7 +260,9 @@ struct _ReadSeed{D, R}
     reads::_Reads{R}
     slot0::Int
 end
-_ReadSeed{D}(reads::_Reads{R}, slot0) where {D, R} = _ReadSeed{D, R}(reads, slot0)
+function _ReadSeed{D}(reads::_Reads{R}, slot0) where {D, R}
+    return _ReadSeed{D, R}(reads, slot0)
+end
 
 # A modifier's float array inside its read step: each entry read is a dual
 # number of type `D`, with the next read partial set when the read is
@@ -282,11 +299,16 @@ end
 # fields, from its type alone, so a rebuild that skips one infers.
 function _floats_in(::Type{T}) where {T}
     T <: AbstractFloat && return true
-    T <: AbstractArray && return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
+    if T <: AbstractArray
+        return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
+    end
     # A field of abstract type (`Real`, a `Union`, or none) may hold a
     # float; the rebuild then goes by value.
     isconcretetype(T) || return true
-    T <: Union{Real, Nothing, Symbol, AbstractString, Function, Type, Module} && return false
+    plain = Union{
+        Real, Nothing, Symbol, AbstractString, Function, Type, Module,
+    }
+    T <: plain && return false
     isstructtype(T) || return false
     return any(_floats_in, fieldtypes(T))
 end
@@ -309,11 +331,14 @@ function _mfold_array(f::_AddReadLeaf, x̄, x, l)
     return l + 1
 end
 
+# == Coupling pullback ==
+
 # A coupling's pullback at one step: its own when it uses one, else the
 # local derivative, which takes its dual numbers from `bufs`
 # (`_pressure_buffers`). Adds into `p̄`.
 function _pressure_back!(p̄, C̄, C, q̄, p, t, bufs = nothing)
-    return _pressure_back!(Val(uses_adjoint(C, Pressure())), p̄, C̄, C, q̄, p, t, bufs)
+    own = Val(uses_adjoint(C, Pressure()))
+    return _pressure_back!(own, p̄, C̄, C, q̄, p, t, bufs)
 end
 function _pressure_back!(::Val{true}, p̄, C̄, C, q̄, p, t, bufs)
     pullback!((; piece = C̄, q = q̄, p = p̄), C, Pressure(), nothing, p, t)
@@ -359,6 +384,9 @@ struct _ArrayPressure{T, L}
     ḡ::Vector{T}
     lanes::L
 end
+
+# == Whole-step local derivative ==
+
 # The local derivative of a whole-step modifier without a `pullback!`, the
 # step `forward!(m, Step(), v, s, t)` over every stratum at once: the
 # values, the state and the parameters are seeded `N` at a time, as a
@@ -385,7 +413,8 @@ _local_step!(m̄, m, args...) = _need_forwarddiff(m)
 # `Recurrence` passes its buffers in `grads.pass`; a direct call makes
 # them.
 function _local_step_back!(grads, m, v, s, t)
-    b = _given_duals(get(grads, :pass, nothing), grads.piece, m, eltype(v), length(v))
+    pass = get(grads, :pass, nothing)
+    b = _given_duals(pass, grads.piece, m, eltype(v), length(v))
     _local_step!(grads.piece, m, grads.v, grads.s, v, s, t, b)
     return nothing
 end
@@ -410,6 +439,8 @@ function _map_array(f::_ViewLeaves, x, o)
     return reshape(view(f.θ, (o + 1):(o + n)), size(x)), o + n
 end
 
+# == Depletion form draws ==
+
 # The draw of a depletion form, `(v, s, N) -> (y, s′)`, and its pullback,
 # which returns the cotangents of `(v, s, N)`: a built-in's kernel, or the
 # form's `forward!` and `pullback!` on one-entry views of local slots, with
@@ -428,7 +459,9 @@ end
     )
     v̄r, s̄r = Base.RefValue{T}(grads.v), Base.RefValue{T}(grads.s)
     N̄r = Base.RefValue{T}(zero(T))
-    g = (; piece = grads.piece, v = _At(v̄r, 1), s = _At(s̄r, 1), N = _At(N̄r, 1))
+    g = (;
+        piece = grads.piece, v = _At(v̄r, 1), s = _At(s̄r, 1), N = _At(N̄r, 1),
+    )
     vv, sv = _At(Ref(v), 1), _At(Ref(s), 1)
     _written(form, @inline pullback!(g, form, Step(), vv, sv, N))
     return v̄r[], s̄r[], N̄r[]
@@ -468,6 +501,8 @@ struct _CopyScalars end
 _rebuild_scalar(x, θ) = _remap(_CopyScalars(), x, θ)
 _map_scalar(::_CopyScalars, x, θ) = (first(θ), Base.tail(θ))
 _map_entry(::_CopyScalars, x, θ) = (first(θ), Base.tail(θ))
+
+# == Rebuild checks ==
 
 # Whether the local step's rebuild of `x` from its float scalars gives them
 # back: each is seeded as a dual number with its own partial, `x` is
@@ -510,7 +545,8 @@ _steps(m, md, x) = _scalar_params(m) || (_any_step(md, x); true)
 _any_step(m, x) = _any_step(_blocks(m), m, x)
 _any_step(::Nothing, m, x) = _step(m, x, x, 1, 1)
 function _any_step(::Val{B}, m, x) where {B}
-    return _block_step(m, ntuple(_ -> x, Val(B[1])), ntuple(_ -> x, Val(B[2])), 1, 1)
+    vs, ss = ntuple(_ -> x, Val(B[1])), ntuple(_ -> x, Val(B[2]))
+    return _block_step(m, vs, ss, 1, 1)
 end
 _any_step(m::_FormPart, x) = _draw(m.form, x, x, 1)
 # A pointwise modifier with other float arrays, rebuilt as its read step
@@ -530,14 +566,17 @@ end
 # Whether each float array of `x` (outside entry parameters) is a
 # `_ReadArray` of itself in `y`.
 _reads_kept(::Union{AbstractFloat, _EntryParam}, y) = true
-_reads_kept(x::AbstractArray{<:AbstractFloat}, y) = y isa _ReadArray && y.x === x
+function _reads_kept(x::AbstractArray{<:AbstractFloat}, y)
+    return y isa _ReadArray && y.x === x
+end
 _reads_kept(::_Leafless, y) = true
 function _reads_kept(x::Union{Tuple, NamedTuple}, y)
     return all(map(_reads_kept, values(x), values(y)))
 end
 function _reads_kept(x, y)
     isstructtype(typeof(x)) || return true
-    return all(i -> _reads_kept(getfield(x, i), getfield(y, i)), 1:fieldcount(typeof(x)))
+    kept(i) = _reads_kept(getfield(x, i), getfield(y, i))
+    return all(kept, 1:fieldcount(typeof(x)))
 end
 
 # Write the leaves of `y`, a rebuild of `x`, where `_getparams!` reads `x`'s
@@ -569,11 +608,14 @@ end
 # The leaves of `y`, a rebuild of `x`, where `_param_tuple(x)` reads floats.
 _rebuilt_tuple(::Union{AbstractFloat, _EntryParam}, y) = (y,)
 _rebuilt_tuple(::_Leafless, y) = ()
-_rebuilt_tuple(x::Union{Tuple, NamedTuple}, y) = _rebuilt_tuples(values(x), values(y))
+function _rebuilt_tuple(x::Union{Tuple, NamedTuple}, y)
+    return _rebuilt_tuples(values(x), values(y))
+end
 function _rebuilt_tuple(x, y)
     isstructtype(typeof(x)) || return ()
     n = Val(fieldcount(typeof(x)))
-    return _rebuilt_tuples(ntuple(i -> getfield(x, i), n), ntuple(i -> getfield(y, i), n))
+    xs, ys = ntuple(i -> getfield(x, i), n), ntuple(i -> getfield(y, i), n)
+    return _rebuilt_tuples(xs, ys)
 end
 _rebuilt_tuples(::Tuple{}, ys) = ()
 function _rebuilt_tuples(xs::Tuple, ys)
@@ -587,13 +629,18 @@ struct _AddScalars{A}
     at::A
 end
 _add_scalar!(x̄, x, g, at) = _mfold(_AddScalars(at), x̄, x, g)
-_mfold_scalar(::_AddScalars, x̄, x, g) = (add_cotangent!(x̄, first(g)); Base.tail(g))
+function _mfold_scalar(::_AddScalars, x̄, x, g)
+    add_cotangent!(x̄, first(g))
+    return Base.tail(g)
+end
 function _mfold_entry(f::_AddScalars, x̄, x, g)
     add_param!(x̄, x, first(g), f.at...)
     return Base.tail(g)
 end
 # Both scalar walks descend only into structs that hold float scalars.
 _descends(::Union{_CopyScalars, _AddScalars}, x) = _param_tuple(x) !== ()
+
+# == Init pullback ==
 
 # Default initial-state pullback: a local forward-mode derivative of the
 # Init, skipped for the default zero state and for a zero state cotangent (a
@@ -610,7 +657,9 @@ function pullback!(grads, m, ::Init, s, history)
     P = _nactive(m̄, m)
     nh = h̄ === nothing ? 0 : length(history)
     P + nh == 0 && return nothing
-    _strata_init(m, s, nh) && return _init_strata_back!(m̄, h̄, m, s̄, s, history)
+    if _strata_init(m, s, nh)
+        return _init_strata_back!(m̄, h̄, m, s̄, s, history)
+    end
     g = transpose(_init_jacobian(m, s, history, P, nh)) * s̄
     P == 0 || _addparams!(m̄, m, g, 0)
     nh == 0 || (h̄ .+= reshape(view(g, (P + 1):(P + nh)), size(history)))

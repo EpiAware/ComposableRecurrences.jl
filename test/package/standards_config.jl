@@ -23,7 +23,6 @@ const PENDING_EXAMPLES = ()
 # `docstring Recurrence`.
 const PENDING_WORDING = (
     "docstring NoAdjoint",
-    "docstring Pairwise",
     "docstring test_adjoint",
     "docstring uses_adjoint",
     "src/ComposableRecurrences.jl",
@@ -66,7 +65,6 @@ const PENDING_CODE_LENGTH = (
     "docstring Depletion",
     "docstring Direct",
     "docstring FFTMethod",
-    "docstring Redistribute",
 )
 
 # Words that read as filler in docs, docstrings and comments: the shared

@@ -1,3 +1,5 @@
+# == Parameters ==
+
 # The built-in modifiers and depletion forms. A `pullback!`'s `grads.piece`
 # mirrors the object's fields as a NamedTuple: an array for a float array, a
 # `Ref` for a float scalar, a NamedTuple for a wrapper such as `TimeVarying`,
@@ -8,8 +10,8 @@
 
 
 @doc raw"""
-The value ``u_{t,k}`` of the modifier parameter `x` at stratum `k` and
-absolute time `t`.
+Return the value ``u_{t,k}`` of the modifier parameter `x` at stratum `k`
+and absolute time `t`.
 
 A parameter is one value ``x``, [`PerStratum`](@ref) giving ``x_k``,
 [`TimeVarying`](@ref) giving ``x_t``, `TimeVarying(PerStratum(x))` giving
@@ -181,7 +183,7 @@ function _zero_state!(s, params::Pair...)
     return nothing
 end
 
-# Depletion forms ---------------------------------------------------------
+# == Depletion forms ==
 
 @doc raw"""
 The hazard depletion form: the value is drawn from the pool as a hazard, so
@@ -325,7 +327,9 @@ _overflow_name(::_Queue) = :queue
 # fields.
 const _ExponentForm = Union{Hazard, Floor}
 for F in (:Hazard, :Floor)
-    @eval function $F(α = nothing; weights = nothing, into = nothing, overflow = nothing)
+    @eval function $F(
+            α = nothing; weights = nothing, into = nothing, overflow = nothing
+        )
         return $F(_unit_exponent(α), weights, into, _overflow(overflow))
     end
     @eval function $F(α::A, weights::W, into::I, overflow::O) where {A, W, I, O}
@@ -338,7 +342,8 @@ _check_exponent(α::Union{Nothing, Real}) = α
 @noinline function _check_exponent(α)
     throw(
         ArgumentError(
-            "the heterogeneity exponent is a number or nothing, got " * _describe(α)
+            "the heterogeneity exponent is a number or nothing, got " *
+                _describe(α)
         )
     )
 end
@@ -405,7 +410,9 @@ _check_constant(name, x::TimeVarying) = _not_constant_error(name, x)
 
 _float_param(x::Real) = float(x)
 _float_param(x::PerStratum) = PerStratum(float(x.x))
-_float_param(x::TimeVarying{I, <:AbstractArray}) where {I} = TimeVarying{I}(float(x.x))
+function _float_param(x::TimeVarying{I, <:AbstractArray}) where {I}
+    return TimeVarying{I}(float(x.x))
+end
 function _float_param(x::TimeVarying{I, <:PerStratum}) where {I}
     return TimeVarying{I}(_float_param(x.x))
 end
@@ -425,9 +432,8 @@ _exponent(α, N) = α
 
 # The exponent a step reads: `true` for `nothing`, an exponent of exactly
 # one that the powers below branch on, without a cotangent.
-# A float exponent with an `isone` branch in the steps was measured in its
-# place: the reverse passes were up to 16% slower and allocated more, as
-# they still take the exponent's `log` term, so the fixed form stays.
+# A float exponent with an `isone` branch in the steps would still take the
+# exponent's `log` term in the reverse passes, so the fixed form is faster.
 _alpha(form) = _alpha_value(form.α)
 _alpha_value(::Nothing) = true
 _alpha_value(α) = α
@@ -539,11 +545,11 @@ function pullback!(grads, form::Floor, ::Step, v, s, N)
     return nothing
 end
 
-# Redistribute ------------------------------------------------------------
+# == Redistribute ==
 
 @doc raw"""
-Moves a share of each stratum's value to others through a movement matrix
-whose columns sum to one, so the total is conserved.
+A modifier that moves a share of each stratum's value to others through a
+movement matrix whose columns sum to one, so the total is conserved.
 
 For each [stratum](@ref PerStratum) ``i`` at absolute time ``t``,
 
@@ -573,7 +579,8 @@ intensity ``\varepsilon``: a share ``\varepsilon_q K_{pq}`` of origin ``q``'s
 value is realised in ``p \ne q``, and the rest stays,
 
 ```math
-M = I - \operatorname{diag}(\varepsilon \odot o) + K \operatorname{diag}(\varepsilon),
+M = I - \operatorname{diag}(\varepsilon \odot o)
+    + K \operatorname{diag}(\varepsilon),
 \qquad o_q = \sum_p K_{pq},
 ```
 
@@ -627,7 +634,8 @@ transposed product, ``\bar v = M_t^\top \bar v'`` and
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-r = Recurrence([0.5, 0.5]; modifiers = (CR.Redistribute([0.0 0.3; 0.2 0.0], 0.1),))
+movement = CR.Redistribute([0.0 0.3; 0.2 0.0], 0.1)
+r = Recurrence([0.5, 0.5]; modifiers = (movement,))
 y = r(fill(1.2, 2, 5); history = [1.0 1.0; 0.0 0.0])
 round.(y; digits = 3)
 
@@ -642,20 +650,25 @@ struct Redistribute{L, A}
     "The movement matrix, `M[p, q]` from origin `q` to destination `p`."
     M::A
     function Redistribute{L}(M::A) where {L, A}
-        L isa Bool || throw(ArgumentError("leak is true or false, got $(repr(L))"))
+        L isa Bool ||
+            throw(ArgumentError("leak is true or false, got $(repr(L))"))
         _check_movement_shape(M)
         return new{L, A}(M)
     end
 end
 # A branch on a literal `leak` names the type parameter in each arm, so the
 # call is inferred.
-Redistribute(M; leak::Bool = false) = leak ? Redistribute{true}(M) : Redistribute{false}(M)
+function Redistribute(M; leak::Bool = false)
+    return leak ? Redistribute{true}(M) : Redistribute{false}(M)
+end
 # Julia 1.11 carries the literal `leak` through only with aggressive constant
 # propagation.
 Base.@constprop :aggressive function Redistribute(K, ε; leak::Bool = false)
     return Redistribute(_kernel_movement(K, ε); leak)
 end
-ConstructionBase.constructorof(::Type{<:Redistribute{L}}) where {L} = Redistribute{L}
+function ConstructionBase.constructorof(::Type{<:Redistribute{L}}) where {L}
+    return Redistribute{L}
+end
 
 function _check_movement_shape(M::AbstractMatrix)
     size(M, 1) == size(M, 2) || throw(
@@ -686,7 +699,9 @@ end
 function _kernel_movement(K::AbstractMatrix, ε::Union{Real, AbstractVector})
     return _movement(K, _origins(ε))
 end
-_kernel_movement(K::AbstractMatrix, ε::AbstractMatrix) = TimeVarying(_Movement(K, ε))
+function _kernel_movement(K::AbstractMatrix, ε::AbstractMatrix)
+    return TimeVarying(_Movement(K, ε))
+end
 function _kernel_movement(K::AbstractMatrix, ε::PerStratum{<:AbstractVector})
     return _kernel_movement(K, ε.x)
 end
@@ -695,11 +710,14 @@ function _kernel_movement(
     )
     return _kernel_movement(K, ε.x.x)
 end
-_kernel_movement(K::AbstractMatrix, ε) = TimeVarying(_Movement(K, _check_param(:ε, ε)))
+function _kernel_movement(K::AbstractMatrix, ε)
+    return TimeVarying(_Movement(K, _check_param(:ε, ε)))
+end
 function _kernel_movement(K, ε)
     throw(
         ArgumentError(
-            "Redistribute(K, ε) takes an S × S kernel matrix, got $(_describe(K))"
+            "Redistribute(K, ε) takes an S × S kernel matrix, got " *
+                _describe(K)
         )
     )
 end
@@ -742,10 +760,9 @@ _origin_column(E, q) = size(E, 2) == 1 ? 1 : q
 # entry by entry: `M[p, q, t] = δ_pq (1 − E[q, t] o[q]) + K[p, q] E[q, t]`
 # with `o` the column sums of `K`, summed where they are read. Its columns
 # sum to one by construction. It is a struct of its arrays, not an array, so
-# the rules read its cotangent field by field. Its own loops below are kept
-# over the generic array ones because they measured faster than building
-# the `S × S × T` array first, on the primal and every AD backend measured;
-# see the `materialised` arm of the patch-model benchmark case.
+# the rules read its cotangent field by field. Its own loops below are
+# faster than building the `S × S × T` array first, on the primal and every
+# AD backend (the `materialised` arm of the patch-model benchmark case).
 struct _Movement{KT <: AbstractMatrix, ET}
     K::KT
     E::ET
@@ -865,9 +882,8 @@ function _add_movement_entry!(X̄, X::_Movement, x, a, b, t)
     e = _intensity(X.E, b, t)
     K̄ = cotangent(X̄, :K)
     add_cotangent!(K̄, x * e, a, b)
-    _add_intensity!(
-        cotangent(X̄, :E), X.E, x * (X.K[a, b] - (a == b) * _colsum(X.K, b)), b, t
-    )
+    Ē = cotangent(X̄, :E)
+    _add_intensity!(Ē, X.E, x * (X.K[a, b] - (a == b) * _colsum(X.K, b)), b, t)
     if a == b
         for r in axes(X.K, 1)
             add_cotangent!(K̄, -x * e, r, b)
@@ -880,7 +896,8 @@ end
 # column `b` adds `K[:, b] w_b` to the arrivals, finds its sum, and sets
 # `v[b]` to its own share `M_bb v_b`; the arrivals then join.
 function forward!(
-        m::Redistribute{<:Any, <:TimeVarying{Secondary, <:_Movement}}, ::Step, v, s, t
+        m::Redistribute{<:Any, <:TimeVarying{Secondary, <:_Movement}}, ::Step,
+        v, s, t
     )
     _stays(m.M) && return (fill!(s, zero(eltype(s))); nothing)
     (; K, E) = m.M.x
@@ -935,33 +952,26 @@ function _check_columns(A, leak)
     ok || _columns_error(leak, lo, hi)
     return nothing
 end
+@noinline function _columns_error(leak, lo, hi)
+    hint = leak ? "" : " (or pass leak = true for columns that lose a share)"
+    throw(
+        ArgumentError(
+            "every column of M must sum to " * (leak ? "at most one" : "one") *
+                hint * "; the column sums range over $((lo, hi))"
+        )
+    )
+end
 # The smallest and largest column sums over every column (and time): one
 # pass over a host array, a reduction elsewhere.
 _column_sum_range(A) = extrema(sum(A; dims = 1))
 function _column_sum_range(A::Array)
     cs = CartesianIndices(Base.tail(axes(A)))
-    lo = hi = _column_sum(A, first(cs))
+    lo = hi = _colsum(A, first(cs))
     for c in cs
-        o = _column_sum(A, c)
+        o = _colsum(A, c)
         lo, hi = min(lo, o), max(hi, o)
     end
     return lo, hi
-end
-function _column_sum(A, c)
-    o = zero(eltype(A))
-    for a in axes(A, 1)
-        o += A[a, c]
-    end
-    return o
-end
-@noinline function _columns_error(leak, lo, hi)
-    throw(
-        ArgumentError(
-            "every column of M must sum to " * (leak ? "at most one" : "one") *
-                (leak ? "" : " (or pass leak = true for columns that lose a share)") *
-                "; the column sums range over $((lo, hi))"
-        )
-    )
 end
 pullback!(grads, ::Redistribute, ::Init, s, history) = nothing
 
@@ -995,20 +1005,17 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     for p in eachindex(v, v̄, s̄)
         s̄p = s̄[p]
         s̄[p] = v̄[p] + s̄p
-        # The diagonal is read only when the state's cotangent asks for it.
-        if iszero(s̄p)
-            v̄[p] = zero(eltype(v̄))
-        else
-            v̄[p] = -_diag_at(M, p, t) * s̄p
-            _add_diag!(M̄, M, -s̄p * v[p], p, t)
-        end
+        v̄[p] = -_diag_at(M, p, t) * s̄p
+        _add_diag!(M̄, M, -s̄p * v[p], p, t)
     end
     pullback!((; piece = M̄, q = s̄, p = v̄), M, Pressure(), s̄, v, t)
     fill!(s̄, zero(eltype(s̄)))
     return nothing
 end
 _add_diag!(M̄, M::AbstractMatrix, x, p, t) = _add_entry!(M̄, M, x, p, p)
-_add_diag!(M̄, M::TimeVarying, x, p, t) = add_cotangent!(cotangent(M̄, :x), x, p, p, t)
+function _add_diag!(M̄, M::TimeVarying, x, p, t)
+    return add_cotangent!(cotangent(M̄, :x), x, p, p, t)
+end
 function _add_diag!(M̄, M::TimeVarying{<:Any, <:_Movement}, x, p, t)
     return _add_movement_entry!(cotangent(M̄, :x), M.x, x, p, p, t)
 end
@@ -1116,7 +1123,9 @@ end
 ]
 
 @implements PieceInterface{(:pullback,)} Floor [
-    Arguments(; piece = Floor(1.5), role = Step(), args = ([2.0], [80.0], 100.0)),
+    Arguments(;
+        piece = Floor(1.5), role = Step(), args = ([2.0], [80.0], 100.0)
+    ),
 ]
 
 @implements PieceInterface{(:nstate, :pullback)} _LinearStep [

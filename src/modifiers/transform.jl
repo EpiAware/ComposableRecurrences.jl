@@ -196,15 +196,6 @@ function pullback!(grads, m::Transform, ::Step, v, s, t)
     return nothing
 end
 
-function pullback!(
-        grads, m::Transform{typeof(+), <:Any, Nothing}, ::Step, v, s, t
-    )
-    b̄ = cotangent(grads.piece, :θ)
-    for k in eachindex(v)
-        add_param!(b̄, m.θ, grads.v[k], k, t)
-    end
-    return nothing
-end
 # Without `b`, `Transform(+)` is the identity.
 function pullback!(
         grads, ::Transform{typeof(+), Nothing, Nothing}, ::Step, v, s, t
