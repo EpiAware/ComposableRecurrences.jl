@@ -168,7 +168,8 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 seed = [1.0, 2.0]
 depletion = CR.Depletion(100.0, CR.Hazard(); pools = (S = 100.0 - sum(seed),))
-y = Recurrence([0.5, 0.5]; modifiers = (depletion,))(fill(2.0, 8); history = seed)
+r = Recurrence([0.5, 0.5]; modifiers = (depletion,))
+y = r(fill(2.0, 8); history = seed)
 round.(y; digits = 3)
 
 # output
@@ -196,7 +197,8 @@ herd = CR.Depletion(
     N, CR.Hazard(), CR.Flow(0 => :S, TimeVarying(births); form = CR.Truncate());
     pools = (S = 90.0,)
 )
-y = Recurrence([0.5, 0.5]; modifiers = (herd,))(fill(1.5, 8); history = [5.0, 5.0])
+r = Recurrence([0.5, 0.5]; modifiers = (herd,))
+y = r(fill(1.5, 8); history = [5.0, 5.0])
 round.(y; digits = 3)
 
 # output
@@ -223,7 +225,8 @@ leaky = CR.Depletion(
     CR.Flow(:S => :V, 5.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1);
     pools = (:S, :V)
 )
-y = Recurrence([0.3, 0.5, 0.2]; modifiers = (leaky,))(fill(2.0, 6); history = [5.0])
+r = Recurrence([0.3, 0.5, 0.2]; modifiers = (leaky,))
+y = r(fill(2.0, 6); history = [5.0])
 round.(y; digits = 3)
 
 # output
@@ -248,7 +251,8 @@ beds = CR.Depletion(
     CR.Truncate(; into = :O, overflow = :stratum); pools = (O = 0.0,)
 )
 demand = [4.0 3.0 5.0 6.0 2.0; 0.0 0.0 0.0 0.0 0.0]
-y = Recurrence([0.0]; modifiers = (beds,))(; history = zeros(2, 1), add = demand)
+r = Recurrence([0.0]; modifiers = (beds,))
+y = r(; history = zeros(2, 1), add = demand)
 round.(y; digits = 3)
 
 # output
@@ -270,7 +274,8 @@ doses = CR.Depletion(
     CR.Truncate(; overflow = :stratum); pools = (:B,)
 )
 demand = [fill(0.5, 1, 7) fill(2.0, 1, 7); zeros(1, 14)]
-y = Recurrence([0.0]; modifiers = (doses,))(; history = zeros(2, 1), add = demand)
+r = Recurrence([0.0]; modifiers = (doses,))
+y = r(; history = zeros(2, 1), add = demand)
 y[1, :]'
 
 # output
@@ -290,7 +295,8 @@ ward = CR.Depletion(
     CR.Flow(:confirmed => 0, 0.1); pools = (:suspected, :confirmed)
 )
 admitted = [fill(10.0, 1, 4); zeros(1, 4)]
-y = Recurrence([1.0]; modifiers = (ward,))(; history = zeros(2, 1), add = admitted)
+r = Recurrence([1.0]; modifiers = (ward,))
+y = r(; history = zeros(2, 1), add = admitted)
 round.(y; digits = 3)
 
 # output

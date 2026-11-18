@@ -74,7 +74,6 @@ const PENDING_CODE_LENGTH = (
     "docs/src/getting-started/tutorials/vaccination.jl",
     "docs/src/performance/summary.md",
     "docstring Allocate",
-    "docstring Depletion",
     "docstring Direct",
     "docstring FFTMethod",
     "docstring Redistribute",
