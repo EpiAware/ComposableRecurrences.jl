@@ -1281,12 +1281,11 @@ end
     end
 end
 
-# Enzyme reverse mode on Julia 1.11 loses the gradient of a scalar field of
-# an operator built by a call it cannot infer, here a `NoAdjoint` called
-# through a global that is not constant. The rules cannot see that call, so
-# this pins the loss until Enzyme fixes it. Tagged `compat_floor`, so the
-# Threads workflow runs it on Julia 1.11.
-@testitem "Enzyme reverse on Julia 1.11 loses scalar gradients through uninferred construction" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+# Guards the gradient of a scalar field of an operator built by a call Enzyme
+# cannot infer, here a `Depletion` inside a `NoAdjoint` called through a
+# global that is not constant. Tagged `compat_floor`, so the Threads workflow
+# runs it on Julia 1.11.
+@testitem "Enzyme reverse keeps a Depletion scalar's gradient through an uninferred NoAdjoint" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
     import Enzyme, ForwardDiff
@@ -1299,11 +1298,7 @@ end
     mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
     ḡ = Enzyme.gradient(mode, Enzyme.Const(f), [80.0])[1]
     ref = ForwardDiff.gradient(f, [80.0])
-    if VERSION < v"1.12"
-        @test_broken ḡ ≈ ref
-    else
-        @test ḡ ≈ ref
-    end
+    @test ḡ ≈ ref
 end
 
 @testitem "A protected pool in Float32 keeps Float32 gradients" tags = [:ad, :forwarddiff, :mooncake, :mooncake_reverse, :mooncake_forward, :enzyme, :enzyme_reverse, :enzyme_forward] setup = [JobBackends] begin
@@ -1454,9 +1449,9 @@ end
     n0 = CR._PULLBACK_CALLS[]
     ḡ = gradient(f, backend, θ)
     if VERSION < v"1.12"
-        # Enzyme reverse on Julia 1.11 loses the gradient of a scalar built
-        # by a call it cannot infer, as the item above that pins it shows;
-        # the kernel's gradient is right.
+        # Enzyme reverse on Julia 1.11 loses the gradient of the scalar in
+        # `ε`, built by a call it cannot infer, though it keeps a `Depletion`
+        # scalar's in the same setting; the kernel's gradient is right.
         @test ḡ[1:9] ≈ ref[1:9]
         @test_broken ḡ ≈ ref
     else
