@@ -211,7 +211,8 @@ _continuous_masses(d, lags; kwargs...) = _no_censoring(d)
 end
 
 # A delay is a value whose type has a `delay_masses` method, read from the
-# type so the branches fold; an array of masses is a kernel, not a delay.
+# type so the branches fold, and a method added later invalidates them; an
+# array of masses is a kernel, not a delay.
 function _isdelay(::Type{T}) where {T}
     return !(T <: AbstractArray) &&
         Core._hasmethod(Tuple{typeof(delay_masses), T, Int})

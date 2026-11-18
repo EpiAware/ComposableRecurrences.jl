@@ -217,7 +217,11 @@ end
 # A computed kernel is filled `_BLOCK` cohorts at a time, lag outermost and
 # cohort innermost, so a block's survival products run side by side. Each
 # `Survival` keeps the block's values `S`, hazards `H` and, in the reverse
-# pass, their cotangents `S̄` in a scratch tree that mirrors the kernel.
+# pass, their cotangents `S̄` in a scratch tree that mirrors the kernel. The
+# reverse pass recomputes a block before taking its cotangent back, so no
+# weight is stored past its block (`_fill_kernel` says when one block keeps
+# every cohort). A recurrence and a convolution off the serial executor fill
+# this way; a serial convolution and `kernel_weights` walk each cohort.
 const _BLOCK = 32
 
 # `P` is whether the hazard has a strata axis; without one, row 1 serves all.

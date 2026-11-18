@@ -8,8 +8,9 @@ const _ComputedConvolution = Convolution{<:_ComputedKernel}
 uses_adjoint(c::_ComputedConvolution, ::Run) = _derived_local(c.kernel)
 
 # Each input spreads forward through its cohort's weights, as a `Primary()`
-# kernel's does: serially from each cohort's walk, and on another executor
-# through the dense kernel of the same weights.
+# kernel's does: serially from each cohort's walk, shared by the strata
+# unless a `Survival` has strata of its own, and on another executor through
+# the dense kernel of the same weights.
 function _convolve!(ex, Y, c::_ComputedKernel, X, m, start)
     return _convolve_dense!(ex, Y, c, X, m, start)
 end
