@@ -159,7 +159,7 @@ end
     end
 end
 
-@testitem "Convolution: a time-varying kernel gathers on dual numbers" begin
+@testitem "Convolution: a time-varying kernel gathers on dual and BigFloat numbers" begin
     using ComposableRecurrences, ForwardDiff, Random
     CR = ComposableRecurrences
     Dual = ForwardDiff.Dual
@@ -188,6 +188,13 @@ end
             ForwardDiff.gradient(θ -> sum(abs2, naive(G, reshape(θ, S, T), primary)), vec(x))
         y = conv(Dual.(x, 1.0); gain = g, history = hist, start = 2, stop = 8)
         @test ForwardDiff.value.(y) ≈ conv(x; gain = g, history = hist, start = 2, stop = 8)
+        # The same gathered body on BigFloat, against the naive sum.
+        @test CR._conv_path(BigFloat, conv.kernel, x) === CR._Gathered()
+        yb = conv(BigFloat.(x); gain = g, history = hist)
+        @test yb isa Matrix{BigFloat}
+        @test yb ≈ naive(G, x, primary)
+        yb_part = conv(BigFloat.(x); gain = g, history = hist, start = 2, stop = 8)
+        @test yb_part ≈ naive(G, x, primary)[:, 2:8]
         # One series with a lags × times kernel.
         c1 = Convolution(TimeVarying(G[1, :, :], ix))
         f1(θ) = sum(abs2, c1(θ; history = primary ? nothing : h[1, :]))

@@ -1,8 +1,8 @@
-# # [Case study: a backend model](@id tutorial-backend-case-study)
+# # [Porting a patch model from hand-written loops](@id tutorial-backend-case-study)
 #
 # ## Introduction
 #
-# The [BVDOutbreakSize](https://github.com/epiforecasts/BVDOutbreakSize) backend models an outbreak across 11 patches.
+# The [BVDOutbreakSize](https://github.com/epiforecasts/BVDOutbreakSize) model covers an outbreak across 11 patches.
 # It writes its renewal, movement between patches and reporting delay as loops with hand-written Mooncake rules.
 # The inputs here are invented.
 
@@ -17,7 +17,7 @@ import Enzyme, ForwardDiff, Mooncake
 
 CairoMakie.activate!(type = "png", px_per_unit = 2)
 
-# ## The backend model
+# ## The source model
 #
 # Each patch ``p`` runs a renewal process seeded by ``m`` days of infections.
 # Its value on day ``t`` is ``G_{p,t} = R_{p,t} \sum_{l=1}^{L} g_l I_{p,t-l}``.
@@ -36,7 +36,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # ```
 #
 # Here ``N_p`` is patch ``p``'s population, and its pool starts at ``S_{p,0} = \max(N_p - \sum \text{seed}_p, 0)``.
-# The model runs at the backend's size: 11 patches, 200 days, a 20-day generation interval and a 30-day delay.
+# The model runs at the source model's size: 11 patches, 200 days, a 20-day generation interval and a 30-day delay.
 
 S, T, L, L_w = 11, 200, 20, 30
 gi = let w = [l^2 * exp(-l / 2.5) for l in 1:L]
@@ -86,9 +86,9 @@ end
 # The outbreak grows first in patch 1 and reaches the far patches through importation.
 # Reports lag infections by the delay.
 #
-# ## Checking against the backend loops
+# ## Checking against the source loops
 #
-# The benchmark keeps loops in the backend's style, each with a hand-written Mooncake rule.
+# The benchmark keeps loops in the style of BVDOutbreakSize, each with a hand-written Mooncake rule.
 # They read ``R_t`` and ``\varepsilon_t`` on the seed days too and return those days first, so the check pads and trims them.
 
 include(joinpath(pkgdir(ComposableRecurrences), "benchmark", "bvd_handrule.jl"))
@@ -110,7 +110,7 @@ report_error = maximum(abs, y.reports .- z.reports) / maximum(z.reports)
 nothing #hide
 
 # The two agree to rounding: the largest difference in reports is ``2 \times 10^{-15}`` of the largest report.
-# The use-case tests check each kernel against the backend's own code, one test per row of the [porting tables](@ref porting-hand-loops).
+# The use-case tests check each kernel against the code of BVDOutbreakSize, one test per row of the [porting tables](@ref porting-hand-loops).
 #
 # ## Gradients
 #
@@ -162,13 +162,13 @@ end
 # Each reverse-mode gradient matches the ForwardDiff reference to rounding, with relative errors below ``10^{-12}``.
 # The package's gradient needs no rule written for the model: each operator call takes its own [rule](@ref adjoint-routing) or plain AD.
 #
-# ## Timing against the backend loops
+# ## Performance
 #
-# The [benchmark matrix](@ref testing) times the gradient of each backend kernel in four arms:
+# The [benchmark matrix](@ref testing) times the gradient of each BVDOutbreakSize kernel in four arms:
 #
 # - the package as written here, `ComposableRecurrences`;
 # - the package with its rules turned off, `plain AD`;
-# - the backend-style loop differentiated by the backend, `hand loop`;
+# - the BVDOutbreakSize loop differentiated by the AD package, `hand loop`;
 # - the same loop with its hand-written Mooncake rules, `hand rules`.
 #
 # The bars are the minimum times in microseconds, read from `benchmark/results/docs.csv`, so this page times nothing itself.
@@ -199,7 +199,7 @@ end
 # A hand-written loop maps to one operator call per kernel.
 # Each use-case test in the tables matches values and ForwardDiff gradients against a verbatim copy of the loop in `test/usecases/references/`.
 #
-# The backend `BVDOutbreakSize` writes its kernels as functions over the whole series:
+# The model `BVDOutbreakSize` writes its kernels as functions over the whole series:
 #
 # | Loop | Package | Test |
 # |:--|:--|:--|
@@ -228,4 +228,4 @@ end
 #
 # - [Adjoints and backends](@ref adjoints-backends): which code each backend runs.
 # - [Testing and benchmarking](@ref testing): the use-case tests and the benchmark matrix.
-# - Want the full interface? See the [Public API](@ref public-api).
+# - [Public API](@ref public-api): every public name with its docstring.

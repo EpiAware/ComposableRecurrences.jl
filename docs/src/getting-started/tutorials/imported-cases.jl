@@ -49,7 +49,7 @@ end
 
 # ## Performance
 #
-# Each bar times a seeded renewal with hazard depletion and imports both before and after it over 200 days with a 20-day generation interval, written with the operators or as a preallocated hand-written loop.
+# Each bar times a seeded renewal with hazard depletion and imports both before and after it over 200 days with a 20-day generation interval, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("imports")
@@ -57,4 +57,4 @@ performance_plot("imports")
 # ## Learning more
 #
 # - [Modifier order](@ref explanation-modifier-order): how the place of a modifier in the tuple changes the model.
-# - Want the full interface? See the [Public API](@ref public-api).
+# - [Public API](@ref public-api): every public name with its docstring.

@@ -1,8 +1,4 @@
-# Flows between the pools of a `Depletion`. A `Flow` moves part of one pool
-# into another, or out, each step, by a form applied to its
-# demand: a competing hazard rate (`Hazard()`, the default), a share
-# (`Share()`) or a count capped by what is there (`Truncate()` or
-# `Truncate(κ)`); `Flow`'s docstring gives how they combine.
+# ---- Share -------------------------------------------------------------------
 
 @doc raw"""
 The share flow form: a [`ComposableRecurrences.Flow`](@ref) with this form
@@ -31,6 +27,8 @@ ComposableRecurrences.Share()
 ```
 """
 struct Share end
+
+# ---- Flow: type, construction and checks -------------------------------------
 
 # The forms a flow takes: without an exponent, and without a draw's
 # arguments.
@@ -130,9 +128,11 @@ struct Flow{D, F <: _FlowForm, E, P}
     to::E
     "The rate, share or count, a parameter."
     demand::D
-    "How the demand moves: `Hazard()`, `Share()`, `Truncate()` or `Truncate(κ)`."
+    "How the demand moves: `Hazard()`, `Share()` or `Truncate`."
     form::F
-    Base.@constprop :aggressive function Flow(from, to, demand, form::F) where {F}
+    Base.@constprop :aggressive function Flow(
+            from, to, demand, form::F
+        ) where {F}
         d = _check_flow(from, to, demand, form)
         # A share is a fraction of the pool it leaves.
         form isa Share && _check_unit(:demand, d)
@@ -144,7 +144,9 @@ struct Flow{D, F <: _FlowForm, E, P}
     # adapts the demand to device arrays, which the host cannot read entry
     # by entry, so this checks everything but those entries: a number's
     # share is still checked.
-    function Flow(::_Placed, ::Type{E}, ::Val{P}, demand, form::F) where {E, P, F}
+    function Flow(
+            ::_Placed, ::Type{E}, ::Val{P}, demand, form::F
+        ) where {E, P, F}
         d = _check_flow(P[1], P[2], demand, form)
         form isa Share && d isa Real && _check_unit(:demand, d)
         return new{typeof(d), F, E, P}(P[1], P[2], d, form)
@@ -168,10 +170,10 @@ function _check_flow_parts(from, to, demand, form)
         )
     )
     form isa _FlowForm || _bad_flow_form(form)
-    from isa Integer && iszero(from) && !(form isa _TruncateForm) && throw(
+    from isa Integer && iszero(from) && !(form isa Truncate) && throw(
         ArgumentError(
-            "a flow from outside the Depletion is a count, with form Truncate() " *
-                "or Truncate(κ), got $(_describe(form))"
+            "a flow from outside the Depletion is a count, with form " *
+                "Truncate() or Truncate(κ), got $(_describe(form))"
         )
     )
     _check_param(:demand, demand)
@@ -196,14 +198,14 @@ end
     _check_flow(from, to, d, form)
     throw(
         ArgumentError(
-            "a rebuilt flow keeps its ends, got $(repr(from)) => $(repr(to)); " *
-                "build a new Flow to move them"
+            "a rebuilt flow keeps its ends, got " *
+                "$(repr(from)) => $(repr(to)); build a new Flow to move them"
         )
     )
 end
 
 @noinline function _bad_flow_form(form)
-    form isa Union{_ExponentForm, _TruncateForm} &&
+    form isa _BuiltinForm &&
         _draw_args(form) !== (nothing, nothing, _Drop()) && throw(
         ArgumentError(
             "weights, into and overflow are a draw's arguments, which a flow " *
@@ -212,8 +214,8 @@ end
     )
     form isa Hazard && throw(
         ArgumentError(
-            "a flow's Hazard() takes no exponent: its demand is the rate, got " *
-                _describe(form)
+            "a flow's Hazard() takes no exponent: its demand is the rate, " *
+                "got " * _describe(form)
         )
     )
     throw(
@@ -251,11 +253,14 @@ _check_end(name, x::Symbol) = nothing
 function _check_end(name, x::Int)
     x >= 0 || throw(
         ArgumentError(
-            "$name is a pool from 1, or 0 for outside the Depletion, got $name = $x"
+            "$name is a pool from 1, or 0 for outside the Depletion, " *
+                "got $name = $x"
         )
     )
     return nothing
 end
+
+# ---- placing a flow among its pools ------------------------------------------
 
 # The flow with its ends as positions among the pools `names`, found from
 # the types, so the placed flow's type infers whether or not the flow was
@@ -278,11 +283,13 @@ end
 @noinline function _unknown_pool(x, names, f)
     throw(
         ArgumentError(
-            "Flow($(repr(_from(f))) => $(repr(_to(f)))) names pool $(repr(x)), " *
-                "but the pools are $(repr(names))"
+            "Flow($(repr(_from(f))) => $(repr(_to(f)))) names pool " *
+                "$(repr(x)), but the pools are $(repr(names))"
         )
     )
 end
+
+# ---- the step: leave terms, spread and counts --------------------------------
 
 # A count flow, which moves its demand up to what the pool holds.
 const _Count = Flow{<:Any, <:_FlowCount}
@@ -343,12 +350,16 @@ end
 
 # Tuple entry `i` of `x` plus `v`, or `x` for an `i` it lacks; arrivals of
 # `nothing` are not kept.
-_add(x::Tuple, i, v) = ntuple(j -> ifelse(j == i, x[j] + v, x[j]), Val(length(x)))
+function _add(x::Tuple, i, v)
+    return ntuple(j -> ifelse(j == i, x[j] + v, x[j]), Val(length(x)))
+end
 _add(::Nothing, i, v) = nothing
 
 # Tuple entry `i` of `x`, chosen by `ifelse` in a fold over the entries, so
 # the tuple is read where it is held, without an indexed load.
-_get(x::Tuple, i) = _tuple_fold(@inline((v, y, j) -> ifelse(j == i, y, v)), first(x), x)
+function _get(x::Tuple, i)
+    return _tuple_fold(@inline((v, y, j) -> ifelse(j == i, y, v)), first(x), x)
+end
 
 # What moves out of pool `i` per unit held, `(e^{-H}, g(H), P)`.
 @inline function _leaves(fs, i, g, t, z)
@@ -379,8 +390,12 @@ _step_leaves(fs::_NoHazard, i, g, t, z) = _leaves(fs, i, g, t, z)
     return _group_leaves(fs, i, Val(_leave_kind(fs, i)), g, t, z)
 end
 # No hazard flow out: `e^{-0}` and `g(0)` are one, with no dual exponential.
-@inline _group_leaves(fs, i, ::Val{:none}, g, t, z) = _no_hazard_leaves(fs, i, g, t)
-@inline _group_leaves(fs, i, ::Val{:step}, g, t, z) = _step_leaves(fs, i, g, t, z)
+@inline function _group_leaves(fs, i, ::Val{:none}, g, t, z)
+    return _no_hazard_leaves(fs, i, g, t)
+end
+@inline function _group_leaves(fs, i, ::Val{:step}, g, t, z)
+    return _step_leaves(fs, i, g, t, z)
+end
 @inline function _group_leaves(fs, i, ::Val{:moved}, g, t, z)
     E, em = _exp_neg(_out(_rate, fs, i, g, t, z))
     return E, _Moved(-em), _out(_share, fs, i, g, t, z)
@@ -420,7 +435,8 @@ end
     function kind(i)
         out = [k for k in eachindex(ends) if hazard[k] && ends[k][1] == i]
         isempty(out) && return QuoteNode(:none)
-        return QuoteNode(length(out) == 1 && ends[only(out)][2] > 0 ? :moved : :step)
+        moved = length(out) == 1 && ends[only(out)][2] > 0
+        return QuoteNode(moved ? :moved : :step)
     end
     calls = (:(_group_leaves(fs, $i, Val{$(kind(i))}(), g, t, z)) for i in 1:N)
     return Expr(:block, Expr(:meta, :inline), Expr(:tuple, calls...))
@@ -428,14 +444,17 @@ end
 
 # The number of hazard flows out of pool `i`.
 function _hazards_out(fs::Tuple, i)
-    count = @inline (n, f, _) -> n + (f isa Flow{<:Any, _FlowHazard} && _from(f) == i)
+    count = @inline function (n, f, _)
+        return n + (f isa Flow{<:Any, _FlowHazard} && _from(f) == i)
+    end
     return _tuple_fold(count, 0, fs)
 end
 
 # Whether a hazard flow out of pool `i` enters a pool.
 function _rated_into(fs::Tuple, i)
     into = @inline function (b, f, _)
-        return b | (f isa Flow{<:Any, _FlowHazard} && _from(f) == i && _to(f) > 0)
+        hazard = f isa Flow{<:Any, _FlowHazard}
+        return b | (hazard && _from(f) == i && _to(f) > 0)
     end
     return _tuple_fold(into, false, fs)
 end
@@ -498,7 +517,8 @@ end
 
 # The count flows in order on the pools `y` and arrivals `a`.
 @inline function _counts(fs::Tuple, y, a, g, t)
-    return _tuple_fold(@inline(((y, a), f, _) -> _count(f, y, a, g, t)), (y, a), fs)
+    count = @inline ((y, a), f, _) -> _count(f, y, a, g, t)
+    return _tuple_fold(count, (y, a), fs)
 end
 _count(f::Flow, y, a, g, t) = y, a
 _count(f::_Count, y, a, g, t) = _count_demand(f, param(f.demand, g, t), y, a)
@@ -541,12 +561,16 @@ end
 end
 # The arrivals before the flows: zeros, or `nothing` when they are not
 # kept, which the flows' `_add` passes through.
-@inline _start_arrivals(::Val{true}, y::NTuple{N}) where {N} = ntuple(_ -> zero(first(y)), Val(N))
+@inline function _start_arrivals(::Val{true}, y::NTuple{N}) where {N}
+    return ntuple(_ -> zero(first(y)), Val(N))
+end
 @inline _start_arrivals(::Val{false}, y) = nothing
 
 # The pools after the flows, without the arrivals, which are not built.
 _flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
 @inline _flow_only(fs, x, g, t) = first(_flow_step(fs, x, g, t, Val(false)))
+
+# ---- each flow's amount, for a trace without a draw --------------------------
 
 # The amount each flow moves at one step, in the order given, from the
 # pools `x`: a hazard or share flow's from `x`, as the step spreads it,
@@ -625,10 +649,12 @@ end
 # `Σ_f r_f q_f` over the rate flows out of pool `i`, and `Σ_f p_f q_f` over
 # the share flows.
 function _rated(fs::Tuple, q, i, g, t, B)
-    return _tuple_fold((B, f, k) -> _from(f) == i ? B + _rate(f, g, t) * q[k] : B, B, fs)
+    add = (B, f, k) -> _from(f) == i ? B + _rate(f, g, t) * q[k] : B
+    return _tuple_fold(add, B, fs)
 end
 function _shared(fs::Tuple, q, i, g, t, z)
-    return _tuple_fold((z, f, k) -> _from(f) == i ? z + _share(f, g, t) * q[k] : z, z, fs)
+    add = (z, f, k) -> _from(f) == i ? z + _share(f, g, t) * q[k] : z
+    return _tuple_fold(add, z, fs)
 end
 
 # Each rate takes `x_i (g q_f + g′ B_i - e^{-H_i} ȳ_i)` and each share
@@ -639,7 +665,9 @@ function _amount_rates_back!(fs::Tuple, f̄s, q, x, L, H, B, ȳ, g, t)
     end
 end
 _amount_rate_back!(f::_Count, f̄, q, x, L, H, B, ȳ, g, t) = nothing
-function _amount_rate_back!(f::Flow{<:Any, _FlowHazard}, f̄, q, x, L, H, B, ȳ, g, t)
+function _amount_rate_back!(
+        f::Flow{<:Any, _FlowHazard}, f̄, q, x, L, H, B, ȳ, g, t
+    )
     i = _from(f)
     E, gH, _ = L[i]
     r̄ = x[i] * (gH * q + _leave_slope(H[i], E, gH) * B[i] - E * ȳ[i])
@@ -651,6 +679,8 @@ function _amount_rate_back!(f::Flow{<:Any, Share}, f̄, q, x, L, H, B, ȳ, g, t)
     add_param!(cotangent(f̄, :demand), f.demand, x[i] * (q - ȳ[i]), g, t)
     return nothing
 end
+
+# ---- the step's pullback -----------------------------------------------------
 
 # Reverse of the count flows: recurse forward, keeping each flow's input,
 # then pull back last first. `ȳ` and `ā` are the cotangents after the
@@ -667,7 +697,9 @@ function _counts_back(fs::Tuple, f̄s, y, a, ȳ, ā, g, t)
 end
 # What a count's pullback reads of its demand (`_param_partials`); a flow of
 # another form moves no count.
-_demand(f::_Count, f̄, g, t) = _param_partials(cotangent(f̄, :demand), f.demand, g, t)
+function _demand(f::_Count, f̄, g, t)
+    return _param_partials(cotangent(f̄, :demand), f.demand, g, t)
+end
 _demand(f::Flow, f̄, g, t) = (nothing, nothing)
 _count_demand(f::Flow, c, y, a) = y, a
 _count_back(f::Flow, d, f̄, y, ȳ, ā, g, t) = ȳ
@@ -706,8 +738,11 @@ end
 # The cotangent of one group's pools `x` before the flows, from
 # those of the pools `ȳ` and arrivals `ā` after them; the flows'
 # parameter cotangents are added into their mirrors `f̄s`.
-function _flows_pullback(fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
-    return _counts_back(fs, f̄s, x, ntuple(_ -> zero(first(x)), Val(N)), ȳout, ā, g, t)
+function _flows_pullback(
+        fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t
+    ) where {N}
+    a = ntuple(_ -> zero(first(x)), Val(N))
+    return _counts_back(fs, f̄s, x, a, ȳout, ā, g, t)
 end
 # The leave terms are the step's, `_Moved` for a pool whose one hazard flow
 # enters a pool.
@@ -738,10 +773,13 @@ end
 _leave_back(gH, B, fs, ā, i) = gH * B
 _leave_back(w::_Moved, B, fs, ā, i) = w.F * _hazard_arrival(fs, ā, i)
 function _hazard_arrival(fs::Tuple, ā, i)
-    return _tuple_fold(@inline((a, f, _) -> a + _arrival(f, ā, i)), zero(eltype(ā)), fs)
+    add = @inline (a, f, _) -> a + _arrival(f, ā, i)
+    return _tuple_fold(add, zero(eltype(ā)), fs)
 end
 _arrival(f, ā, i) = zero(eltype(ā))
-_arrival(f::Flow{<:Any, _FlowHazard}, ā, i) = _into(f, i) ? ā[_to(f)] : zero(eltype(ā))
+function _arrival(f::Flow{<:Any, _FlowHazard}, ā, i)
+    return _into(f, i) ? ā[_to(f)] : zero(eltype(ā))
+end
 _into(f, i) = _from(f) == i && _to(f) > 0
 
 # `Σ_f p_f ā_to(f)` over the share flows out of pool `i`.
@@ -769,7 +807,9 @@ function _rate_back!(f::Flow{<:Any, _FlowHazard}, f̄, x, L, H, B, ȳ, ā, g, t)
 end
 # The rate's cotangent `x (g ā_to + g′ B - e^{-H} ȳ)`; with one hazard flow
 # out of the pool, `d(H g)/dH = e^{-H}`, so it is `x e^{-H} (ā_to - ȳ)`.
-_rate_bar(x, E, gH, H, B, āto, ȳ) = x * (gH * āto + _leave_slope(H, E, gH) * B - E * ȳ)
+function _rate_bar(x, E, gH, H, B, āto, ȳ)
+    return x * (gH * āto + _leave_slope(H, E, gH) * B - E * ȳ)
+end
 _rate_bar(x, E, w::_Moved, H, B, āto, ȳ) = x * E * (āto - ȳ)
 function _rate_back!(f::Flow{<:Any, Share}, f̄, x, L, H, B, ȳ, ā, g, t)
     i = _from(f)
@@ -777,6 +817,8 @@ function _rate_back!(f::Flow{<:Any, Share}, f̄, x, L, H, B, ȳ, ā, g, t)
     add_param!(cotangent(f̄, :demand), f.demand, x[i] * (āto - ȳ[i]), g, t)
     return nothing
 end
+
+# ---- checks against the groups -----------------------------------------------
 
 # Each flow's parameter against the groups, unrolled over the tuple so each
 # flow's check is compiled for its type.

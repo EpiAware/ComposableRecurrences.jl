@@ -150,13 +150,17 @@ With Mooncake, or Enzyme and EnzymeTestUtils, loaded, [`ComposableRecurrences.te
 
 An executor sets how an operator's loops over strata or output times run.
 [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) holds the one in use, [`Serial`](@ref ComposableRecurrences.Serial) by default.
-[`Threaded`](@ref ComposableRecurrences.Threaded) splits a loop across CPU threads, and [`Device`](@ref ComposableRecurrences.Device) runs it as a kernel on a GPU.
+[`Threaded`](@ref ComposableRecurrences.Threaded) splits a loop across CPU threads, and [`Parallel`](@ref ComposableRecurrences.Parallel) runs it as a kernel on a KernelAbstractions backend, such as a GPU.
+The older name [`Device(backend)`](@ref ComposableRecurrences.Device) makes the same executor as `Parallel(backend)`.
+The threaded executor runs its chunks as Julia tasks rather than on the KernelAbstractions CPU backend, which compiles kernels through OpenCL.
+On that backend a loop body follows the rules of a GPU kernel, and an error inside it loses its type.
+It was also slower: at 10 000 independent strata it ran 1.36 times faster than `Serial` forward and 1.05 times in reverse, against 1.63 and 1.60 for `Threaded`.
 
 | Executor | Forward | ForwardDiff | ReverseDiff | Mooncake, Enzyme forward | Mooncake, Enzyme reverse |
 |---|---|---|---|---|---|
 | `Serial()` | all operators | yes | yes | yes | yes |
 | `Threaded()` | all operators | yes, threaded | not tested | yes, serial | rule's forward and reverse passes threaded, all else serial |
-| `Device(backend)` | all operators, couplings and built-in modifiers | dual-number inputs only | not tested | not tested | not tested |
+| `Parallel(backend)` | all operators, couplings and built-in modifiers | dual-number inputs only | not tested | not tested | not tested |
 
 Mooncake and Enzyme do not differentiate tasks, so code they trace runs serially whatever executor is set.
 A rule's forward pass is not traced, so it uses the set executor.
@@ -165,7 +169,7 @@ Each chunk of strata adds the cotangents of parameters it shares with other chun
 The copies are summed after the loop, so these cotangents agree with `Serial()` up to rounding.
 The cotangents of the inputs, the history and an `S × T` gain or add input match exactly.
 A coupling that mixes strata, a pairwise kernel, routes, modifiers with a vector step and parameters that read across strata run their reverse steps on the calling task.
-The `Device(backend)` row was checked on JLArrays only, which run kernels on the CPU.
+The `Parallel(backend)` row was checked on JLArrays only, which run kernels on the CPU.
 
 ### [GPU arrays](@id gpu-arrays)
 

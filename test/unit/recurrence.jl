@@ -108,7 +108,7 @@ end
 end
 
 @testitem "Recurrence: identity, scaled identity and no coupling" setup = [Reference] begin
-    using ComposableRecurrences, LinearAlgebra, Random
+    using ComposableRecurrences, ConstructionBase, LinearAlgebra, Random
     rng = Xoshiro(3)
     S, L, T = 3, 3, 8
     g = rand(rng, L)
@@ -121,6 +121,12 @@ end
     @test Recurrence(g)(R; history = h) ≈ ref(1)
     @test Recurrence(g; coupling = I)(R; history = h) ≈ ref(1)
     @test Recurrence(g; coupling = 0.5I)(R; history = h) ≈ ref(0.5)
+    # `I` is stored with an integer scale, on a rebuild too.
+    @test Recurrence(g).coupling === UniformScaling(1)
+    @test Recurrence(g; coupling = I).coupling === UniformScaling(1)
+    r = ConstructionBase.setproperties(Recurrence(g; coupling = 0.5I); coupling = I)
+    @test r.coupling === UniformScaling(1)
+    @test Recurrence(g; coupling = 2I).coupling === 2I
 end
 
 @testitem "Recurrence: per-stratum kernel with Diagonal coupling" setup = [Reference] begin
