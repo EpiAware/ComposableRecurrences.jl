@@ -1796,6 +1796,9 @@ end
     @test_throws "their cotangent 2" CR.pullback!(
         (; piece = nothing, q = q̄, p = zeros(2)), C, CR.Pressure(), nothing, p, 1
     )
+    @test_throws "pressures are 3 and 2" CR.forward!(
+        C, CR.Pressure(), zeros(3), zeros(2), 1
+    )
 end
 
 @testitem "Adjoint: time-varying dense coupling pullback with every mirror" setup = [AdjointCheck] begin

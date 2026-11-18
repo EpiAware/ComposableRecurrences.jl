@@ -12,8 +12,8 @@ const _TVCoupling = TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}
 function _check_pressure(C, q, p, p̄ = p)
     axes(C, 1) == axes(q, 1) && axes(C, 2) == axes(p, 1) == axes(p̄, 1) &&
         return nothing
-    n = (length(q), length(p))
-    cot = p̄ === p ? "" : " and their cotangent $(length(p̄))"
+    n = "$(length(q)) and $(length(p))"
+    cot = p̄ === p ? "" : ", their cotangent $(length(p̄))"
     throw(DimensionMismatch("coupling is $(size(C)), pressures are $n$cot"))
 end
 
@@ -184,8 +184,9 @@ end
 # A loop blocked by columns costs more under plain reverse-mode AD.
 _mix!(q::AbstractVector{<:AbstractFloat}, C, p) = _mix_floats!(q, C, p)
 # From `_BLAS_MIX` strata a `Float64` or `Float32` matrix with strided
-# pressures takes BLAS's product: a whole run with a dense coupling measured
-# 1.08× the loop's time at 16 strata and 0.76× at 24.
+# pressures takes BLAS's product. Alone it wins from 12 strata, but a whole
+# run with a dense coupling measured 1.08× the loop's time at 16 and 0.76×
+# at 24.
 const _BLAS_MIX = 24
 _blas_mix(C) = size(C, 1) >= _BLAS_MIX
 function _mix!(
