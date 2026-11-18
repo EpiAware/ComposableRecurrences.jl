@@ -23,8 +23,6 @@ const PENDING_WORDING = (
     "docstring Allocate",
     "docstring NoAdjoint",
     "docstring Pairwise",
-    "docstring PieceInterface",
-    "docstring Recent",
     "docstring Step",
     "docstring Transform",
     "docstring forward!",
