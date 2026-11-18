@@ -620,6 +620,8 @@ end
     JLArrays.allowscalar(false)
     for A in (Array, JLArray)
         @test_throws DimensionMismatch CR._copy_trace!(A(zeros(3)), A(ones(2)))
+        # A step's trace arrives as a tuple of its records.
+        @test_throws DimensionMismatch CR._copy_trace!((A(zeros(3)),), A(ones(2)))
         r = A(zeros(2))
         CR._copy_trace!(r, A([1.0, 2.0]))
         @test Array(r) == [1.0, 2.0]
