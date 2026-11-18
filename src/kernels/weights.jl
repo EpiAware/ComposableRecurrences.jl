@@ -27,6 +27,12 @@ This is the [`Recurrence`](@ref) `Recurrence([1])` with gain ``1 - \eta``
 and a history of one, run over each cohort's lags, computed as part of the
 kernel: one pass per cohort forward, and one back.
 
+# Arguments
+- `hazard`: the hazard, any argument of a `Derived` kernel.
+
+# Keyword Arguments
+- `from`: the first lag the hazard acts at, `0` by default.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences

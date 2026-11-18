@@ -51,6 +51,13 @@ into one on whole steps, so a method for it belongs with that choice.
 A [package extension](@ref overview-delays) adds one that double interval
 censors the delay.
 
+# Arguments
+- `k`: the delay, or a vector of masses.
+- `lags`: the number of lags, from lag 0.
+
+# Keyword Arguments
+- `step`: the width of a lag in the delay's own unit; `1` by default.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences

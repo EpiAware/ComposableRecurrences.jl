@@ -232,6 +232,11 @@ It is differentiable, with the reverse pass of
 [`Derived`](@ref) and
 [`ComposableRecurrences.Survival`](@ref).
 
+# Arguments
+- `kernel`: the kernel, `TimeVarying(w, Primary())` with `w` a `Derived` or
+  a `Survival`.
+- `n`: the number of cohorts.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
