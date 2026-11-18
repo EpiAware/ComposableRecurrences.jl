@@ -1,5 +1,6 @@
-# Default pullbacks for parts without their own: a local forward-mode
-# derivative of one step. The dual-number code is in the dual-number
+# Default pullbacks for modifiers, couplings, depletion forms and initial
+# states without a hand-written one: a local forward-mode derivative of one
+# step, parameters included. The dual-number code is in the dual-number
 # extension; this file holds the parameter walks it uses and, for each local
 # derivative, a method that says to load the extension.
 
