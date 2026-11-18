@@ -1,6 +1,7 @@
-# A `TimeVarying` coefficient given by change points (`_Piecewise`). A call
-# runs each segment with the fixed coefficient's loops; other readers read the
-# values as a dense coefficient with one column per segment.
+# A `TimeVarying` coefficient given by change points (`_Piecewise`). Each
+# segment holds one value, so a call runs each segment with the fixed
+# coefficient's loops; other readers read the values as a dense coefficient
+# with one column per segment.
 
 # == Shared ==
 
@@ -297,6 +298,8 @@ end
 # Primary: the sum over segments of a fixed convolution of the input masked
 # to the segment. Segment `j`'s outputs `a:b` do not overlap the other
 # segments', so the fixed loop writes them first and the tails are added.
+# The buffer has no history, so its rows from `m + lo` hold the times from
+# `lo`.
 function _convolve_body!(k, Y, c::_TVPiecewise{Primary}, X, m, start)
     p = c.x
     D = _nlags(c)
