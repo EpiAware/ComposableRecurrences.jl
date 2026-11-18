@@ -1,6 +1,8 @@
 @doc raw"""
-A value computed from other values by a function `f`: a modifier parameter,
-or the weights of a cohort kernel.
+    Derived(f, args...)
+
+A value computed from at least one argument `args` by a function `f`: a
+modifier parameter, or the weights of a cohort kernel.
 
 As a modifier parameter, at stratum ``k`` and absolute time ``t``,
 
@@ -50,7 +52,8 @@ weights, on the calling task and on host arrays.
 The reverse pass, for the cotangent ``\bar u`` of a value read, is
 
 ```math
-\bar a_j \mathrel{+}= \frac{\partial f}{\partial a_j}\big(a_1, \dots, a_n\big)\, \bar u,
+\bar a_j \mathrel{+}=
+    \frac{\partial f}{\partial a_j}\big(a_1, \dots, a_n\big)\, \bar u,
 ```
 
 with the partial derivatives in closed form for `+`, `-`, `*` and `/` in a
@@ -68,10 +71,6 @@ other side.
 [`ComposableRecurrences.Survival`](@ref) on either side.
 Wrap a plain parameter as `Derived(identity, x)` to start such an
 expression.
-
-# Arguments
-- `f`: the function, called as `f(a_1, ..., a_n)` on the arguments' values.
-- `args`: the arguments, at least one.
 
 # Examples
 ```jldoctest
@@ -123,7 +122,8 @@ struct Derived{F, A <: Tuple}
     "The arguments."
     args::A
     function Derived(f::F, args::A) where {F, A <: Tuple}
-        isempty(args) && throw(ArgumentError("Derived($f) needs at least one argument"))
+        isempty(args) &&
+            throw(ArgumentError("Derived($f) needs at least one argument"))
         map(_check_argument, args)
         _joined(_coef_lags, args, "lags")
         _joined(_coef_strata, args, "strata")
@@ -138,15 +138,18 @@ param(x::Derived, k, t) = x.f(_params_at(x.args, k, t)...)
 function add_param!(x̄, x::Derived, v, k, t)
     ā = _arg_mirrors(cotangent(x̄, :args), x.args)
     ā === nothing && return nothing
-    return _add_partials!(ā, x, v, _partials(x.f, _params_at(x.args, k, t)), k, t)
+    ∂ = _partials(x.f, _params_at(x.args, k, t))
+    return _add_partials!(ā, x, v, ∂, k, t)
 end
-# Add `v ∂_i` into each argument's mirror `ā[i]`. Unrolled over the
-# arguments, so a nested `Derived` recurses only into simpler `Derived`
-# types and infers: a helper shared by every level would meet inference's
+# Add `v ∂_i` into each argument's mirror `ā[i]`, unrolled so a nested
+# `Derived` infers: a helper shared by every level would meet inference's
 # recursion limit and dispatch at run time.
-@generated function _add_partials!(ā, x::Derived{F, A}, v, ∂, k, t) where {F, A}
+@generated function _add_partials!(
+        ā, x::Derived{F, A}, v, ∂, k, t
+    ) where {F, A}
     calls = (
-        :(add_param!(ā[$i], x.args[$i], v * ∂[$i], k, t)) for i in 1:fieldcount(A)
+        :(add_param!(ā[$i], x.args[$i], v * ∂[$i], k, t))
+            for i in 1:fieldcount(A)
     )
     return quote
         $(calls...)
@@ -154,11 +157,10 @@ end
     end
 end
 
-# The value of parameter `x` at `(k, t)` and what its pullback
-# (`_add_param_partials!`) needs, from one read of its arguments: the
-# partials of a `Derived`'s map that has mirrors, else `nothing`. Only the
-# outer map's partials are kept: a nested `Derived` argument reads its own
-# arguments again in its `add_param!`.
+# The value of parameter `x` at `(k, t)` and the partials of a `Derived`'s
+# map that has mirrors, else `nothing`, from one read of its arguments, for
+# `_add_param_partials!`. Only the outer map's partials are kept: a nested
+# `Derived` argument reads its own arguments again in its `add_param!`.
 _param_partials(x̄, x, k, t) = (param(x, k, t), nothing)
 function _param_partials(x̄, x::Derived, k, t)
     xs = _params_at(x.args, k, t)
@@ -168,7 +170,8 @@ function _param_partials(x̄, x::Derived, k, t)
 end
 _add_param_partials!(x̄, x, v, ::Nothing, k, t) = add_param!(x̄, x, v, k, t)
 function _add_param_partials!(x̄, x::Derived, v, ∂::Tuple, k, t)
-    return _add_partials!(_arg_mirrors(cotangent(x̄, :args), x.args), x, v, ∂, k, t)
+    ā = _arg_mirrors(cotangent(x̄, :args), x.args)
+    return _add_partials!(ā, x, v, ∂, k, t)
 end
 
 # The arguments' values, read one tuple entry at a time: a `map` closure
@@ -195,12 +198,13 @@ end
 _float_param(x::Derived) = x
 
 # Whether every `Derived` inside a value of type `T` has a map without float
-# fields of its own, so its local derivative covers every parameter. A
-# closed function of the type, evaluated once per type so the route folds.
+# fields of its own, so its local derivative covers every parameter.
+# Type-only, so `_derived_local` folds at compile time.
 function _derived_local_type(::Type{T}) where {T}
-    T <: Derived &&
-        return _fieldfree_type(fieldtype(T, :f)) && _derived_local_type(fieldtype(T, :args))
-    T <: Union{Real, AbstractArray, Nothing, Symbol, AbstractString} && return true
+    T <: Derived && return _fieldfree_type(fieldtype(T, :f)) &&
+        _derived_local_type(fieldtype(T, :args))
+    T <: Union{Real, AbstractArray, Nothing, Symbol, AbstractString} &&
+        return true
     isconcretetype(T) && isstructtype(T) || return true
     return all(_derived_local_type, fieldtypes(T))
 end
@@ -216,9 +220,7 @@ end
 @generated _derived_local(x) = _derived_local_type(x)
 
 # Arithmetic with a `Derived` on either side lowers to `Derived`; the other
-# side is any parameter.
-# A vector of lag weights is an operand too, for a kernel.
-const _Param = Union{Real, PerStratum, TimeVarying, Derived}
+# side is any parameter, or a vector of lag weights for a kernel.
 const _Operand = Union{Real, AbstractVector{<:Real}, PerStratum, TimeVarying}
 for op in (:+, :-, :*, :/, :^)
     @eval begin
