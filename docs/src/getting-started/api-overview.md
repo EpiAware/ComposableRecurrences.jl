@@ -19,6 +19,30 @@ They use `gi`, `T`, `pop`, `K`, `seed` and `R` from the model of [Three towns, s
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "getting_started_model.jl"))
 ```
 
+## [How the parts fit together](@id overview-map)
+
+An operator is built from a kernel, and a recurrence also from a coupling and modifiers.
+A shape sets how each of these coefficients varies across strata and time.
+The operator is then called with data, and an executor sets where the call's loops run.
+
+![How kernels, couplings, modifiers, shapes, operators, calls and executors fit together](../assets/api-map.svg)
+
+| Part | Section | Explanation |
+|:--|:--|:--|
+| one step of an operator | [A step](@ref overview-step) | [Operators](@ref explanation-operators) |
+| `Recurrence` and `Convolution` | [Operators](@ref overview-operators) | [Operators](@ref explanation-operators) |
+| a call and what it returns | [Calls](@ref overview-calls) | [Time base](@ref explanation-time-base) |
+| shapes | [Shapes](@ref overview-shapes) | [Slots](@ref explanation-slots) |
+| a delay distribution as a kernel | [Delay distributions](@ref overview-delays) | [Time units](@ref time-units) |
+| couplings | [Couplings](@ref overview-couplings) | [Where the coupling acts](@ref explanation-coupling) |
+| modifiers | [Modifiers](@ref overview-modifiers) | [Modifiers](@ref explanation-modifiers) |
+| depletion forms | [Depletion forms](@ref overview-variants) | [Modifiers](@ref explanation-modifiers) |
+| time-series processes | [Time-series processes](@ref overview-time-series) | [Latent processes](@ref tutorial-latent-rt) |
+| executors | [Executors](@ref overview-executors) | [Executors](@ref executors) |
+
+To write a new coupling, modifier or depletion form, or to check a gradient, see [Writing new types](@ref extending).
+It lists the names for this in its [extension API](@ref overview-extending).
+
 ## [A step](@id overview-step)
 
 `Recurrence` and [`Convolution`](@ref), the two operators, compute their outputs one step at a time.
@@ -374,54 +398,3 @@ y ≈ renewal(R; history = seed)
 | [`convert_floats(T, x)`](@ref ComposableRecurrences.convert_floats) | converts every float a model holds, scalars included, to `T`; needs Functors.jl | the model |
 
 `with` comes from `Base.ScopedValues`, and the setting holds inside its block only.
-
-## [Extension API](@id overview-extending)
-
-These names are for writing a [new coupling, modifier or depletion form](@ref extending), and for checking its gradient.
-A model built from the package's own parts needs none of them.
-A role is one job a new type can do, such as computing a step.
-Each role is named by a type with no fields, such as `Step()`.
-A new type does its work in a [`forward!`](@ref ComposableRecurrences.forward!) method for each role it has.
-The role `Step()` computes one step, and [`Init()`](@ref ComposableRecurrences.Init) the starting state.
-The role [`Pressure()`](@ref ComposableRecurrences.Pressure) is a coupling's mixing, and `ComposableRecurrences.Trace()` a modifier's record for a call with `record = (:trace,)`.
-The role `ComposableRecurrences.Run()` is an operator's whole call.
-An operator's hand-written gradient is its rule.
-
-| Name | What it does | Returns |
-|:--|:--|:--|
-| [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one role | writes in place, returns `nothing` |
-| [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | adds to the cotangents: the gradients of the result with respect to each input |
-| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`ComposableRecurrences.Trace()`](@ref ComposableRecurrences.Trace), [`ComposableRecurrences.Run()`](@ref ComposableRecurrences.Run) | the roles | types with no fields |
-| [`ComposableRecurrences.ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
-| [`ComposableRecurrences.uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role` | `Bool` |
-| [`blocks(m)`](@ref ComposableRecurrences.blocks) | a modifier's groups of strata | a tuple, or `nothing` |
-| [`ComposableRecurrences.ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | whether a modifier acts on each stratum on its own | `Bool` |
-| [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` strata | `Int` |
-| [`isstateless(m)`](@ref ComposableRecurrences.isstateless) | whether a modifier leaves its state unchanged, so it records no trace | `Bool` |
-| [`islinear(x)`](@ref ComposableRecurrences.islinear) | whether a coupling or whole-step modifier is a matrix, so a call runs that matrix in its place | `Bool` |
-| [`param(x, k, t)`](@ref ComposableRecurrences.param) | reads a parameter for stratum `k` at time `t` | a value |
-| [`add_param!(x̄, x, v, k, t)`](@ref ComposableRecurrences.add_param!) | adds to a parameter's cotangent | `nothing` |
-| [`cotangent(x̄, name)`](@ref ComposableRecurrences.cotangent) | the cotangent of a field | a cotangent, or `nothing` |
-| [`ComposableRecurrences.add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | adds to a cotangent | `nothing` |
-| [`ComposableRecurrences.depth(x)`](@ref ComposableRecurrences.depth) | how many past outputs a modifier, coupling or kernel reads | `Int` |
-| [`ComposableRecurrences.param_eltype(x)`](@ref ComposableRecurrences.param_eltype) | the number type a type's parameters need in the store of past outputs | a type |
-| [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the conformance test for a new type, built on the Interfaces.jl package | a test result |
-
-For an operator, pass `ComposableRecurrences.Run()` as the role to `ComposableRecurrences.uses_adjoint`, `PieceInterface` and `test_adjoint`.
-`blocks` gives `(nv, ns)`, the number of values and of state entries in each group.
-It is `(1, 1)` for a pointwise modifier and `nothing` for one that reads every stratum.
-`ComposableRecurrences.ispointwise` and `nstate` are read from `blocks`.
-A run keeps at least `ComposableRecurrences.depth` past outputs, even when the kernel is shorter.
-
-### [Checking gradients](@id overview-gradients)
-
-A rule can be checked against the gradient that automatic differentiation computes from the operator's code.
-
-| Name | What it does | Returns |
-|:--|:--|:--|
-| [`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) | the same operator, differentiated by automatic differentiation instead of its [rule](@ref adjoints-backends) | an operator |
-| [`ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs the rule tester of an automatic differentiation package on an operator's rule | a test result |
-
-The gradient through `NoAdjoint(op)` checks the gradient through `op`, and timing both compares their cost.
-`backend` names the automatic differentiation package, such as Mooncake or Enzyme.
-`test_adjoint` needs the Mooncake package, or the Enzyme and EnzymeTestUtils packages, loaded.
