@@ -11,8 +11,8 @@
 abstract type AbstractOperator end
 
 @doc raw"""
-Wrap an operator so it is differentiated by the AD backend's own treatment of
-its forward loop, bypassing any hand-written adjoint.
+An operator wrapper that the AD backend differentiates through its forward
+loop, bypassing the operator's rule.
 
 Called exactly like the wrapped operator, it computes the same output,
 
@@ -22,9 +22,9 @@ f_{\mathrm{NoAdjoint(op)}}(u) = f_{\mathrm{op}}(u),
 
 for every input ``u``, so its gradient ``\nabla_u f`` is the same quantity
 by a different route: the backend's derivative of the forward loop rather
-than the hand-written pullback.
-Useful to time a hand-written adjoint against plain AD, and to check the two
-gradients agree.
+than the rule's pullback.
+Use it to time the rule against plain AD, and to check the two gradients
+agree.
 
 It turns off the operator's rules: its call is differentiated as the forward
 loop, with two exceptions inside it, each kept because plain AD is several
@@ -32,7 +32,7 @@ times slower without it.
 On one backend, a convolution's BLAS `axpy!` over each lag keeps its rule.
 On another, a sparse route coupling's pressure is differentiated by the
 coupling's own `pullback!`.
-Rules for building parts before the call, the masses of a chain of delays
+Rules for what is built before the call, the masses of a chain of delays
 and the movement of `Redistribute(K, ε)`, apply as they would without
 `NoAdjoint`.
 [Which rules are kept](@ref rule-policy) names the backends and the
@@ -81,7 +81,7 @@ _count_pullback() = (Threads.atomic_add!(_PULLBACK_CALLS, 1); nothing)
 # == Whether a part has its own adjoint ==
 
 @doc raw"""
-Whether `piece` carries its own analytic adjoint in `role`: a
+Return whether `piece` carries its own rule in `role`: a
 [`ComposableRecurrences.pullback!`](@ref) method for that role.
 
 For outputs ``o = f(u, \theta)`` of the role, with inputs ``u`` and
@@ -92,7 +92,7 @@ parameters ``\theta``, the adjoint computes the cotangents
 \bar\theta = \Big(\frac{\partial o}{\partial \theta}\Big)^{\top} \bar o
 ```
 
-by hand, where ``\bar o`` is the gradient of a scalar loss with respect to
+directly, where ``\bar o`` is the gradient of a scalar loss with respect to
 ``o``.
 
 By default it is `true` when `pullback!` has a method for the type of
@@ -111,11 +111,11 @@ pass throws a `MethodError`.
 An operator uses its adjoint in [`ComposableRecurrences.Run`](@ref) when it
 has one.
 A [`Recurrence`](@ref) does when every float it holds is a `Float16`,
-`Float32` or `Float64` and each part has a `pullback!` or a
+`Float32` or `Float64` and each component has a `pullback!` or a
 [local step](@ref adjoint-routing) within its limits.
 
 # Arguments
-- `piece`: the operator, coupling, modifier or variant.
+- `piece`: the operator, coupling, modifier or depletion form.
 - `role`: the role.
 
 # Examples
@@ -302,8 +302,8 @@ end
 # == Mirrors ==
 
 @doc raw"""
-The cotangent of field `name` in the mirror `x̄` of a struct, or `nothing`
-when `x̄` is `nothing` or has no such field.
+Return the cotangent of field `name` in the mirror `x̄` of a struct, or
+`nothing` when `x̄` is `nothing` or has no such field.
 
 For a struct with fields ``\theta_1, \dots, \theta_n`` and a scalar loss
 ``\ell``, the mirror holds
@@ -414,7 +414,7 @@ _array_mirror(C̄::NamedTuple{(:x,)}) = C̄.x
 # == Testing ==
 
 @doc raw"""
-Test the analytic adjoint of `piece` in `role` on the primal arguments
+Test the rule of `piece` in `role` on the primal arguments
 `args` with the AD `backend`'s own rule tester.
 
 The tester checks the pullback against finite differences of the forward

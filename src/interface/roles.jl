@@ -144,8 +144,8 @@ stratum ``j`` in stratum ``i``, with ``S`` [strata](@ref PerStratum).
 coupling gives ``K_{t,ij}`` = `C.x[i, j, t]`.
 To add a coupling, define a type and add this method; it may compute any
 ``q_t`` from ``p_t`` and ``t``.
-Add a [`ComposableRecurrences.pullback!`](@ref) method for a hand-written
-[gradient](@ref extending-coupling).
+Add a [`ComposableRecurrences.pullback!`](@ref) method for a
+[rule](@ref extending-coupling).
 
 # Examples
 ```jldoctest
@@ -325,7 +325,7 @@ function pullback! end
 # == Modifier traits ==
 
 @doc raw"""
-Whether modifier `m` acts on each stratum separately: whether its
+Return whether modifier `m` acts on each stratum separately: whether its
 [`ComposableRecurrences.blocks`](@ref) is `(1, 1)`.
 
 A pointwise modifier's step factorises over the ``S``
@@ -355,14 +355,13 @@ CR.ispointwise(CR.Transform(clamp, 0.0, 1.0)), CR.ispointwise(nothing)
 ispointwise(m) = blocks(m) === (1, 1)
 
 @doc raw"""
-The group shape of modifier `m`: `(nv, ns)`, its values and state entries
-per group, or `nothing` when its step reads the whole vectors.
+Return the group shape of modifier `m`: `(nv, ns)`, its values and state
+entries per group, or `nothing` when its step reads the whole vectors.
 
-A modifier with `(nv, ns)` holds ``n_v`` compartments of ``G`` groups each
-in its values and ``n_s`` in its state, compartment by compartment: with
-``S = n_v G`` strata, value ``(i - 1) G + g`` is compartment ``i`` of group
-``g`` and state entry ``(j - 1) G + g`` is state compartment ``j`` of group
-``g``.
+A modifier with `(nv, ns)` holds ``n_v`` pools of ``G`` groups each in its
+values and ``n_s`` in its state, pool by pool: with ``S = n_v G`` strata,
+value ``(i - 1) G + g`` is pool ``i`` of group ``g`` and state entry
+``(j - 1) G + g`` is state pool ``j`` of group ``g``.
 Its step factorises over groups: at absolute time ``t``, group ``g``'s new
 values and state depend only on its own,
 
@@ -420,7 +419,7 @@ CR.blocks(leaky), CR.blocks(CR.Transform(clamp, 0.0, 1.0)), CR.blocks(nothing)
 blocks(m) = nothing
 
 @doc raw"""
-The number of state entries modifier `m` keeps for `S`
+Return the number of state entries modifier `m` keeps for `S`
 [strata](@ref PerStratum), from its [`ComposableRecurrences.blocks`](@ref).
 
 The recurrence allocates each modifier's state ``s`` with
@@ -461,8 +460,8 @@ _blocks_nstate(::Nothing, S) = S
 _blocks_nstate(::Val{B}, S) where {B} = B[2] * _ngroups(Val(B), S)
 
 @doc raw"""
-Whether `forward!` of coupling or modifier `x` is linear in its input and
-does not read the time.
+Return whether `forward!` of coupling or modifier `x` is linear in its input
+and does not read the time.
 
 For a coupling this is `forward!(C, Pressure(), q, p, t)` linear in `p`;
 for a whole-step modifier ([`ComposableRecurrences.blocks`](@ref) `nothing`,
@@ -481,7 +480,7 @@ in its place, so the gradient takes the built-in's `pullback!` and the
 outer AD differentiates the ``S`` calls of `forward!`.
 A `forward!` written as a matrix product, such as `mul!(q, C.K, p)`, then
 gives a gradient close to the built-in's; one written as scalar loops is
-differentiated loop by loop, so a hand-written `pullback!` is still faster.
+differentiated loop by loop, so a `pullback!` of its own is still faster.
 A type with its own `pullback!` for the role keeps it, as does a call
 through [`ComposableRecurrences.NoAdjoint`](@ref).
 Declare it from the type, `ComposableRecurrences.islinear(::MyType) = true`,
@@ -518,7 +517,7 @@ true
 islinear(x) = false
 
 @doc raw"""
-Whether modifier `m` leaves its state unchanged in its
+Return whether modifier `m` leaves its state unchanged in its
 [`ComposableRecurrences.Step`](@ref).
 
 A stateless modifier's state after every step is the state it started
@@ -553,8 +552,8 @@ CR.isstateless(CR.Transform(clamp, 0.0, 1.0)), CR.isstateless(CR.Depletion(9.0))
 isstateless(m) = false
 
 @doc raw"""
-The number of past outputs `x` reads from a recurrence's buffer, before
-the current step.
+Return the number of past outputs `x` reads from a recurrence's buffer,
+before the current step.
 
 A [`Recurrence`](@ref) keeps
 

@@ -22,9 +22,6 @@ const PENDING_EXAMPLES = ()
 # is a file path relative to the package root or a docstring label such as
 # `docstring Recurrence`.
 const PENDING_WORDING = (
-    "docstring NoAdjoint",
-    "docstring test_adjoint",
-    "docstring uses_adjoint",
     "src/ComposableRecurrences.jl",
 )
 
