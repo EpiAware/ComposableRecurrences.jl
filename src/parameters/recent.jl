@@ -195,7 +195,7 @@ struct _BoundRecent{R <: Recent, B, G, U, I, Z, M}
 end
 function _BoundRecent(x::Recent, H, H̄, o, shared)
     C = x.coupling
-    _check_coupling(C, size(H, 2))
+    _check_recent_strata(C, size(H, 2))
     u, row, z = _windows(shared, C, x.w, H)
     return _BoundRecent(x, H, H̄, o, u, row, z, _mirror_slot(C, x.w))
 end
@@ -244,6 +244,15 @@ _keep_mirror!(::Nothing, w̄) = nothing
 _keep_mirror!(slot, w̄) = (slot[] = w̄; nothing)
 _kept_mirror(::Nothing) = nothing
 _kept_mirror(slot) = slot[]
+_check_recent_strata(::Nothing, S) = nothing
+function _check_recent_strata(C, S)
+    size(C) == (S, S) || throw(
+        DimensionMismatch(
+            "Recent's coupling is $(join(size(C), " × ")); expected $S × $S"
+        )
+    )
+    return nothing
+end
 
 param(b::_BoundRecent, k, t) = _read(b.x.coupling, b, k, _recent_row(b, k, t))
 # A read's float type, from the weights, the coupling and the history: the
