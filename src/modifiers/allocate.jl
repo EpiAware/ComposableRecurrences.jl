@@ -1,9 +1,9 @@
 # ---- Allocate ----------------------------------------------------------------
 
 @doc raw"""
-Rescales each group of [strata](@ref PerStratum) to an exogenous
-total: the strata of a group keep their shares of the group's value and the
-group takes its total.
+A modifier that rescales each group of [strata](@ref PerStratum) to a
+total fixed outside the model: the strata of a group keep their shares of
+the group's value and the group takes its total.
 With `imports`, a fraction of each total is shared instead by an import
 pattern that reads the values before an optional within-group spill.
 
@@ -56,7 +56,7 @@ A group may be empty, given as `Int[]` or a range such as `3:2` (an untyped
 `[]` holds `Any` and is rejected): it holds no strata, so its total and
 import fraction are not used and their gradients are zero.
 The groups are stored flat, in the fields `strata` (each group's strata in
-turn) and `offsets` (where each group starts), so the analytic adjoint sees
+turn) and `offsets` (where each group starts), so the rule sees
 only integer arrays and the parameters.
 `total` and `fraction` are [parameters](@ref ComposableRecurrences.param)
 over groups, not strata: `PerStratum` holds one value per group.
@@ -93,6 +93,11 @@ With `imports`, ``a^u_p`` and ``a^h_p`` are the same sums over ``u`` and
 where ``a^h_p`` is replaced by ``a^u_p`` in ``\bar h_i`` while the pattern
 sum is below ``\epsilon``, then
 ``\bar v = M_t^\top \bar u + P_t^\top \bar h``, two transposed products.
+
+# Arguments
+- `groups`: a vector of index ranges or vectors, one per group,
+  partitioning the strata.
+- `total`: each group's total.
 
 # Keyword Arguments
 - `imports`: `nothing` (the default), or `(fraction, pattern)` with
@@ -247,8 +252,7 @@ _ngroups(m::Allocate) = length(m.offsets) - 1
 _group(m::Allocate, p) = view(m.strata, (m.offsets[p] + 1):m.offsets[p + 1])
 
 # The groups, checked and stored flat. Only integers, so the extensions mark
-# it as carrying no derivative; traced, it was most of the constructor's
-# gradient.
+# it as carrying no derivative and AD does not trace it.
 function _flat_groups(groups)
     _check_groups(groups)
     strata = Int[k for zs in groups for k in zs]

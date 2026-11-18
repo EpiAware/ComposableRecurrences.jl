@@ -1,6 +1,6 @@
 @doc raw"""
-Maps each stratum's value through a function `f`, with optional
-parameters `θ`.
+A modifier that maps each stratum's value through a function `f`, with
+optional parameters `θ`.
 
 At time ``t``, for each [stratum](@ref PerStratum) ``i``,
 
@@ -48,9 +48,17 @@ passing `B` as `add`.
 Its pullback sends the cotangent to the active bound, or to ``v_i`` when
 neither is.
 
-Scope: [`Recurrence`](@ref); pointwise; analytic adjoint from the local
-forward-mode derivative or `derivative`, or a hand-written one for `+` and
-`clamp`.
+It acts on a [`Recurrence`](@ref) and is pointwise.
+Its rule takes the local forward-mode derivative or `derivative`, or a
+hand-written pullback for `+` and `clamp`.
+
+# Arguments
+- `f`: the map, called as `f(v)` or `f(v, θ)`.
+- `θ`: the parameters, or `nothing`.
+- `lo`, `hi`: with `clamp`, the lower and upper bounds, each a parameter.
+
+# Keyword Arguments
+- `derivative`: the derivative of `f`, or `nothing` for the local one.
 
 # Examples
 ```jldoctest

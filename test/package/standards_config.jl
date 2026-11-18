@@ -20,13 +20,11 @@ const PENDING_EXAMPLES = ()
 # is a file path relative to the package root or a docstring label such as
 # `docstring Recurrence`.
 const PENDING_WORDING = (
-    "docstring Allocate",
     "docstring NoAdjoint",
     "docstring Pairwise",
     "docstring PieceInterface",
     "docstring Recent",
     "docstring Step",
-    "docstring Transform",
     "docstring forward!",
     "docstring pullback!",
     "docstring test_adjoint",
@@ -73,13 +71,11 @@ const PENDING_CODE_LENGTH = (
     "docs/src/getting-started/tutorials/transform.jl",
     "docs/src/getting-started/tutorials/vaccination.jl",
     "docs/src/performance/summary.md",
-    "docstring Allocate",
     "docstring Depletion",
     "docstring Direct",
     "docstring FFTMethod",
     "docstring Redistribute",
     "docstring Run",
-    "docstring Transform",
     "docstring depth",
     "docstring forward!",
 )
