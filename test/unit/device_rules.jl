@@ -1,9 +1,10 @@
 # The package's own rules on device arrays, run on JLArrays without a GPU:
-# a fixed convolution and a recurrence of independent strata run their
-# forward pass and their pullback on the device, without scalar indexing,
-# and give the CPU's cotangents; calls whose reverse pass needs the host
-# keep plain AD. AD backends cannot differentiate JLArrays themselves, so
-# the rule passes run directly.
+# a fixed convolution and a recurrence of independent strata, or of strata
+# mixed by a dense coupling, with or without built-in pointwise modifiers,
+# run their forward pass and their pullback on the device, without scalar
+# indexing, and give the CPU's cotangents; calls whose reverse pass needs the
+# host keep plain AD. AD backends cannot differentiate JLArrays themselves,
+# so the rule passes run directly.
 
 @testsnippet DeviceRules begin
     using ComposableRecurrences
@@ -25,6 +26,8 @@
         x = dev ? JLArray(inputs(S)) : inputs(S)
         return op, (x, true, nothing, nothing, 1, nothing)
     end
+    # A coupling that mixes every pair of strata.
+    dense(S) = Matrix(0.5I, S, S) .+ 0.5 / S
     function recurrence_case(coupling, S, dev; kernel = pmf)
         r = Recurrence(kernel; coupling)
         op = dev ? adapt(JLArray, r) : r
@@ -32,6 +35,24 @@
         x, h = dev ? (JLArray(x), JLArray(h)) : (x, h)
         args = CR._run_args(op, x, h, nothing, nothing, 1)
         return op, (args..., nothing)
+    end
+
+    # A recurrence with modifiers `ms`, as `recurrence_case` builds one.
+    function modified_case(ms, S, dev)
+        r = Recurrence(pmf; modifiers = ms)
+        op = dev ? adapt(JLArray, r) : r
+        x, h = inputs(S), fill(1.0, S, L)
+        x, h = dev ? (JLArray(x), JLArray(h)) : (x, h)
+        args = CR._run_args(op, x, h, nothing, nothing, 1)
+        return op, (args..., nothing)
+    end
+    # A pool every stratum shares, with a flow out, and one per stratum.
+    function pools(S)
+        flow = CR.Flow(:S => 0, 0.1; form = CR.Share())
+        return (
+            CR.Depletion(200.0, CR.Hazard(), flow),
+            CR.Depletion(PerStratum(fill(150.0, S)), CR.Floor()),
+        )
     end
 
     # The input's cotangent and the parameter mirror after the rule's
@@ -47,10 +68,12 @@
     # Whether the mirrors `a` (device) and `b` (host) hold the same values.
     agree(a::AbstractArray, b::AbstractArray) = Array(a) ≈ b
     agree(a::Base.RefValue, b::Base.RefValue) = a[] ≈ b[]
-    agree(a::NamedTuple, b::NamedTuple) = all(map(agree, values(a), values(b)))
+    agree(a::Union{Tuple, NamedTuple}, b::Union{Tuple, NamedTuple}) =
+        all(map(agree, values(a), values(b)))
+    agree(::Nothing, ::Nothing) = true
 end
 
-@testitem "JLArrays: the rule passes of a fixed convolution and of independent strata match the CPU" setup = [DeviceRules] begin
+@testitem "JLArrays: the rule passes of a fixed convolution and of a recurrence match the CPU" setup = [DeviceRules] begin
     # More strata than blocks, so the blocks' copies of the shared kernel
     # cotangent are summed.
     for S in (4, CR._KERNEL_BLOCKS + 1)
@@ -84,6 +107,13 @@ end
                     coupling = (; diag = dev ? JLArray(zeros(S)) : zeros(S)),
                 ),
             ),
+            "recurrence, dense coupling" => (
+                dev -> recurrence_case(dense(S), S, dev),
+                dev -> (;
+                    kernel = dev ? JLArray(zeros(L)) : zeros(L),
+                    coupling = dev ? JLArray(zeros(S, S)) : zeros(S, S),
+                ),
+            ),
             "recurrence, scalar coupling" => (
                 dev -> recurrence_case(0.8I, S, dev),
                 dev -> (;
@@ -103,6 +133,60 @@ end
     end
 end
 
+@testitem "JLArrays: the rule passes of built-in modifiers match the CPU" setup = [DeviceRules] begin
+    # A `Transform` without a `derivative` takes its derivative with dual
+    # numbers, which needs ForwardDiff.
+    using ForwardDiff
+    # More strata than blocks, so the blocks' copies of a shared pool's
+    # cotangent are summed.
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        cases = [
+            "a shared pool and one per stratum" => pools(S),
+            "a scale and a shift" => (
+                CR.Transform(*, PerStratum(fill(0.9, S))),
+                CR.Transform(+, 0.5),
+            ),
+            "a clamp and a pool" => (
+                CR.Transform(clamp, 0.0, 5.0), first(pools(S)),
+            ),
+            "a function of its own" => (
+                CR.Transform((v, a) -> v * exp(-a), 0.1),
+            ),
+        ]
+        @testset "$name, $S strata" for (name, ms) in cases
+            op0, args0 = modified_case(ms, S, false)
+            op1, args1 = modified_case(ms, S, true)
+            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
+            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
+            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test agree(p̄1, p̄0)
+        end
+    end
+end
+
+@testitem "JLArrays: a dense coupling's pullback with and without its own mirror" setup = [DeviceRules] begin
+    S = 4
+    C, p, q̄ = dense(S), collect(1.0:S), collect(0.5:0.5:(S / 2))
+    for C̄ in (nothing, zeros(S, S))
+        p̄ = zeros(S)
+        grads = (; piece = C̄, q = q̄, p = p̄)
+        CR.pullback!(grads, C, CR.Pressure(), zeros(S), p, 1)
+        d̄ = C̄ === nothing ? nothing : JLArray(C̄ .* 0)
+        dgrads = (; piece = d̄, q = JLArray(q̄), p = JLArray(zeros(S)))
+        Cd, pd = JLArray(C), JLArray(p)
+        CR.pullback!(dgrads, Cd, CR.Pressure(), JLArray(zeros(S)), pd, 1)
+        @test Array(dgrads.p) ≈ p̄
+        C̄ === nothing || @test Array(d̄) ≈ C̄
+    end
+    # Pressures of the wrong length are an error, not a wrong result.
+    bad = (; piece = nothing, q = JLArray(q̄), p = JLArray(zeros(S + 1)))
+    @test_throws DimensionMismatch CR.pullback!(
+        bad, JLArray(C), CR.Pressure(), JLArray(zeros(S)), bad.p, 1
+    )
+end
+
 @testitem "JLArrays: calls whose reverse pass runs on a device take the rule" setup = [DeviceRules] begin
     S = 4
     route(op, args) = CR._route_val(op, args...)
@@ -112,17 +196,27 @@ end
     op, args = recurrence_case(I, S, true)
     @test route(op, args) === Val(:rule)
     @test (@inferred route(op, args)) === Val(:rule)
-    # A coupling that mixes strata reverses its steps on the host.
-    C = Matrix(0.5I, S, S) .+ 0.5 / S
-    op, args = recurrence_case(C, S, true)
+    # So does a dense coupling on the device.
+    op, args = recurrence_case(dense(S), S, true)
+    @test (@inferred route(op, args)) === Val(:rule)
+    # A time-varying coupling reverses its steps on the host.
+    X = JLArray(repeat(dense(S), 1, 1, T))
+    op, args = recurrence_case(TimeVarying(X), S, true)
     @test route(op, args) === Val(:plain)
-    # So do modifiers.
-    pool = CR.Depletion(PerStratum(fill(200.0, S)), CR.Hazard())
-    r = Recurrence(pmf; modifiers = (pool,))
-    rd = adapt(JLArray, r)
-    x, h = JLArray(inputs(S)), JLArray(fill(1.0, S, L))
-    args = (CR._run_args(rd, x, h, nothing, nothing, 1)..., nothing)
-    @test route(rd, args) === Val(:plain)
+    # Built-in modifiers that reverse per stratum take the rule.
+    op, args = modified_case((pools(S)...,), S, true)
+    @test (@inferred route(op, args)) === Val(:rule)
+    # A modifier that reads a group of strata reverses on the host.
+    groups = CR.Allocate([1:2, 3:4], PerStratum(fill(1.0, 2)))
+    op, args = modified_case((groups,), S, true)
+    @test (@inferred route(op, args)) === Val(:plain)
+    # So does a pool whose overflow joins a queue.
+    flow = CR.Flow(0 => :B, 2.0; form = CR.Truncate())
+    queued = CR.Depletion(
+        flow, CR.Truncate(; overflow = :queue); pools = (B = 50.0,)
+    )
+    op, args = modified_case((queued,), S, true)
+    @test (@inferred route(op, args)) === Val(:plain)
     # The gate's defaults, called directly: inference folds them into the
     # routes above, so those calls never run them.
     @test !CR._on_gpu(zeros(2))
@@ -130,6 +224,10 @@ end
     @test !CR._device_ready(sum)
     @test CR._device_ready(first(convolution_case(pmf, S, false)))
     @test CR._device_ready(first(recurrence_case(I, S, false)))
+    @test CR._device_coupling(I) && CR._device_coupling(Diagonal(ones(S)))
+    @test !CR._device_coupling(TimeVarying(X))
+    @test CR._device_modifiers(())
+    @test !CR._device_modifier(groups)
     # Numbers other than IEEE floats keep plain AD.
     xq, cq = JLArray(fill(1 // 2, S, T)), Convolution(JLArray(fill(1 // 5, L)))
     @test route(cq, (xq, true, nothing, nothing, 1, nothing)) === Val(:plain)

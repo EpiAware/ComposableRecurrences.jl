@@ -781,11 +781,19 @@ function _initial_body!(k, s, m, G)
     return nothing
 end
 
+# The groups run as the forward pass's do: in order on the host, and as one
+# kernel on device arrays, where groups that share a pool's value add into
+# stacked copies of its cotangent.
 function pullback!(grads, m::Depletion, ::Init, s, history)
     G = length(s) ÷ _nentries(m)
-    s̄ = grads.s
-    for k in 1:G
-        _add_initials!(grads.piece, m, s̄, G, k)
+    accs = _accumulators(Serial(), s, G, length(s), grads.piece)
+    _reduce_blocks!(_initials_back!, accs, G, m, grads.s, G)
+    _reduce!(accs)
+    return nothing
+end
+function _initials_back!(ks, m̄, m, s̄, G)
+    for k in ks
+        _add_initials!(m̄, m, s̄, G, k)
     end
     return nothing
 end
