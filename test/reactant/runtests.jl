@@ -4,8 +4,10 @@
 #   julia +1.12 --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
 #   julia +1.12 --project=test/reactant --startup-file=no test/reactant/runtests.jl
 #
-# Reactant is capped at 0.2.292: 0.2.293 hangs in MLIR's ConcatViewCSE pass
-# compiling the flows case.
+# Reactant is held to 0.2.306 - 0.2.308. Mooncake 0.5.64 and later need
+# CUDA 6.4.1 or later once CUDA is loaded, which needs GPUCompiler 2, which
+# Reactant allows from 0.2.306. (0.2.293 hung in MLIR's ConcatViewCSE pass;
+# 0.2.308 runs every case.)
 #
 # Two suites run:
 # - `registry`: every scenario of the shared AD registry (`test/ADFixtures`),
@@ -32,6 +34,8 @@
 #                       hand-written cases (default "20,400")
 #   REACTANT_REUSE      "1" rebuilds RESULTS.md and the tests from results.tsv,
 #                       keeping the lines that say where the rows were run
+#   REACTANT_MIN_STRATA the `TRACED_MIN_STRATA` the cases run under (default
+#                       the package's); "1" runs every strata loop as a kernel
 #   REACTANT_RESULTS    a name for a run with its own results, such as "gpu":
 #                       it reads and writes results-<name>.tsv and
 #                       RESULTS-<name>.md, so a GPU run does not change the
@@ -241,7 +245,7 @@ function write_results(path, results, elapsed)
     println(io, "- `forward`: `Reactant.@compile` of the call against plain Julia.")
     println(io, "- `reverse`: `Enzyme.gradient` inside `@compile` of the loss, against ForwardDiff.")
     println(io, "- AD registry scenarios (`test/ADFixtures`) are at the registry's size and are checked as the AD tests check them: entry by entry, at the scenario's tolerance (`1e-8`, or `1e-4` with single-precision parameters). Scenarios Reactant cannot run are listed in the registry with the reason.")
-    println(io, "- Hand-written cases (`cases.jl`) cover what the registry cannot: the harness control, a resumed call, a joined traced history, a check at the call, a call across $(ReactantCases.SW) strata, and how compile and run time grow with the number of steps (L = $(ReactantCases.L) lags, S = $(ReactantCases.S) strata in the others). Their loss is a weighted sum of the output, checked to a relative error below `1e-8`.")
+    println(io, "- Hand-written cases (`cases.jl`) cover what the registry cannot: the harness control, a resumed call, a joined traced history, a check at the call, calls across $(ReactantCases.SW) strata, independent and through a dense coupling with a depletion, and how compile and run time grow with the number of steps (L = $(ReactantCases.L) lags, S = $(ReactantCases.S) strata in the others). Their loss is a weighted sum of the output, checked to a relative error below `1e-8`.")
     println(io, "- `works` cells give compile time (s) / median run time (µs); `wrong` means the check failed.")
     println(io, "- Each suite runs in one process, so the first row's forward compile time includes Reactant's fixed first-compile cost; the control row of the hand-written cases measures it.")
     for b in setdiff(["cpu", "gpu"], backends)

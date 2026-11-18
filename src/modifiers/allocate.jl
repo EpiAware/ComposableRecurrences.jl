@@ -1,7 +1,9 @@
+# == Allocate ==
+
 @doc raw"""
-Rescales each group of [strata](@ref PerStratum) to an exogenous
-total: the strata of a group keep their shares of the group's value and the
-group takes its total.
+A modifier that rescales each group of [strata](@ref PerStratum) to a
+total fixed outside the model: the strata of a group keep their shares of
+the group's value and the group takes its total.
 With `imports`, a fraction of each total is shared instead by an import
 pattern that reads the values before an optional within-group spill.
 
@@ -54,7 +56,7 @@ A group may be empty, given as `Int[]` or a range such as `3:2` (an untyped
 `[]` holds `Any` and is rejected): it holds no strata, so its total and
 import fraction are not used and their gradients are zero.
 The groups are stored flat, in the fields `strata` (each group's strata in
-turn) and `offsets` (where each group starts), so the analytic adjoint sees
+turn) and `offsets` (where each group starts), so the rule sees
 only integer arrays and the parameters.
 `total` and `fraction` are [parameters](@ref ComposableRecurrences.param)
 over groups, not strata: `PerStratum` holds one value per group.
@@ -79,9 +81,11 @@ With `imports`, ``a^u_p`` and ``a^h_p`` are the same sums over ``u`` and
 
 ```math
 \begin{aligned}
-\bar T_{t,p} &\mathrel{+}= (1 - \phi_{t,p} r_p)\, a^u_p + \phi_{t,p}\, a^h_p, \qquad
+\bar T_{t,p} &\mathrel{+}= (1 - \phi_{t,p} r_p)\, a^u_p
+    + \phi_{t,p}\, a^h_p, \qquad
 \bar\phi_{t,p} \mathrel{+}= T_{t,p} (a^h_p - r_p a^u_p), \\
-\bar u_i &= \frac{T_{t,p} (1 - \phi_{t,p} r_p)}{\sigma^u_p} (\bar v'_i - a^u_p), \qquad
+\bar u_i &= \frac{T_{t,p} (1 - \phi_{t,p} r_p)}{\sigma^u_p}
+    (\bar v'_i - a^u_p), \qquad
 \bar h_i = \frac{T_{t,p}\, \phi_{t,p}}{\sigma^h_p} (\bar v'_i - a^h_p),
 \end{aligned}
 ```
@@ -110,7 +114,8 @@ using ComposableRecurrences
 CR = ComposableRecurrences
 totals = [10.0 12.0 15.0 18.0; 2.0 3.0 3.0 4.0]  # groups × time
 split = CR.Allocate([1:2, 3:3], TimeVarying(PerStratum(totals)))
-Recurrence([0.6, 0.4]; modifiers = (split,))(fill(1.2, 3, 4); history = ones(3, 2))
+r = Recurrence([0.6, 0.4]; modifiers = (split,))
+r(fill(1.2, 3, 4); history = ones(3, 2))
 
 # output
 
@@ -133,7 +138,8 @@ split = CR.Allocate(
     [1:2, 3:3], PerStratum([10.0, 2.0]);
     imports = (PerStratum([0.2, 0.0]), P), spill = within
 )
-y = Recurrence([1.0]; modifiers = (split,))(ones(3, 1); history = [3.0; 1.0; 1.0;;])
+r = Recurrence([1.0]; modifiers = (split,))
+y = r(ones(3, 1); history = [3.0; 1.0; 1.0;;])
 round.(y; digits = 3)
 
 # output
@@ -161,7 +167,9 @@ struct Allocate{T, I}
         im = _imports(imports, spill, length(groups))
         return new{T, typeof(im)}(strata, offsets, total, im)
     end
-    function Allocate(::_Flat, strata, offsets, total::T, imports::I) where {T, I}
+    function Allocate(
+            ::_Flat, strata, offsets, total::T, imports::I
+        ) where {T, I}
         return new{T, I}(strata, offsets, total, imports)
     end
 end
@@ -231,20 +239,20 @@ function _check_pattern(P)
         )
     )
     _check_coupling_shape(P)
-    P isa AbstractMatrix && size(P, 1) != size(P, 2) && throw(
-        DimensionMismatch("pattern is $(size(P)), expected a square matrix")
-    )
+    if P isa AbstractMatrix && size(P, 1) != size(P, 2)
+        msg = "pattern is $(size(P)), expected a square matrix"
+        throw(DimensionMismatch(msg))
+    end
     return nothing
 end
 
-# The groups are stored flat, as index vectors, so the analytic rules see
-# only integer arrays and the total.
+# == Groups, state and traits ==
+
 _ngroups(m::Allocate) = length(m.offsets) - 1
 _group(m::Allocate, p) = view(m.strata, (m.offsets[p] + 1):m.offsets[p + 1])
 
-# The groups, checked and stored flat: every stratum in group order, and
-# each group's end in that list. Only integers, so the extensions mark it as
-# carrying no derivative; traced, it was most of the constructor's gradient.
+# The groups, checked and stored flat. Only integers, so the extensions mark
+# it as carrying no derivative and AD does not trace it.
 function _flat_groups(groups)
     _check_groups(groups)
     strata = Int[k for zs in groups for k in zs]
@@ -299,7 +307,9 @@ function _check_partition(m::Allocate, S)
 end
 
 # The groups hold indices, not parameters.
-param_eltype(m::Allocate) = promote_type(param_eltype(m.total), param_eltype(m.imports))
+function param_eltype(m::Allocate)
+    return promote_type(param_eltype(m.total), param_eltype(m.imports))
+end
 
 # With imports the state holds the import pattern, after the spilled values
 # when there is a spill.
@@ -325,6 +335,8 @@ function _check_imports(im::_AllocateImports, S)
 end
 pullback!(grads, ::Allocate, ::Init, s, history) = nothing
 isstateless(::Allocate{<:Any, Nothing}) = true
+
+# == Step without imports ==
 
 # The groups are disjoint, so each is one index of the loop.
 function forward!(m::Allocate{<:Any, Nothing}, ::Step, v, s, t)
@@ -376,6 +388,8 @@ function pullback!(grads, m::Allocate{<:Any, Nothing}, ::Step, v, s, t)
     return nothing
 end
 
+# == Step with imports ==
+
 # With imports: the spilled values `u` go into the first slot of the state
 # when there is a spill (otherwise `u = v`) and the pattern `h = P v` into
 # the last, then each group shares its total between them.
@@ -410,7 +424,8 @@ function _import_body!(p, v, u, h, strata, offsets, total, fraction, t)
         su += u[k]
         sh += h[k]
     end
-    cu, ch = _import_weights(param(total, p, t), param(fraction, p, t), su, sh, ε)
+    T, φ = param(total, p, t), param(fraction, p, t)
+    cu, ch = _import_weights(T, φ, su, sh, ε)
     for k in zs
         v[k] = cu * u[k] + ch * h[k]
     end
@@ -431,19 +446,19 @@ end
 _keeps_after(::Allocate{<:Any, <:_AllocateImports}) = true
 
 # Per group, with `a_u = Σ ȳ_k u_k / s_u` and `a_h = Σ ȳ_k h_k / s_h`:
-# `ū_k = c_u (ȳ_k − a_u)` and `h̄_k = c_h (ȳ_k − a_h)`, then `ū` goes back
-# through the spill's pullback and `h̄` through the pattern's, each one
-# transposed product. `u` and `h` are read from the state after the step
-# when the reverse pass recorded it, else computed again from the input.
-function pullback!(grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, t)
+# `ū_k = c_u (ȳ_k − a_u)` and `h̄_k = c_h (ȳ_k − a_h)`, then `ū` and `h̄` go
+# back through the spill's and the pattern's transposed products.
+function pullback!(
+        grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, t
+    )
     (; fraction, pattern, spill) = m.imports
     v̄, s̄ = grads.v, grads.s
     S = length(v)
     h̄ = view(s̄, (length(s̄) - S + 1):length(s̄))
     īm = cotangent(grads.piece, :imports)
     T̄, φ̄ = cotangent(grads.piece, :total), cotangent(īm, :fraction)
-    u, h = _spilled_and_pattern(_after(grads), spill, pattern, v, t)
-    pass = _pass(grads)
+    u, h = _spilled_and_pattern(_field(grads, :after), spill, pattern, v, t)
+    pass = _field(grads, :pass)
     ε = eps(eltype(v))
     for p in 1:_ngroups(m)
         zs = _group(m, p)
@@ -474,14 +489,15 @@ function pullback!(grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step, v, s, 
             v̄[k] = cu * (on ? ȳk - au : ȳk)
         end
     end
-    _spill_back!(spill, cotangent(īm, :spill), v̄, s̄, v, t, _field(pass, :vc), pass)
-    _pattern_back!(pattern, cotangent(īm, :pattern), h̄, v̄, v, t, _field(pass, :hb))
+    r̄, P̄ = cotangent(īm, :spill), cotangent(īm, :pattern)
+    _spill_back!(spill, r̄, v̄, s̄, v, t, _field(pass, :vc), pass)
+    _pattern_back!(pattern, P̄, h̄, v̄, v, t, _field(pass, :hb))
     fill!(h̄, zero(eltype(h̄)))
     return nothing
 end
 
-# The spilled values `u` and the pattern `h` of a step: read from the state
-# after the step, or computed again from its input `v`.
+# A step's `u` and `h`: read from the state after the step when the reverse
+# pass recorded it, else computed again from its input `v`.
 function _spilled_and_pattern(::Nothing, spill, pattern, v, t)
     S = length(v)
     buf = similar(v, 2S)
@@ -496,10 +512,11 @@ function _spilled_and_pattern(after, spill, pattern, v, t)
     return u, view(after, (length(after) - S + 1):length(after))
 end
 
-_after(grads) = hasfield(typeof(grads), :after) ? grads.after : nothing
-_pass(grads) = hasfield(typeof(grads), :pass) ? grads.pass : nothing
-_field(::Nothing, name) = nothing
-_field(x::NamedTuple, name) = getfield(x, name)
+# The field `name` of `x`, or `nothing` when it has none: settled from the
+# type, so the branch compiles away.
+@inline function _field(x, name)
+    return hasfield(typeof(x), name) ? getfield(x, name) : nothing
+end
 
 # The pattern's pullback: its cotangent `h̄` to the input's, `v̄ += Pᵀ h̄`,
 # and to the pattern. With a column `hb` of the per-pass buffer, the
@@ -514,17 +531,22 @@ function _pattern_back!(P::Matrix, P̄, h̄, v̄, v, t, hb::AbstractVector)
     return nothing
 end
 
+# == Batched reverse pass ==
+
 # Batching asks for a dense pattern or movement matrix whose mirror is a
 # dense matrix: the buffer keeps each step's `h̄` (`hb`) and each step's
 # cotangent of the spilled values (`vc`). Whether it batches depends on the
 # types only, so the buffer's type is inferred; a mirror of the wrong size
 # throws.
-function _pass_buffer(H, ::Type{Tp}, m::Allocate{<:Any, <:_AllocateImports}, m̄, S, T) where {Tp}
+function _pass_buffer(
+        H, ::Type{Tp}, m::Allocate{<:Any, <:_AllocateImports}, m̄, S, T
+    ) where {Tp}
     (; pattern, spill) = m.imports
     īm = cotangent(m̄, :imports)
     P̄ = cotangent(īm, :pattern)
     r̄ = cotangent(īm, :spill)
-    hb = _batches(pattern, P̄) ? _batch_columns(H, Tp, pattern, P̄, S, T) : nothing
+    hb = _batches(pattern, P̄) ?
+        _batch_columns(H, Tp, pattern, P̄, S, T) : nothing
     vc = _batches_spill(spill, r̄) ?
         _batch_columns(H, Tp, spill.M, cotangent(r̄, :M), S, T) : nothing
     hb === nothing && vc === nothing && return nothing
@@ -544,7 +566,9 @@ end
 # After the last step: `P̄ += H̄ Vᵀ` and `M̄ += Ū Vᵀ`, with `H̄` and `Ū` each
 # step's cotangents of the pattern and the spilled values, and `V` each
 # step's input.
-function _finish_pass!(m̄, m::Allocate{<:Any, <:_AllocateImports}, R, b::NamedTuple, τ0)
+function _finish_pass!(
+        m̄, m::Allocate{<:Any, <:_AllocateImports}, R, b::NamedTuple, τ0
+    )
     īm = cotangent(m̄, :imports)
     if b.hb !== nothing
         P̄ = _array_mirror(cotangent(īm, :pattern))
@@ -571,7 +595,9 @@ function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t, ::Nothing, pass)
 end
 # The same with `M̄` left to `_finish_pass!`: the step keeps `ū` in the
 # column `vc`.
-function _spill_back!(r::Redistribute, r̄, v̄, s̄, v, t, vc::AbstractVector, pass)
+function _spill_back!(
+        r::Redistribute, r̄, v̄, s̄, v, t, vc::AbstractVector, pass
+    )
     ū = view(s̄, 1:length(v))
     ū .+= v̄
     copyto!(vc, ū)
@@ -582,7 +608,9 @@ end
 
 @implements PieceInterface{(:nstate, :pullback)} Allocate [
     Arguments(;
-        piece = Allocate([1:2, 3:3], TimeVarying(PerStratum([4.0 5.0; 1.0 2.0]))),
+        piece = Allocate(
+            [1:2, 3:3], TimeVarying(PerStratum([4.0 5.0; 1.0 2.0]))
+        ),
         role = Step(), args = ([2.0, 3.0, 0.5], [0.0, 0.0, 0.0], 2),
         pullback = false
     ),
