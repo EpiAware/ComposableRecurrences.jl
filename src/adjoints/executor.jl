@@ -355,15 +355,16 @@ const EXECUTOR = ScopedValue{Executor}(Serial())
 @doc raw"""
     TRACED_MIN_STRATA
 
-The fewest strata a loop of a call traced by Reactant runs as one kernel.
+The fewest strata at which a loop of a traced call runs as one kernel.
 
-A traced call runs each step's loop over `S` strata as one
-KernelAbstractions kernel when `S` is at least this, so its program does not
-grow with the strata. A shorter loop is written out, one block a stratum,
-which compiles to a program that grows with `S` but runs faster on the CPU
-than a kernel launch each step. The default, 16, is measured on the CPU;
-on a GPU, where a launch costs less, a lower value may run faster. Set it
-with `with`, as for [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR).
+A traced call runs each step's loop over `S` strata as one kernel when `S`
+is at least this, so its program does not grow with the strata.
+A shorter loop is written out, one block a stratum.
+Its program grows with `S`, but on the CPU it runs faster than a kernel
+launch each step.
+The default, 16, is measured on the CPU.
+On a GPU, where a launch costs less, a lower value may run faster.
+Set it with `with`, as for [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR).
 
 # Examples
 ```jldoctest
