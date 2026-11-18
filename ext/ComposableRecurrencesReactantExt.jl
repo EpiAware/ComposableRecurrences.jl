@@ -165,6 +165,31 @@ end
 # its fields; its type is the answer, as for a `Real`.
 ComposableRecurrences.param_eltype(x::TracedRNumber) = typeof(x)
 
+# A traced scalar parameter, heterogeneity exponent or softness is one
+# value, as a `Real` is. Its value is not known while tracing, so the
+# softness's range is not checked.
+ComposableRecurrences._check_param(name, x::TracedRNumber) = x
+ComposableRecurrences._check_exponent(α::TracedRNumber) = α
+ComposableRecurrences._check_softness(::TracedRNumber) = nothing
+# Read and made float as a `Real` parameter is.
+ComposableRecurrences.param(x::TracedRNumber, k, t) = x
+ComposableRecurrences._float_param(x::TracedRNumber) = float(x)
+# A traced number first is a pool's population, as a `Real` is.
+@inline function ComposableRecurrences.Depletion(N::TracedRNumber, pieces...)
+    return ComposableRecurrences._depletion(
+        ComposableRecurrences._population(N), pieces, nothing
+    )
+end
+@inline function Core.kwcall(
+        kw::NamedTuple, ::Type{ComposableRecurrences.Depletion}, N::TracedRNumber,
+        pieces...
+    )
+    return ComposableRecurrences._depletion(
+        ComposableRecurrences._population(N), pieces,
+        ComposableRecurrences._pools_keyword(kw)
+    )
+end
+
 # Traced `reverse` also reverses its argument in place, so a second call
 # with the same kernel (as when resuming from a returned state) would read
 # it backwards; reversing a copy leaves the caller's kernel intact.
