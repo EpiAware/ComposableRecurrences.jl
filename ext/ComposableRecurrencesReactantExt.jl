@@ -35,21 +35,35 @@ ComposableRecurrences._kernel_arg(::Traced) = Serial()
 # The loop as the `Device` executor's kernel on the backend of the traced
 # arrays among `args`. A loop whose arguments cannot be a kernel's, such as
 # a user's part holding a traced number, a step from change points or a
-# view of a traced array, is written out as before, one block a stratum.
+# view of a traced history, fails to launch while tracing and is written
+# out as before, one block a stratum; any other error is the caller's.
 @inline function ComposableRecurrences.each!(
         body::F, ::Traced, n, work, args::Vararg{Any, N}
     ) where {F, N}
     _require_cuda(Base.get_extension(Reactant, :ReactantCUDAExt))
     x = _first_traced(args...)
-    try
-        x === nothing && error("no traced array to launch on")
-        ComposableRecurrences.each!(body, Device(get_backend(x)), n, work, args...)
-    catch
-        for k in 1:n
-            @inline body(k, args...)
+    if x !== nothing
+        try
+            ComposableRecurrences.each!(body, Device(get_backend(x)), n, work, args...)
+            @debug "traced loop ran as a kernel" body n
+            return nothing
+        catch e
+            _launch_failure(e) || rethrow()
+            @debug "traced loop written out" body n exception = e
         end
     end
+    for k in 1:n
+        @inline body(k, args...)
+    end
     return nothing
+end
+
+# The errors a kernel launch throws while tracing when its arguments cannot
+# be a kernel's: one refused by `Adapt` or not plain data, code a kernel
+# cannot hold, or a part of Reactant's kernel lowering that is missing.
+function _launch_failure(e)
+    return e isa Union{ArgumentError, ErrorException, MethodError, UndefVarError} ||
+        nameof(typeof(e)) === :InvalidIRError
 end
 _first_traced() = nothing
 _first_traced(x::AnyTracedRArray, args...) = x
