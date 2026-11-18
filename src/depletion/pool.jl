@@ -507,7 +507,7 @@ end
 
 # A draw reads `N` unless it truncates what its pools hold.
 function _check_drawn_population(form, N, into)
-    N !== nothing || form isa _TruncateForm && into === nothing || throw(
+    N !== nothing || form isa Truncate && into === nothing || throw(
         ArgumentError(
             into === nothing ?
                 "a $(nameof(typeof(form)))() draw reads the population, so give N" :
@@ -577,7 +577,7 @@ function _check_fill(form, N)
     _check_nonnegative(:N, N)
     return nothing
 end
-_check_fill_form(::_TruncateForm) = nothing
+_check_fill_form(::Truncate) = nothing
 @noinline function _check_fill_form(form)
     throw(
         ArgumentError(

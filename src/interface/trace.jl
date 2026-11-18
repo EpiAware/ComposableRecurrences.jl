@@ -60,8 +60,8 @@ r
 struct Trace end
 
 @doc raw"""
-The number of rows of a modifier's trace for `S` strata, one column per
-step.
+Return the number of rows of a modifier's trace for `S` strata, one column
+per step.
 
 For a modifier with ``r`` trace values per stratum, or per group of a
 blockwise modifier with ``G`` groups,
@@ -73,6 +73,10 @@ n_r = r S \quad \text{or} \quad n_r = r G;
 the default is the modifier's [`ComposableRecurrences.nstate`](@ref), its
 state after each step, or none for a modifier whose state never changes
 ([`ComposableRecurrences.isstateless`](@ref)).
+
+# Arguments
+- `m`: the modifier.
+- `S`: the number of strata.
 
 # Examples
 ```jldoctest
