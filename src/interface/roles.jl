@@ -1,6 +1,8 @@
 # The role interface. An operator implements `forward` for `Run()`; every
-# coupling, modifier or variant implements `forward!`, and optionally
+# coupling, modifier or depletion form implements `forward!`, and optionally
 # `pullback!`, for its role.
+
+# == Roles ==
 
 @doc raw"""
 The role of an operator's whole call, `forward(op, Run(), args...; kwargs...)`,
@@ -24,7 +26,8 @@ It is the role an operator is asked about, as in
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-y, cache = CR.forward(Recurrence([0.5, 0.5]), CR.Run(), fill(1.1, 4); history = ones(2))
+r = Recurrence([0.5, 0.5])
+y, cache = CR.forward(r, CR.Run(), fill(1.1, 4); history = ones(2))
 round.(y; digits = 3)
 
 # output
@@ -39,8 +42,8 @@ round.(y; digits = 3)
 struct Run end
 
 @doc raw"""
-The role of one step of a modifier, or of a variant inside its owner (a
-depletion form inside a [`ComposableRecurrences.Depletion`](@ref)).
+The role of one step of a modifier, or of a depletion form inside its
+[`ComposableRecurrences.Depletion`](@ref).
 
 A modifier ``M`` maps the step's values and its own state at absolute time
 ``t`` to new ones,
@@ -161,6 +164,8 @@ q
 """
 struct Pressure end
 
+# == The role functions ==
+
 @doc raw"""
 Run operator `op` over a whole call, returning `(y, cache)`.
 
@@ -209,7 +214,8 @@ o = f_{\mathrm{role}}(u),
 ```
 
 with ``f_{\mathrm{role}}`` the map of the role:
-[`ComposableRecurrences.Step`](@ref) a modifier step ``(v, s) \mapsto (v', s')``,
+[`ComposableRecurrences.Step`](@ref) a modifier step
+``(v, s) \mapsto (v', s')``,
 [`ComposableRecurrences.Init`](@ref) an initial state from the history,
 [`ComposableRecurrences.Pressure`](@ref) a coupling ``q_t = K_t p_t`` and
 [`ComposableRecurrences.Trace`](@ref) a modifier's record
@@ -219,14 +225,15 @@ returns `nothing`; returning anything else is an error.
 To extend the package, define a type and add this method for its
 [role](@ref extending-roles):
 [`ComposableRecurrences.Step`](@ref) and [`ComposableRecurrences.Init`](@ref)
-for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
-coupling and [`ComposableRecurrences.Trace`](@ref) for a modifier's record.
+for a modifier or depletion form, [`ComposableRecurrences.Pressure`](@ref)
+for a coupling and [`ComposableRecurrences.Trace`](@ref) for a modifier's
+record.
 
 A pointwise step runs under [`ComposableRecurrences.Parallel`](@ref) when
 it reads and writes only `eachindex(v)` entries, and allocates nothing.
 
 # Arguments
-- `x`: the coupling, modifier or variant.
+- `x`: the coupling, modifier or depletion form.
 - `role`: `Step()`, `Init()`, `Pressure()` or `Trace()`.
 - `args`: the role's arguments.
 
@@ -244,7 +251,8 @@ function CR.forward!(m::Offset, ::CR.Step, v, s, t)
     end
     return nothing
 end
-Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))(1.0; history = ones(2), stop = 4)
+r = Recurrence([0.5, 0.5]; modifiers = (Offset(1.0),))
+r(1.0; history = ones(2), stop = 4)
 
 # output
 
@@ -268,7 +276,8 @@ the object's parameters ``\theta``, given the output cotangent ``\bar o``
 ```math
 \bar u \mathrel{+}= \Big(\frac{\partial o}{\partial u}\Big)^{\top} \bar o,
 \qquad
-\bar\theta \mathrel{+}= \Big(\frac{\partial o}{\partial \theta}\Big)^{\top} \bar o .
+\bar\theta \mathrel{+}=
+\Big(\frac{\partial o}{\partial \theta}\Big)^{\top} \bar o .
 ```
 
 `grads` is a NamedTuple: `grads.piece` holds ``\bar\theta``, mirroring the
@@ -293,7 +302,7 @@ is cheap, and the whole operator takes plain AD otherwise.
 # Arguments
 - `grads`: the cotangents, `(; piece, ...)`, with `piece` the mirror of
   `x`'s parameters.
-- `x`: the operator, coupling, modifier or variant.
+- `x`: the operator, coupling, modifier or depletion form.
 - `role`: the role.
 - `args`: the primal arguments `forward!` was given.
 
@@ -312,6 +321,8 @@ grads.v, grads.piece.θ[2][]
 ```
 """
 function pullback! end
+
+# == Modifier traits ==
 
 @doc raw"""
 Whether modifier `m` acts on each stratum separately: whether its
@@ -506,12 +517,116 @@ true
 """
 islinear(x) = false
 
-# How the operator runs a modifier's step, as a static value the loops are
-# compiled for: `Val((nv, ns))` runs the group kernel per group, `nothing`
-# runs the step per stratum (pointwise) or on the whole vectors. It follows
-# from `blocks`, which follows from the type, so this folds. A built-in may
-# run a pointwise shape on its group kernel instead: `Depletion` does, for a
-# one-pool kind without a step of its own (see `depletion/pool.jl`).
+@doc raw"""
+Whether modifier `m` leaves its state unchanged in its
+[`ComposableRecurrences.Step`](@ref).
+
+A stateless modifier's state after every step is the state it started
+with,
+
+```math
+s_t = s_0, \qquad t = 1, \dots, T,
+```
+
+where ``s_t`` is the state after the step at time ``t`` and ``T`` the
+number of steps.
+Its [trace](@ref ComposableRecurrences.Trace) then has no rows, and the
+reverse pass reads ``s_0`` in place of a record of the state per step.
+The default is `false`; a modifier declares it for its type, and the
+optional `stateless` component of
+[`ComposableRecurrences.PieceInterface`](@ref) checks the declaration.
+
+# Arguments
+- `m`: the modifier.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+CR.isstateless(CR.Transform(clamp, 0.0, 1.0)), CR.isstateless(CR.Depletion(9.0))
+
+# output
+
+(true, false)
+```
+"""
+isstateless(m) = false
+
+@doc raw"""
+The number of past outputs `x` reads from a recurrence's buffer, before
+the current step.
+
+A [`Recurrence`](@ref) keeps
+
+```math
+D = \max\big(L,\ d(\text{kernel}),\ d(\text{coupling}),\
+    d(M_1), \dots, d(M_m)\big)
+```
+
+past outputs per stratum, where ``L`` is the kernel length, ``d`` is
+`depth` and ``M_1, \dots, M_m`` are the modifiers.
+The kernel reads the last ``L`` of them; the deeper rows are kept for
+objects that read further back than the kernel.
+A [`ComposableRecurrences.State`](@ref) holds the last ``D`` outputs, so a
+resumed call reads the same past.
+The default recurses by value through the fields of immutable structs,
+tuples and named tuples and takes the largest.
+Numbers, arrays, functions, mutable objects and operators (which keep
+their own buffers) read nothing, ``d = 0``, so an object held inside an
+array or a mutable struct is not counted.
+Add a method for a type that reads the buffer.
+
+# Arguments
+- `x`: any object, such as a modifier, coupling or kernel.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+struct Window
+    w::Int
+end
+CR.depth(x::Window) = x.w
+x = (Window(5), (; a = Window(9), b = 1.0))
+CR.depth(x), CR.depth(CR.Transform(clamp, 0.0, 1.0))
+
+# output
+
+(9, 0)
+```
+"""
+depth(x) = _fields_depth(x)
+depth(::Union{Number, AbstractArray, Nothing, Symbol, AbstractString}) = 0
+depth(::Union{Type, Module, Function}) = 0
+
+# The largest depth over the fields of `x`, unrolled so a concrete type
+# infers. Each field is checked, so the maximum cannot hide a bad one; mutable
+# objects are not walked, so a cycle or undefined field cannot stop a call.
+@generated function _fields_depth(x)
+    ismutabletype(x) && return 0
+    calls = (
+        :(isdefined(x, $i) ? _checked_depth(getfield(x, $i)) : 0)
+            for i in 1:fieldcount(x)
+    )
+    return :(max(0, $(calls...)))
+end
+
+function _checked_depth(x)
+    d = depth(x)
+    d isa Integer && d >= 0 || throw(
+        ArgumentError(
+            "depth($(nameof(typeof(x)))) must be a non-negative integer; " *
+                "got $(repr(d))"
+        )
+    )
+    return Int(d)::Int
+end
+
+# == Step shapes ==
+
+# How the operator runs a modifier's step, fixed by the type so it folds:
+# `Val((nv, ns))` runs a group kernel per group, `nothing` a step per stratum
+# or on the whole vectors. A one-pool `Depletion` runs its group kernel.
 _blocks(m) = _static_blocks(blocks(m))
 _static_blocks(::Nothing) = nothing
 _static_blocks(b::Tuple) = _group_shape(Val(b))
@@ -557,110 +672,7 @@ function _check_blocks(::Val{B}) where {B}
     return B[1]
 end
 
-@doc raw"""
-Whether modifier `m` leaves its state unchanged in its
-[`ComposableRecurrences.Step`](@ref).
-
-A stateless modifier's state after every step is the state it started
-with,
-
-```math
-s_t = s_0, \qquad t = 1, \dots, T,
-```
-
-where ``s_t`` is the state after the step at time ``t`` and ``T`` the
-number of steps.
-Its [trace](@ref ComposableRecurrences.Trace) then has no rows, and the
-reverse pass reads ``s_0`` in place of a record of the state per step.
-The default is `false`; a modifier declares it for its type, and the
-optional `stateless` component of
-[`ComposableRecurrences.PieceInterface`](@ref) checks the declaration.
-
-# Arguments
-- `m`: the modifier.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-CR.isstateless(CR.Transform(clamp, 0.0, 1.0)), CR.isstateless(CR.Depletion(9.0))
-
-# output
-
-(true, false)
-```
-"""
-isstateless(m) = false
-
-@doc raw"""
-The number of past outputs `x` reads from a recurrence's buffer, before
-the current step.
-
-A [`Recurrence`](@ref) keeps
-
-```math
-D = \max\big(L,\ d(\text{kernel}),\ d(\text{coupling}),\ d(M_1), \dots, d(M_m)\big)
-```
-
-past outputs per stratum, where ``L`` is the kernel length, ``d`` is
-`depth` and ``M_1, \dots, M_m`` are the modifiers.
-The kernel reads the last ``L`` of them; the deeper rows are kept for
-objects that read further back than the kernel.
-A [`ComposableRecurrences.State`](@ref) holds the last ``D`` outputs, so a
-resumed call reads the same past.
-The default recurses by value through the fields of immutable structs,
-tuples and named tuples and takes the largest.
-Numbers, arrays, functions, mutable objects and operators (which keep
-their own buffers) read nothing, ``d = 0``, so an object held inside an
-array or a mutable struct is not counted.
-Add a method for a type that reads the buffer.
-
-# Arguments
-- `x`: any object, such as a modifier, coupling or kernel.
-
-# Examples
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-struct Window
-    w::Int
-end
-CR.depth(x::Window) = x.w
-CR.depth((Window(5), (; a = Window(9), b = 1.0))), CR.depth(CR.Transform(clamp, 0.0, 1.0))
-
-# output
-
-(9, 0)
-```
-"""
-depth(x) = _fields_depth(x)
-depth(::Union{Number, AbstractArray, Nothing, Symbol, AbstractString}) = 0
-depth(::Union{Type, Module, Function}) = 0
-
-# The largest depth over the fields of `x`, unrolled so a concrete type
-# infers, as `_fields_eltype` does. Each field's depth is checked here, so
-# a bad one is not hidden by the maximum.
-# Mutable objects are not walked, so a cycle or an undefined field cannot
-# stop a call.
-@generated function _fields_depth(x)
-    ismutabletype(x) && return 0
-    calls = (
-        :(isdefined(x, $i) ? _checked_depth(getfield(x, $i)) : 0)
-            for i in 1:fieldcount(x)
-    )
-    return :(max(0, $(calls...)))
-end
-
-function _checked_depth(x)
-    d = depth(x)
-    d isa Integer && d >= 0 || throw(
-        ArgumentError(
-            "depth($(nameof(typeof(x)))) must be a non-negative integer; " *
-                "got $(repr(d))"
-        )
-    )
-    return Int(d)::Int
-end
+# == Default steps ==
 
 # A modifier's shape checks against `S` strata, run once per call by its
 # `Init` and on a resumed state.
@@ -686,10 +698,14 @@ end
 # The same for its `pullback!`: the cotangents of the step's inputs from
 # those of its outputs, `grads.v` and `grads.s`.
 @inline function _step_back(grads, m, v, s, t, k)
-    T = promote_type(typeof(grads.v), typeof(grads.s), typeof(v), typeof(s), param_eltype(m))
+    T = promote_type(
+        typeof(grads.v), typeof(grads.s), typeof(v), typeof(s), param_eltype(m),
+    )
     v̄r, s̄r = Base.RefValue{T}(grads.v), Base.RefValue{T}(grads.s)
     g = (; piece = grads.piece, v = _At(v̄r, k), s = _At(s̄r, k))
-    _written(m, @inline pullback!(g, m, Step(), _At(Ref(v), k), _At(Ref(s), k), t))
+    _written(
+        m, @inline pullback!(g, m, Step(), _At(Ref(v), k), _At(Ref(s), k), t)
+    )
     return v̄r[], s̄r[]
 end
 # A slot for a scalar the step may write a value of the modifier's float type
@@ -731,7 +747,9 @@ end
 end
 @inline function _block_back(grads, m, v::Tuple, s::Tuple, t, g)
     uses_adjoint(m, Step()) || return _block_local_back(grads, m, v, s, t, g)
-    T = promote_type(map(typeof, (grads.v..., grads.s..., v..., s...))..., param_eltype(m))
+    T = promote_type(
+        map(typeof, (grads.v..., grads.s..., v..., s...))..., param_eltype(m),
+    )
     v̄r, s̄r = map(Base.RefValue{T}, grads.v), map(Base.RefValue{T}, grads.s)
     at = r -> _At(r, g)
     gg = (; piece = grads.piece, v = map(at, v̄r), s = map(at, s̄r))
@@ -741,8 +759,7 @@ end
 end
 
 # The group step and its pullback are inlined at their calls: across a call
-# boundary, plain reverse AD of the returned tuples took about 70% longer
-# and the rule's reverse pass about 8% longer.
+# boundary, reverse AD of the returned tuples is slower, plain AD most of all.
 function _vector_step!(::Val{B}, m, v, s, t) where {B}
     G = _ngroups(Val(B), length(v))
     _each!(_group_body!, Serial(), v, G, G, v, s, m, t, Val(B), G)
@@ -786,7 +803,8 @@ end
 # for a pointwise or a blockwise modifier without one. Not a `pullback!`
 # method, which would count as every modifier's own.
 function _vector_pullback!(grads, m, v, s, t)
-    _has_vector_pullback(m) || return _split_pullback!(_blocks(m), grads, m, v, s, t)
+    _has_vector_pullback(m) ||
+        return _split_pullback!(_blocks(m), grads, m, v, s, t)
     return pullback!(grads, m, Step(), v, s, t)
 end
 function _split_pullback!(::Nothing, grads, m, v, s, t)
@@ -819,6 +837,8 @@ function _strata_pullback!(grads, m, v, s, t)
     end
     return nothing
 end
+
+# == Modifier stages ==
 
 # Run the modifiers in tuple order on the step's values, in place.
 _stages!(::Tuple{}, ::Tuple{}, v, t) = nothing
