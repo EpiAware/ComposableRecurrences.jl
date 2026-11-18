@@ -2985,7 +2985,6 @@ const REACTANT_BROKEN = Dict(
     "Recent or Derived built from traced values" => [
         "Recurrence Redistribute of a movement read from recent outputs",
         "Recurrence removals from recent outputs",
-        "Recurrence Derived modifier parameters",
         "Recurrence feedback from recent outputs",
         "Recurrence feedback from recent outputs across strata",
         "Recurrence bed cap with a stay that is not geometric",
@@ -3019,9 +3018,6 @@ const REACTANT_BROKEN = Dict(
         "Recurrence trace of a weekly budget with a queue",
         "Recurrence default traces of user modifiers",
         "Recurrence user traces on groups and over the whole step",
-    ],
-    "kernel from change points with traced values" => [
-        "Recurrence kernel from change points",
     ],
     "lag contributions read a traced number (`_at`)" => [
         "Convolution lag contributions",
