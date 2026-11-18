@@ -107,8 +107,7 @@ end
         θ -> CR.Transform(*, TimeVarying(θ)), [0.5, 2.0], v, s, 2
     )
     @test c.v && c.s && c.θ
-    # `Transform(+, b)` takes the general pullback: a scalar, per-stratum
-    # and time-varying shift.
+    # Transform(+, b): scalar, per-stratum and time-varying shifts.
     for (b, θ, t) in (
             (θ -> θ[1], [0.5], 1),
             (θ -> PerStratum(θ), [0.5, 0.8, 1.2], 1),
