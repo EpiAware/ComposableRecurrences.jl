@@ -170,8 +170,8 @@ The keyword constructor `Recurrence(routes)` folds routes with a cheaper
 form, and the positional `Recurrence(routes, I, ())` keeps them as given: one
 route is its kernel with its coupling, and routes whose couplings are all
 `λ * I` on vector kernels are the one kernel ``\sum_r \lambda_r k^{(r)}``.
-The rule applies when it covers every route coupling, as for the coupling
-of a [`Recurrence`](@ref).
+The recurrence's rule applies when it covers every route coupling, as for
+the coupling of a [`Recurrence`](@ref).
 
 # Examples
 ```jldoctest
