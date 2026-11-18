@@ -196,8 +196,8 @@ call covers the absolute times `start:stop`:
     `S × T`, read at time `t`; one when left out.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
   - `history`: the inputs before `t = 1`, oldest first (any length `m`, or
-    `S × m`); earlier inputs are zero. Not with a `Primary()` kernel, which
-    has no column for them.
+    `S × m`); earlier inputs are zero.
+    Not with a `Primary()` kernel, which has no column for them.
   - `start`: the first time; `1` by default.
   - `stop`: the last time; by default the common length of the
     time-indexed inputs (`x`, `gain`, `add`).
