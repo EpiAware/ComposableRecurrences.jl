@@ -1910,6 +1910,21 @@ function _generation_distribution(w, θ)
     return sum(WS .* log.(y))
 end
 
+# A delay for each pair of strata, as a `Pairwise` kernel of distributions:
+# the gradient reaches each one's parameters through its masses. Each pair's
+# masses sum to about one, so the reproduction numbers start near `1 / S`.
+function _pairwise_generation_distribution(w, θ)
+    logr, logitp, logh, logR = _unpack(θ, (1,), (1,), (S, L), (S, T))
+    p = 1 / (1 + exp(-only(logitp)))
+    ds = [
+        NegativeBinomial((1 + (a + b) / 4) * exp(only(logr)), p)
+            for a in 1:S, b in 1:S
+    ]
+    r = Recurrence(Pairwise(ds); lags = L + 1)
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 push!(
     _SCENARIOS,
     (
@@ -1928,6 +1943,11 @@ push!(
     (
         "Recurrence negative binomial generation interval per stratum", _generation_distribution,
         () -> _flat([log(3.0)], [0.2], fill(log(5.0), S, L), LOGR),
+    ),
+    (
+        "Recurrence negative binomial generation interval per pair of strata",
+        _pairwise_generation_distribution,
+        () -> _flat([log(3.0)], [0.2], fill(log(5.0), S, L), LOGR .- log(S)),
     ),
 )
 
@@ -2761,6 +2781,9 @@ _REQUIRES["Recurrence effective reproduction number from its trace"] = (:_Traced
 _REQUIRES["Recurrence pressure from its trace, by coupling and with no input"] =
     (:_TracedPressure,)
 _REQUIRES["Recurrence negative binomial generation interval per stratum"] = (:delay_masses,)
+_REQUIRES[
+    "Recurrence negative binomial generation interval per pair of strata",
+] = (:delay_masses,)
 _REQUIRES["Convolution chain of two delays as masses"] = (:chained_delays,)
 _REQUIRES["Convolution Poisson delay distribution on a step of two units"] =
     (:delay_masses, :delay_step)
@@ -3037,6 +3060,7 @@ const REACTANT_BROKEN = Dict(
         "Convolution Poisson delay distribution on a step of two units",
         "Convolution chain of two delays as masses",
         "Recurrence negative binomial generation interval per stratum",
+        "Recurrence negative binomial generation interval per pair of strata",
     ],
     "trace recorded into a traced buffer" => [
         "Recurrence trace of the importation (Redistribute)",
