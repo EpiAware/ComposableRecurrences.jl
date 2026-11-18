@@ -255,8 +255,8 @@ a type parameter so nothing branches on it:
     weights the inputs reaching output `t`. This is the only meaning
     outside a kernel.
   - [`ComposableRecurrences.Primary`](@ref): column `c` is the kernel of
-    the input at time `c`, which spreads forward through it. In a
-    [`Recurrence`](@ref) the input is the output at time `c`, so each
+    the input at time `c`, which spreads forward through it.
+    In a [`Recurrence`](@ref) the input is the output at time `c`, so each
     output keeps the kernel of the time it was produced.
 
 The two agree for a fixed kernel.
