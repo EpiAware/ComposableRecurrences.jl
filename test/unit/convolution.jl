@@ -193,6 +193,8 @@ end
         yb = conv(BigFloat.(x); gain = g, history = hist)
         @test yb isa Matrix{BigFloat}
         @test yb ≈ naive(G, x, primary)
+        yb_part = conv(BigFloat.(x); gain = g, history = hist, start = 2, stop = 8)
+        @test yb_part ≈ naive(G, x, primary)[:, 2:8]
         # One series with a lags × times kernel.
         c1 = Convolution(TimeVarying(G[1, :, :], ix))
         f1(θ) = sum(abs2, c1(θ; history = primary ? nothing : h[1, :]))
