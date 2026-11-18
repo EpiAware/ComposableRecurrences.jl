@@ -117,7 +117,7 @@ What the local step seeds:
 
 - a pointwise modifier: the entries of its other float arrays that a step reads, as `m.a[t]`;
 - a whole-step modifier: the step's values and state, and every scalar and array entry of its parameters;
-- a whole-step modifier whose step reads fewer entries of a strided float array than it holds, as `m.total[t]`: only the entries read, as for a pointwise modifier;
+- a whole-step modifier whose step reads fewer entries of a strided float array outside `PerStratum` and `TimeVarying` than it holds, as `m.total[t]`: only the entries read, as for a pointwise modifier;
 - a coupling: every entry of its float arrays;
 - a `Diagonal` or sparse matrix: nothing, as a step may read its fields rather than its entries.
 
@@ -222,7 +222,12 @@ In the reverse pass:
 - each chunk of strata adds the cotangents of parameters it shares with other chunks, such as a scalar modifier parameter, into its own copy;
 - the copies are summed after the loop, so these cotangents agree with `Serial()` up to rounding;
 - the cotangents of the inputs, the history and an `S × T` gain or add input match exactly;
-- a coupling that mixes strata, a pairwise kernel, routes, modifiers with a vector step and parameters that read across strata run their reverse steps on the calling task.
+- these run their reverse steps on the calling task:
+  - a coupling that mixes strata;
+  - a pairwise kernel;
+  - routes;
+  - modifiers with a vector step;
+  - parameters that read across strata.
 
 The `Parallel(backend)` row was checked on JLArrays only, which run kernels on the CPU.
 
@@ -239,9 +244,11 @@ Every array the call reads must live on the same device: the inputs, the gain an
 - `Adapt.adapt(CuArray, r)` moves every parameter of an operator `r` to the device.
 - Buffers, states and outputs are allocated from the inputs, so they live there too.
 
-A GPU runs `Float32` much faster than `Float64`, and an output takes its float type from every array and number a call holds.
-So a `Float64` scalar parameter, such as a population, promotes the run to `Float64`.
-[`convert_floats(Float32, r)`](@ref ComposableRecurrences.convert_floats) converts every float of `r`, scalars included, so `Adapt.adapt(CuArray, convert_floats(Float32, r))` runs on the device in `Float32`.
+Float types:
+
+- a GPU runs `Float32` much faster than `Float64`;
+- an output takes its float type from every array and number a call holds, so a `Float64` scalar parameter, such as a population, promotes the run to `Float64`;
+- [`convert_floats(Float32, r)`](@ref ComposableRecurrences.convert_floats) converts every float of `r`, scalars included, so `Adapt.adapt(CuArray, convert_floats(Float32, r))` runs on the device in `Float32`.
 
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
 - A sparse coupling is a device sparse matrix: in CSR form each stratum's row is one index of a kernel.
@@ -267,8 +274,11 @@ Array(y) ≈ Recurrence([0.4, 0.3, 0.2, 0.1]; coupling = [0.9 0.1; 0.2 0.8])(
 
 The package's own rules run on device arrays for:
 
-- a convolution with a fixed kernel, a vector or `PerStratum`;
-- a recurrence with a fixed kernel, an identity, scalar, `Diagonal` or dense device coupling, and modifiers that are `Transform`s or `Depletion`s whose steps run per stratum, including a `Depletion` with flows or a floor.
+- a convolution with a fixed kernel (a vector or `PerStratum`);
+- a recurrence with:
+  - a fixed kernel;
+  - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
+  - modifiers that are `Transform`s and `Depletion`s whose steps run per stratum, including a `Depletion` with flows or a floor.
 
 Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
