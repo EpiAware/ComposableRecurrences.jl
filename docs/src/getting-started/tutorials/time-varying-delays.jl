@@ -23,11 +23,9 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # \mu_t = 2 + 4 e^{-((t - 40) / 15)^2},
 # ```
 #
-# on lag ``l = 0, \dots, L_d - 1``.
-# Here ``L_d = 15`` is the delay's length.
-# The shape parameter ``\mu_t`` is `means` in the code.
-# It rises up to day 40, then falls as reporting recovers.
-# The plot is the mean delay of each column, ``\sum_l l \, P_l(t)``.
+# on lag ``l = 0, \dots, L_d - 1``, with ``L_d = 15``.
+# The shape parameter ``\mu_t``, held in `means` in the code, rises up to day 40 and falls as reporting recovers.
+# The plot shows the mean delay of each column, ``\sum_l l \, P_l(t)``.
 
 T, L_d = 80, 15
 function delay_pmf(mean)
@@ -56,8 +54,7 @@ end
 # ```
 #
 # where ``I_t`` is the number of infections and ``C_t`` the reports on day ``t``.
-# With the default [`Secondary()`](@ref ComposableRecurrences.Secondary), column `t` is a report day.
-# With [`Primary()`](@ref ComposableRecurrences.Primary), column `s` is the infection day.
+# With the default [`Secondary()`](@ref ComposableRecurrences.Secondary), column ``t`` holds the delays of the reports on day ``t``, and with [`Primary()`](@ref ComposableRecurrences.Primary), column ``\tau`` holds the delays of the infections on day ``\tau``.
 # A constant delay, the first column ``P_l(1)``, is a reference.
 
 infections = [100 * exp(-((t - 35) / 12)^2) for t in 1:T]
@@ -85,12 +82,12 @@ end
 # Summing the reports over all days, while the window is long enough to hold every delay, gives
 #
 # ```math
-# \sum_t C^{\text{infection}}_t = \sum_s I_s \sum_{l} P_l(s), \qquad
-# \sum_t C^{\text{report}}_t = \sum_s I_s \sum_{l} P_l(s + l),
+# \sum_t C^{\text{infection}}_t = \sum_\tau I_\tau \sum_{l} P_l(\tau), \qquad
+# \sum_t C^{\text{report}}_t = \sum_\tau I_\tau \sum_{l} P_l(\tau + l),
 # ```
 #
-# where ``s`` is the infection day.
-# By infection day, each infection's delay ``P(s)`` sums to one, so each case is reported once.
+# where ``\tau`` is the infection day.
+# By infection day, each infection's delay ``P(\tau)`` sums to one, so each case is reported once.
 # Indexed by report day, each day's weights sum to one.
 # One infection is then weighted by several columns with different delays, so its weights need not sum to one and the total drifts.
 
@@ -146,13 +143,13 @@ end
 # The default, output-day kernel is a period effect, the same for every case on a given day.
 #
 # Isolation thins the generation interval.
-# Here a case infected on day ``c`` is isolated with probability ``p`` after a delay ``D``.
+# Here a case infected on day ``\tau`` is isolated with probability ``p`` after a delay ``D``.
 # Isolation blocks a share ``b`` of its later transmission.
 # The policy starts on day ``t_0``, and an isolation that would fall before it does not happen.
-# The expected generation interval of cohort ``c`` at lag ``l`` is then
+# The expected generation interval of cohort ``\tau`` at lag ``l`` is then
 #
 # ```math
-# g_l(c) = g_l \big(1 - p\, b\, P(D \le l,\ c + D \ge t_0)\big),
+# g_l(\tau) = g_l \big(1 - p\, b\, P(D \le l,\ \tau + D \ge t_0)\big),
 # ```
 #
 # where ``g_l`` is `long_gi`, and ``p = 0.7``, ``b = 0.9`` and ``t_0 = 30``.
@@ -165,10 +162,8 @@ end
 #
 # where ``[t \ge t_0]`` is one from day ``t_0`` and zero before.
 # Both runs use ``I_t = \gamma_t \sum_{l} g_l(\cdot) \, I_{t-l}``, with ``\gamma_t = 1.8``.
-# With `Primary()` column ``c`` is cohort ``c``'s interval, read at lag ``l`` on day ``c + l``.
-# With the default indexing column ``t`` is the interval used on day ``t``.
-# The run starts at `start = 7` after six seed values.
-# `vcat` joins the seed in front of the run.
+# With `Primary()` column ``\tau`` is cohort ``\tau``'s interval, read at lag ``l`` on day ``\tau + l``, and with the default indexing column ``t`` is the interval used on day ``t``.
+# The run starts at `start = 7` after six seed values, and `vcat` joins the seed in front of the run.
 
 p_iso, b_iso, t0 = 0.7, 0.9, 30
 delay_iso = [0.2, 0.3, 0.3, 0.2]          # P(D = 0, 1, 2, 3)
@@ -203,14 +198,14 @@ end
 # ## A kernel from a hazard and a survival
 #
 # Some cohort kernels are products of a profile over the lags and a cohort's survival against a hazard over calendar days.
-# Here patients admitted on day ``u`` stay in care for at least ``l`` days with probability ``S_l``, and are confirmed at a daily hazard ``h_t`` from the day after admission.
-# Cohort ``u``'s weight on lag ``l`` is the probability that it is in care and confirmed:
+# Here patients admitted on day ``\tau`` stay in care for at least ``l`` days with probability ``\bar F_l``, and are confirmed at a daily hazard ``h_t`` from the day after admission.
+# Cohort ``\tau``'s weight on lag ``l`` is the probability that it is in care and confirmed:
 #
 # ```math
-# w_l(u) = S_l \Big(1 - \prod_{j=1}^{l} \big(1 - h_{u+j}\big)\Big).
+# w_l(\tau) = \bar F_l \Big(1 - \prod_{j=1}^{l} \big(1 - h_{\tau+j}\big)\Big).
 # ```
 #
-# [`Survival`](@ref ComposableRecurrences.Survival) is the product, against `TimeVarying(h)`, which a cohort's lag ``j`` reads on the day ``u + j`` it lands, from lag `from = 1`.
+# [`Survival`](@ref ComposableRecurrences.Survival) is the product, against `TimeVarying(h)`, which a cohort's lag ``j`` reads on the day ``\tau + j`` it lands, from lag `from = 1`.
 # Arithmetic with it builds a [`Derived`](@ref ComposableRecurrences.Derived), so the kernel is written as the formula.
 # The operator computes the weights it reads inside its own call and reverse pass, so the kernel is never built entry by entry in the code being differentiated.
 
@@ -232,12 +227,12 @@ end
 
 # ## Performance
 #
-# Each bar times a 15-day delay indexed by infection day over 200 days, written with the operators or as a preallocated hand-written loop.
+# Each bar times a 15-day delay indexed by infection day over 200 days, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("time-varying delays")
 
 # ## Learning more
 #
-# - See every operator, coupling and modifier on the [API overview](@ref api-overview).
-# - Want the full interface? See the [Public API](@ref public-api).
+# - [API overview](@ref api-overview): every operator, coupling and modifier.
+# - [Public API](@ref public-api): every public name with its docstring.

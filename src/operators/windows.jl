@@ -49,9 +49,10 @@ function window_sums(
     return _WindowSums(ends, size(x, dims), Int(dims))(x)
 end
 
-# `window_sums` routes through the rules as an operator of its own. It
-# holds the ends as given, so a backend that traces the call has no loop to
-# trace before the rule; the rule finds the windows.
+# == _WindowSums ==
+
+# `window_sums` as an operator of its own. It holds the ends as given, so a
+# backend that traces the call has no loop to trace before the rule.
 struct _WindowSums{E <: AbstractVector{<:Integer}} <: AbstractOperator
     ends::E
     n::Int

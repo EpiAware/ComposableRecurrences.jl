@@ -18,13 +18,13 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # For any length-of-stay distribution, occupancy is the admissions weighted by the probability of still being in a bed:
 #
 # ```math
-# O_t = \sum_{k \ge 0} S_k \, A_{t-k}, \qquad S_k = \Pr(\text{stay} > k),
+# O_t = \sum_{l \ge 0} \bar F_l \, A_{t-l}, \qquad \bar F_l = \Pr(\text{stay} > l),
 # ```
 #
 # where ``O_t`` is the occupancy and ``A_t`` the admissions on day ``t``.
-# The survival ``S_k`` is the convolution kernel, lag 0 first.
-# The code is `Convolution(S)(admissions)`.
-# A geometric stay, in which each patient leaves with probability ``\delta`` each day, has ``S_k = (1 - \delta)^k``.
+# The survival ``\bar F_l`` is the convolution kernel, lag 0 first.
+# The code is a [`Convolution`](@ref) with the survival as its kernel, `Convolution(S)(admissions)`.
+# A geometric stay, in which each patient leaves with probability ``\delta`` each day, has ``\bar F_l = (1 - \delta)^l``.
 # Because the geometric distribution is memoryless, only this stay collapses the sum to a recurrence of order one:
 #
 # ```math
@@ -60,14 +60,14 @@ end
 # A log-normal stay with log-mean ``\mu`` and log-standard deviation ``\sigma``, discretised by day, has
 #
 # ```math
-# p_k = F(k + 1) - F(k), \qquad S_k = 1 - \sum_{j=0}^{k} p_j, \qquad
+# p_l = F(l + 1) - F(l), \qquad \bar F_l = 1 - \sum_{j=0}^{l} p_j, \qquad
 # F(x) = \tfrac{1}{2} \operatorname{erfc}\Big(-\frac{\log x - \mu}{\sigma \sqrt{2}}\Big),
 # ```
 #
-# where ``p_k`` is the probability of a stay of ``k`` whole days and ``F`` the log-normal distribution function.
-# The survival ``S_k`` is `1 .- cumsum(pmf)`, lag 0 first, and occupancy is again ``O_t = \sum_k S_k A_{t-k}``.
+# where ``p_l`` is the probability of a stay of ``l`` whole days and ``F`` the log-normal distribution function.
+# The survival ``\bar F_l`` is `1 .- cumsum(pmf)`, lag 0 first, and occupancy is again ``O_t = \sum_l \bar F_l A_{t-l}``.
 # Here ``\sigma = 1.2``.
-# The log-mean ``\mu`` is chosen so that the mean days in bed, ``\sum_k S_k``, match the geometric stay's ``1 / \delta``.
+# The log-mean ``\mu`` is chosen so that the mean days in bed, ``\sum_l \bar F_l``, match the geometric stay's ``1 / \delta``.
 
 σ = 1.2
 function survival(μ)
@@ -96,8 +96,7 @@ end
 
 # Both stays have a mean of 6.67 days, with ``\mu = 1.27``.
 # The log-normal stay gives a lower, later peak, 140 patients on day 40 against 171 on day 39, and a longer tail.
-# With the log-normal stay 31% of patients stay at most one day, against 15% with the geometric stay.
-# Also 12% stay more than 14 days, against 10%.
+# With the log-normal stay 31% of patients stay at most one day and 12% more than 14 days, against 15% and 10% with the geometric stay.
 
 # ## A bed cap on occupancy
 #
@@ -133,14 +132,14 @@ end
 # Each day admits the demand up to the free beds:
 #
 # ```math
-# x_t = \min\Big(A_t,\ \frac{B - h_t}{S_0}\Big), \qquad
-# h_t = \sum_{k \ge 1} S_k \, x_{t-k}, \qquad
-# O_t = h_t + S_0 \, x_t,
+# x_t = \min\Big(A_t,\ \frac{B - h_t}{\bar F_0}\Big), \qquad
+# h_t = \sum_{l \ge 1} \bar F_l \, x_{t-l}, \qquad
+# O_t = h_t + \bar F_0 \, x_t,
 # ```
 #
 # where ``A_t`` is the demand for beds, ``x_t`` the admissions and ``h_t`` the beds still held by earlier admissions.
 # The held beds ``h_t`` are a weighted sum of the recurrence's own past outputs, which [`Recent`](@ref ComposableRecurrences.Recent) reads, so the cap is `Transform(min, (B - Recent(S[2:end])) / S[1])` on a recurrence with a zero kernel and the demand as `add`.
-# Of the day's admissions a share ``S_0`` is still in a bed at the end of the day, so the cap divides the free beds by ``S_0``, and ``O_t = B`` on the days it binds.
+# Of the day's admissions a share ``\bar F_0`` is still in a bed at the end of the day, so the cap divides the free beds by ``\bar F_0``, and ``O_t = B`` on the days it binds.
 # The survival is non-increasing, so ``h_t \le O_{t-1} \le B`` and the bound is never negative.
 
 function admit(survival, beds, demand)
@@ -178,17 +177,17 @@ end
 end
 
 # The log-normal ward is full on days 35 to 42.
-# With the geometric stay ``S_0 = 1``, and the ward is full on days 32 to 43, as with the cap on occupancy.
+# With the geometric stay ``\bar F_0 = 1``, and the ward is full on days 32 to 43, as with the cap on occupancy.
 # There 101 patients are turned away rather than deleted.
-# Swapping the stay changes only the survival ``S``: the cap and the convolution stay the same.
+# Swapping the stay changes only the survival `S`: the cap and the convolution stay the same.
 
-# ## A ward with two linked compartments
+# ## A ward with two linked pools
 #
 # A ward holds suspected patients awaiting a test and confirmed patients.
-# Each day some suspected patients are confirmed and move to the confirmed compartment.
+# Each day some suspected patients are confirmed and move to the confirmed pool.
 # Others are ruled out and leave, and confirmed patients are discharged.
 # Confirmation and ruling out compete for the same suspected patients.
-# Let ``U_t`` be the suspected compartment, ``Q_t`` the confirmed compartment and ``A_t`` the admissions.
+# Let ``U_t`` be the suspected pool, ``Q_t`` the confirmed pool and ``A_t`` the admissions.
 # With confirmation rate ``c``, rule-out rate ``r`` and discharge rate ``d``,
 #
 # ```math
@@ -199,11 +198,11 @@ end
 # \end{aligned}
 # ```
 #
-# The rates are hazards, so the share leaving a compartment never exceeds what it holds.
-# The two compartments are the strata of a recurrence with the unit kernel, suspected first.
-# The recurrence carries yesterday's compartments forward and adds the admissions to the suspected one.
+# The rates are hazards, so the share leaving a pool never exceeds what it holds.
+# The two pools are the strata of a recurrence with the unit kernel, suspected first.
+# The recurrence carries yesterday's pools forward and adds the admissions to the suspected one.
 # A [`Depletion`](@ref ComposableRecurrences.Depletion) without a draw then applies the day's flows.
-# Its pools are the compartments, held in the strata.
+# Its pools are the suspected and confirmed patients, held in the strata.
 # Each flow is a [`Flow`](@ref ComposableRecurrences.Flow) from one pool to another, or to `0` to leave, with a hazard rate as its demand.
 # Each rate is a parameter, so it can differ by ward or change over time.
 # Here ``c = 0.3``, ``r = 0.4`` and ``d = 0.1``.
@@ -225,18 +224,18 @@ end
 # Confirmed patients peak six days later, on day 42, and stay longer, as they leave more slowly.
 #
 # A flow with `form = Share()` moves a share, like the daily discharge probability ``\delta`` above, except that the day's admissions can also leave that day.
-# A flow with `form = Truncate()` moves a count capped by what the compartment holds, such as a fixed number of transfers a day.
-# With ``G`` wards the strata are the ``G`` suspected compartments, then the ``G`` confirmed ones.
+# A flow with `form = Truncate()` moves a count capped by what the pool holds, such as a fixed number of transfers a day.
+# With ``G`` wards the strata are the ``G`` suspected pools, then the ``G`` confirmed ones.
 
 # ## Performance
 #
-# Each bar times the two-compartment ward with rate, share and count flows over 200 days, written with the operators or as a preallocated hand-written loop.
+# Each bar times the ward with two linked pools and rate, share and count flows over 200 days, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("occupancy")
 
 # ## Learning more
 #
-# - See every operator, coupling and modifier on the [API overview](@ref api-overview).
-# - Want a step of your own that moves values between compartments? See [A blockwise step](@ref extending-blockwise).
-# - Want the full interface? See the [Public API](@ref public-api).
+# - [API overview](@ref api-overview): every operator, coupling and modifier.
+# - [A blockwise step](@ref extending-blockwise): a step of your own that moves values between pools.
+# - [Public API](@ref public-api): every public name with its docstring.

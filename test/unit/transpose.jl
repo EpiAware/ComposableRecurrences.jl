@@ -194,3 +194,25 @@ end
         end
     end
 end
+
+@testitem "Transpose: a time-varying kernel on dual numbers keeps the buffer" begin
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ForwardDiff, LinearAlgebra, Random
+    rng = Xoshiro(5)
+    L, n, m = 4, 9, 3
+    x, tail = rand(rng, n), rand(rng, m)
+    w = rand(rng, n)
+    for ix in (CR.Secondary(), CR.Primary())
+        t = transpose(Convolution(TimeVarying(rand(rng, L, n + m), ix)))
+        # The convolution of such a kernel gathers on dual numbers, but its
+        # transpose reverses only a fixed kernel, so reads the buffer.
+        @test CR._conv_path(ForwardDiff.Dual{Nothing, Float64, 1}, t.c.kernel, x) isa
+            CR._Gathered
+        y = t(ForwardDiff.Dual.(x, 1.0); tail)
+        @test ForwardDiff.value.(y) ≈ t(x; tail)
+        # The transpose is linear in `x`, so the gradient of a weighted sum
+        # is the weighted sum of its columns.
+        cols = [dot(w, t(Float64.(1:n .== i); tail = zero(tail))) for i in 1:n]
+        @test ForwardDiff.gradient(u -> dot(w, t(u; tail)), x) ≈ cols
+    end
+end

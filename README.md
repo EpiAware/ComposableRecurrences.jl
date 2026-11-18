@@ -19,7 +19,7 @@ Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-sta
   A convolution weights the past values of another series, such as reported cases from earlier infections.
 - Both are usually hand-written loops, rewritten for each model.
   `Recurrence` and `Convolution` express them as two operators, for one series or for many strata, such as towns, run side by side.
-- Coupling between strata, finite pools and bounds are added by composing small couplings and modifiers.
+- Mixing between strata, finite pools and caps are added by passing couplings and modifiers to an operator.
 - The aim is to be as fast as hand-written code with hand-written gradients.
   Against a hand-written loop of each documented model, the package's Mooncake and Enzyme gradients are a median 4.1× and 2.4× faster than the same backend on the loop, comparing minimum times.
   The forward run and ForwardDiff gradient run at a median 1.2× and 1.1× the loop's speed, and are slower on several models.

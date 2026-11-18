@@ -29,14 +29,13 @@ p_l = P\big(l \Delta \le D < (l + 1) \Delta\big), \qquad l = 0, \dots, L - 1,
 where ``D`` is the delay in its own unit and ``\Delta`` is the step in that unit.
 ``\Delta`` is the `step` keyword of [`delay_masses`](@ref ComposableRecurrences.delay_masses), and `Recurrence` and [`Convolution`](@ref) pass it on.
 It is 1 by default, so a delay in days gives masses on days.
-A delay on continuous time is censored with both windows one step wide, its primary event uniform over one step, so four quarter-day masses do not sum to the daily mass.
 
 ```@example time-units
 Recurrence(gi; lags = 15).kernel ≈ ComposableRecurrences.delay_masses(gi, 15)[2:end]
 ```
 
 A [discrete distribution](@ref extension-distributions) sums the masses of the whole units in each step, as in the formula above.
-A [continuous one](@ref extension-censored-distributions) also takes the delay's start as uniform within its step, and then censors where it ends to whole steps.
+A [continuous one](@ref extension-censored-distributions) also takes the delay's start as uniform within its step and censors its end to whole steps, so four quarter-day masses do not sum to the daily mass.
 
 ## [Delays in sequence](@id time-units-chained)
 
@@ -116,8 +115,7 @@ Keep the model daily and sum its outputs in the likelihood:
 weekly = vec(sum(reshape(y, 7, :); dims = 1))
 ```
 
-This is the usual case.
-Nothing is disaggregated: the weekly data constrain the daily series through its sums.
+This is the usual case, because nothing is disaggregated: the weekly data constrain the daily series through its sums.
 
 ## [Data coarser than the step, driving](@id time-units-driving)
 

@@ -48,7 +48,7 @@ end
 
 # ## Performance
 #
-# Each bar times a renewal run to day 100 and continued from its state to day 200, with a 20-day generation interval, written with the operators or as a preallocated hand-written loop over all 200 days in one pass.
+# Each bar times this forecast, a renewal run to day 100 and continued from its state to day 200 with a 20-day generation interval, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("forecasting")
@@ -56,4 +56,4 @@ performance_plot("forecasting")
 # ## Learning more
 #
 # - [History and state](@ref explanation-history-state): what a `State` holds, modifiers included.
-# - Want the full interface? See the [Public API](@ref public-api).
+# - [Public API](@ref public-api): every public name with its docstring.
