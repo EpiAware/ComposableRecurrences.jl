@@ -14,8 +14,9 @@ using Reactant: Reactant, @allowscalar, @trace, AnyTracedRArray, AnyTracedRMatri
 # number of steps. A loop over at least `min_strata` strata runs as the
 # `Device` executor's kernel on Reactant's KernelAbstractions backend, so
 # the program does not grow with the number of strata either; a shorter
-# loop is written out, one block a stratum, which runs faster on the CPU
-# than a kernel launch each step. The threshold is `TRACED_MIN_STRATA`.
+# loop is written out, one block a stratum, whose forward pass runs faster
+# on the CPU than a kernel launch each step. The threshold is
+# `TRACED_MIN_STRATA`.
 struct Traced <: Executor
     min_strata::Int
 end
