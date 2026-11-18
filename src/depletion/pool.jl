@@ -1,4 +1,4 @@
-# ---- Depletion: type and construction ----------------------------------------
+# == Depletion: type and construction ==
 
 # The number of pools and the parts are in the type, so each kind of
 # `Depletion` has methods of its own.
@@ -625,7 +625,7 @@ _flow_run(run, rest::Tuple) = _flow_run_next(run, first(rest), Base.tail(rest))
 _flow_run_next(run, f::Flow, rest) = _flow_run((run..., f), rest)
 _flow_run_next(run, p, rest) = (run, p, _runs_any(rest)...)
 
-# ---- kinds, groups and starting pools ----------------------------------------
+# == Kinds, groups and starting pools ==
 
 # One pool drawn from once with nothing left over, then a run of flows or
 # none: a pointwise step.
@@ -826,7 +826,7 @@ function pullback!(grads, m::_Flowing, ::Step, v, s, t)
     return nothing
 end
 
-# ---- the group step ----------------------------------------------------------
+# == The group step ==
 
 # A group's step and its pullback. They, the parts' steps and their
 # helpers are inlined, as their calls are (see `_vector_step!`): a call-site
@@ -974,7 +974,7 @@ end
     return x̄, _tuple_map(_ -> zero(eltype(x̄)), x̄)
 end
 
-# ---- the group pullback ------------------------------------------------------
+# == The group pullback ==
 
 # `v` and `s` are the group's incoming values and state; returns their
 # cotangents from those of the values and state after the step.
@@ -1130,7 +1130,7 @@ function _add_weights!(w̄s, ws::Tuple, vals, g, t)
     return _add_weights!(_tail(w̄s), Base.tail(ws), Base.tail(vals), g, t)
 end
 
-# ---- the parts as modifiers --------------------------------------------------
+# == The parts as modifiers ==
 
 # Each part is a modifier on the values of a group and the pools the
 # `Depletion` shares among its parts: its group step takes the group's
@@ -1310,7 +1310,7 @@ struct _FormPart{F}
     form::F
 end
 
-# ---- trace -------------------------------------------------------------------
+# == Trace ==
 
 # A pool's trace: with a draw, its pools after the step, the value passed
 # on and what the draws leave of the demand, per stratum for one pool and
