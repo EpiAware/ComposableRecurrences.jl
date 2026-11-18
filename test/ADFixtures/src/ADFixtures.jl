@@ -2980,27 +2980,6 @@ end
 # `test/reactant/` runs the scenarios without their twins, so only the
 # scenario names are listed.
 const REACTANT_BROKEN = Dict(
-    # A traced number is not a `Real`, so the checks on a scalar parameter,
-    # a heterogeneity exponent or a softness refuse it.
-    "traced scalar refused by a parameter check" => [
-        "Recurrence depletion with a differentiated heterogeneity",
-        "Recurrence floored depletion with a differentiated heterogeneity",
-        "Recurrence array-field and scalar-field modifiers",
-        "Recurrence vaccination into a protected pool",
-        "Recurrence waning protection (Depletion flows)",
-        "Recurrence pool with twelve flows (over 32 leaves)",
-        "Recurrence two draws on one pool with a flow between",
-        "Recurrence ward with competing flows (Depletion without a draw)",
-        "Recurrence ward with competing flows, from the parameters as given",
-        "Recurrence protected pool in Float32",
-        "Recurrence grouped totals with time-varying imports (Allocate)",
-        "Recurrence empty pool with a differentiated heterogeneity",
-        "Recurrence capacity, beds with overflow",
-        "Recurrence trace of a protected pool",
-        "Recurrence trace of a ward's flows",
-        "Recurrence capacity, dropped overflow after a truncated draw",
-        "Recurrence depletion with smoothly truncated draws",
-    ],
     # `Recent` and `Derived` have no arithmetic with, or constructor from,
     # traced values.
     "Recent or Derived built from traced values" => [
@@ -3034,6 +3013,8 @@ const REACTANT_BROKEN = Dict(
         "Recurrence negative binomial generation interval per stratum",
     ],
     "trace recorded into a traced buffer" => [
+        "Recurrence trace of a protected pool",
+        "Recurrence trace of a ward's flows",
         "Recurrence trace of the importation (Redistribute)",
         "Recurrence trace of a weekly budget with a queue",
         "Recurrence default traces of user modifiers",

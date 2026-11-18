@@ -361,7 +361,9 @@ ComposableRecurrences._cache_row!(b::_BoundRecent, i::TracedRNumber) = nothing
 
 # The soft minimum of `Truncate(κ)` with a traced value picks its arms
 # with `ifelse`, as a traced `Bool` has no branch. The arm not taken sees
-# the ratio 1, so it makes no NaN that a derivative would carry.
+# the ratio 1, so it makes no NaN that a derivative would carry: both ends
+# of the ratio are replaced, as a zero numerator still gives a NaN
+# softness gradient once compiled.
 const _MaybeTraced = Union{Real, TracedRNumber}
 function ComposableRecurrences._soft_min(
         κ::_MaybeTraced, a::TracedRNumber, b::_MaybeTraced
@@ -376,7 +378,7 @@ function _traced_soft_min(κ, a, b)
     takes_a = a <= b
     lo, hi = ifelse(takes_a, a, b), ifelse(takes_a, b, a)
     smooth = (lo > 0) & !isinf(hi)
-    r = ifelse(smooth, lo / ifelse(smooth, hi, one(hi)), one(lo))
+    r = ifelse(smooth, lo, one(lo)) / ifelse(smooth, hi, one(hi))
     return ifelse(smooth, lo * (1 + r^inv(κ))^(-κ), lo)
 end
 
