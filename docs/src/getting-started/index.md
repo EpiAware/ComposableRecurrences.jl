@@ -83,8 +83,6 @@ one_report = delay(one_town; gain = 0.4, history = one_seed)
 end
 ```
 
-Reports follow infections, later and lower.
-The gain reports 40% of infections.
 While infections grow, each day's reports come from the smaller numbers of earlier days, so they are about a quarter of that day's infections.
 
 ### Three towns and a gravity coupling
@@ -127,7 +125,6 @@ coupled = Recurrence(gi; coupling = K)(fill(1.8, 3, T); history = seed)
 end
 ```
 
-The plot uses a log scale.
 Towns B and C start from the infections town A passes on, so they start lower.
 They then grow at about the same rate as town A.
 
@@ -181,7 +178,6 @@ one_intervened = Recurrence(gi)(intervention; history = one_seed)
 end
 ```
 
-The plot uses a log scale.
 The two runs match until day 50.
 Infections peak on day 53, when the reproduction number has fallen to 1.3.
 Once the reproduction number is below one, infections fall by about 6% a day.

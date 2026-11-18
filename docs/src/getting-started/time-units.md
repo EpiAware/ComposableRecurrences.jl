@@ -115,8 +115,6 @@ Keep the model daily and sum its outputs in the likelihood:
 weekly = vec(sum(reshape(y, 7, :); dims = 1))
 ```
 
-This is the usual case, because nothing is disaggregated: the weekly data constrain the daily series through its sums.
-
 ## [Data coarser than the step, driving](@id time-units-driving)
 
 A weekly series that drives a daily model, such as a seed or an input ``w_j``, needs daily values ``x_t`` with

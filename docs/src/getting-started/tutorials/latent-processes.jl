@@ -253,7 +253,6 @@ end
 end
 
 # A stronger response lowers the total, and a higher ``R`` raises it.
-# Each tangent touches its curve at the point.
 
 # ## Performance
 #
