@@ -1,6 +1,6 @@
 module ComposableRecurrencesReactantExt
 
-using ComposableRecurrences: ComposableRecurrences, Device, Executor, PerStratum, Primary,
+using ComposableRecurrences: ComposableRecurrences, Executor, Parallel, PerStratum, Primary,
     Secondary, Serial, TimeVarying, _BoundRecent, _CPUArray, _OldestFirstPiecewise, _Piecewise,
     _ComputedKernel, _PointwiseCoupling, _Ragged, _array, _lagweight, _nlags,
     _seg_weights, _steps!, _weight
@@ -12,7 +12,7 @@ using Reactant: Reactant, @allowscalar, @trace, AnyTracedRArray, AnyTracedRMatri
 # A traced call compiles as one program: the time loop compiles to a
 # single loop whose body is the step, so the program does not grow with the
 # number of steps. A loop over at least `min_strata` strata runs as the
-# `Device` executor's kernel on Reactant's KernelAbstractions backend, so
+# `Parallel` executor's kernel on Reactant's KernelAbstractions backend, so
 # the program does not grow with the number of strata either; a shorter
 # loop is written out, one block a stratum, whose forward pass runs faster
 # on the CPU than a kernel launch each step. The threshold is
@@ -40,7 +40,7 @@ end
 # A kernel thread runs its body serially.
 ComposableRecurrences._kernel_arg(::Traced) = Serial()
 
-# The loop as the `Device` executor's kernel on the backend of the traced
+# The loop as the `Parallel` executor's kernel on the backend of the traced
 # arrays among `args`. A loop whose arguments cannot be a kernel's, such as
 # a user's part holding a traced number or a step from change points, fails
 # to launch while tracing and is written out as before, one block a
@@ -52,7 +52,7 @@ ComposableRecurrences._kernel_arg(::Traced) = Serial()
     if x !== nothing
         _require_cuda(Base.get_extension(Reactant, :ReactantCUDAExt))
         try
-            ComposableRecurrences.each!(body, Device(get_backend(x)), n, work, args...)
+            ComposableRecurrences.each!(body, Parallel(get_backend(x)), n, work, args...)
             @debug "traced loop ran as a kernel" body n
             return nothing
         catch e

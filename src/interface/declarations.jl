@@ -19,8 +19,8 @@
         pullback = "pullback! matches the `ForwardDiff` Jacobian of forward!" =>
             a -> !_checks_pullback(a) || _pullback_ok(a.piece, a.role, a.args),
     ),
-) "An operator, coupling, modifier or variant with `forward` or `forward!`
-for a role.
+) "An operator, coupling, modifier or depletion form with `forward` or
+`forward!` for a role.
 
 The mandatory `forward` component checks that `forward` (for `Run()`) or
 `forward!` (for the other roles) runs and keeps to its role's conventions

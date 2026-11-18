@@ -51,7 +51,7 @@ y_late = r(gain; history = seed, start = 4)
 length(y_late), y_late[1] ≈ gain[4] * sum(k .* reverse(seed))
 ```
 
-One time base means a series built in parts lines up with one built whole.
+One time base means a series built in sections lines up with one built whole.
 A resumed call, a later `start` and a forecast past the data all read the same column for the same time.
 
 ## [History and state](@id explanation-history-state)

@@ -7,14 +7,17 @@ struct _Routes{C <: Tuple, G <: Tuple}
     couplings::C
     "Each route's kernel, lag 1 first."
     kernels::G
-    function _Routes(::_Checked, couplings::C, kernels::G) where {C <: Tuple, G <: Tuple}
+    function _Routes(
+            ::_Checked, couplings::C, kernels::G
+        ) where {C <: Tuple, G <: Tuple}
         length(couplings) == length(kernels) || throw(
             ArgumentError(
                 "Pairwise has $(length(couplings)) couplings and " *
                     "$(length(kernels)) kernels"
             )
         )
-        isempty(couplings) && throw(ArgumentError("Pairwise needs at least one route"))
+        isempty(couplings) &&
+            throw(ArgumentError("Pairwise needs at least one route"))
         foreach(_check_coupling_shape, couplings)
         # Only a kernel takes `Primary()` indexing.
         _check_times(:coupling, couplings, nothing)
@@ -32,7 +35,8 @@ function Pairwise(route, routes...)
         ArgumentError(
             string(
                 "Pairwise takes one S × S × L array, or routes as coupling => ",
-                "kernel pairs; got ", join(map(_describe, (route, routes...)), ", ")
+                "kernel pairs; got ",
+                join(map(_describe, (route, routes...)), ", ")
             )
         )
     )
@@ -51,17 +55,22 @@ function Base.show(io::IO, R::_Routes)
 end
 
 # A rebuild from the fields skips the pairing.
-_routes_flat(couplings, kernels) = _Routes(_Checked(), couplings, kernels)
-ConstructionBase.constructorof(::Type{<:_Routes}) = _routes_flat
+function ConstructionBase.constructorof(::Type{<:_Routes})
+    return (couplings, kernels) -> _Routes(_Checked(), couplings, kernels)
+end
 
 # A route kernel may hold delays until the operator is built with `lags`.
-_check_route_kernel(g) = _has_delays(typeof(g)) ? nothing : _check_kernel_shape(g)
+function _check_route_kernel(g)
+    return _has_delays(typeof(g)) ? nothing : _check_kernel_shape(g)
+end
 function _check_route_kernel(::_Routes)
     throw(ArgumentError("a route's kernel cannot itself be routes"))
 end
 
-_describe(R::_Routes) = _describe_routes(length(R.kernels))
-_describe_routes(n) = string("Pairwise with ", n, n == 1 ? " route" : " routes")
+function _describe(R::_Routes)
+    n = length(R.kernels)
+    return string("Pairwise with ", n, n == 1 ? " route" : " routes")
+end
 
 _check_kernel_shape(::_Routes) = nothing
 function _check_coupling_shape(R::_Routes)
@@ -87,11 +96,14 @@ _fold_routes(Cs, gs, R, J) = (R, J)
 function _fold_routes(Cs::Tuple{Any}, gs::Tuple{Any}, R, J)
     return _fold_one(only(Cs), only(gs), R, J)
 end
-function _fold_routes(Cs::Tuple{UniformScaling}, gs::Tuple{AbstractVector}, R, J)
+function _fold_routes(
+        Cs::Tuple{UniformScaling}, gs::Tuple{AbstractVector}, R, J
+    )
     return _fold_one(only(Cs), only(gs), R, J)
 end
 function _fold_routes(
-        Cs::Tuple{Vararg{UniformScaling}}, gs::Tuple{Vararg{AbstractVector}}, R, J
+        Cs::Tuple{Vararg{UniformScaling}}, gs::Tuple{Vararg{AbstractVector}},
+        R, J
     )
     return _scaled_sum(Cs, gs), J
 end
@@ -129,12 +141,16 @@ end
 
 # The rule covers the routes when it covers every route coupling, as for the
 # coupling of a `Recurrence`.
-_kernel_adjoint(R::_Routes) = all(C -> _coupling_adjoint(C) !== :none, R.couplings)
+function _kernel_adjoint(R::_Routes)
+    return all(C -> _coupling_adjoint(C) !== :none, R.couplings)
+end
 _kernel_couplings(R::_Routes) = R.couplings
 
 # The plain-AD note names the route couplings the rule cannot use.
 function _no_adjoint_kernel(R::_Routes)
-    return Tuple(_part_why(C) for C in R.couplings if _coupling_adjoint(C) === :none)
+    return Tuple(
+        _part_why(C) for C in R.couplings if _coupling_adjoint(C) === :none
+    )
 end
 
 # == Forward pass ==
@@ -167,17 +183,25 @@ _independent(::_PointwiseCoupling, ::_RouteKernels, ::Tuple) = false
 # `r` reads buffer rows `t + L - L_r` to `t + L - 1`.
 function _prepare!(ex, p, q, C::UniformScaling, k::_RouteKernels, H, t, τ, L)
     fill!(p, zero(eltype(p)))
-    _routes_pressure!(ex, p, k.z, k.w, k.couplings, k.kernels, k.lags, H, t, τ, L)
+    _routes_pressure!(
+        ex, p, k.z, k.w, k.couplings, k.kernels, k.lags, H, t, τ, L
+    )
     return nothing
 end
 function _pressure_at(C::UniformScaling, k::_RouteKernels, p, q, H, t, τ, L, a)
     return p[a], C.λ * p[a]
 end
-_routes_pressure!(ex, p, z, w, ::Tuple{}, ::Tuple{}, ::Tuple{}, H, t, τ, L) = nothing
+function _routes_pressure!(
+        ex, p, z, w, ::Tuple{}, ::Tuple{}, ::Tuple{}, H, t, τ, L
+    )
+    return nothing
+end
 # One route's coupled pressure; its own function so an AD backend can give
 # it a rule.
 _route_forward!(C, w, z, τ) = forward!(C, Pressure(), w, z, τ)
-function _routes_pressure!(ex, p, z, w, Cs::Tuple, gs::Tuple, Ls::Tuple, H, t, τ, L)
+function _routes_pressure!(
+        ex, p, z, w, Cs::Tuple, gs::Tuple, Ls::Tuple, H, t, τ, L
+    )
     Lr = first(Ls)
     _kernel_pressure!(ex, z, first(gs), H, t + L - Lr, τ, Lr)
     _route_forward!(first(Cs), w, z, τ)
@@ -202,8 +226,12 @@ end
 function _kernel_buffer(ḡ, k::_RouteKernels, H, S, L)
     ḡs = _route_mirrors(cotangent(ḡ, :kernels), k.kernels)
     C̄s = _route_mirrors(cotangent(ḡ, :couplings), k.couplings)
-    kbufs = map((ḡr, g, Lr) -> _kernel_buffer(ḡr, g, H, S, Lr), ḡs, k.kernels, k.lags)
-    pbufs = map((C̄, C) -> _pressure_buffers(C̄, C, eltype(H)), C̄s, k.couplings)
+    kbufs = map(ḡs, k.kernels, k.lags) do ḡr, g, Lr
+        _kernel_buffer(ḡr, g, H, S, Lr)
+    end
+    pbufs = map(C̄s, k.couplings) do C̄, C
+        _pressure_buffers(C̄, C, eltype(H))
+    end
     return _RouteBuffers(kbufs, pbufs)
 end
 
@@ -246,6 +274,7 @@ end
 
 function _kernel_finish!(ḡ, kbuf::_RouteBuffers)
     kbufs = kbuf.kernels
-    foreach(_kernel_finish!, _route_mirrors(cotangent(ḡ, :kernels), kbufs), kbufs)
+    ḡs = _route_mirrors(cotangent(ḡ, :kernels), kbufs)
+    foreach(_kernel_finish!, ḡs, kbufs)
     return nothing
 end

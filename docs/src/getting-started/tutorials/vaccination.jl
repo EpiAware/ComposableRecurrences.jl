@@ -31,7 +31,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # ``\sigma`` is the protected pool's relative susceptibility, ``d_t`` the doses on day ``t`` and ``q_t`` the doses moved.
 # The doses moved are capped by what remains of ``S``.
 # A [`Depletion`](@ref ComposableRecurrences.Depletion) holds both pools, `:S` and `:V`.
-# Its `Hazard(; weights = (S = 1, V = σ))` draws from ``S + \sigma V``, and a count [`Flow`](@ref ComposableRecurrences.Flow) after it moves the doses from `:S` to `:V`.
+# Its [`Hazard`](@ref ComposableRecurrences.Hazard) form, `Hazard(; weights = (S = 1, V = σ))`, draws from ``S + \sigma V``, and a count [`Flow`](@ref ComposableRecurrences.Flow) after it moves the doses from `:S` to `:V`.
 #
 # Let ``\eta`` be the efficacy.
 # An all-or-nothing vaccine fully protects a share ``\eta`` of the vaccinated.
@@ -89,12 +89,11 @@ plot_infections(vaccines)
 waning = vaccinated(1 - η, doses, Flow(:V => :S, 1 / 20))
 plot_infections(["Leaky" => leaky, "Leaky, waning" => waning])
 
-# Waning raises the peak a little and adds about 8% more infections over the outbreak.
-# This is because people protected early return to the susceptible pool while the epidemic runs.
+# Waning raises the peak a little and adds about 8% more infections over the outbreak, because people protected early return to the susceptible pool while the epidemic runs.
 
 # ## Performance
 #
-# Each bar times leaky vaccination with waning protection over 200 days with a 20-day generation interval, written with the operators or as a preallocated hand-written loop.
+# Each bar times leaky vaccination with waning protection over 200 days with a 20-day generation interval, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("vaccination")
@@ -102,4 +101,4 @@ performance_plot("vaccination")
 # ## Learning more
 #
 # - [Infectious disease models](@ref infectious-disease-models): the operator for each model part, vaccines included.
-# - Want the full interface? See the [Public API](@ref public-api).
+# - [Public API](@ref public-api): every public name with its docstring.

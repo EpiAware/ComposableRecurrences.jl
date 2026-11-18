@@ -160,7 +160,7 @@ error in a chunk on a new task as a `TaskFailedException`, and one in the
 chunk the calling task runs as an exception that shows it with its
 backtrace.
 On arrays that live on a GPU, `Threaded` spawns CPU tasks that index the
-arrays from the host; use [`Device`](@ref) there.
+arrays from the host; use [`Parallel`](@ref) there.
 
 # Examples
 ```jldoctest
@@ -385,11 +385,11 @@ end
 """
 const TRACED_MIN_STRATA = ScopedValue{Int}(32)
 
-# == Device ==
+# == Parallel ==
 
 @doc raw"""
-Runs every index of a loop as one thread of a kernel on a device, such as a
-GPU: thread `k` computes
+Runs every index of a loop as one thread of a kernel on a
+KernelAbstractions backend, such as a GPU's: thread `k` computes
 
 ```math
 \operatorname{body}(k), \qquad k = 1, \ldots, n.
@@ -399,6 +399,12 @@ GPU: thread `k` computes
 the arrays the loop reads and writes must live on it.
 Kernel launches on one device run in order, so a loop reads the writes of
 the loop before it; reading the result on the host waits for them.
+A loop whose `work` is below `min_work` runs in order on the calling task,
+as [`Serial`](@ref) does.
+Set it only for a backend whose arrays live in host memory, such as the
+KernelAbstractions CPU backend: on a GPU that loop would read the device
+arrays one entry at a time from the host.
+The default `0` launches every loop.
 Needs `KernelAbstractions` to be loaded.
 Under the default [`Serial`](@ref) executor, operator calls on arrays that
 live on a GPU (with `GPUArraysCore` loaded) run their strata loops with it
@@ -407,12 +413,14 @@ Every array a call reads must live on the device.
 Independent strata run as [one kernel per call](@ref gpu-arrays), and
 strata that mix as one kernel per step with the time loop on the host.
 
+A loop body takes device data only, on every backend.
+
 # Examples
 ```jldoctest; setup = :(using JLArrays, KernelAbstractions)
 using ComposableRecurrences, JLArrays, KernelAbstractions
 const CR = ComposableRecurrences
 y = JLArray(zeros(4))
-ex = CR.Device(KernelAbstractions.get_backend(y))
+ex = CR.Parallel(KernelAbstractions.get_backend(y))
 CR.each!((k, y) -> (y[k] = k^2; nothing), ex, 4, 4, y)
 Array(y)
 
@@ -425,18 +433,55 @@ Array(y)
  16.0
 ```
 """
-struct Device{B} <: Executor
+struct Parallel{B} <: Executor
     "The backend the loop's kernel runs on."
     backend::B
+    "The smallest loop `work` that runs as a kernel."
+    min_work::Int
+    function Parallel{B}(backend::B, min_work::Int) where {B}
+        min_work >= 0 || throw(
+            ArgumentError("min_work must be at least 0, got $(repr(min_work))")
+        )
+        return new{B}(backend, min_work)
+    end
 end
+function Parallel(backend::B; min_work = 0) where {B}
+    return Parallel{B}(backend, Int(min_work))
+end
+
+@doc raw"""
+    Device(backend)
+
+Another name for the type [`Parallel`](@ref).
+
+# Arguments
+- `backend`: a `KernelAbstractions` backend, such as `CUDABackend()`.
+- `min_work`: the smallest loop `work` that runs as a kernel, as for
+  [`Parallel`](@ref); `0` by default.
+
+# Examples
+```jldoctest; setup = :(using KernelAbstractions)
+using ComposableRecurrences, KernelAbstractions
+const CR = ComposableRecurrences
+CR.Device(KernelAbstractions.CPU()) isa CR.Parallel
+
+# output
+
+true
+```
+"""
+const Device = Parallel
 
 # == Running operator loops ==
 
 # The executor a call on arrays like `x` uses under `ex`; the GPU extension
 # makes a device array select its device.
 _resolve(ex::Executor, x) = ex
-# Whether a loop over arrays like `x` runs on a device.
-_on_device(ex, x) = _resolve(ex, x) isa Device
+# Whether a loop of cost `work` over arrays like `x` runs as a kernel.
+function _launches(ex, x, work)
+    r = _resolve(ex, x)
+    return r isa Parallel && work >= r.min_work
+end
 
 # The executor a call read from `EXECUTOR`, in a concrete wrapper so that
 # passing it down boxes nothing.
@@ -444,7 +489,7 @@ struct _Current
     ex::Executor
 end
 _current() = _Current(EXECUTOR[])
-_on_device(c::_Current, x) = _on_device(c.ex, x)
+_launches(c::_Current, x, work) = _launches(c.ex, x, work)
 
 # Calls `f(ex, args...)`, with `ex = Serial()` for the default executor and
 # the `_Current` wrapper otherwise, so callers never hold an abstractly
@@ -493,7 +538,7 @@ end
         loop!(body, ex, n, work, args...)
     elseif ex isa Serial
         loop!(body, ex, n, work, args...)
-    elseif ex isa Device
+    elseif ex isa Parallel
         loop!(body, ex, n, work, args...)
     else
         _unknown_executor()
@@ -501,7 +546,9 @@ end
     return nothing
 end
 @noinline function _unknown_executor()
-    throw(ArgumentError("`EXECUTOR` must be `Serial`, `Threaded` or `Device`"))
+    throw(
+        ArgumentError("`EXECUTOR` must be `Serial`, `Threaded` or `Parallel`")
+    )
 end
 
 # The time loop, in order, each step reading the steps before it. A traced

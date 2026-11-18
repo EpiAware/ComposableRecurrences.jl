@@ -1,5 +1,4 @@
-# Draw forms that take the value asked for up to what the pool holds: the
-# exact minimum and a smooth one.
+# ---- Truncate: the exact and the smooth minimum -----------------------------
 
 @doc raw"""
 The truncated depletion form: the value is drawn in full while the pool
@@ -76,12 +75,16 @@ struct Truncate{K, W, I, O}
     into::I
     "As a draw, where what it leaves goes."
     overflow::O
-    function Truncate(κ::K, weights::W, into::I, overflow::O) where {K, W, I, O}
+    function Truncate(
+            κ::K, weights::W, into::I, overflow::O
+        ) where {K, W, I, O}
         _check_softness(κ)
         return new{K, W, I, O}(κ, weights, into, overflow)
     end
 end
-function Truncate(κ = nothing; weights = nothing, into = nothing, overflow = nothing)
+function Truncate(
+        κ = nothing; weights = nothing, into = nothing, overflow = nothing
+    )
     return Truncate(κ, weights, into, _overflow(overflow))
 end
 
@@ -91,17 +94,18 @@ function _check_softness(κ::Real)
     return nothing
 end
 @noinline function _check_softness(κ)
-    throw(ArgumentError("the softness κ is a number or nothing, got $(_describe(κ))"))
+    msg = "the softness κ is a number or nothing, got $(_describe(κ))"
+    throw(ArgumentError(msg))
 end
 
 # The exact and the smooth form, told apart by the type of the softness.
 const _HardTruncate = Truncate{Nothing}
 const _SoftTruncate = Truncate{<:Real}
 
-const _TruncateForm = Truncate
-# The built-in forms, without a method lookup at run time.
-_is_form(::Type{<:Union{_ExponentForm, _TruncateForm}}) = true
-_draw_args(form::_TruncateForm) = (form.weights, form.into, form.overflow)
+# The built-in draw forms, known without a method lookup at run time.
+const _BuiltinForm = Union{_ExponentForm, Truncate}
+_is_form(::Type{<:_BuiltinForm}) = true
+_draw_args(form::Truncate) = (form.weights, form.into, form.overflow)
 _bare(form::Truncate) = Truncate(form.κ)
 
 # Printed as written.
@@ -160,10 +164,8 @@ function pullback!(grads, form::_SoftTruncate, ::Step, v, s, N)
 end
 
 # The minimum of `a` and a non-negative `b`, or with softness `κ` the
-# smooth minimum `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`, `m` and `M`
-# the smaller and larger of the two; a non-positive `m` is returned as it
-# is, and an infinite `M` gives `m`. The exact minimum, for no softness or
-# a zero one, is `_removal`, which takes `a` on a tie and returns a NaN.
+# smooth minimum `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`, for `m` and
+# `M` the smaller and larger. A non-positive `m` or an infinite `M` gives `m`.
 _soft_min(::Nothing, a, b) = _removal(a, b)
 function _soft_min(κ, a, b)
     iszero(_primal_value(κ)) && return _soft_min(nothing, a, b)
@@ -198,18 +200,25 @@ function _soft_min_back(κ, a, b, ȳ)
 end
 
 @implements PieceInterface{(:pullback,)} Truncate [
-    Arguments(; piece = Truncate(), role = Step(), args = ([2.0], [1.5], 100.0)),
+    Arguments(;
+        piece = Truncate(), role = Step(), args = ([2.0], [1.5], 100.0)
+    ),
     # An integer `N`, as a count of a population gives it.
     Arguments(; piece = Truncate(), role = Step(), args = ([2.0], [1.5], 100)),
-    Arguments(; piece = Truncate(0.1), role = Step(), args = ([2.0], [1.5], 100.0)),
-    Arguments(; piece = Truncate(0.0), role = Step(), args = ([2.0], [1.5], 100.0)),
+    Arguments(;
+        piece = Truncate(0.1), role = Step(), args = ([2.0], [1.5], 100.0)
+    ),
+    Arguments(;
+        piece = Truncate(0.0), role = Step(), args = ([2.0], [1.5], 100.0)
+    ),
 ]
 
 # The interface check of a built-in depletion form's draw takes any real `N`.
-const _BuiltinForm = Union{_ExponentForm, _TruncateForm}
 function _pullback_matches(f::_BuiltinForm, ::Step, args::Tuple{Any, Any, Any})
     return _form_pullback_matches(f, args)
 end
-function _pullback_matches(f::_BuiltinForm, ::Step, args::Tuple{Any, Any, AbstractFloat})
+function _pullback_matches(
+        f::_BuiltinForm, ::Step, args::Tuple{Any, Any, AbstractFloat}
+    )
     return _form_pullback_matches(f, args)
 end
