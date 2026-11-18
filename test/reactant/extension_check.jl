@@ -1,8 +1,8 @@
-# Checks that loading Reactant loads the package's Reactant extension, that
-# the extension adds no method ambiguities, and that it still checks a traced
-# coefficient's shape. Run by `runtests.jl` in its own process, as the
-# probes are, so the runner does not load Reactant.
-using ComposableRecurrences, Reactant, Test
+# Checks that loading Reactant and KernelAbstractions loads the package's
+# Reactant extension, that the extension adds no method ambiguities, and
+# that it still checks a traced coefficient's shape. Run by `runtests.jl` in
+# its own process, as the probes are, so the runner does not load Reactant.
+using ComposableRecurrences, Reactant, KernelAbstractions, CUDA, Test
 
 const EXT = Base.get_extension(
     ComposableRecurrences, :ComposableRecurrencesReactantExt

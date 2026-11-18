@@ -11,9 +11,11 @@
 # plain Julia. `reverse` compiles `Enzyme.gradient` of the loss and compares
 # it with ForwardDiff: a weighted sum of a case's output, or the scenario's
 # own loss against the registry's ForwardDiff reference, entry by entry.
-# Loading Reactant loads the package's Reactant extension.
+# Loading Reactant and KernelAbstractions loads the package's Reactant
+# extension, which runs its loops as kernels that Reactant compiles through
+# CUDA.jl, on the CPU too.
 # `gpu` writes `skipped` when Reactant finds no GPU.
-using ComposableRecurrences, Reactant, Enzyme, ForwardDiff
+using ComposableRecurrences, Reactant, KernelAbstractions, CUDA, Enzyme, ForwardDiff
 using Printf: @sprintf
 
 const SUITE, BACKEND, OUT = ARGS[1], ARGS[3], ARGS[4]
@@ -144,7 +146,12 @@ function probe(p::Problem, mode)
     end
     plain()
     plain_us = median_us(plain, 20)
-    compile_s = @elapsed (c = Reactant.@compile f(θr))
+    # A gradient through the loops' kernels compiles only once Reactant has
+    # raised them to array operations.
+    compile_s = @elapsed (
+        c = mode == "forward" ? Reactant.@compile(f(θr)) :
+            Reactant.@compile(raise = true, raise_first = true, f(θr))
+    )
     y = host(c(θr))
     err = p.entrywise ? entry_relerr(y, ref) : relerr(y, ref)
     run_us = median_us(() -> Reactant.synchronize(c(θr)), 20)

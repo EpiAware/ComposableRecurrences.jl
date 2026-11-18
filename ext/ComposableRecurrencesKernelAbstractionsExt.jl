@@ -10,10 +10,14 @@ using ConstructionBase: constructorof, getfields
 using KernelAbstractions: @index, @kernel
 
 # One kernel for every per-index body: thread `k` runs `body(k, args...)`.
+# A number argument is read as its value, as a traced one reaches a kernel
+# as a reference to it.
 @kernel function _each_kernel!(body, args)
     k = @index(Global, Linear)
-    body(k, args...)
+    body(k, map(_kernel_value, args)...)
 end
+_kernel_value(x) = x
+_kernel_value(x::Number) = x[]
 
 function ComposableRecurrences.each!(
         body::F, ex::Device, n, work, args::Vararg{Any, N}
