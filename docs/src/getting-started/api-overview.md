@@ -3,7 +3,7 @@
 Some public names are not exported, so `using ComposableRecurrences` does not bring them in.
 They are written here without the package prefix, and `using ComposableRecurrences: Depletion, Floor, Recent` loads them.
 Internal names, such as `ComposableRecurrences.State`, keep the prefix.
-The neural network package Lux also exports a [`Recurrence`](@ref), so with both loaded write [`ComposableRecurrences.Recurrence`](@ref Recurrence).
+The neural network package Lux also exports a `Recurrence`, so with both loaded write [`ComposableRecurrences.Recurrence`](@ref Recurrence).
 The examples load these packages and names:
 
 ```@example api-overview
