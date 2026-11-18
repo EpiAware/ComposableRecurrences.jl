@@ -38,7 +38,7 @@ performance_summary("naive vs package") # hide
 
 ### Case study: renewal kernel
 
-The renewal kernel of [Case study: a backend model](@ref tutorial-backend-case-study).
+The renewal kernel of [Porting a patch model from hand-written loops](@ref tutorial-backend-case-study).
 
 ```@example summary
 performance_summary("backend renewal") # hide
@@ -46,7 +46,7 @@ performance_summary("backend renewal") # hide
 
 ### Case study: patch kernel
 
-The patch kernel of [Case study: a backend model](@ref tutorial-backend-case-study).
+The patch kernel of [Porting a patch model from hand-written loops](@ref tutorial-backend-case-study).
 
 ```@example summary
 performance_summary("backend patches") # hide
@@ -54,7 +54,7 @@ performance_summary("backend patches") # hide
 
 ### Case study: delay kernel
 
-The delay kernel of [Case study: a backend model](@ref tutorial-backend-case-study).
+The delay kernel of [Porting a patch model from hand-written loops](@ref tutorial-backend-case-study).
 
 ```@example summary
 performance_summary("backend delay") # hide

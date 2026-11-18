@@ -19,7 +19,10 @@ end
 _brief(x) = _describe(x)
 _brief(x::Union{PerStratum, Pairwise, TimeVarying}) = _summary(x)
 _brief(x::Function) = string(nameof(x))
-_brief(J::UniformScaling) = J.λ === true ? "I" : string(J.λ, "I")
+_brief(J::UniformScaling) = _is_identity(J) ? "I" : string(J.λ, "I")
+# The identity coupling, stored as `I` with an integer scale.
+_is_identity(J::UniformScaling) = J.λ isa Integer && isone(J.λ)
+_is_identity(C) = false
 _brief(x::Union{Derived, Survival}) = _formula(x)
 
 # A computed parameter or kernel as the arithmetic that builds it.
@@ -55,7 +58,7 @@ _summary_string(name, parts) = string(name, "(", join(parts, ", "), ")")
 function _summary(r::Recurrence)
     parts = String[_count(_nlags(r.kernel), "lag")]
     r.kernel isa AbstractVector || push!(parts, "kernel " * _brief(r.kernel))
-    r.coupling === I || push!(parts, "coupling " * _brief(r.coupling))
+    _is_identity(r.coupling) || push!(parts, "coupling " * _brief(r.coupling))
     isempty(r.modifiers) || push!(
         parts, "modifiers (" *
             join(map(m -> string(nameof(typeof(m))), r.modifiers), ", ") * ")"

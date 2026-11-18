@@ -20,14 +20,13 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 # The coupling is the [three-town example's](@ref overview-build) gravity coupling, with the same towns as patches and 5% mixing rather than 0.2%:
 #
 # ```math
-# K_{ij} = 0.95 \, \delta_{ij} + 0.05 \, \frac{G_{ij}}{\sum_{b} G_{ib}}, \qquad
+# K_{ij} = 0.95 \, \delta_{ij} + 0.05 \, \frac{G_{ij}}{\sum_{m} G_{im}}, \qquad
 # G_{ij} = \begin{cases} N_j / d_{ij}^2 & i \ne j, \\ 0 & i = j. \end{cases}
 # ```
 #
-# ``K_{ij}`` weights patch ``j``'s infections in patch ``i``.
-# ``\delta_{ij}`` is one when ``i = j`` and zero otherwise.
-# ``N_j`` is the population of patch ``j`` and ``d_{ij}`` the distance between patches ``i`` and ``j``.
-# ``G_{ij}`` is the gravity weight, so each row of ``K`` sums to one.
+# where ``K_{ij}`` weights patch ``j``'s infections in patch ``i`` and ``G_{ij}`` is the gravity weight, so each row of ``K`` sums to one.
+# The term ``\delta_{ij}`` is one when ``i = j`` and zero otherwise.
+# The population of patch ``j`` is ``N_j``, and the distance between patches ``i`` and ``j`` is ``d_{ij}``.
 
 patches = ["A", "B", "C"]
 P, T = 3, 120
@@ -60,13 +59,10 @@ end
 # \end{aligned}
 # ```
 #
-# ``I_{t,j}`` is the number of infections in patch ``j`` on day ``t``.
-# ``g_l`` is the generation interval's weight on lag ``l``.
-# ``A_{ij,l}`` is ``K_{ij} g_l`` within a patch and ``K_{ij} g^{\text{between}}_l`` between.
-# ``g^{\text{between}}_l`` is a longer interval, `gi_between` below.
-# ``K_{t,ij}`` is ``K_{ij}`` with its off-diagonal entries cut by 80% from day 30.
-# ``\gamma = 1.6`` is the gain.
-# ``S_{t,i}`` is patch ``i``'s susceptible pool after day ``t``, starting at its population ``N_i``.
+# where ``I_{t,j}`` is the number of infections in patch ``j`` on day ``t``, ``g_l`` the generation interval's weight on lag ``l`` and ``S_{t,i}`` patch ``i``'s susceptible pool.
+# Each pool starts at its patch's population ``N_i``.
+# The pairwise kernel ``A_{ij,l}`` is ``K_{ij} g_l`` within a patch and ``K_{ij} g^{\text{between}}_l`` between patches, with ``g^{\text{between}}_l`` a longer interval, `gi_between` below.
+# The coupling ``K_{t,ij}`` is ``K_{ij}`` with its off-diagonal entries cut by 80% from day 30, and the gain is ``\gamma = 1.6``.
 # A [`Pairwise`](@ref) kernel weights each interval by `K`, so its coupling stays `I`.
 # A [`TimeVarying`](@ref) coupling gives ``K_{t,ij}``.
 # It changes once, so it is given by its change points.
@@ -123,11 +119,10 @@ end
 # \end{aligned}
 # ```
 #
-# ``v_{t,i}`` is patch ``i``'s value before the move and ``v'_{t,i}`` after it.
-# ``M_{t,ij}`` is the share of patch ``j``'s infections realised in patch ``i``.
+# where ``v_{t,i}`` is patch ``i``'s value before the move, ``v'_{t,i}`` its value after it and ``M_{t,ij}`` the share of patch ``j``'s infections realised in patch ``i``.
+# The share patch ``j`` sends to the others, in proportion to ``K``, is ``\varepsilon_{t,j}``.
 # Each column of ``M_t`` sums to one, so no infections are lost.
-# ``\varepsilon_{t,j}`` is the share patch ``j`` sends to the others, in proportion to ``K``.
-# It is 0.05 for A, 0.03 for B and 0.02 for C, and halves from day 40.
+# Here ``\varepsilon_{t,j}`` is 0.05 for A, 0.03 for B and 0.02 for C, and halves from day 40.
 # The coupling is `I` here, so the patches mix only through the move.
 # The first modifier is [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute), which reads ``M_t`` from ``K`` and ``\varepsilon_t`` at each step.
 # It sits before the [`Depletion`](@ref ComposableRecurrences.Depletion), so each pool is depleted by what its patch receives.
@@ -164,9 +159,8 @@ end
 #     \qquad i \in \mathcal{G}_p.
 # ```
 #
-# ``\mathcal{G}_p`` holds the districts of patch ``p``.
-# ``Y_{t,p}`` is the patch's known total, here from the fixed coupling model.
-# ``v_{t,i}`` is district ``i``'s renewal value and ``\gamma_i`` its reproduction number.
+# where ``\mathcal{G}_p`` holds the districts of patch ``p``, ``Y_{t,p}`` is the patch's known total, here from the fixed coupling model, and ``\gamma_i`` is district ``i``'s reproduction number.
+# The value ``v_{t,i}`` is district ``i``'s number of new infections before the split.
 # A has districts A1 to A3 with reproduction numbers 1.5, 1.6 and 1.8 and seeds 6, 3 and 1 a day.
 # B has B1 and B2, both at 1.6, with seeds 2 and 1.
 # C has C1 at 1.4 and C2 at 1.8, each with a seed of 1.
@@ -194,7 +188,7 @@ end
 
 @assert reduce(vcat, [sum(by_district[zs, :]; dims = 1) for zs in districts]) ≈ totals
 
-# ## Routes: community and funeral transmission
+# ## Community and funeral transmission routes
 #
 # Some diseases spread by more than one route, each with its own timing and contacts.
 # Ebola spreads in the community while a case is ill and at the funeral after death.
@@ -210,11 +204,10 @@ end
 # \end{aligned}
 # ```
 #
-# ``I_t`` holds each patch's infections on day ``t`` and ``q_t`` the pressure the gain ``\gamma = 0.9`` scales.
-# ``K^{\text{funeral}}`` is the funeral coupling and ``g^{\text{funeral}}_l`` the funeral kernel on lag ``l``.
-# ``w_l`` is the infection-to-death delay, with a mean of 7.3 days.
-# ``f_0 = 0.6`` and ``f_1 = 0.4`` are the funeral's weights on the day of death and the day after.
-# ``c = 0.5`` is the fatality ratio, and a [`Convolution`](@ref) builds the funeral kernel.
+# where ``I_t`` holds each patch's infections on day ``t``, ``q_t`` is the pressure and ``K^{\text{funeral}}`` the funeral coupling.
+# The funeral kernel on lag ``l`` is ``g^{\text{funeral}}_l``, built by a [`Convolution`](@ref) from the infection-to-death delay ``w_l``, with a mean of 7.3 days.
+# The funeral's weights on the day of death and the day after are ``f_0`` and ``f_1``, and ``c`` is the fatality ratio.
+# Here ``\gamma = 0.9``, ``f_0 = 0.6``, ``f_1 = 0.4`` and ``c = 0.5``.
 # Funerals draw mourners from the patch and its neighbours, so their coupling is sparse.
 # The routes are the recurrence's kernel, so its coupling stays `I`.
 # They equal a [`Pairwise`](@ref) kernel ``A_{ij,l} = K_{ij} g_l + K^{\text{funeral}}_{ij} g^{\text{funeral}}_l``, held as two routes so the sparse coupling stays sparse.
@@ -228,7 +221,7 @@ routes = Pairwise(K => gi, K_funeral => gi_funeral)
 ebola = Recurrence(routes; modifiers = (depletion,))
 ebola_cases = ebola(0.9; history = seed, stop = T);
 
-# Each route's share of the force is not recorded, but the infections give it:
+# The trace does not split the pressure by route, but the infections give each route's share:
 #
 # ```math
 # \gamma \, K^{(r)} \sum_{l} g^{(r)}_l \, I_{t-l},
@@ -236,7 +229,7 @@ ebola_cases = ebola(0.9; history = seed, stop = T);
 #
 # where ``K^{(r)}`` and ``g^{(r)}_l`` are route ``r``'s coupling and kernel.
 # The kernel sum is a `Convolution` of the infections with the kernel, with a zero at lag 0.
-# This is the force before depletion, so the routes sum to more than the cases.
+# This is the pressure before depletion, so the routes' shares sum to more than the infections.
 
 function route_force(K_r, g_r)
     y = hcat(seed, ebola_cases)
@@ -254,17 +247,17 @@ end
 
 # Neither route alone sustains spread: their reproduction numbers are 0.9 and 0.45.
 # Together they do, and 40% to 57% of each patch is infected.
-# The funeral force peaks five days after the community force in each patch.
+# The funeral pressure peaks five days after the community pressure in each patch.
 # Its mean lag is 7.7 days, against 2.9 days for the community route.
 
 # ## Performance
 #
-# Each bar times five strata with a dense route and a sparse route and floored depletion over 200 days with a 20-day kernel, written with the operators or as a preallocated hand-written loop.
+# Each bar times five strata with a dense route, a sparse route and floored depletion over 200 days with a 20-day kernel, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("spatial strata")
 
 # ## Learning more
 #
-# - See every operator, coupling and modifier on the [API overview](@ref api-overview).
-# - Want the full interface? See the [Public API](@ref public-api).
+# - [API overview](@ref api-overview): every operator, coupling and modifier.
+# - [Public API](@ref public-api): every public name with its docstring.
