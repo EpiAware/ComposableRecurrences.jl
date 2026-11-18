@@ -5,7 +5,7 @@
         adjoint = "uses_adjoint finds a pullback! method for the role" =>
             a -> _adjoint_found(a.piece, a.role),
         linear = "a type declared islinear is its matrix at every time" =>
-            a -> _linear_ok(a.piece, a.role, a.args),
+            a -> !islinear(a.piece) || _linear_ok(a.piece, a.role, a.args),
     ),
     optional = (
         pointwise = "a Step and an Init work stratum by stratum" =>
@@ -87,7 +87,7 @@ Interfaces.test(CR.PieceInterface, CR.Transform; show = false)
 true
 ```"
 
-# == forward ==
+# == The forward component ==
 
 _kwargs(a) = haskey(a, :kwargs) ? a.kwargs : (;)
 function _forward_ok(op, ::Run, args, kwargs)
@@ -125,16 +125,13 @@ _finite(x::Tuple) = all(_finite, x)
 _finite(x::Ref) = isfinite(x[])
 _finite(x::AbstractArray) = all(isfinite, x)
 
-# == linear ==
+# == The linear component ==
 
 # A type declared linear is the matrix its `forward!` gives on the basis
 # vectors, at the given time and a later one, on an input whose entries do
 # not sum to one, so an offset shows.
-function _linear_ok(piece, role, args)
-    return !islinear(piece) || _linear_role_ok(piece, role, args)
-end
-_linear_role_ok(piece, role, args) = true
-function _linear_role_ok(C, ::Pressure, args)
+_linear_ok(piece, role, args) = true
+function _linear_ok(C, ::Pressure, args)
     p = _linear_probe(args[2])
     A = _coupling_matrix(C, length(p))
     q, q′ = zero(p), zero(p)
@@ -142,7 +139,7 @@ function _linear_role_ok(C, ::Pressure, args)
     forward!(C, Pressure(), q′, p, args[3] + 7)
     return isapprox(q, A * p; rtol = 1.0e-8) && q′ == q
 end
-function _linear_role_ok(m, ::Step, args)
+function _linear_ok(m, ::Step, args)
     _whole_step(m) || return false
     v = _linear_probe(args[1])
     A = _step_matrix(m, length(v))
@@ -154,7 +151,7 @@ function _linear_role_ok(m, ::Step, args)
 end
 _linear_probe(x) = [float(eltype(x))(1 + sin(3k)) for k in eachindex(x)]
 
-# == pointwise ==
+# == The pointwise component ==
 
 # A pointwise modifier's Step on the whole vectors matches its Step on each
 # stratum's one-entry view.
@@ -186,7 +183,8 @@ function _pointwise_ok(m, ::Init, args)
     forward!(m, Init(), s, history)
     return all(eachindex(s)) do k
         sk = zero(s)
-        forward!(_at_stratum(m, k), Init(), sk, _other_rows(history, k, length(s)))
+        h = _other_rows(history, k, length(s))
+        forward!(_at_stratum(m, k), Init(), sk, h)
         sk[k] ≈ s[k]
     end
 end
@@ -211,7 +209,7 @@ function _other_rows(history, k, S)
     return h
 end
 
-# == blocks ==
+# == The blocks component ==
 
 # A blockwise modifier's vector Step matches its group Step on each group.
 _blocks_ok(piece, role, args) = true
@@ -222,10 +220,10 @@ function _groups_ok(::Val{B}, m, args) where {B}
     v, s = float(copy(args[1])), float(copy(args[2]))
     t = args[3]
     G = length(v) ÷ nv
-    groups = [
-        _block_step(m, _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g)
-            for g in 1:G
-    ]
+    groups = map(1:G) do g
+        vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
+        _block_step(m, vg, sg, t, g)
+    end
     forward!(m, Step(), v, s, t)
     return all(1:G) do g
         v′, s′ = groups[g]
@@ -234,7 +232,7 @@ function _groups_ok(::Val{B}, m, args) where {B}
     end
 end
 
-# == nstate ==
+# == The nstate component ==
 
 # The state keeps `nstate(m, S)` entries through Init and Step, one per
 # stratum for a pointwise modifier.
@@ -255,7 +253,7 @@ function _nstate_ok(m, ::Step, args)
     return length(s) == n && (blocks(m) !== (1, 1) || n == S)
 end
 
-# == stateless ==
+# == The stateless component ==
 
 # Passes unless the type declares `isstateless`; `isequal` so a NaN state
 # that is left as it was passes.
@@ -268,7 +266,7 @@ function _stateless_ok(m, ::Step, args)
     return isequal(s, s0)
 end
 
-# == adjoint ==
+# == The adjoint component ==
 
 # A type that declares its own `uses_adjoint` passes. Without this check the
 # rule would drop a `pullback!` the folded lookup misses without a word.
@@ -277,11 +275,11 @@ function _adjoint_found(x, role)
     sig = Tuple{Any, typeof(x), typeof(role), Vararg{Any}}
     isempty(methods(pullback!, sig)) && return true
     default = which(uses_adjoint, Tuple{Any, Any})
-    which(uses_adjoint, Tuple{typeof(x), typeof(role)}) === default || return true
-    return uses_adjoint(x, role)
+    own = which(uses_adjoint, Tuple{typeof(x), typeof(role)})
+    return own !== default || uses_adjoint(x, role)
 end
 
-# == pullback ==
+# == The pullback component ==
 
 _checks_pullback(a) = !haskey(a, :pullback) || a.pullback
 # A blockwise group step on tuples passes: the vector step's check covers it.
@@ -322,7 +320,8 @@ function _form_pullback_matches(f, args)
     J === nothing && return _no_jacobian()
     w = _probe_cotangent(n + length(s))
     grads = (;
-        piece = _zero_mirror(f), v = w[1:n], s = w[(n + 1):end], N = zeros(eltype(w), n),
+        piece = _zero_mirror(f), v = w[1:n], s = w[(n + 1):end],
+        N = zeros(eltype(w), n),
     )
     pullback!(grads, f, Step(), v, s, N)
     ḡ = [_mirror_params(grads.piece, f); grads.v; grads.s]
@@ -343,6 +342,9 @@ function _pullback_matches(C, ::Pressure, args)
     pullback!(grads, C, Pressure(), nothing, p, t)
     return _close(J, w, [_mirror_params(grads.piece, C); grads.p])
 end
+
+# == Jacobians, seeds and mirrors ==
+
 _close(J, w, ḡ) = isapprox(transpose(J) * w, ḡ; rtol = 1.0e-8)
 
 # The Jacobian of `f` at `x`, from the dual-number extension, or `nothing`.
@@ -361,7 +363,9 @@ _probe_cotangent(n) = [cospi(0.37 * i + 0.105) for i in 1:n]
 # NamedTuple for a struct and `nothing` otherwise.
 _zero_mirror(x::AbstractFloat) = Ref(zero(x))
 _zero_mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
-_zero_mirror(x::SparseMatrixCSC{<:AbstractFloat}) = (; nzval = zero(nonzeros(x)))
+function _zero_mirror(x::SparseMatrixCSC{<:AbstractFloat})
+    return (; nzval = zero(nonzeros(x)))
+end
 _zero_mirror(x::Diagonal{<:AbstractFloat}) = (; diag = zero(x.diag))
 _zero_mirror(::_Leafless) = nothing
 _zero_mirror(x::Union{Tuple, NamedTuple}) = map(_zero_mirror, x)
@@ -377,7 +381,10 @@ function _mirror_params(x̄, x)
     _walkparams!(_read_leaf!, x̄, x, θ̄, 0)
     return θ̄
 end
-_read_leaf!(x̄, ::AbstractFloat, θ̄, o) = (x̄ === nothing || (θ̄[o + 1] = x̄[]); o + 1)
+function _read_leaf!(x̄, ::AbstractFloat, θ̄, o)
+    x̄ === nothing || (θ̄[o + 1] = x̄[])
+    return o + 1
+end
 function _read_leaf!(x̄, x::AbstractArray, θ̄, o)
     x̄ === nothing || copyto!(θ̄, o + 1, vec(x̄), 1, length(x))
     return o + length(x)
