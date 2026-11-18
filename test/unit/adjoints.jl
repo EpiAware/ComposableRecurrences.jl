@@ -581,6 +581,52 @@ end
     end
 end
 
+@testitem "Adjoint: a user modifier declared stateless" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    struct Scale{A}
+        a::A
+    end
+    CR.blocks(::Scale) = (1, 1)
+    function CR.forward!(m::Scale, ::CR.Step, v, s, t)
+        for k in eachindex(v)
+            v[k] *= CR.param(m.a, k, t)
+        end
+        return nothing
+    end
+    struct StatelessScale{A}
+        a::A
+    end
+    CR.blocks(::StatelessScale) = (1, 1)
+    CR.isstateless(::StatelessScale) = true
+    function CR.forward!(m::StatelessScale, ::CR.Step, v, s, t)
+        for k in eachindex(v)
+            v[k] *= CR.param(m.a, k, t)
+        end
+        return nothing
+    end
+    S, L, T = 3, 2, 4
+    h = ones(S, L)
+    R = fill(1.2, S, T)
+    a = PerStratum([0.5, 0.8, 1.1])
+    @test !CR.isstateless(Scale(a))
+    @test CR.isstateless(StatelessScale(a))
+    @test CR.ntrace(Scale(a), S) == S
+    @test CR.ntrace(StatelessScale(a), S) == 0
+    plain = Recurrence([0.4, 0.3]; modifiers = (Scale(a),))
+    declared = Recurrence([0.4, 0.3]; modifiers = (StatelessScale(a),))
+    out = declared(R; history = h, record = (:trace,))
+    @test size(only(out.trace.modifiers)) == (0, T)
+    @test size(only(plain(R; history = h, record = (:trace,)).trace.modifiers)) ==
+        (S, T)
+    @test out.y == plain(R; history = h)
+    # The reverse pass keeps the starting state, not a record per step.
+    _, c = CR._run_forward(declared, recargs(R, nothing, h)...)
+    @test length(only(c.rec).S) == S
+    _, c = CR._run_forward(plain, recargs(R, nothing, h)...)
+    @test size(only(c.rec).S) == (S, T)
+    @test pullback_matches(declared, recargs(R, nothing, h)...)
+end
+
 @testitem "Adjoint: Recurrence cache keeps only what the reverse pass reads" setup = [AdjointCheck] begin
     using ComposableRecurrences
     S, L, T = 3, 2, 5
@@ -604,11 +650,11 @@ end
         @test c.rec[3].S == zeros(S)
     end
     @test all(
-        CR._stateless,
+        CR.isstateless,
         (CR.Transform(+, 0.1), CR.Transform(clamp, 0.0, 1.0), CR.Allocate([1:3], 1.0)),
     )
-    @test CR._stateless(CR.Transform(exp))
-    @test !CR._stateless(CR.Depletion(50.0))
+    @test CR.isstateless(CR.Transform(exp))
+    @test !CR.isstateless(CR.Depletion(50.0))
     # A resumed stateless modifier reads the state it was given.
     r = Recurrence([0.4, 0.3]; modifiers = (CR.Transform(+, 0.1),))
     @test pullback_matches(r, recargs(R, nothing, h; states = ([0.5, 1.0, 2.0],))...)

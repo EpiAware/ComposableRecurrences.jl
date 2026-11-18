@@ -1,5 +1,7 @@
-# The three-argument show gives a one-line summary of each public type; the
-# two-argument show stays the default constructor form that `repr` prints.
+# ---- one-line summaries -----------------------------------------------------
+
+# Only the three-argument show is summarised, so `repr` keeps the
+# constructor form.
 
 const _Summarised = Union{
     Recurrence, Convolution, PerStratum, Pairwise, TimeVarying, Depletion,
@@ -106,7 +108,8 @@ end
 # Weights of one on the drawn pool and zero elsewhere are the default.
 function _default_weights(d::_DrawFrom)
     d.weights === nothing && return true
-    return all(i -> d.weights[i] == (i == d.first), eachindex(values(d.weights)))
+    w = d.weights
+    return all(i -> w[i] == (i == d.first), eachindex(values(w)))
 end
 _draw_parts(d::_DrawInto, names) = ("into = " * repr(names[d.pool]),)
 function _piece_summary(d::_Drawing, names)
@@ -159,12 +162,15 @@ end
 # Clamp's bounds are written as two arguments.
 _theta_summary!(parts, f, ::Nothing) = parts
 _theta_summary!(parts, f, θ) = push!(parts, _brief(θ))
-_theta_summary!(parts, ::typeof(clamp), θ::Tuple) = append!(parts, map(_brief, θ))
+function _theta_summary!(parts, ::typeof(clamp), θ::Tuple)
+    return append!(parts, map(_brief, θ))
+end
 
 function _summary(t::Transform)
     parts = String[_brief(t.f)]
     _theta_summary!(parts, t.f, t.θ)
-    t.derivative === nothing || push!(parts, "derivative " * _brief(t.derivative))
+    d = t.derivative
+    d === nothing || push!(parts, "derivative " * _brief(d))
     return _summary_string(:Transform, parts)
 end
 
