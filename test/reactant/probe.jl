@@ -11,10 +11,22 @@
 # plain Julia. `reverse` compiles `Enzyme.gradient` of the loss and compares
 # it with ForwardDiff: a weighted sum of a case's output, or the scenario's
 # own loss against the registry's ForwardDiff reference, entry by entry.
-# Loading Reactant loads the package's Reactant extension.
+# Loading Reactant and KernelAbstractions loads the package's Reactant
+# extension, which runs its loops as kernels that Reactant compiles through
+# CUDA.jl, on the CPU too.
 # `gpu` writes `skipped` when Reactant finds no GPU.
-using ComposableRecurrences, Reactant, Enzyme, ForwardDiff
+using ComposableRecurrences, Reactant, KernelAbstractions, CUDA, Enzyme, ForwardDiff
+using Base.ScopedValues: with
 using Printf: @sprintf
+
+# `REACTANT_MIN_STRATA`, when set, is the `TRACED_MIN_STRATA` the cases run
+# under: `1` runs every strata loop as a kernel, as a small case would not.
+const MIN_STRATA = parse(
+    Int, get(
+        ENV, "REACTANT_MIN_STRATA",
+        string(ComposableRecurrences.TRACED_MIN_STRATA[])
+    )
+)
 
 const SUITE, BACKEND, OUT = ARGS[1], ARGS[3], ARGS[4]
 const NAMES = readlines(ARGS[2])
@@ -144,7 +156,12 @@ function probe(p::Problem, mode)
     end
     plain()
     plain_us = median_us(plain, 20)
-    compile_s = @elapsed (c = Reactant.@compile f(θr))
+    # A gradient through the loops' kernels compiles only once Reactant has
+    # raised them to array operations.
+    compile_s = @elapsed (
+        c = mode == "forward" ? Reactant.@compile(f(θr)) :
+            Reactant.@compile(raise = true, raise_first = true, f(θr))
+    )
     y = host(c(θr))
     err = p.entrywise ? entry_relerr(y, ref) : relerr(y, ref)
     run_us = median_us(() -> Reactant.synchronize(c(θr)), 20)
@@ -168,13 +185,15 @@ function attempt(f)
     end
 end
 
-for name in NAMES
-    p = attempt(() -> problem(SUITE, name))
-    if p isa Problem
-        for m in MODES
-            write_results(name, [(m, attempt(() -> probe(p, m)))])
+with(ComposableRecurrences.TRACED_MIN_STRATA => MIN_STRATA) do
+    for name in NAMES
+        p = attempt(() -> problem(SUITE, name))
+        if p isa Problem
+            for m in MODES
+                write_results(name, [(m, attempt(() -> probe(p, m)))])
+            end
+        else
+            write_results(name, [(m, p) for m in MODES])
         end
-    else
-        write_results(name, [(m, p) for m in MODES])
     end
 end

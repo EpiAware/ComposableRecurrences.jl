@@ -352,6 +352,39 @@ ComposableRecurrences.Threaded(500000, 0)
 """
 const EXECUTOR = ScopedValue{Executor}(Serial())
 
+@doc raw"""
+    TRACED_MIN_STRATA
+
+The fewest strata at which a loop of a traced call runs as one kernel.
+
+A traced call runs each step's loop over `S` strata as one kernel when `S`
+is at least this, so its program does not grow with the strata.
+A shorter loop is written out, one block a stratum.
+Its program grows with `S`, but on the CPU its forward pass runs faster
+than a kernel launch each step.
+The default, 32, is measured on the CPU.
+From there a kernel runs gradients faster and compiles them faster, while
+a written-out loop still runs the forward pass faster.
+A model that mostly runs forward can raise it.
+On a GPU, where a launch costs less, a lower value may run faster.
+Set it with `with`, as for [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR).
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+using Base.ScopedValues: with
+const CR = ComposableRecurrences
+with(CR.TRACED_MIN_STRATA => 8) do
+    CR.TRACED_MIN_STRATA[]
+end
+
+# output
+
+8
+```
+"""
+const TRACED_MIN_STRATA = ScopedValue{Int}(32)
+
 # == Parallel ==
 
 @doc raw"""

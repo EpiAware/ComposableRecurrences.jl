@@ -1,6 +1,6 @@
 @doc raw"""
-Maps each stratum's value through a function `f`, with optional
-parameters `θ`.
+A modifier that maps each stratum's value through a function `f`, with
+optional parameters `θ`.
 
 At time ``t``, for each [stratum](@ref PerStratum) ``i``,
 
@@ -22,7 +22,8 @@ The reverse pass, for output cotangent ``\bar v'_i``, is
 ```math
 \bar v_i = \frac{\partial f}{\partial v}(v_i, \theta_{t,i})\, \bar v'_i,
 \qquad
-\bar\theta_{t,i} \mathrel{+}= \frac{\partial f}{\partial \theta}(v_i, \theta_{t,i})\, \bar v'_i,
+\bar\theta_{t,i} \mathrel{+}=
+    \frac{\partial f}{\partial \theta}(v_i, \theta_{t,i})\, \bar v'_i,
 ```
 
 with the partial derivatives from `derivative` when given, or else from a
@@ -47,9 +48,9 @@ passing `B` as `add`.
 Its pullback sends the cotangent to the active bound, or to ``v_i`` when
 neither is.
 
-Scope: [`Recurrence`](@ref); pointwise; analytic adjoint from the local
-forward-mode derivative or `derivative`, or a hand-written one for `+` and
-`clamp`.
+It acts on a [`Recurrence`](@ref) and is pointwise.
+Its rule takes the local forward-mode derivative or `derivative`, or a
+hand-written pullback for `+` and `clamp`.
 
 # Arguments
 - `f`: the map, called as `f(v)` or `f(v, θ)`.
@@ -86,7 +87,8 @@ round.(y; digits = 3)
 using ComposableRecurrences
 CR = ComposableRecurrences
 # Imports added after the depletion, so not drawn from the pool.
-mods = (CR.Depletion(50.0, CR.Floor()), CR.Transform(+, TimeVarying([1.0, 0.0, 2.0])))
+imports = CR.Transform(+, TimeVarying([1.0, 0.0, 2.0]))
+mods = (CR.Depletion(50.0, CR.Floor()), imports)
 Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
 
 # output
@@ -136,9 +138,8 @@ _check_theta(θ) = (_check_param(:θ, θ); nothing)
 
 # == Traits ==
 
-# Whether the local derivative covers every parameter: a supplied derivative,
-# or a map with no float fields of its own. Otherwise plain AD runs, as the
-# default pointwise pullback does not reach a closure's fields.
+# Whether the local derivative covers every parameter. A closure's float
+# fields are out of its reach, so plain AD runs instead.
 function _local_derivative(m::Transform)
     return m.derivative !== nothing || param_eltype(m.f) <: Union{Bool, Integer}
 end
@@ -156,7 +157,9 @@ _theta_pairs(θ) = (:θ => θ,)
 
 # == Init and Step ==
 
-forward!(m::Transform, ::Init, s, history) = _zero_state!(s, _theta_pairs(m.θ)...)
+function forward!(m::Transform, ::Init, s, history)
+    return _zero_state!(s, _theta_pairs(m.θ)...)
+end
 pullback!(grads, ::Transform, ::Init, s, history) = nothing
 
 # The parameters at stratum `k` and absolute time `t`.
@@ -193,20 +196,18 @@ function pullback!(grads, m::Transform, ::Step, v, s, t)
     return nothing
 end
 
-function pullback!(grads, m::Transform{typeof(+), <:Any, Nothing}, ::Step, v, s, t)
-    b̄ = cotangent(grads.piece, :θ)
-    for k in eachindex(v)
-        add_param!(b̄, m.θ, grads.v[k], k, t)
-    end
+# Without `b`, `Transform(+)` is the identity.
+function pullback!(
+        grads, ::Transform{typeof(+), Nothing, Nothing}, ::Step, v, s, t
+    )
     return nothing
 end
-# Without `b`, `Transform(+)` is the identity.
-pullback!(grads, ::Transform{typeof(+), Nothing, Nothing}, ::Step, v, s, t) = nothing
 
 # `Transform(clamp, lo, hi)` matches `clamp`'s branches: above `hi`, then
 # below `lo`, else `v`.
 function pullback!(
-        grads, m::Transform{typeof(clamp), <:Tuple{Any, Any}, Nothing}, ::Step, v, s, t
+        grads, m::Transform{typeof(clamp), <:Tuple{Any, Any}, Nothing}, ::Step,
+        v, s, t
     )
     v̄ = grads.v
     lo, hi = m.θ
@@ -224,9 +225,9 @@ function pullback!(
     return nothing
 end
 
-# Add `ȳ ∂θ` into the mirror of `θ` at stratum `k` and time `t`. A mirror
-# holds the modifier's `param_eltype` (a dual for forward-over-reverse), as
-# each entry's `∂θ` depends on every entry of `(v, θ)`.
+# Add `ȳ ∂θ` into the mirror of `θ` at stratum `k` and time `t`. The mirror
+# holds `param_eltype`, a dual under forward-over-reverse, as each `∂θ`
+# depends on all of `(v, θ)`.
 _add_theta!(θ̄, ::Nothing, ∂θ, ȳ, k, t) = nothing
 function _add_theta!(θ̄, θ::Union{Tuple, NamedTuple}, ∂θ, ȳ, k, t)
     θ̄ = _arg_mirrors(θ̄, θ)
@@ -256,7 +257,9 @@ end
 function _forward_derivative(f, xs::Tuple{Real, Vararg{Real}})
     return last(_forward_value_and_derivative(f, xs))
 end
-_forward_derivative(f, v::Real, ::Nothing) = (only(_forward_derivative(f, (v,))), nothing)
+function _forward_derivative(f, v::Real, ::Nothing)
+    return only(_forward_derivative(f, (v,))), nothing
+end
 _forward_derivative(f, v::Real, θ::Real) = _forward_derivative(f, (v, θ))
 function _forward_derivative(f, v::Real, θ::Union{Tuple, NamedTuple})
     xs = _transform_seeds(promote(v, values(θ)...))

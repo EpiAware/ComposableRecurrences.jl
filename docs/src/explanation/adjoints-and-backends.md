@@ -122,10 +122,19 @@ So the local step and plain AD can differ there, as for `abs` at zero and, on Mo
 | Enzyme forward | never | always |
 | Mooncake reverse | when the call takes the rule | otherwise |
 | Enzyme reverse | when the call takes the rule | otherwise |
+| [Reactant](@ref extension-reactant) (Enzyme reverse inside its `@compile`) | never | always, on the traced program |
 
 Forward-mode backends run the same forward code on both routes, so a rule only changes the cost of reverse mode.
 The targets are ForwardDiff, Mooncake and Enzyme.
 The AD tests also run ReverseDiff, which is not a target; the README's coverage badges include it because those tests run.
+
+Reactant traces a call into one compiled program and Enzyme differentiates that program, so the package's rules never run under it.
+DifferentiationInterface has no Reactant extension, so Reactant is not one of the AD jobs.
+Its own suite, `test/reactant/`, compiles every scenario of the AD registry forward and in reverse and checks each against ForwardDiff, entry by entry.
+The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) gives each scenario's result.
+The scenarios that do not run are listed in the registry under the `Reactant` backend, grouped by cause.
+Most are parameter checks that refuse a traced number, or parts built from traced values, such as `Recent`, `Derived`, sparse couplings, ragged kernels and delay masses.
+A model that does not run under Reactant runs as it is on the other backends, so Enzyme reverse is the fallback for its gradient.
 
 ## [Which rules are kept](@id rule-policy)
 

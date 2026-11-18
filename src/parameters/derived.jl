@@ -72,6 +72,10 @@ other side.
 Wrap a plain parameter as `Derived(identity, x)` to start such an
 expression.
 
+# Arguments
+- `f`: the function, called as `f(a_1, ..., a_n)` on the arguments' values.
+- `args`: the arguments, at least one.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
@@ -188,6 +192,11 @@ function _check_param(name, x::Derived)
 end
 function _check_param_strata(name, x::Derived, S)
     _tuple_foreach(a -> _check_param_strata(name, a, S), x.args)
+    return nothing
+end
+# A derived modifier field's arguments against `n` rows.
+function _check_rows(name, x::Derived, n, what)
+    _tuple_foreach(a -> _check_rows(name, a, n, what), x.args)
     return nothing
 end
 # Constant over time when every argument is.

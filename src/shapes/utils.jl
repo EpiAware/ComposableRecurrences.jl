@@ -105,7 +105,8 @@ const _Leafless = Union{
 }
 
 @doc raw"""
-The element type the parameters of `x` contribute to an operator's buffer.
+Return the element type the parameters of `x` contribute to an operator's
+buffer.
 
 The buffer eltype is the float promotion of this over the kernel, coupling,
 modifiers, inputs and history,

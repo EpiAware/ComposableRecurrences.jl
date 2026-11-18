@@ -1,4 +1,4 @@
-# ---- modifier traces --------------------------------------------------------
+# == Modifier traces ==
 
 # A step's trace is read from the records the rule keeps, so a call that
 # does not ask for one runs as before.
@@ -60,8 +60,8 @@ r
 struct Trace end
 
 @doc raw"""
-The number of rows of a modifier's trace for `S` strata, one column per
-step.
+Return the number of rows of a modifier's trace for `S` strata, one column
+per step.
 
 For a modifier with ``r`` trace values per stratum, or per group of a
 blockwise modifier with ``G`` groups,
@@ -73,6 +73,10 @@ n_r = r S \quad \text{or} \quad n_r = r G;
 the default is the modifier's [`ComposableRecurrences.nstate`](@ref), its
 state after each step, or none for a modifier whose state never changes
 ([`ComposableRecurrences.isstateless`](@ref)).
+
+# Arguments
+- `m`: the modifier.
+- `S`: the number of strata.
 
 # Examples
 ```jldoctest
@@ -106,14 +110,12 @@ function pullback!(grads, m, ::Trace, v::Tuple, s::Tuple, t, g)
     foreach((x̄, r̄) -> x̄[] += r̄[], grads.s′, grads.trace)
     return nothing
 end
-# On the host a step's few entries are copied by a loop, which costs less
-# than setting up `copyto!` of views.
 _copy_trace!(r::Tuple, s′) = _copy_trace!(first(r), s′)
-_copy_trace!(r::AbstractVector, s′) = (copyto!(r, s′); nothing)
-function _copy_trace!(r::_CPUArray, s′::_CPUArray)
-    for k in eachindex(r, s′)
-        r[k] = s′[k]
-    end
+function _copy_trace!(r::AbstractVector, s′)
+    length(r) == length(s′) || throw(
+        DimensionMismatch("trace has $(length(r)) entries, state $(length(s′))")
+    )
+    copyto!(r, s′)
     return nothing
 end
 _add_trace!(s̄′, r̄::Tuple) = _add_trace!(s̄′, first(r̄))

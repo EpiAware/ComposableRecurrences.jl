@@ -3014,9 +3014,6 @@ const REACTANT_BROKEN = Dict(
     # A modifier field read at the traced step indexes a view with a traced
     # integer.
     "modifier field read at a traced step" => [
-        "Recurrence per-stratum modifier without a pullback",
-        "Recurrence modifier with a vector field read by time",
-        "Recurrence checked at the call",
         "Recurrence whole-step modifier branching at a tie (occupancy)",
         "Recurrence whole-step modifier branching at a tie over five steps (occupancy)",
     ],
@@ -3028,8 +3025,6 @@ const REACTANT_BROKEN = Dict(
         "Recurrence sparse user coupling declared linear",
     ],
     "ragged kernel" => [
-        "Convolution ragged kernel truncated at the horizon",
-        "Convolution ragged kernel of views into the parameters",
         "Recurrence ragged Primary kernel",
     ],
     "Distributions or delay masses from traced parameters" => [

@@ -63,6 +63,24 @@ jobs:
             "$RUNNER_TEMP/committed.tsv" test/reactant/results.tsv --subset \
             | tee -a "$GITHUB_STEP_SUMMARY"
           exit "${PIPESTATUS[0]}"
+      # The smoke cases have too few strata to launch a kernel, so they run
+      # again with every strata loop as one, with a dense coupling's
+      # pressure, into results-kernel.tsv.
+      - name: Every strata loop as a kernel
+        if: ${{ !cancelled() }}
+        env:
+          REACTANT_MIN_STRATA: '1'
+          REACTANT_RESULTS: kernel
+          REACTANT_SCENARIOS: >-
+            Recurrence renewal;Recurrence strata, coupling and depletion;Convolution delay with history;Recurrence effective reproduction number from its pressure
+        run: julia --project=test/reactant --startup-file=no test/reactant/runtests.jl
+      - name: Compare the kernel run with the committed results
+        if: ${{ !cancelled() }}
+        run: |
+          julia --startup-file=no test/reactant/compare.jl \
+            "$RUNNER_TEMP/committed.tsv" test/reactant/results-kernel.tsv --subset \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "${PIPESTATUS[0]}"
 
   reactant:
     if: github.event_name != 'pull_request'
@@ -86,7 +104,8 @@ jobs:
       # The test set marks expected failures broken, so any failure or an
       # unexpected pass fails this step and the job; the comparison below
       # still runs and reports which cells changed.
-      - run: julia --project=test/reactant --startup-file=no test/reactant/runtests.jl
+      # Each case's subprocess takes the coverage flag from `Base.julia_cmd()`.
+      - run: julia --project=test/reactant --startup-file=no --code-coverage=user test/reactant/runtests.jl
       - name: Compare with the committed results
         if: ${{ !cancelled() }}
         run: |
@@ -94,6 +113,17 @@ jobs:
             "$RUNNER_TEMP/committed.tsv" test/reactant/results.tsv \
             | tee -a "$GITHUB_STEP_SUMMARY"
           exit "${PIPESTATUS[0]}"
+      # What the traced calls cover, kept as an artifact: Codecov has no
+      # Reactant flag yet, and the flags are set by the managed codecov.yml.
+      - uses: julia-actions/julia-processcoverage@v1
+        if: ${{ !cancelled() }}
+        with:
+          directories: src,ext
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: reactant-coverage
+          path: lcov.info
       - uses: actions/upload-artifact@v7
         if: always()
         with:

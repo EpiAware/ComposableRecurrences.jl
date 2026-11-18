@@ -124,7 +124,7 @@ end
 #
 # Traced and untraced cases are two types.
 # A share ``\psi`` of each case's contacts is traced, and traced cases use the thinned kernel.
-# A [`Pairwise`](@ref Pairwise) kernel gives each pair of types its interval.
+# A [`Pairwise`](@ref) kernel gives each pair of types its interval.
 # Rows are the infectee type and columns the infector type:
 #
 # ```math

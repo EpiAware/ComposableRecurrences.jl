@@ -1,6 +1,6 @@
 # == _Routes ==
 
-# The kernel `Pairwise(C₁ => k₁, C₂ => k₂, ...)` builds: its routes' couplings
+# The kernel `Pairwise(K₁ => k₁, K₂ => k₂, ...)` builds: its routes' couplings
 # and kernels, in route order.
 struct _Routes{C <: Tuple, G <: Tuple}
     "Each route's coupling."
