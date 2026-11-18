@@ -1,6 +1,4 @@
-# Flows between the pools of a `Depletion`: each moves part of one pool into
-# another, or out, by a form applied to its demand, a hazard rate, a share or
-# a count; `Flow`'s docstring gives how they combine.
+# Flows between the pools of a `Depletion`.
 
 # == Share ==
 
@@ -583,8 +581,8 @@ function _amounts(fs, x, g, t)
     L, y = _amount_start(fs, x, g, t)
     return _amounts_each(fs, x, L, y, g, t)
 end
-# The leave terms `L` of each pool and the pools `y` after the hazard and
-# share flows, before the counts, that the amounts and their pullback read.
+# The leave terms `L` and the pools `y` after the hazard and share flows,
+# before the counts.
 @inline function _amount_start(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
