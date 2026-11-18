@@ -257,9 +257,12 @@ it.
 Values and gradients equal those of the dense array that repeats each
 value over its segment.
 
-The indexing, [`ComposableRecurrences.Secondary`](@ref) (the default) or
-[`ComposableRecurrences.Primary`](@ref), sets which time a kernel's column
-belongs to; it is a type parameter, so nothing branches on it.
+The indexing sets which time a kernel's column belongs to, and is a type
+parameter, so nothing branches on it.
+With [`ComposableRecurrences.Secondary`](@ref), the default, column `t`
+weights the inputs reaching output `t`, the only meaning outside a kernel.
+With [`ComposableRecurrences.Primary`](@ref), column `c` is the kernel of
+the input at time `c`, which spreads forward through it.
 The two agree for a fixed kernel.
 
 # Arguments
@@ -351,9 +354,10 @@ end
 # A kernel's columns, of any lengths, stacked: column `τ` is
 # `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first, with no padding.
 # The integer offsets carry no cotangent and live where the values do, so a
-# device loop reads them. The checked constructor validates them, so loops
-# skip bounds checks; the `_Flat` form takes a checked one's fields as they
-# are, as `adapt` does.
+# device loop reads them. The checked constructor validates them on the
+# host, so a loop that reads column `τ ≤ ncols` within its range skips bounds
+# checks; the `_Flat` form takes a checked one's fields as they are, as
+# `adapt` does.
 struct _Ragged{V <: AbstractVector, O <: AbstractVector{Int}}
     values::V
     offsets::O
@@ -466,9 +470,10 @@ end
 
 # A coefficient that holds its value between change points: segment `j`
 # covers `starts[j]:(starts[j + 1] - 1)`, the last every later time, and its
-# value is column `j` of the dense coefficient `x`. The starts rise from 1
-# and carry no cotangent; the `_Flat` form takes a checked one's fields as
-# they are.
+# value is column `j` of the dense coefficient `x`, so a reader of a dense
+# coefficient reads it at column `_segment(p, t)`. The starts rise from 1 and
+# carry no cotangent; the `_Flat` form takes a checked one's fields as they
+# are.
 struct _Piecewise{X, P <: AbstractVector{Int}}
     x::X
     starts::P
@@ -499,8 +504,9 @@ end
 _array(p::_Piecewise) = _array(p.x)
 param_eltype(p::_Piecewise) = param_eltype(p.x)
 
-# The segment of time `t`, the first for a time before 1. A linear scan from
-# the last segment, as there are few and a run reads them in time order.
+# The segment of time `t`: the last whose start is at or before `t`, the
+# first for a time before 1. A linear scan from the last segment, as there
+# are few and a run reads them in time order.
 Base.@propagate_inbounds _segment(p::_Piecewise, t) = _segment_of(p.starts, t)
 Base.@propagate_inbounds function _segment_of(s, t)
     j = length(s)
