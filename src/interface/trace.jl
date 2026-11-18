@@ -111,7 +111,13 @@ function pullback!(grads, m, ::Trace, v::Tuple, s::Tuple, t, g)
     return nothing
 end
 _copy_trace!(r::Tuple, s′) = _copy_trace!(first(r), s′)
-_copy_trace!(r::AbstractVector, s′) = (copyto!(r, s′); nothing)
+function _copy_trace!(r::AbstractVector, s′)
+    length(r) == length(s′) || throw(
+        DimensionMismatch("trace has $(length(r)) entries, state $(length(s′))")
+    )
+    copyto!(r, s′)
+    return nothing
+end
 _add_trace!(s̄′, r̄::Tuple) = _add_trace!(s̄′, first(r̄))
 function _add_trace!(s̄′, r̄::AbstractVector)
     for k in eachindex(s̄′, r̄)
