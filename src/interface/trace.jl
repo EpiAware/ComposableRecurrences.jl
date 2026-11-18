@@ -74,6 +74,10 @@ the default is the modifier's [`ComposableRecurrences.nstate`](@ref), its
 state after each step, or none for a modifier whose state never changes
 ([`ComposableRecurrences.isstateless`](@ref)).
 
+# Arguments
+- `m`: the modifier.
+- `S`: the number of strata.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences
