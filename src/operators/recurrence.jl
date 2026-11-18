@@ -626,8 +626,7 @@ _public(H, rows, h::AbstractVector) = H[rows, 1]
 _public(H, rows, h::AbstractMatrix) = permutedims(H[rows, :])
 # A CPU buffer transposes in one pass, with no intermediate copy.
 function _public(H::Array, rows::AbstractUnitRange, h::AbstractMatrix)
-    # The columns' range, not `:`: a trimmed build cannot resolve the
-    # `BoundsError` nightly Julia builds for a `Colon` index.
+    # Explicit axes, not `:`: a `Colon` index breaks trimmed builds (#527).
     checkbounds(H, rows, axes(H, 2))
     Y = similar(H, size(H, 2), length(rows))
     o = first(rows) - 1
