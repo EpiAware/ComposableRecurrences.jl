@@ -222,8 +222,8 @@ To extend the package, define a type and add this method for its
 for a modifier or variant, [`ComposableRecurrences.Pressure`](@ref) for a
 coupling and [`ComposableRecurrences.Trace`](@ref) for a modifier's record.
 
-A pointwise step runs on a [`ComposableRecurrences.Device`](@ref) when it
-reads and writes only `eachindex(v)` entries, and allocates nothing.
+A pointwise step runs under [`ComposableRecurrences.Parallel`](@ref) when
+it reads and writes only `eachindex(v)` entries, and allocates nothing.
 
 # Arguments
 - `x`: the coupling, modifier or variant.

@@ -129,8 +129,14 @@ end
     @test CR._conv_path(Dual{Nothing, Float64, 1}, rand(D), x) === CR._Gathered()
     @test CR._conv_path(BigFloat, PerStratum(rand(S, D)), view(x, :, 1:2)) ===
         CR._Gathered()
-    # Time-varying kernels keep the buffer.
+    # A dense time-varying kernel gathers on BigFloat and dual numbers, and
+    # keeps the buffer on IEEE floats.
     @test CR._conv_path(BigFloat, TimeVarying(rand(D, T), CR.Secondary()), x) ===
+        CR._Gathered()
+    @test CR._conv_path(
+        Dual{Nothing, Float64, 1}, TimeVarying(PerStratum(rand(S, D, T)), CR.Primary()), x
+    ) === CR._Gathered()
+    @test CR._conv_path(Float64, TimeVarying(rand(D, T), CR.Primary()), x) ===
         CR._Buffered()
     # The gather matches the buffered values, and its derivatives match a
     # hand-written convolution's.
@@ -150,6 +156,51 @@ end
         y = conv(Dual.(x, 1.0); gain = g, add = a, history = h, start = 2, stop = 8)
         @test ForwardDiff.value.(y) ≈
             conv(x; gain = g, add = a, history = h, start = 2, stop = 8)
+    end
+end
+
+@testitem "Convolution: a time-varying kernel gathers on dual and BigFloat numbers" begin
+    using ComposableRecurrences, ForwardDiff, Random
+    CR = ComposableRecurrences
+    Dual = ForwardDiff.Dual
+    rng = Xoshiro(41)
+    S, D, T = 3, 4, 9
+    x, h, g = rand(rng, S, T), rand(rng, S, 2), rand(rng, S, T)
+    G = rand(rng, S, D, T)
+    # Stratum `k`'s weight on lag `d` read at output time `t` (secondary) or
+    # at input time `t - d` (primary), the history only for secondary.
+    function naive(G, u, primary)
+        w = primary ? hcat(zeros(eltype(u), S, 2), u) : hcat(h, u)
+        return [
+            g[k, t] * sum(
+                G[k, d + 1, primary ? t - d : t] * w[k, 2 + t - d]
+                    for d in 0:min(D - 1, primary ? t - 1 : t + 1)
+            ) for k in 1:S, t in 1:T
+        ]
+    end
+    for primary in (false, true)
+        ix = primary ? CR.Primary() : CR.Secondary()
+        hist = primary ? nothing : h
+        conv = Convolution(TimeVarying(PerStratum(G), ix))
+        @test CR._conv_path(eltype(Dual.(x, 1.0)), conv.kernel, x) === CR._Gathered()
+        f(θ) = sum(abs2, conv(reshape(θ, S, T); gain = g, history = hist))
+        @test ForwardDiff.gradient(f, vec(x)) ≈
+            ForwardDiff.gradient(θ -> sum(abs2, naive(G, reshape(θ, S, T), primary)), vec(x))
+        y = conv(Dual.(x, 1.0); gain = g, history = hist, start = 2, stop = 8)
+        @test ForwardDiff.value.(y) ≈ conv(x; gain = g, history = hist, start = 2, stop = 8)
+        # The same gathered body on BigFloat, against the naive sum.
+        @test CR._conv_path(BigFloat, conv.kernel, x) === CR._Gathered()
+        yb = conv(BigFloat.(x); gain = g, history = hist)
+        @test yb isa Matrix{BigFloat}
+        @test yb ≈ naive(G, x, primary)
+        yb_part = conv(BigFloat.(x); gain = g, history = hist, start = 2, stop = 8)
+        @test yb_part ≈ naive(G, x, primary)[:, 2:8]
+        # One series with a lags × times kernel.
+        c1 = Convolution(TimeVarying(G[1, :, :], ix))
+        f1(θ) = sum(abs2, c1(θ; history = primary ? nothing : h[1, :]))
+        @test ForwardDiff.gradient(f1, x[1, :]) ≈ ForwardDiff.gradient(
+            θ -> sum(abs2, naive(G, repeat(θ', S), primary)[1, :] ./ g[1, :]), x[1, :]
+        )
     end
 end
 

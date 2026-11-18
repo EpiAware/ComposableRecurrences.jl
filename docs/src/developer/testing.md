@@ -109,7 +109,7 @@ task -t benchmark/Taskfile.yml matrix-report -- matrix-results
 The report lists the median time of every cell, and the gain of each hand-written gradient as the `NoAdjoint` median over the operator's median.
 A new case is a `Case` entry in `matrix_cases.jl` whose loss takes a `wrap` argument (`identity` or `NoAdjoint`), so the matrix times both arms.
 Cases in `LOCAL_CASES` also run a `local` arm, which replaces the `pullback!` of each pointwise modifier and user coupling with the local `ForwardDiff` step.
-The `bvd_renewal`, `bvd_patches` and `bvd_delay` cases run in the `realistic` and `docs` tiers; they time the model of the [backend case study](@ref tutorial-backend-case-study).
+The `bvd_renewal`, `bvd_patches` and `bvd_delay` cases run in the `realistic` and `docs` tiers; they time the model of the [patch model case study](@ref tutorial-backend-case-study).
 They add a `loop` arm, a hand loop in the style of the BVDOutbreakSize backend, and a `handrule` arm, the same loop with the hand-written Mooncake rules in `benchmark/bvd_handrule.jl`.
 The tutorial cases in `TUTORIAL_HANDRULE_CASES` add a `handrule` arm beside their `loop` arm in the same way, with the hand-written Mooncake rules in `benchmark/tutorial_handrule.jl`.
 A test item in `test/ad/handrules.jl` checks that each of these rules is a Mooncake primitive and that its gradient matches `ForwardDiff` on the case's hand loop.

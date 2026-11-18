@@ -775,9 +775,7 @@ end
             ), backend in bs
         ref = gradient(f, AutoForwardDiff(), θ)
         n0 = CR._PULLBACK_CALLS[]
-        # Plain Enzyme on Julia 1.11 loses the scalar field's gradient.
-        broken = f === renewal_na && backend isa AutoEnzyme && VERSION < v"1.12"
-        @test gradient(f, backend, θ) ≈ ref broken = broken
+        @test gradient(f, backend, θ) ≈ ref
         @test (CR._PULLBACK_CALLS[] > n0) == fires
     end
 end

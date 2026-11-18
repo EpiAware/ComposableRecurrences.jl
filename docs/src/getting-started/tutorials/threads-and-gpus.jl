@@ -17,7 +17,7 @@
 # ## Packages used
 
 using ComposableRecurrences
-using ComposableRecurrences: EXECUTOR, Serial, Threaded, Device
+using ComposableRecurrences: EXECUTOR, Serial, Threaded, Parallel
 using Base.ScopedValues: with
 using JLArrays, KernelAbstractions
 
@@ -97,7 +97,7 @@ end == y_serial
 
 # ## GPU arrays
 #
-# The executor `Device(backend)` runs the same strata loops as one GPU kernel each.
+# The executor `Parallel(backend)` runs the same strata loops as one GPU kernel each.
 # Calls on arrays that live on a GPU use it by default.
 # Every array a call reads must be on the [device](@ref gpu-arrays): the inputs, the gain and add inputs, the history, a resumed state, the kernel, the coupling and the modifiers' parameters.
 # JLArrays.jl provides GPU-style arrays that run on the CPU, so this section runs anywhere.
@@ -116,11 +116,11 @@ Array(y_device) ≈ y_serial
 # ```
 #
 # Strata that mix are one kernel per step, so a [GPU](@ref gpu-arrays) pays off only with many strata.
-# On arrays that live on a GPU, `Threaded()` spawns CPU tasks that index the arrays from the host, so use `Device(backend)` there.
+# On arrays that live on a GPU, `Threaded()` spawns CPU tasks that index the arrays from the host, so use `Parallel(backend)` there.
 # A model can also compile with [Reactant.jl](@ref extension-reactant).
 
 # ## What each executor supports
 #
 # Every [executor](@ref executors) runs every operator forward.
-# Under ForwardDiff, `Threaded()` runs threaded and `Device(backend)` takes dual-number inputs only.
+# Under ForwardDiff, `Threaded()` runs threaded and `Parallel(backend)` takes dual-number inputs only.
 # Under Mooncake and Enzyme reverse mode, `Threaded()` threads a rule's forward and reverse passes and runs all else serially.

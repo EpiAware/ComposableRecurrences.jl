@@ -20,9 +20,12 @@
             stop === nothing && (push!(names, m.captures[1] * " (no begin)"); continue)
             header = chunk[1:last(stop)]
             # Code only: comments may name the executors without using them,
-            # and setting `EXECUTOR` to a `Device` does not use threads.
+            # and setting `EXECUTOR` to a `Device` or `Parallel` does not use
+            # threads.
             body = replace(chunk[(last(stop) + 1):end], r"#[^\n]*" => "")
-            body = replace(body, r"\bEXECUTOR\s*=>\s*(\w+\.)*Device\(" => "")
+            body = replace(
+                body, r"\bEXECUTOR\s*=>\s*(\w+\.)*(Device|Parallel)\(" => ""
+            )
             uses = occursin(r"\bThreaded\b|\bEXECUTOR\b|\bThreads\.", body)
             uses && !occursin(":threads", header) && push!(names, m.captures[1])
         end

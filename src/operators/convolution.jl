@@ -368,13 +368,19 @@ end
 # output once, in the public layout: for numbers that do not vectorise
 # (dual numbers, `BigFloat`, tracked reals inside plain arrays) on CPU
 # arrays, where each copy of a wide number costs more than the arithmetic
-# it saves. A tracked array input is not a CPU array here and keeps the
+# it saves. A dense time-varying kernel gathers too, reading each weight in
+# place. A tracked array input is not a CPU array here and keeps the
 # buffer.
 struct _Buffered end
 struct _Gathered end
 const _FixedKernel = Union{AbstractVector, PerStratum}
+const _DenseTimeVarying = TimeVarying{
+    <:Any, <:Union{AbstractMatrix, PerStratum{<:AbstractArray{<:Any, 3}}},
+}
 _conv_path(::Type{Tp}, kernel, x) where {Tp} = _Buffered()
-function _conv_path(::Type{Tp}, kernel::_FixedKernel, x::_CPUArray) where {Tp}
+function _conv_path(
+        ::Type{Tp}, kernel::Union{_FixedKernel, _DenseTimeVarying}, x::_CPUArray
+    ) where {Tp}
     return Tp <: Real && !(Tp <: _IEEEFloat) ? _Gathered() : _Buffered()
 end
 
@@ -1019,7 +1025,7 @@ end
 function _convolve!(ex, Y, c, X, m, start)
     S = size(Y, 2)
     work = _work(_ConvLoop(), Y, length(Y) * _nlags(c))
-    if _gathers(c) && _on_device(ex, Y)
+    if _gathers(c) && _launches(ex, Y, work)
         _each!(_convolve_output!, ex, Y, length(Y), work, Y, c, X, m, start)
     else
         _each!(_convolve_body!, ex, Y, S, work, Y, c, X, m, start)

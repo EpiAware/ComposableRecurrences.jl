@@ -1,10 +1,10 @@
 module ComposableRecurrencesKernelAbstractionsExt
 
 using ComposableRecurrences: ComposableRecurrences, Allocate,
-    Convolution, Depletion, Derived, Device, Flow, Pairwise, PerStratum, Recurrence,
-    Redistribute, TimeVarying, Transform, _AllocateImports, _Columns, _DrawFrom,
-    _DrawInto, _Flat, _Movement, _OldestFirstPairwise, _PIECEWISE_DEVICE,
-    _Piecewise, _Ragged, _kernel_args
+    Convolution, Depletion, Derived, Flow, Pairwise, Parallel, PerStratum,
+    Recurrence, Redistribute, TimeVarying, Transform, _AllocateImports,
+    _Columns, _DrawFrom, _DrawInto, _Flat, _Movement, _OldestFirstPairwise,
+    _PIECEWISE_DEVICE, _Piecewise, _Ragged, Serial, _kernel_args
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using KernelAbstractions: @index, @kernel
@@ -16,9 +16,11 @@ using KernelAbstractions: @index, @kernel
 end
 
 function ComposableRecurrences.each!(
-        body::F, ex::Device, n, work, args::Vararg{Any, N}
+        body::F, ex::Parallel, n, work, args::Vararg{Any, N}
     ) where {F, N}
     n == 0 && return nothing
+    work < ex.min_work &&
+        return ComposableRecurrences.each!(body, Serial(), n, work, args...)
     _launch!(ex.backend, body, _kernel_args(args), n)
     return nothing
 end
