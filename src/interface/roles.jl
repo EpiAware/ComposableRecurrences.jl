@@ -626,7 +626,8 @@ end
 
 # How the operator runs a modifier's step, fixed by the type so it folds:
 # `Val((nv, ns))` runs a group kernel per group, `nothing` a step per stratum
-# or on the whole vectors. A one-pool `Depletion` runs its group kernel.
+# or on the whole vectors. A `Depletion` of a one-pool kind without a step of
+# its own runs a pointwise shape on its group kernel.
 _blocks(m) = _static_blocks(blocks(m))
 _static_blocks(::Nothing) = nothing
 _static_blocks(b::Tuple) = _group_shape(Val(b))
