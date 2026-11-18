@@ -1033,10 +1033,10 @@ function _convolve!(ex, Y, c, X, m, start)
     return Y
 end
 
-# A fixed kernel convolves and pulls back on a device, so a call on device
-# arrays takes the rule (see `_device_gate`).
+# A fixed or dense time-varying kernel convolves and pulls back on a device,
+# so a call on device arrays takes the rule (see `_device_gate`).
 const _DeviceReadyConvolution = Convolution{
-    <:Union{AbstractVector, PerStratum}, <:Union{Direct, Auto},
+    <:_DeviceKernel, <:Union{Direct, Auto},
 }
 _device_ready(::_DeviceReadyConvolution) = true
 
