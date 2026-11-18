@@ -257,8 +257,8 @@ end
 
 # == stateless ==
 
-# A modifier declared stateless leaves its state as it was in Step, as the
-# reverse pass reads the starting state in place of a record per step.
+# Passes unless the type declares `isstateless`; `isequal` so a NaN state
+# that is left as it was passes.
 _stateless_ok(piece, role, args) = true
 function _stateless_ok(m, ::Step, args)
     isstateless(m) || return true

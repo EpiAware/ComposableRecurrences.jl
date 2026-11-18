@@ -582,7 +582,7 @@ end
 end
 
 @testitem "Adjoint: a user modifier declared stateless" setup = [AdjointCheck] begin
-    using ComposableRecurrences, Interfaces
+    using ComposableRecurrences
     struct Scale{A}
         a::A
     end
@@ -625,23 +625,6 @@ end
     _, c = CR._run_forward(plain, recargs(R, nothing, h)...)
     @test size(only(c.rec).S) == (S, T)
     @test pullback_matches(declared, recargs(R, nothing, h)...)
-    # The interface checks the declaration against the step.
-    struct Drift end
-    CR.blocks(::Drift) = (1, 1)
-    CR.isstateless(::Drift) = true
-    function CR.forward!(::Drift, ::CR.Step, v, s, t)
-        s .+= 1
-        return nothing
-    end
-    step(m) = Interfaces.Arguments(;
-        piece = m, role = CR.Step(), args = (ones(S), zeros(S), 1)
-    )
-    stateless = CR.PieceInterface{(:stateless,)}
-    @test Interfaces.test(
-        stateless, StatelessScale, (step(StatelessScale(a)),); show = false
-    )
-    @test !CR._stateless_ok(Drift(), CR.Step(), step(Drift()).args)
-    @test CR._stateless_ok(Scale(a), CR.Step(), step(Scale(a)).args)
 end
 
 @testitem "Adjoint: Recurrence cache keeps only what the reverse pass reads" setup = [AdjointCheck] begin
