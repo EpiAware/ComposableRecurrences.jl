@@ -1203,19 +1203,27 @@ end
     @test_throws DimensionMismatch("a has 2 strata, expected 3") run(
         Scale(CR.Derived(*, 2.0, PerStratum([1.0, 2.0]))), 3
     )
-    bare = try
-        run(Scale([1.0, 2.0, 3.0]), 3)
-    catch e
-        e
-    end
-    @test bare isa ArgumentError
-    @test occursin("PerStratum(x)", bare.msg)
-    @test occursin("TimeVarying(x)", bare.msg)
+    # A bare array read with param says which wrappers to use.
+    @test_throws ArgumentError run(Scale([1.0, 2.0, 3.0]), 3)
+    @test_throws r"PerStratum\(x\).*TimeVarying\(x\)" run(
+        Scale([1.0, 2.0, 3.0]), 3
+    )
     # A blockwise modifier's parameters have one entry per group.
     @test size(run(PairScale(PerStratum([0.5, 0.8])), 4)) == (4, 4)
     @test_throws DimensionMismatch("a has 4 groups, expected 2") run(
         PairScale(PerStratum(ones(4))), 4
     )
+    @test_throws DimensionMismatch("a has 3 groups, expected 2") run(
+        PairScale(CR.Derived(*, 2.0, PerStratum(ones(3)))), 4
+    )
+    # Strata that do not split into groups are reported as such, not as a
+    # parameter mismatch.
+    @test_throws r"multiple of 2 strata" run(PairScale(PerStratum(ones(2))), 3)
+    # The built-in modifiers keep their own checks and messages.
+    @test_throws DimensionMismatch("θ has 4 strata, expected 3") run(
+        CR.Transform(*, PerStratum(ones(4))), 3
+    )
+    @test size(run(CR.Depletion(PerStratum([50.0, 60.0, 70.0])), 3)) == (3, 4)
     # A scalar or time-only parameter has no strata to check.
     @test size(run(Scale(TimeVarying(fill(0.5, 4))), 3)) == (3, 4)
     @test size(run(Scale(0.5), 3)) == (3, 4)
