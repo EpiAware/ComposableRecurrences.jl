@@ -5,11 +5,8 @@ struct _TransposedConvolution{C <: Convolution} <: AbstractOperator
 end
 
 @doc raw"""
-    transpose(c::Convolution)
-    c'
-
-The transpose of the convolution `c`: a sum that reads the series forward
-from each time rather than back from it,
+Return the transpose of the convolution `c`, also written `c'`: a sum that
+reads the series forward from each time rather than back from it,
 
 ```math
 z_{\sigma,i} = \sum_{l=0}^{L-1} k_{i,l}(\sigma)\, x_{\sigma+l,i},
