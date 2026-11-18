@@ -949,7 +949,10 @@ function _check_columns(A, leak)
     tol = sqrt(eps(float(_primal_type(eltype(A)))))
     lo, hi = _column_sum_range(A)
     ok = leak ? hi <= 1 + tol : (abs(lo - 1) <= tol && abs(hi - 1) <= tol)
-    ok && return nothing
+    ok || _columns_error(leak, lo, hi)
+    return nothing
+end
+@noinline function _columns_error(leak, lo, hi)
     hint = leak ? "" : " (or pass leak = true for columns that lose a share)"
     throw(
         ArgumentError(
