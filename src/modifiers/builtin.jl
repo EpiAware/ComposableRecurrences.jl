@@ -100,6 +100,17 @@ param(x::Real, k, t) = x
 param(x::PerStratum, k, t) = x.x[k]
 param(x::TimeVarying{<:Any, <:AbstractVector}, k, t) = x.x[t]
 param(x::TimeVarying{<:Any, <:PerStratum}, k, t) = x.x.x[k, t]
+param(x::AbstractArray, k, t) = _bare_param_error(x)
+@noinline function _bare_param_error(x)
+    throw(
+        ArgumentError(
+            "param reads a parameter wrapped as PerStratum(x) with one " *
+                "value per stratum, TimeVarying(x) with one per time or " *
+                "TimeVarying(PerStratum(x)) strata × time; got a bare " *
+                _describe(x)
+        )
+    )
+end
 add_param!(x̄, ::Real, v, k, t) = add_cotangent!(x̄, v)
 add_param!(x̄, ::PerStratum, v, k, t) = add_cotangent!(x̄, v, k)
 function add_param!(x̄, ::TimeVarying{<:Any, <:AbstractVector}, v, k, t)
@@ -135,6 +146,34 @@ end
 
 # Check a parameter against `S` strata.
 _check_param_strata(name, x, S) = _check_rows(name, x, S, "strata")
+
+# Check the fields of modifier `m` that hold a per-stratum parameter
+# against a call's `S` strata, once per call before its Init: against `S`
+# for a pointwise modifier and against its groups for a blockwise one. A
+# whole-step modifier has no fixed count, so its fields are not checked,
+# and a field holding no wrapped parameter compiles to nothing.
+_check_modifier_params(m, S) = _check_modifier_params(m, blocks(m), S)
+_check_modifier_params(m, ::Nothing, S) = nothing
+function _check_modifier_params(m, b::Tuple{Int, Int}, S)
+    nv = first(b)
+    # A strata count that is not a multiple of the group size is reported
+    # where the groups are formed.
+    rem(S, nv) == 0 || return nothing
+    _check_field_rows(m, S ÷ nv, nv == 1 ? "strata" : "groups")
+    return nothing
+end
+
+# Each field of `m` against `n` rows, unrolled so the checks of fields with
+# no wrapped parameter fold away. Mutable objects are not walked.
+@generated function _check_field_rows(m, n, what)
+    ismutabletype(m) && return :(nothing)
+    calls = (
+        :(_check_rows_of($(QuoteNode(fieldname(m, i))), getfield(m, $i), n, what))
+            for i in 1:fieldcount(m)
+    )
+    return :($(calls...); nothing)
+end
+_check_rows_of(name, x, n, what) = _check_rows(name, x, n, what)
 
 # A zero initial state, once the parameters are checked against the state's
 # strata. `foreach` unrolls the pairs, so each keeps its concrete type: in a

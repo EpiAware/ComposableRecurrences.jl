@@ -1162,3 +1162,65 @@ end
             Recurrence
     end
 end
+
+@testitem "Modifiers: a user modifier's parameters are checked against the strata" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    struct Scale{A}
+        a::A
+    end
+    CR.blocks(::Scale) = (1, 1)
+    function CR.forward!(m::Scale, ::CR.Step, v, s, t)
+        for k in eachindex(v)
+            v[k] *= CR.param(m.a, k, t)
+        end
+        return nothing
+    end
+    # Two values per group, one group per pair of strata.
+    struct PairScale{A}
+        a::A
+    end
+    CR.blocks(::PairScale) = (2, 0)
+    function CR.forward!(m::PairScale, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        a = CR.param(m.a, g, t)
+        v[1][] *= a
+        v[2][] *= a
+        return nothing
+    end
+    run(m, S) = Recurrence([0.4, 0.3]; modifiers = (m,))(
+        fill(1.2, S, 4); history = ones(S, 2)
+    )
+    @test size(run(Scale(PerStratum([0.5, 0.8, 1.1])), 3)) == (3, 4)
+    @test_throws DimensionMismatch("a has 4 strata, expected 3") run(
+        Scale(PerStratum([1.0, 2.0, 3.0, 4.0])), 3
+    )
+    @test_throws DimensionMismatch("a has 2 strata, expected 3") run(
+        Scale(PerStratum([1.0, 2.0])), 3
+    )
+    @test_throws DimensionMismatch("a has 2 strata, expected 3") run(
+        Scale(TimeVarying(PerStratum(ones(2, 4)))), 3
+    )
+    @test_throws DimensionMismatch("a has 2 strata, expected 3") run(
+        Scale(CR.Derived(*, 2.0, PerStratum([1.0, 2.0]))), 3
+    )
+    bare = try
+        run(Scale([1.0, 2.0, 3.0]), 3)
+    catch e
+        e
+    end
+    @test bare isa ArgumentError
+    @test occursin("PerStratum(x)", bare.msg)
+    @test occursin("TimeVarying(x)", bare.msg)
+    # A blockwise modifier's parameters have one entry per group.
+    @test size(run(PairScale(PerStratum([0.5, 0.8])), 4)) == (4, 4)
+    @test_throws DimensionMismatch("a has 4 groups, expected 2") run(
+        PairScale(PerStratum(ones(4))), 4
+    )
+    # A scalar or time-only parameter has no strata to check.
+    @test size(run(Scale(TimeVarying(fill(0.5, 4))), 3)) == (3, 4)
+    @test size(run(Scale(0.5), 3)) == (3, 4)
+    # The check walks a modifier's fields without allocating.
+    m = Scale(PerStratum([0.5, 0.8, 1.1]))
+    CR._check_modifier_params(m, 3)
+    @test (@allocated CR._check_modifier_params(m, 3)) == 0
+end
