@@ -887,7 +887,9 @@ function _load_input!(X::Array, x::AbstractMatrix, m, stop, lo = 1)
     f = max(lo, 1)
     stop = min(stop, _extent(x))
     f > stop && return X
-    checkbounds(X, (m + f):(m + stop), :)
+    # The columns' range, not `:`: a trimmed build cannot resolve the
+    # `BoundsError` nightly Julia builds for a `Colon` index.
+    checkbounds(X, (m + f):(m + stop), axes(X, 2))
     checkbounds(x, axes(X, 2), f:stop)
     @inbounds for t in f:stop, k in axes(X, 2)
         X[m + t, k] = x[k, t]
