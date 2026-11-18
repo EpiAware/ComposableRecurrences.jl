@@ -53,7 +53,7 @@ _sinks(::Val{false}, h, ::Type{Tp}, ms, states, S, T) where {Tp} = nothing
 function _sinks(::Val{:trace}, h, ::Type{Tp}, ms, states, S, T) where {Tp}
     return map(ms, states) do m, s
         n = ntrace(m, S)
-        _stateless(m) && return _NoTrace(_zeros(h, Tp, n, T))
+        isstateless(m) && return _NoTrace(_zeros(h, Tp, n, T))
         out = similar(h, Tp, n, T)
         _strata_loop(m) && return _TraceSink(out, nothing, nothing, S)
         return _TraceSink(out, _zeros(h, Tp, S), similar(s), S)
@@ -122,7 +122,7 @@ function _traces(ms::Tuple, rec::Tuple, finals::Tuple, H, D, S, T, τ0)
     # The last step's state after it is the final state, apart so that each
     # call sees one type.
     rest = Base.tail(rec)
-    _stateless(m) || _trace_steps!(out, m, R, rest, first(finals), H, D, T, τ0)
+    isstateless(m) || _trace_steps!(out, m, R, rest, first(finals), H, D, T, τ0)
     rest = _traces(Base.tail(ms), Base.tail(rec), Base.tail(finals), H, D, S, T, τ0)
     return (out, rest...)
 end
@@ -170,7 +170,7 @@ end
 # both pass their arguments through.
 _trace_out(R, m, m̄, v̄, s̄, v, s, τ, t, k) = v̄, s̄, nothing, nothing
 function _trace_out(R::_TracedRecord, m, args...)
-    return _trace_out(Val(_stateless(m)), R, m, args...)
+    return _trace_out(Val(isstateless(m)), R, m, args...)
 end
 # A modifier whose state never changes has no trace, so no cotangent.
 _trace_out(::Val{true}, R, m, m̄, v̄, s̄, v, s, τ, t, k) = v̄, s̄, nothing, nothing
@@ -201,7 +201,7 @@ _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t) = nothing
 # defaults, which record the state after each step.
 _trace_is_state(m) = false
 function _trace_out!(R::_TracedRecord, m, m̄, v̄, s̄, v, s, τ, t)
-    (_stateless(m) || !R.live) && return nothing
+    (isstateless(m) || !R.live) && return nothing
     _trace_is_state(m) && return _add_trace_column!(s̄, R.T̄, t)
     _trace_back!(_blocks(m), R, m, m̄, v̄, s̄, view(R.T̄, :, t), v, s, τ)
     return nothing

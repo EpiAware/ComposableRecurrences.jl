@@ -324,7 +324,7 @@ function _check_imports(im::_AllocateImports, S)
     return nothing
 end
 pullback!(grads, ::Allocate, ::Init, s, history) = nothing
-_stateless(::Allocate{<:Any, Nothing}) = true
+isstateless(::Allocate{<:Any, Nothing}) = true
 
 # The groups are disjoint, so each is one index of the loop.
 function forward!(m::Allocate{<:Any, Nothing}, ::Step, v, s, t)
