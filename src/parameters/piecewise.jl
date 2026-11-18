@@ -254,9 +254,13 @@ end
 
 # Stratum `k`'s weights in segment `j`, and the same view of the values'
 # cotangent `V̄`, or `nothing` without one.
-function _conv_weights(c::_TVPiecewise, k, j)
-    v = c.x.x
-    return v isa PerStratum ? view(v.x, k, :, j) : view(v, :, j)
+function _conv_weights(
+        c::TimeVarying{<:Any, <:_Piecewise{<:AbstractMatrix}}, k, j
+    )
+    return view(c.x.x, :, j)
+end
+function _conv_weights(c::TimeVarying{<:Any, <:_Piecewise{<:PerStratum}}, k, j)
+    return view(c.x.x.x, k, :, j)
 end
 _conv_mirror(::Nothing, c, k, j) = nothing
 _conv_mirror(V̄::AbstractMatrix, c, k, j) = view(V̄, :, j)
