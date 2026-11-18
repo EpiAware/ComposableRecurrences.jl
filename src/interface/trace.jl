@@ -1,4 +1,4 @@
-# ---- modifier traces --------------------------------------------------------
+# == Modifier traces ==
 
 # A step's trace is read from the records the rule keeps, so a call that
 # does not ask for one runs as before.

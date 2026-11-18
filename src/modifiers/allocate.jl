@@ -1,4 +1,4 @@
-# ---- Allocate ----------------------------------------------------------------
+# == Allocate ==
 
 @doc raw"""
 A modifier that rescales each group of [strata](@ref PerStratum) to a
@@ -246,7 +246,7 @@ function _check_pattern(P)
     return nothing
 end
 
-# ---- groups, state and traits ------------------------------------------------
+# == Groups, state and traits ==
 
 _ngroups(m::Allocate) = length(m.offsets) - 1
 _group(m::Allocate, p) = view(m.strata, (m.offsets[p] + 1):m.offsets[p + 1])
@@ -336,7 +336,7 @@ end
 pullback!(grads, ::Allocate, ::Init, s, history) = nothing
 isstateless(::Allocate{<:Any, Nothing}) = true
 
-# ---- step without imports ----------------------------------------------------
+# == Step without imports ==
 
 # The groups are disjoint, so each is one index of the loop.
 function forward!(m::Allocate{<:Any, Nothing}, ::Step, v, s, t)
@@ -388,7 +388,7 @@ function pullback!(grads, m::Allocate{<:Any, Nothing}, ::Step, v, s, t)
     return nothing
 end
 
-# ---- step with imports -------------------------------------------------------
+# == Step with imports ==
 
 # With imports: the spilled values `u` go into the first slot of the state
 # when there is a spill (otherwise `u = v`) and the pattern `h = P v` into
@@ -531,7 +531,7 @@ function _pattern_back!(P::Matrix, P̄, h̄, v̄, v, t, hb::AbstractVector)
     return nothing
 end
 
-# ---- batched reverse pass ----------------------------------------------------
+# == Batched reverse pass ==
 
 # Batching asks for a dense pattern or movement matrix whose mirror is a
 # dense matrix: the buffer keeps each step's `h̄` (`hb`) and each step's

@@ -1,4 +1,4 @@
-# ---- one-line summaries -----------------------------------------------------
+# == One-line summaries ==
 
 # Only the three-argument show is summarised, so `repr` keeps the
 # constructor form.

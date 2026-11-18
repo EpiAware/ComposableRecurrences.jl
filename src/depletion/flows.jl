@@ -1,4 +1,8 @@
-# ---- Share -------------------------------------------------------------------
+# Flows between the pools of a `Depletion`: each moves part of one pool into
+# another, or out, by a form applied to its demand, a hazard rate, a share or
+# a count; `Flow`'s docstring gives how they combine.
+
+# == Share ==
 
 @doc raw"""
 The share flow form: a [`ComposableRecurrences.Flow`](@ref) with this form
@@ -28,7 +32,7 @@ ComposableRecurrences.Share()
 """
 struct Share end
 
-# ---- Flow: type, construction and checks -------------------------------------
+# == Flow: type, construction and checks ==
 
 # The forms a flow takes: without an exponent, and without a draw's
 # arguments.
@@ -260,7 +264,7 @@ function _check_end(name, x::Int)
     return nothing
 end
 
-# ---- placing a flow among its pools ------------------------------------------
+# == Placing a flow among its pools ==
 
 # The flow with its ends as positions among the pools `names`, found from
 # the types, so the placed flow's type infers whether or not the flow was
@@ -289,7 +293,7 @@ end
     )
 end
 
-# ---- the step: leave terms, spread and counts --------------------------------
+# == The step: leave terms, spread and counts ==
 
 # A count flow, which moves its demand up to what the pool holds.
 const _Count = Flow{<:Any, <:_FlowCount}
@@ -570,17 +574,23 @@ end
 _flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
 @inline _flow_only(fs, x, g, t) = first(_flow_step(fs, x, g, t, Val(false)))
 
-# ---- each flow's amount, for a trace without a draw --------------------------
+# == Each flow's amount, for a trace without a draw ==
 
 # The amount each flow moves at one step, in the order given, from the
 # pools `x`: a hazard or share flow's from `x`, as the step spreads it,
 # and a count's from what remains when it acts.
-function _amounts(fs, x::NTuple{N}, g, t) where {N}
+function _amounts(fs, x, g, t)
+    L, y = _amount_start(fs, x, g, t)
+    return _amounts_each(fs, x, L, y, g, t)
+end
+# The leave terms `L` of each pool and the pools `y` after the hazard and
+# share flows, before the counts, that the amounts and their pullback read.
+@inline function _amount_start(fs, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
     y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
     y, _ = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
-    return _amounts_each(fs, x, L, y, g, t)
+    return L, y
 end
 function _amounts_each(fs::Tuple, x, L, y, g, t)
     return _tuple_scan(@inline((y, f, _) -> _amount(f, x, L, y, g, t)), y, fs)
@@ -600,9 +610,7 @@ end
 # the step's pullback takes the second only, and each count adding its own.
 function _amounts_pullback(fs, f̄s, r̄, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
-    L = ntuple(i -> _leaves(fs, i, g, t, z), Val(N))
-    y0 = ntuple(i -> (L[i][1] - L[i][3]) * x[i], Val(N))
-    y, _ = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
+    L, y = _amount_start(fs, x, g, t)
     z̄ = zero(promote_type(eltype(x), eltype(r̄)))
     ȳ = _amount_counts_back(fs, f̄s, r̄, y, ntuple(_ -> z̄, Val(N)), g, t)
     q = _amount_cotangents(fs, r̄, ȳ)
@@ -680,7 +688,7 @@ function _amount_rate_back!(f::Flow{<:Any, Share}, f̄, q, x, L, H, B, ȳ, g, t)
     return nothing
 end
 
-# ---- the step's pullback -----------------------------------------------------
+# == The step's pullback ==
 
 # Reverse of the count flows: recurse forward, keeping each flow's input,
 # then pull back last first. `ȳ` and `ā` are the cotangents after the
@@ -818,7 +826,7 @@ function _rate_back!(f::Flow{<:Any, Share}, f̄, x, L, H, B, ȳ, ā, g, t)
     return nothing
 end
 
-# ---- checks against the groups -----------------------------------------------
+# == Checks against the groups ==
 
 # Each flow's parameter against the groups, unrolled over the tuple so each
 # flow's check is compiled for its type.

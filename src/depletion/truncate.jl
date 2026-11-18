@@ -1,4 +1,4 @@
-# ---- Truncate: the exact and the smooth minimum -----------------------------
+# == Truncate: the exact and the smooth minimum ==
 
 @doc raw"""
 The truncated depletion form: the value is drawn in full while the pool
@@ -103,6 +103,8 @@ const _HardTruncate = Truncate{Nothing}
 const _SoftTruncate = Truncate{<:Real}
 
 # The built-in draw forms, known without a method lookup at run time.
+# `_ExponentForm` comes from `modifiers/builtin.jl`, included before this
+# file; `Truncate` is defined above, so the union lives here.
 const _BuiltinForm = Union{_ExponentForm, Truncate}
 _is_form(::Type{<:_BuiltinForm}) = true
 _draw_args(form::Truncate) = (form.weights, form.into, form.overflow)
@@ -166,6 +168,8 @@ end
 # The minimum of `a` and a non-negative `b`, or with softness `κ` the
 # smooth minimum `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`, for `m` and
 # `M` the smaller and larger. A non-positive `m` or an infinite `M` gives `m`.
+# The exact minimum, for no softness or a zero one, is `_removal`: it takes
+# `a` on a tie and returns a NaN.
 _soft_min(::Nothing, a, b) = _removal(a, b)
 function _soft_min(κ, a, b)
     iszero(_primal_value(κ)) && return _soft_min(nothing, a, b)
