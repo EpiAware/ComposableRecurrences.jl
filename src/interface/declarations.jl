@@ -14,6 +14,8 @@
             a -> _blocks_ok(a.piece, a.role, a.args),
         nstate = "Init and Step keep the state at nstate(m, S) entries" =>
             a -> _nstate_ok(a.piece, a.role, a.args),
+        stateless = "a type declared isstateless keeps its state in Step" =>
+            a -> _stateless_ok(a.piece, a.role, a.args),
         pullback = "pullback! matches the `ForwardDiff` Jacobian of forward!" =>
             a -> !_checks_pullback(a) || _pullback_ok(a.piece, a.role, a.args),
     ),
@@ -57,6 +59,9 @@ The optional `blocks` component checks the same for a blockwise modifier
 other modifier.
 The optional `nstate` component checks the state length against
 [`ComposableRecurrences.nstate`](@ref).
+The optional `stateless` component checks that a modifier declared
+[`ComposableRecurrences.isstateless`](@ref) leaves its state as it was in
+`Step()`, and passes any other modifier and role.
 The optional `pullback` component checks a `pullback!` for a modifier's or
 a depletion form's `Step()`, or a coupling's `Pressure()`, against the
 Jacobian ``J`` of `forward!` from `ForwardDiff`: for a fixed cotangent
@@ -248,6 +253,19 @@ function _nstate_ok(m, ::Step, args)
     length(s) == n || return false
     forward!(m, Step(), v, s, args[3:end]...)
     return length(s) == n && (blocks(m) !== (1, 1) || n == S)
+end
+
+# == stateless ==
+
+# Passes unless the type declares `isstateless`; `isequal` so a NaN state
+# that is left as it was passes.
+_stateless_ok(piece, role, args) = true
+function _stateless_ok(m, ::Step, args)
+    isstateless(m) || return true
+    v, s = float(copy(args[1])), float(copy(args[2]))
+    s0 = copy(s)
+    forward!(m, Step(), v, s, args[3:end]...)
+    return isequal(s, s0)
 end
 
 # == adjoint ==

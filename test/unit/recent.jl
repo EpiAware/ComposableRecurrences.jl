@@ -574,8 +574,9 @@ end
     @test length(@inferred(CR._coupled_reads(b))) == 2
     CR._refresh!(b, 5)
     CR._flush!(b)
-    @test @allocated(CR._refresh!(b, 5)) == 0
-    @test @allocated(CR._flush!(b)) == 0
+    coverage = Base.JLOptions().code_coverage != 0
+    @test @allocated(CR._refresh!(b, 5)) == 0 skip = coverage
+    @test @allocated(CR._flush!(b)) == 0 skip = coverage
     # A run grows with its steps by what an uncoupled read's run grows by.
     function growth(m)
         r = Recurrence([0.3, 0.2]; modifiers = (CR.Transform(*, m),))

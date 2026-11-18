@@ -257,12 +257,17 @@ it.
 Values and gradients equal those of the dense array that repeats each
 value over its segment.
 
-The indexing sets which time a kernel's column belongs to, and is a type
-parameter, so nothing branches on it.
-With [`ComposableRecurrences.Secondary`](@ref), the default, column `t`
-weights the inputs reaching output `t`, the only meaning outside a kernel.
-With [`ComposableRecurrences.Primary`](@ref), column `c` is the kernel of
-the input at time `c`, which spreads forward through it.
+The indexing sets which time a kernel's column belongs to, and is held as
+a type parameter so nothing branches on it:
+
+  - [`ComposableRecurrences.Secondary`](@ref) (the default): column `t`
+    weights the inputs reaching output `t`. This is the only meaning
+    outside a kernel.
+  - [`ComposableRecurrences.Primary`](@ref): column `c` is the kernel of
+    the input at time `c`, which spreads forward through it.
+    In a [`Recurrence`](@ref) the input is the output at time `c`, so each
+    output keeps the kernel of the time it was produced.
+
 The two agree for a fixed kernel.
 
 # Arguments
