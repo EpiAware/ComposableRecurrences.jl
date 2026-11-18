@@ -60,8 +60,8 @@ r
 struct Trace end
 
 @doc raw"""
-The number of rows of a modifier's trace for `S` strata, one column per
-step.
+Return the number of rows of a modifier's trace for `S` strata, one column
+per step.
 
 For a modifier with ``r`` trace values per stratum, or per group of a
 blockwise modifier with ``G`` groups,

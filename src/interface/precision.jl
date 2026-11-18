@@ -1,11 +1,8 @@
 # ---- float precision of a model ----------------------------------------------
 
 @doc raw"""
-    convert_floats(T, x)
-
-`x` with every float it holds converted to the float type `T`: float
-arrays, which stay on their device, and single floats, such as a
-population or a scale.
+Convert every float `x` holds to the float type `T`: float arrays, which
+stay on their device, and single floats, such as a population or a scale.
 Each float ``v`` becomes the nearest value of type `T`,
 
 ```math
