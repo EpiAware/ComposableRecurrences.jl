@@ -162,10 +162,6 @@ backtrace.
 On arrays that live on a GPU, `Threaded` spawns CPU tasks that index the
 arrays from the host; use [`Parallel`](@ref) there.
 
-`Threaded` runs its chunks as Julia tasks, so its loop bodies may run any
-code; the KernelAbstractions CPU backend of [`Parallel`](@ref) compiles
-them as kernels instead.
-
 # Examples
 ```jldoctest
 using ComposableRecurrences
@@ -371,9 +367,11 @@ the arrays the loop reads and writes must live on it.
 Kernel launches on one device run in order, so a loop reads the writes of
 the loop before it; reading the result on the host waits for them.
 A loop whose `work` is below `min_work` runs in order on the calling task,
-as [`Serial`](@ref) does; that suits a backend whose arrays live in host
-memory, such as the KernelAbstractions CPU backend, and the default `0`
-launches every loop.
+as [`Serial`](@ref) does.
+Set it only for a backend whose arrays live in host memory, such as the
+KernelAbstractions CPU backend: on a GPU that loop would read the device
+arrays one entry at a time from the host.
+The default `0` launches every loop.
 Needs `KernelAbstractions` to be loaded.
 Under the default [`Serial`](@ref) executor, operator calls on arrays that
 live on a GPU (with `GPUArraysCore` loaded) run their strata loops with it
@@ -382,10 +380,7 @@ Every array a call reads must live on the device.
 Independent strata run as [one kernel per call](@ref gpu-arrays), and
 strata that mix as one kernel per step with the time loop on the host.
 
-The KernelAbstractions CPU backend compiles kernels through OpenCL, so on
-every backend a loop body takes device data only, and an error inside it
-loses its type.
-[`Threaded`](@ref) runs loops on CPU threads as Julia tasks instead.
+A loop body takes device data only, on every backend.
 
 # Examples
 ```jldoctest; setup = :(using JLArrays, KernelAbstractions)
@@ -424,8 +419,7 @@ end
 @doc raw"""
     Device(backend)
 
-The earlier name of [`Parallel`](@ref), kept as an alias of the type so
-that existing code, including methods that dispatch on it, runs.
+Another name for the type [`Parallel`](@ref).
 
 # Arguments
 - `backend`: a `KernelAbstractions` backend, such as `CUDABackend()`.

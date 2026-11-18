@@ -84,32 +84,27 @@ end
     @test CR._resolve(ex, x) === ex
 end
 
-@testitem "Parallel: its backend and min_work, and Device as its earlier name" begin
-    using ComposableRecurrences, KernelAbstractions
+@testitem "Parallel: its fields, Device as the same type, and loops below min_work" setup = [ExecutorBodies] begin
+    using ComposableRecurrences, JLArrays, KernelAbstractions
+    using Base.ScopedValues: with
     const CR = ComposableRecurrences
     b = KernelAbstractions.CPU()
-    ex = CR.Device(b)
-    @test ex isa CR.Parallel
+    ex = CR.Parallel(b)
     @test ex.backend === b
+    @test ex.min_work == 0
+    @test CR.Parallel(b; min_work = 10).min_work == 10
+    @test_throws ArgumentError CR.Parallel(b; min_work = -1)
     # `Device` is the type itself, so code that dispatches on it still runs.
-    @test CR.Parallel(b) isa CR.Device
+    @test CR.Device(b) isa CR.Parallel
     @test CR.Device{typeof(b)} === CR.Parallel{typeof(b)}
     on_device(::CR.Device) = true
     on_device(::Any) = false
-    @test on_device(CR.Parallel(b))
-    @test ex.min_work == 0
-    @test CR.Parallel(b).min_work == 0
-    @test CR.Parallel(b; min_work = 10).min_work == 10
-    @test_throws ArgumentError CR.Parallel(b; min_work = -1)
-end
+    @test on_device(ex)
 
-@testitem "Parallel: a loop below min_work runs in order, one at min_work as a kernel" setup = [ExecutorBodies] begin
-    using ComposableRecurrences, JLArrays, KernelAbstractions
-    const CR = ComposableRecurrences
     # A body that pushes to a host vector cannot run as a kernel, so it runs
     # in order on the calling task below `min_work`.
     seen = Int[]
-    ex = CR.Parallel(KernelAbstractions.CPU(); min_work = 100)
+    ex = CR.Parallel(b; min_work = 100)
     CR.each!((k, seen) -> (push!(seen, k); nothing), ex, 5, 5, seen)
     @test seen == 1:5
     @test !CR._launches(ex, rand(3), 5)
@@ -122,6 +117,15 @@ end
     @test CR._launches(ex, pd, S * L)
     CR.each!(window_dot!, ex, S, S * L, pd, JLArray(g), JLArray(H), 2, L)
     @test Array(pd) == p
+
+    # A convolution takes its loop over outputs when the loop launches and
+    # its loop over strata when it runs in order; both give `Serial`'s values.
+    c = Convolution([0.5, 0.3, 0.2])
+    X = rand(4, 12)
+    y = c(X)
+    for min_work in (0, typemax(Int))
+        @test with(() -> c(X), CR.EXECUTOR => CR.Parallel(b; min_work)) ≈ y
+    end
 end
 
 @testitem "each!: threaded matches serial" tags = [:threads] setup = [ExecutorBodies] begin
