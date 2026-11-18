@@ -1,10 +1,10 @@
 module ComposableRecurrencesReactantExt
 
 using ComposableRecurrences: ComposableRecurrences, Device, Executor, PerStratum, Primary,
-    Serial,
-    Secondary, TimeVarying, _BoundRecent, _CPUArray, _OldestFirstPiecewise, _Piecewise,
+    Secondary, Serial, TimeVarying, _BoundRecent, _CPUArray, _OldestFirstPiecewise, _Piecewise,
     _ComputedKernel, _PointwiseCoupling, _Ragged, _array, _lagweight, _nlags,
     _seg_weights, _steps!, _weight
+using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, UniformScaling
 using Reactant: Reactant, @allowscalar, @trace, AnyTracedRArray, AnyTracedRMatrix,
     AnyTracedRVector, TracedRNumber, materialize_traced_array, unwrapped_eltype
@@ -16,29 +16,44 @@ using Reactant: Reactant, @allowscalar, @trace, AnyTracedRArray, AnyTracedRMatri
 # does not grow with the number of strata either.
 struct Traced <: Executor end
 
-# The device executor on Reactant's backend. Reactant compiles a
-# KernelAbstractions kernel through CUDA.jl, on every target.
-function _device()
-    isnothing(Base.get_extension(Reactant, :ReactantCUDAExt)) && throw(
+# Reactant compiles a KernelAbstractions kernel through CUDA.jl, on every
+# target, so a traced call needs it loaded.
+function _require_cuda(ext)
+    isnothing(ext) && throw(
         ArgumentError(
             "a traced call runs its loops as KernelAbstractions kernels, " *
                 "which Reactant compiles through CUDA.jl, on the CPU too: " *
                 "load CUDA.jl with `using CUDA`"
         )
     )
-    ext = Base.get_extension(Reactant, :ReactantKernelAbstractionsExt)
-    return Device(ext.ReactantBackend())
+    return nothing
 end
 
 # A kernel thread runs its body serially.
 ComposableRecurrences._kernel_arg(::Traced) = Serial()
 
+# The loop as the `Device` executor's kernel on the backend of the traced
+# arrays among `args`. A loop whose arguments cannot be a kernel's, such as
+# a user's part holding a traced number, a step from change points or a
+# view of a traced array, is written out as before, one block a stratum.
 @inline function ComposableRecurrences.each!(
         body::F, ::Traced, n, work, args::Vararg{Any, N}
     ) where {F, N}
-    ComposableRecurrences.each!(body, _device(), n, work, args...)
+    _require_cuda(Base.get_extension(Reactant, :ReactantCUDAExt))
+    x = _first_traced(args...)
+    try
+        x === nothing && error("no traced array to launch on")
+        ComposableRecurrences.each!(body, Device(get_backend(x)), n, work, args...)
+    catch
+        for k in 1:n
+            @inline body(k, args...)
+        end
+    end
     return nothing
 end
+_first_traced() = nothing
+_first_traced(x::AnyTracedRArray, args...) = x
+_first_traced(x, args...) = _first_traced(args...)
 
 @inline function ComposableRecurrences._each!(
         body::F, ex::Traced, x, n, work, args::Vararg{Any, N}
@@ -47,10 +62,9 @@ end
     return nothing
 end
 
-# Independent strata run as one block, whose steps are the traced loop's:
-# each step runs the strata as one kernel (`_series_step!` below). A
-# kernel over a stratum's whole series does not compile in reverse mode,
-# as the series loops have no fixed trip count once raised.
+# Independent strata run as one block, each step one kernel over the
+# strata (`_series_step!` below), as a kernel over a whole series has no
+# reverse pass.
 @inline function ComposableRecurrences._blocks!(
         body::F, ::Traced, x, n, work, args::Vararg{Any, N}
     ) where {F, N}
@@ -428,12 +442,6 @@ end
 _coefs(C::UniformScaling, ks) = C.λ
 _coefs(C::Diagonal, ks) = _traced(C.diag)[ks]
 
-# A dense coupling mixes a traced step's pressures as one product rather
-# than one multiply-add per pair of strata.
-function ComposableRecurrences._mix!(q::AnyTracedRVector, C, p)
-    copyto!(q, _traced(C) * p)
-    return nothing
-end
 
 # Output `j` of every stratum, as one kernel over the strata.
 function _conv_step!(j, Y, c, X, m, start, D)
@@ -446,9 +454,9 @@ function _conv_output!(k, j, Y, c, X, m, start, D)
     t = start + j - 1
     acc = zero(eltype(Y))
     for d in 0:(D - 1)
-        @inbounds acc += _conv_weight(c, k, d, t) * X[m + t - d, k]
+        acc += _conv_weight(c, k, d, t) * X[m + t - d, k]
     end
-    @inbounds Y[j, k] = acc
+    Y[j, k] = acc
     return nothing
 end
 
@@ -458,6 +466,13 @@ end
 _conv_weight(c, k, d, t) = _lagweight(c, k, d, t)
 function _conv_weight(c::TimeVarying{Primary}, k, d, t)
     return _weight(c, k, k, d + 1, max(t - d, 1))
+end
+
+# A dense coupling mixes a traced step's pressures as one broadcast and sum,
+# rather than one multiply-add per pair of strata written out.
+function ComposableRecurrences._mix!(q::AnyTracedRVector, C, p)
+    q .= vec(sum(_traced(C) .* reshape(p, 1, :); dims = 2))
+    return nothing
 end
 
 end

@@ -42,7 +42,7 @@ ComposableRecurrencesGPUArraysCoreExt = ["GPUArraysCore", "KernelAbstractions"]
 ComposableRecurrencesGPUArraysExt = ["GPUArrays", "GPUArraysCore", "KernelAbstractions"]
 ComposableRecurrencesKernelAbstractionsExt = ["Adapt", "KernelAbstractions"]
 ComposableRecurrencesMooncakeExt = ["ADTypes", "Mooncake", "Random"]
-ComposableRecurrencesReactantExt = ["KernelAbstractions", "Reactant"]
+ComposableRecurrencesReactantExt = ["Adapt", "KernelAbstractions", "Reactant"]
 
 [compat]
 ADTypes = "1"
