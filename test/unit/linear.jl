@@ -92,6 +92,11 @@ end
             piece, role = CR.Step(), args = ([1.0, 2.0, 3.0], zeros(3), 1)
         ),
     )
+    init(piece) = (
+        Interfaces.Arguments(;
+            piece, role = CR.Init(), args = (zeros(3), ones(3, 2))
+        ),
+    )
     check(P, objs) = Interfaces.test(CR.PieceInterface, P, objs; show = false)
     struct Mix{M}
         K::M
@@ -114,6 +119,8 @@ end
         true
     @test check(Mix, pressure(Mix([0.9 0.1 0.0; 0.2 0.8 0.0; 0.0 0.3 0.7])))
     @test check(Halve, step(Halve()))
+    # A role with no matrix to check, here `Init()`, passes.
+    @test check(Halve, init(Halve()))
     A = [0.9 0.3 0.0; 0.1 0.7 0.2; 0.0 0.0 1.0]
     @test check(CR._LinearStep, step(CR._LinearStep(A)))
     @test !check(Squared, pressure(Squared()))
