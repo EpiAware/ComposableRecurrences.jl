@@ -181,8 +181,8 @@ ComposableRecurrences._float_param(x::TracedRNumber) = float(x)
     )
 end
 @inline function Core.kwcall(
-        kw::NamedTuple, ::Type{ComposableRecurrences.Depletion}, N::TracedRNumber,
-        pieces...
+        kw::NamedTuple, ::Type{ComposableRecurrences.Depletion},
+        N::TracedRNumber, pieces...
     )
     return ComposableRecurrences._depletion(
         ComposableRecurrences._population(N), pieces,
