@@ -24,7 +24,7 @@ include(joinpath(pkgdir(ComposableRecurrences), "docs", "getting_started_model.j
 `Recurrence` and [`Convolution`](@ref), the two operators, compute their outputs one step at a time.
 A recurrence computes each value from its own past values, and a convolution from the past values of another series.
 Time is the integer step ``t``, counted from 1, and the model sets its [time unit](@ref time-units).
-In the Getting started model one step is one day.
+In the three-town model one step is one day.
 A model can run several series side by side, such as one per town.
 Each of these series is a stratum, and together they are the strata.
 
@@ -88,7 +88,7 @@ An operator, modifier or shape wrapper prints as one line with its size and part
 
 A call runs an operator over a range of steps.
 A recurrence takes its gain first, and a convolution takes its input first and its gain as a keyword.
-In the table, `renewal` is a `Recurrence` and `delay` a `Convolution`, as in Getting started.
+In the table, `renewal` is a `Recurrence` and `delay` a `Convolution`, as in the three-town model.
 
 ```@example api-overview
 infections = renewal(R; history = seed)
@@ -132,7 +132,7 @@ The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [join
 A [slot](@ref explanation-slots) is a place an operator reads a coefficient from: a kernel, a coupling or a modifier parameter.
 A plain array gives one set of numbers for every stratum and time.
 A wrapper, such as [`PerStratum`](@ref PerStratum), gives one set per stratum, per pair of strata or per step.
-In Getting started, `PerStratum(pop)` gives each town its own population.
+In the three-town model, `PerStratum(pop)` gives each town its own population.
 
 ```@example api-overview
 Depletion(PerStratum(pop))
@@ -235,7 +235,7 @@ A chain may also hold mass vectors, and it is itself a delay, so it fits whereve
 ## [Couplings](@id overview-couplings)
 
 A coupling sets how much each stratum's past outputs drive each stratum, such as travel between towns.
-In Getting started, `K` is a gravity coupling.
+In the three-town model, `K` is a gravity coupling.
 
 ```@example api-overview
 totals = vec(sum(Recurrence(gi; coupling = K)(R; history = seed); dims = 2))
@@ -261,7 +261,7 @@ The matrix can be dense, `Diagonal` or sparse.
 ## [Modifiers](@id overview-modifiers)
 
 A modifier changes the value of each step after the gain and `add`.
-In Getting started, a [`Depletion`](@ref ComposableRecurrences.Depletion) of `PerStratum(pop)` draws each town's infections from the people left to infect.
+In the three-town model, a [`Depletion`](@ref ComposableRecurrences.Depletion) of `PerStratum(pop)` draws each town's infections from the people left to infect.
 
 ```@example api-overview
 depleted = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
