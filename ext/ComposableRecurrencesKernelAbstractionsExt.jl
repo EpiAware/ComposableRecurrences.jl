@@ -15,7 +15,6 @@ using KernelAbstractions: @index, @kernel
     body(k, args...)
 end
 
-# A loop below `min_work` runs in order on the calling task.
 function ComposableRecurrences.each!(
         body::F, ex::Parallel, n, work, args::Vararg{Any, N}
     ) where {F, N}

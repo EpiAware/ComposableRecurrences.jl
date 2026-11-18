@@ -84,27 +84,36 @@ end
     @test CR._resolve(ex, x) === ex
 end
 
-@testitem "Parallel: Device makes it, and loops below min_work run in order" setup = [ExecutorBodies] begin
-    using ComposableRecurrences, JLArrays, KernelAbstractions
+@testitem "Parallel: its backend and min_work, and Device as its earlier name" begin
+    using ComposableRecurrences, KernelAbstractions
     const CR = ComposableRecurrences
     b = KernelAbstractions.CPU()
-    @test CR.Device(b) == CR.Parallel(b)
+    ex = CR.Device(b)
+    @test ex isa CR.Parallel
+    @test ex.backend === b
+    @test ex.min_work == 0
     @test CR.Parallel(b).min_work == 0
     @test CR.Parallel(b; min_work = 10).min_work == 10
     @test_throws ArgumentError CR.Parallel(b; min_work = -1)
+end
+
+@testitem "Parallel: a loop below min_work runs in order, one at min_work as a kernel" setup = [ExecutorBodies] begin
+    using ComposableRecurrences, JLArrays, KernelAbstractions
+    const CR = ComposableRecurrences
     # A body that pushes to a host vector cannot run as a kernel, so it runs
     # in order on the calling task below `min_work`.
     seen = Int[]
-    ex = CR.Parallel(b; min_work = 100)
+    ex = CR.Parallel(KernelAbstractions.CPU(); min_work = 100)
     CR.each!((k, seen) -> (push!(seen, k); nothing), ex, 5, 5, seen)
     @test seen == 1:5
-    # At `min_work` the loop runs as a kernel.
+    @test !CR._launches(ex, rand(3), 5)
     JLArrays.allowscalar(false)
     S, L, T = 5, 3, 8
     g, H, p = rand(L), rand(L + T, S), zeros(S)
     CR.each!(window_dot!, CR.Serial(), S, S * L, p, g, H, 2, L)
     pd = JLArray(zeros(S))
     ex = CR.Parallel(KernelAbstractions.get_backend(pd); min_work = S * L)
+    @test CR._launches(ex, pd, S * L)
     CR.each!(window_dot!, ex, S, S * L, pd, JLArray(g), JLArray(H), 2, L)
     @test Array(pd) == p
 end

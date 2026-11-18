@@ -9,6 +9,8 @@ const MATHS_ALLOW = (
     # Roles are singleton tags; each operator or modifier docstring states
     # what it computes in that role.
     :Run, :Step, :Init, :Pressure,
+    # The earlier name of `Parallel`, whose docstring states what it runs.
+    :Device,
 )
 
 # Public names still missing a ```math block or a runnable example, marked

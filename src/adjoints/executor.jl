@@ -162,13 +162,9 @@ backtrace.
 On arrays that live on a GPU, `Threaded` spawns CPU tasks that index the
 arrays from the host; use [`Parallel`](@ref) there.
 
-`Threaded` runs its chunks as Julia tasks rather than as a kernel of the
-KernelAbstractions CPU backend, which [`Parallel`](@ref) can also run.
-That backend compiles kernels through OpenCL (POCL), so a body it runs
-follows the rules of a GPU kernel, and an error inside one loses its type.
-It is also slower here: at 10 000 independent strata with 200 times on 4
-threads, `Threaded` runs 1.63 times faster than [`Serial`](@ref) forward and
-1.60 times in a reverse pass, against 1.36 and 1.05 for the CPU backend.
+`Threaded` runs its chunks as Julia tasks, so its loop bodies may run any
+code; the KernelAbstractions CPU backend of [`Parallel`](@ref) compiles
+them as kernels instead.
 
 # Examples
 ```jldoctest
@@ -386,9 +382,9 @@ Every array a call reads must live on the device.
 Independent strata run as [one kernel per call](@ref gpu-arrays), and
 strata that mix as one kernel per step with the time loop on the host.
 
-A kernel body follows the rules of a GPU kernel on every backend: the
-KernelAbstractions CPU backend compiles kernels through OpenCL, so it takes
-device data only, and an error inside a body loses its type.
+The KernelAbstractions CPU backend compiles kernels through OpenCL, so on
+every backend a loop body takes device data only, and an error inside it
+loses its type.
 [`Threaded`](@ref) runs loops on CPU threads as Julia tasks instead.
 
 # Examples
@@ -426,12 +422,8 @@ Parallel(backend::B; min_work = 0) where {B} = Parallel{B}(backend, Int(min_work
 @doc raw"""
     Device(backend)
 
-The executor [`Parallel(backend)`](@ref Parallel), which runs every loop as
-one kernel on `backend`: thread `k` computes
-
-```math
-\operatorname{body}(k), \qquad k = 1, \ldots, n.
-```
+The earlier name of [`Parallel(backend)`](@ref Parallel), kept so that
+existing code runs.
 
 # Arguments
 - `backend`: a `KernelAbstractions` backend, such as `CUDABackend()`.
@@ -440,7 +432,7 @@ one kernel on `backend`: thread `k` computes
 ```jldoctest; setup = :(using KernelAbstractions)
 using ComposableRecurrences, KernelAbstractions
 const CR = ComposableRecurrences
-CR.Device(KernelAbstractions.CPU()) == CR.Parallel(KernelAbstractions.CPU())
+CR.Device(KernelAbstractions.CPU()) isa CR.Parallel
 
 # output
 
@@ -454,8 +446,11 @@ Device(backend) = Parallel(backend)
 # The executor a call on arrays like `x` uses under `ex`; the GPU extension
 # makes a device array select its device.
 _resolve(ex::Executor, x) = ex
-# Whether a loop over arrays like `x` runs as a kernel.
-_on_device(ex, x) = _resolve(ex, x) isa Parallel
+# Whether a loop of cost `work` over arrays like `x` runs as a kernel.
+function _launches(ex, x, work)
+    r = _resolve(ex, x)
+    return r isa Parallel && work >= r.min_work
+end
 
 # The executor a call read from `EXECUTOR`, in a concrete wrapper so that
 # passing it down boxes nothing.
@@ -463,7 +458,7 @@ struct _Current
     ex::Executor
 end
 _current() = _Current(EXECUTOR[])
-_on_device(c::_Current, x) = _on_device(c.ex, x)
+_launches(c::_Current, x, work) = _launches(c.ex, x, work)
 
 # Calls `f(ex, args...)`, with `ex = Serial()` for the default executor and
 # the `_Current` wrapper otherwise, so callers never hold an abstractly

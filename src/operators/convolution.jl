@@ -1019,7 +1019,7 @@ end
 function _convolve!(ex, Y, c, X, m, start)
     S = size(Y, 2)
     work = _work(_ConvLoop(), Y, length(Y) * _nlags(c))
-    if _gathers(c) && _on_device(ex, Y)
+    if _gathers(c) && _launches(ex, Y, work)
         _each!(_convolve_output!, ex, Y, length(Y), work, Y, c, X, m, start)
     else
         _each!(_convolve_body!, ex, Y, S, work, Y, c, X, m, start)
