@@ -1002,13 +1002,8 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     for p in eachindex(v, v̄, s̄)
         s̄p = s̄[p]
         s̄[p] = v̄[p] + s̄p
-        # The diagonal is read only when the state's cotangent asks for it.
-        if iszero(s̄p)
-            v̄[p] = zero(eltype(v̄))
-        else
-            v̄[p] = -_diag_at(M, p, t) * s̄p
-            _add_diag!(M̄, M, -s̄p * v[p], p, t)
-        end
+        v̄[p] = -_diag_at(M, p, t) * s̄p
+        _add_diag!(M̄, M, -s̄p * v[p], p, t)
     end
     pullback!((; piece = M̄, q = s̄, p = v̄), M, Pressure(), s̄, v, t)
     fill!(s̄, zero(eltype(s̄)))
