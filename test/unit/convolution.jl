@@ -129,8 +129,8 @@ end
     @test CR._conv_path(Dual{Nothing, Float64, 1}, rand(D), x) === CR._Gathered()
     @test CR._conv_path(BigFloat, PerStratum(rand(S, D)), view(x, :, 1:2)) ===
         CR._Gathered()
-    # A dense time-varying kernel gathers too, and keeps the buffer for
-    # IEEE floats.
+    # A dense time-varying kernel gathers on BigFloat and dual numbers, and
+    # keeps the buffer on IEEE floats.
     @test CR._conv_path(BigFloat, TimeVarying(rand(D, T), CR.Secondary()), x) ===
         CR._Gathered()
     @test CR._conv_path(
