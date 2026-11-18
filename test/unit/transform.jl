@@ -107,6 +107,16 @@ end
         θ -> CR.Transform(*, TimeVarying(θ)), [0.5, 2.0], v, s, 2
     )
     @test c.v && c.s && c.θ
+    # Transform(+, b): scalar, per-stratum and time-varying shifts.
+    for (b, θ, t) in (
+            (θ -> θ[1], [0.5], 1),
+            (θ -> PerStratum(θ), [0.5, 0.8, 1.2], 1),
+            (θ -> TimeVarying(θ), [0.5, 2.0], 2),
+        )
+        c = ModifierChecks.check_pullback(θ -> CR.Transform(+, b(θ)), θ, v, s, t)
+        @test c.v && c.s && c.θ
+        @test any(!iszero, c.θ̄)
+    end
 end
 
 @testitem "Transform: a supplied derivative replaces the local one" setup = [ModifierChecks] begin
