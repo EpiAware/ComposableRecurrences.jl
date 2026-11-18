@@ -84,6 +84,50 @@ end
     @test CR._resolve(ex, x) === ex
 end
 
+@testitem "Parallel: its fields, Device as the same type, and loops below min_work" setup = [ExecutorBodies] begin
+    using ComposableRecurrences, JLArrays, KernelAbstractions
+    using Base.ScopedValues: with
+    const CR = ComposableRecurrences
+    b = KernelAbstractions.CPU()
+    ex = CR.Parallel(b)
+    @test ex.backend === b
+    @test ex.min_work == 0
+    @test CR.Parallel(b; min_work = 10).min_work == 10
+    @test_throws ArgumentError CR.Parallel(b; min_work = -1)
+    # `Device` is the type itself, so code that dispatches on it still runs.
+    @test CR.Device(b) isa CR.Parallel
+    @test CR.Device{typeof(b)} === CR.Parallel{typeof(b)}
+    on_device(::CR.Device) = true
+    on_device(::Any) = false
+    @test on_device(ex)
+
+    # A body that pushes to a host vector cannot run as a kernel, so it runs
+    # in order on the calling task below `min_work`.
+    seen = Int[]
+    ex = CR.Parallel(b; min_work = 100)
+    CR.each!((k, seen) -> (push!(seen, k); nothing), ex, 5, 5, seen)
+    @test seen == 1:5
+    @test !CR._launches(ex, rand(3), 5)
+    JLArrays.allowscalar(false)
+    S, L, T = 5, 3, 8
+    g, H, p = rand(L), rand(L + T, S), zeros(S)
+    CR.each!(window_dot!, CR.Serial(), S, S * L, p, g, H, 2, L)
+    pd = JLArray(zeros(S))
+    ex = CR.Parallel(KernelAbstractions.get_backend(pd); min_work = S * L)
+    @test CR._launches(ex, pd, S * L)
+    CR.each!(window_dot!, ex, S, S * L, pd, JLArray(g), JLArray(H), 2, L)
+    @test Array(pd) == p
+
+    # A convolution takes its loop over outputs when the loop launches and
+    # its loop over strata when it runs in order; both give `Serial`'s values.
+    c = Convolution([0.5, 0.3, 0.2])
+    X = rand(4, 12)
+    y = c(X)
+    for min_work in (0, typemax(Int))
+        @test with(() -> c(X), CR.EXECUTOR => CR.Parallel(b; min_work)) ≈ y
+    end
+end
+
 @testitem "each!: threaded matches serial" tags = [:threads] setup = [ExecutorBodies] begin
     using ComposableRecurrences
     const CR = ComposableRecurrences
