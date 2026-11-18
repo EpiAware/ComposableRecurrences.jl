@@ -1,6 +1,6 @@
 # [FFTW extension](@id extension-fftw)
 
-`ComposableRecurrencesFFTWExt` loads when FFTW and ComposableRecurrences are both loaded.
+Loading FFTW with ComposableRecurrences loads `ComposableRecurrencesFFTWExt`.
 It runs the [`FFTMethod`](@ref ComposableRecurrences.FFTMethod) lag sum of a [`Convolution`](@ref).
 It runs for a fixed kernel on `Float32` or `Float64` arrays, and matches the direct method to a relative accuracy of `1e-10`, or `1e-4` in `Float32`.
 With the extension loaded, the default [`Auto()`](@ref ComposableRecurrences.Auto) method takes it for a kernel of at least 300 lags over at least 1000 outputs on `Float64` arrays.
