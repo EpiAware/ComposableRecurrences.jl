@@ -76,7 +76,6 @@ const PENDING_CODE_LENGTH = (
     "docstring Depletion",
     "docstring Direct",
     "docstring FFTMethod",
-    "docstring Redistribute",
     "docstring Run",
     "docstring Transform",
     "docstring depth",
