@@ -760,7 +760,8 @@ end
 end
 
 # The group step and its pullback are inlined at their calls: across a call
-# boundary, reverse AD of the returned tuples is slower, plain AD most of all.
+# boundary, plain reverse AD of the returned tuples was markedly slower, and
+# the rule's reverse pass slightly slower.
 function _vector_step!(::Val{B}, m, v, s, t) where {B}
     G = _ngroups(Val(B), length(v))
     _each!(_group_body!, Serial(), v, G, G, v, s, m, t, Val(B), G)
