@@ -137,15 +137,20 @@ end
 
 _slots(x̄) = x̄
 _slots(x̄::AbstractMatrix) = _Owned(x̄)
-# Independent strata with a fixed kernel and no modifiers run their reverse
-# pass on a device, so a call on device arrays takes the rule (see
-# `_device_gate`).
+# A fixed kernel with no modifiers runs its reverse pass on a device, so a
+# call on device arrays takes the rule (see `_device_gate`): independent
+# strata, or strata mixed by a dense coupling that lives on the device.
 const _DeviceReadyRecurrence = Recurrence{
     <:Union{AbstractVector, PerStratum},
     <:Union{UniformScaling, Diagonal},
     Tuple{},
 }
 _device_ready(::_DeviceReadyRecurrence) = true
+function _device_ready(
+        r::Recurrence{<:Union{AbstractVector, PerStratum}, <:AbstractMatrix, Tuple{}}
+    )
+    return _on_gpu(r.coupling)
+end
 
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)
 _kernel_slots(ḡ, kernel::TimeVarying) = ḡ

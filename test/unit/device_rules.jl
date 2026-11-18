@@ -1,8 +1,8 @@
 # The package's own rules on device arrays, run on JLArrays without a GPU:
-# a fixed convolution and a recurrence of independent strata run their
-# forward pass and their pullback on the device, without scalar indexing,
-# and give the CPU's cotangents; calls whose reverse pass needs the host
-# keep plain AD. AD backends cannot differentiate JLArrays themselves, so
+# a fixed convolution and a recurrence of independent strata, or of strata
+# mixed by a dense coupling, run their forward pass and their pullback on the
+# device, without scalar indexing, and give the CPU's cotangents; calls whose
+# reverse pass needs the host keep plain AD. AD backends cannot differentiate JLArrays themselves, so
 # the rule passes run directly.
 
 @testsnippet DeviceRules begin
@@ -25,6 +25,8 @@
         x = dev ? JLArray(inputs(S)) : inputs(S)
         return op, (x, true, nothing, nothing, 1, nothing)
     end
+    # A coupling that mixes every pair of strata.
+    dense(S) = Matrix(0.5I, S, S) .+ 0.5 / S
     function recurrence_case(coupling, S, dev)
         r = Recurrence(pmf; coupling)
         op = dev ? adapt(JLArray, r) : r
@@ -50,7 +52,7 @@
     agree(a::NamedTuple, b::NamedTuple) = all(map(agree, values(a), values(b)))
 end
 
-@testitem "JLArrays: the rule passes of a fixed convolution and of independent strata match the CPU" setup = [DeviceRules] begin
+@testitem "JLArrays: the rule passes of a fixed convolution and of a recurrence match the CPU" setup = [DeviceRules] begin
     # More strata than blocks, so the blocks' copies of the shared kernel
     # cotangent are summed.
     for S in (4, CR._KERNEL_BLOCKS + 1)
@@ -74,6 +76,13 @@ end
                 dev -> (;
                     kernel = dev ? JLArray(zeros(L)) : zeros(L),
                     coupling = (; diag = dev ? JLArray(zeros(S)) : zeros(S)),
+                ),
+            ),
+            "recurrence, dense coupling" => (
+                dev -> recurrence_case(dense(S), S, dev),
+                dev -> (;
+                    kernel = dev ? JLArray(zeros(L)) : zeros(L),
+                    coupling = dev ? JLArray(zeros(S, S)) : zeros(S, S),
                 ),
             ),
             "recurrence, scalar coupling" => (
@@ -104,9 +113,12 @@ end
     op, args = recurrence_case(I, S, true)
     @test route(op, args) === Val(:rule)
     @test (@inferred route(op, args)) === Val(:rule)
-    # A coupling that mixes strata reverses its steps on the host.
-    C = Matrix(0.5I, S, S) .+ 0.5 / S
-    op, args = recurrence_case(C, S, true)
+    # So does a dense coupling on the device.
+    op, args = recurrence_case(dense(S), S, true)
+    @test (@inferred route(op, args)) === Val(:rule)
+    # A time-varying coupling reverses its steps on the host.
+    X = JLArray(repeat(dense(S), 1, 1, T))
+    op, args = recurrence_case(TimeVarying(X), S, true)
     @test route(op, args) === Val(:plain)
     # So do modifiers.
     pool = CR.Depletion(PerStratum(fill(200.0, S)), CR.Hazard())
