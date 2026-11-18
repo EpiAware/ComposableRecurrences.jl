@@ -1,6 +1,8 @@
 # == delay_masses ==
 
 @doc raw"""
+    delay_masses(k, lags; step = 1)
+
 Return the masses of a delay `k` on lags `0` to `lags - 1`, lag 0 first, as a
 vector of length `lags`:
 
