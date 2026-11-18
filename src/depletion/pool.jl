@@ -1,13 +1,7 @@
-# A `Depletion` holds pools for each group of strata, and its parts act on
-# the step's value and the pools in the order given: a draw takes the value
-# from the pools, or fills one, and flows move between them. Without a draw
-# the pools are the step's values, carried by the recurrence, and the flows
-# move them.
-#
-# The step is a fold of the parts, and its pullback the fold in reverse.
-# The number of pools and the parts are in the type, so each kind has
-# methods of its own: one pool drawn from before its flows, with nothing
-# left over, steps per stratum; any other runs a group kernel.
+# ---- Depletion: type and construction ----------------------------------------
+
+# The number of pools and the parts are in the type, so each kind of
+# `Depletion` has methods of its own.
 
 @doc raw"""
 Depletion of pools: each group of strata holds pools, and parts act on
@@ -384,7 +378,9 @@ _ndraws(ps::Tuple) = _isdraw(first(ps)) + _ndraws(Base.tail(ps))
 _overflow_of(p) = _Drop()
 _overflow_of(d::_Drawing) = d.overflow
 _nqueues(::Tuple{}) = 0
-_nqueues(ps::Tuple) = (_overflow_of(first(ps)) isa _Queue) + _nqueues(Base.tail(ps))
+function _nqueues(ps::Tuple)
+    return (_overflow_of(first(ps)) isa _Queue) + _nqueues(Base.tail(ps))
+end
 _either(::_Drop, b) = b
 _either(a, b) = a
 _kind_of(::Tuple{}, K) = _Drop()
@@ -400,12 +396,16 @@ end
 const _Population = Union{
     Real, PerStratum, TimeVarying, Derived, Recent, AbstractArray,
 }
-@inline Depletion(N::_Population, pieces...) = _depletion(_population(N), pieces, nothing)
+@inline function Depletion(N::_Population, pieces...)
+    return _depletion(_population(N), pieces, nothing)
+end
 @inline Depletion(pieces...) = _depletion(nothing, pieces, nothing)
 # The keyword `pools`, taken here rather than by a keyword method, whose
 # body would take the parts splatted again: past 32 parts that splat is
 # left to run time, which reverse-mode AD may not differentiate through.
-@inline function Core.kwcall(kw::NamedTuple, ::Type{Depletion}, N::_Population, pieces...)
+@inline function Core.kwcall(
+        kw::NamedTuple, ::Type{Depletion}, N::_Population, pieces...
+    )
     return _depletion(_population(N), pieces, _pools_keyword(kw))
 end
 @inline function Core.kwcall(kw::NamedTuple, ::Type{Depletion}, pieces...)
@@ -433,8 +433,8 @@ end
     _check_each_nonnegative(:pools, values(starts))
     _ndraws(runs) == 0 && any(!isnothing, values(starts)) && throw(
         ArgumentError(
-            "a Depletion without a draw holds its pools in the step's values, " *
-                "so the history gives their start, not pools"
+            "a Depletion without a draw holds its pools in the step's " *
+                "values, so the history gives their start, not pools"
         )
     )
     return _Depletion(map(_initial_param, starts), runs)
@@ -456,8 +456,9 @@ _pool_starts(pools) = _bad_pools(pools)
 @noinline function _bad_pools(pools)
     throw(
         ArgumentError(
-            "pools is a named tuple of starting values, such as (S = N, V = 0.0), " *
-                "or a tuple of distinct names, got " * _describe(pools)
+            "pools is a named tuple of starting values, such as " *
+                "(S = N, V = 0.0), or a tuple of distinct names, got " *
+                _describe(pools)
         )
     )
 end
@@ -497,7 +498,9 @@ function _place_draw(form, w, ::Nothing, overflow, N, starts)
 end
 function _place_draw(form, w, into, overflow, N, starts)
     w === nothing || throw(
-        ArgumentError("a draw fills a pool or takes from weighted pools, not both")
+        ArgumentError(
+            "a draw fills a pool or takes from weighted pools, not both"
+        )
     )
     _check_drawn_population(form, N, into)
     _check_fill(form, N)
@@ -539,8 +542,8 @@ _aligned_weights(w, starts) = _bad_weights(w, keys(starts))
 @noinline function _bad_weights(w, names)
     throw(
         ArgumentError(
-            "weights is a named tuple of weights of the pools $(repr(names)), " *
-                "such as (S = 1, V = σ), got " * _describe(w)
+            "weights is a named tuple of weights of the pools " *
+                "$(repr(names)), such as (S = 1, V = σ), got " * _describe(w)
         )
     )
 end
@@ -586,7 +589,9 @@ _check_fill_form(::_TruncateForm) = nothing
         )
     )
 end
-_check_each_nonnegative(name, xs::Tuple) = foreach(x -> _check_nonnegative(name, x), xs)
+function _check_each_nonnegative(name, xs::Tuple)
+    return foreach(x -> _check_nonnegative(name, x), xs)
+end
 
 _initial_param(::Nothing) = nothing
 _initial_param(x) = _float_param(_check_constant(:pools, x))
@@ -620,6 +625,8 @@ _flow_run(run, rest::Tuple) = _flow_run_next(run, first(rest), Base.tail(rest))
 _flow_run_next(run, f::Flow, rest) = _flow_run((run..., f), rest)
 _flow_run_next(run, p, rest) = (run, p, _runs_any(rest)...)
 
+# ---- kinds, groups and starting pools ----------------------------------------
+
 # One pool drawn from once with nothing left over, then a run of flows or
 # none: a pointwise step.
 const _OnePool{C} = Depletion{<:NamedTuple{<:Any, <:Tuple{Any}}, C}
@@ -652,9 +659,7 @@ function blocks(m::Depletion)
 end
 # One pool drawn from once, then flows or none, with nothing left over,
 # steps per stratum; any other runs the group kernel, a group of one
-# included, so a pointwise `Depletion` of another kind does not loop per
-# stratum: through the group step, that loop measured slower. The shape
-# needs no check here: `blocks` above always gives positive integers.
+# included, as a per-stratum loop through the group step is slower.
 _blocks(m::_Pointwise) = nothing
 _blocks(m::Depletion) = Val(blocks(m))
 
@@ -810,7 +815,9 @@ function pullback!(grads, m::_Flowing, ::Step, v, s, t)
     for k in eachindex(v, s)
         N = _pop(d.N, k, t)
         _, s′ = _draw(d.form, v[k], s[k], N)
-        s̄′ = only(_flows_pullback(fs, f̄s, (s′,), (s̄[k],), (zero(s̄[k]),), k, t))
+        s̄′ = only(
+            _flows_pullback(fs, f̄s, (s′,), (s̄[k],), (zero(s̄[k]),), k, t)
+        )
         v̄[k], s̄[k], N̄ = _form_pullback(
             (; piece = f̄, v = v̄[k], s = s̄′), d.form, v[k], s[k], N
         )
@@ -819,10 +826,11 @@ function pullback!(grads, m::_Flowing, ::Step, v, s, t)
     return nothing
 end
 
+# ---- the group step ----------------------------------------------------------
+
 # A group's step and its pullback. They, the parts' steps and their
-# helpers are inlined, as their calls are (see `_vector_step!`): the
-# call-site inline reaches only the first method, and across the inner
-# calls the rule's reverse pass took about 45% longer per group.
+# helpers are inlined, as their calls are (see `_vector_step!`): a call-site
+# inline reaches only the first method, and inner calls slow the reverse pass.
 _block_step(m::Depletion, v::Tuple, s::Tuple, t, g) = _group_step(m, v, s, t, g)
 
 # Without a draw: the flows on the group's values.
@@ -833,8 +841,8 @@ end
 # With a draw: the parts fold over the group's value, the value of its
 # overflow stratum, its pools and its queue, `(a, b, x, Q)`, with
 # `nothing` for an overflow it lacks. The parts' modifier-role steps
-# below reshape views into this tuple and call the same `_piece_step`;
-# folding those on views instead was 9-13% slower on the stratified cases.
+# below reshape views into this tuple and call the same `_piece_step`,
+# which is faster than folding on views.
 @inline function _group_step(m, v, s, t, g)
     q, st = _queue_of(m), _stratum_of(m)
     x, Q = _pools_queue(q, s, Val(_npools(m)))
@@ -846,7 +854,9 @@ end
 # The pools and the queue in a group's state, `nothing` without a queue,
 # and the second value with an overflow into a stratum.
 _pools_queue(q, s, ::Val{n}) where {n} = s, nothing
-_pools_queue(::_Queue, s, ::Val{n}) where {n} = ntuple(i -> s[i], Val(n)), s[n + 1]
+function _pools_queue(::_Queue, s, ::Val{n}) where {n}
+    return ntuple(i -> s[i], Val(n)), s[n + 1]
+end
 _with_queue(q, x, u) = x
 _with_queue(::_Queue, x, u) = (x..., u)
 _second(st, v) = nothing
@@ -944,7 +954,10 @@ function forward!(m::Depletion, ::Step, v::Tuple, s::Tuple, t, g)
     return nothing
 end
 function pullback!(grads, m::Depletion, ::Step, v::Tuple, s::Tuple, t, g)
-    gg = (; piece = grads.piece, v = map(getindex, grads.v), s = map(getindex, grads.s))
+    gg = (;
+        piece = grads.piece, v = map(getindex, grads.v),
+        s = map(getindex, grads.s),
+    )
     v̄, s̄ = _block_back(gg, m, map(getindex, v), map(getindex, s), t, g)
     foreach(setindex!, grads.v, v̄)
     foreach(setindex!, grads.s, s̄)
@@ -955,11 +968,13 @@ function _block_back(grads, m::Depletion, v::Tuple, s::Tuple, t, g)
 end
 @inline function _group_pullback(grads, m::_Drawless, v, s, t, g)
     x̄ = _flows_pullback(
-        only(m.pieces), _head(cotangent(grads.piece, :pieces)), v, grads.v, grads.s,
-        g, t
+        only(m.pieces), _head(cotangent(grads.piece, :pieces)), v, grads.v,
+        grads.s, g, t
     )
     return x̄, _tuple_map(_ -> zero(eltype(x̄)), x̄)
 end
+
+# ---- the group pullback ------------------------------------------------------
 
 # `v` and `s` are the group's incoming values and state; returns their
 # cotangents from those of the values and state after the step.
@@ -1050,8 +1065,8 @@ end
     w = param(only(p.weights), g, t)
     N = _pop(p.N, g, t)
     v̄, P̄, N̄ = _form_pullback(
-        (; piece = cotangent(p̄, :form), v = ȳ - only(x̄′), s = zero(ȳ)), p.form,
-        v, w * only(x), N
+        (; piece = cotangent(p̄, :form), v = ȳ - only(x̄′), s = zero(ȳ)),
+        p.form, v, w * only(x), N
     )
     _add_pop!(cotangent(p̄, :N), p.N, N̄, g, t)
     _add_weights!(cotangent(p̄, :weights), p.weights, (only(x) * P̄,), g, t)
@@ -1076,8 +1091,8 @@ end
     P̄ = P̄d + P̄f
     _add_pop!(cotangent(p̄, :N), p.N, N̄, g, t)
     _add_weights!(
-        cotangent(p̄, :weights), p.weights, ntuple(i -> w̄[i] + x[i] * P̄, Val(n)),
-        g, t
+        cotangent(p̄, :weights), p.weights,
+        ntuple(i -> w̄[i] + x[i] * P̄, Val(n)), g, t
     )
     return v̄k, ntuple(i -> x̄[i] + w[i] * P̄, Val(n))
 end
@@ -1115,8 +1130,8 @@ function _add_weights!(w̄s, ws::Tuple, vals, g, t)
     return _add_weights!(_tail(w̄s), Base.tail(ws), Base.tail(vals), g, t)
 end
 
-# The parts as modifiers --------------------------------------------------
-#
+# ---- the parts as modifiers --------------------------------------------------
+
 # Each part is a modifier on the values of a group and the pools the
 # `Depletion` shares among its parts: its group step takes the group's
 # values `v`, with the overflow stratum's second, and its state `s`, the
@@ -1178,7 +1193,8 @@ end
     f̄ = cotangent(p̄, :form)
     for k in eachindex(v, s)
         v̄[k], s̄[k], N̄ = _form_pullback(
-            (; piece = f̄, v = v̄[k], s = s̄[k]), p.form, v[k], s[k], _pop(p.N, k, t)
+            (; piece = f̄, v = v̄[k], s = s̄[k]), p.form, v[k], s[k],
+            _pop(p.N, k, t)
         )
         _add_pop!(cotangent(p̄, :N), p.N, N̄, k, t)
     end
@@ -1207,7 +1223,8 @@ function _piece_group_back(p::_Drawing, p̄, v̄, s̄, v, s, t, g)
     c = (first(v), _second_of(v), x, _own_queue(p.overflow, rest))
     c̄ = (first(v̄), _second_of(v̄), x̄, _own_queue(p.overflow, r̄est))
     ā, b̄, x̄0, Q̄ = _piece_back(p, p̄, c, nothing, c̄, t, g)
-    return _values_of(v̄, ā, b̄), (x̄0..., _rest_after(p.overflow, r̄est, Q̄)...)
+    rest = _rest_after(p.overflow, r̄est, Q̄)
+    return _values_of(v̄, ā, b̄), (x̄0..., rest...)
 end
 
 # A draw's pools and the entries after them: a draw from the pools weighs
@@ -1231,7 +1248,8 @@ _values_of(v::Tuple{Any, Any}, a, b) = (a, b)
 # Each part's trace: a draw records the value it passes on and what it
 # leaves of the value it takes, and a run of flows the amount each moves.
 function forward!(
-        p::_Piece, ::Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g
+        p::_Piece, ::Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple,
+        s′::Tuple, t, g
     )
     vals = _piece_trace(
         _as_run(p), _view_entries(v), _view_entries(s), _view_entries(v′), t, g
@@ -1274,7 +1292,9 @@ end
 # form's local derivative covers it (see `_form_pullback`).
 uses_adjoint(m::Depletion, ::Step) = _forms_adjoint(m.pieces)
 _forms_adjoint(::Tuple{}) = true
-_forms_adjoint(ps::Tuple) = _piece_adjoint(first(ps)) && _forms_adjoint(Base.tail(ps))
+function _forms_adjoint(ps::Tuple)
+    return _piece_adjoint(first(ps)) && _forms_adjoint(Base.tail(ps))
+end
 _piece_adjoint(p) = true
 _piece_adjoint(d::_Drawing) = _form_adjoint(d.form)
 
@@ -1290,7 +1310,7 @@ struct _FormPart{F}
     form::F
 end
 
-# Trace ---------------------------------------------------------------------
+# ---- trace -------------------------------------------------------------------
 
 # A pool's trace: with a draw, its pools after the step, the value passed
 # on and what the draws leave of the demand, per stratum for one pool and
@@ -1320,7 +1340,8 @@ function pullback!(grads, m::_Pointwise, ::Trace, v, s, t)
 end
 
 function forward!(
-        m::Depletion, ::Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g
+        m::Depletion, ::Trace, r::Tuple, v::Tuple, s::Tuple, v′::Tuple,
+        s′::Tuple, t, g
     )
     vals = _pool_trace(
         m, _view_entries(v), _view_entries(s), _view_entries(v′),
@@ -1358,7 +1379,9 @@ end
 end
 # The entries of a group's one-entry views.
 _view_entries(xs::Tuple) = map(x -> x[], xs)
-_pool_trace(m::_Drawless, v, s, v′, s′, t, g) = _amounts(only(m.pieces), v, g, t)
+function _pool_trace(m::_Drawless, v, s, v′, s′, t, g)
+    return _amounts(only(m.pieces), v, g, t)
+end
 function _pool_trace(m, v, s, v′, s′, t, g)
     n = Val(_npools(m))
     q = _queue_of(m)
@@ -1370,14 +1393,18 @@ end
 
 function pullback!(grads, m::Depletion, ::Trace, v::Tuple, s::Tuple, t, g)
     inner = (; piece = grads.piece, trace = _view_entries(grads.trace))
-    a, b, c, d = _pool_trace_back(inner, m, _view_entries(v), _view_entries(s), t, g)
+    a, b, c, d = _pool_trace_back(
+        inner, m, _view_entries(v), _view_entries(s), t, g
+    )
     foreach((x̄, y) -> x̄[] += y, grads.v, a)
     foreach((x̄, y) -> x̄[] += y, grads.s, b)
     foreach((x̄, y) -> x̄[] += y, grads.v′, c)
     foreach((x̄, y) -> x̄[] += y, grads.s′, d)
     return nothing
 end
-_pool_trace_back(grads, m::_Drawless, v, s, t, g) = _amounts_back(grads, m, v, s, t, g)
+function _pool_trace_back(grads, m::_Drawless, v, s, t, g)
+    return _amounts_back(grads, m, v, s, t, g)
+end
 function _pool_trace_back(grads, m, v, s, t, g)
     n = _npools(m)
     r̄ = grads.trace
@@ -1401,7 +1428,8 @@ function _amounts_back(grads, m, x, s, t, g)
     return x̄, zs, map(_ -> z, x), zs
 end
 
-@implements PieceInterface{(:pointwise, :blocks, :nstate, :pullback)} Depletion [
+const _DEPLETION_ROLES = (:pointwise, :blocks, :nstate, :pullback)
+@implements PieceInterface{_DEPLETION_ROLES} Depletion [
     Arguments(;
         piece = Depletion(
             PerStratum([100.0, 50.0]); pools = (S = PerStratum([97.0, 46.0]),)
@@ -1414,7 +1442,8 @@ end
     ),
     Arguments(;
         piece = Depletion(
-            80.0, Hazard(), Flow(:S => 0, TimeVarying([4.0, 6.0]); form = Truncate())
+            80.0, Hazard(),
+            Flow(:S => 0, TimeVarying([4.0, 6.0]); form = Truncate())
         ),
         role = Step(), args = ([2.0, 3.0], [80.0, 3.0], 2),
         pullback = false
@@ -1446,7 +1475,8 @@ end
             Flow(:V => :S, 0.1), Flow(:S => :R, 0.5; form = Share());
             pools = (:S, :V, :R)
         ),
-        role = Step(), args = ([2.0, 3.0], [80.0, 40.0, 10.0, 5.0, 1.0, 2.0], 2),
+        role = Step(),
+        args = ([2.0, 3.0], [80.0, 40.0, 10.0, 5.0, 1.0, 2.0], 2),
         pullback = false
     ),
     Arguments(;
