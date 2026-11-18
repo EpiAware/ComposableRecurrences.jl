@@ -182,10 +182,10 @@ end
     K = [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 0.0]
     plain = CR.Allocate([1:2, 3:3], 1.0)
     @test plain isa CR.Allocate{Float64, Nothing}
-    @test CR._stateless(plain)
+    @test CR.isstateless(plain)
     @test CR.nstate(plain, 3) == 3
     imported = CR.Allocate([1:2, 3:3], 1.0; imports = (0.1, P))
-    @test !CR._stateless(imported)
+    @test !CR.isstateless(imported)
     @test CR.nstate(imported, 3) == 3
     spilled = CR.Allocate(
         [1:2, 3:3], 1.0; imports = (0.1, P), spill = CR.Redistribute(K, 0.2)

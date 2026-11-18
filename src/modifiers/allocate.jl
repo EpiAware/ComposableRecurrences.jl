@@ -330,7 +330,7 @@ function _check_imports(im::_AllocateImports, S)
     return nothing
 end
 pullback!(grads, ::Allocate, ::Init, s, history) = nothing
-_stateless(::Allocate{<:Any, Nothing}) = true
+isstateless(::Allocate{<:Any, Nothing}) = true
 
 # ---- step without imports ----------------------------------------------------
 

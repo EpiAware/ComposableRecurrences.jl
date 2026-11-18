@@ -84,6 +84,7 @@ using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling, mul!
+using PrecompileTools: @compile_workload, @setup_workload
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 using Base.ScopedValues: ScopedValue
 
@@ -98,7 +99,8 @@ public Derived, Recent, Depletion, Flow, Share, Redistribute,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Device, EXECUTOR, param, add_param!, Direct, FFTMethod, delay_masses,
-    pressure, Survival, convert_floats, islinear, window_sums
+    pressure, Survival, convert_floats, islinear, isstateless,
+    window_sums
 
 # shapes: slot wrappers and shape and eltype helpers.
 # Time-varying, per-stratum and pairwise coefficients.
@@ -185,5 +187,8 @@ include("interface/precision.jl")
 # adjoints, loaded last: it reads `_EntryParam` from `operators/recurrence.jl`.
 # Default pullbacks of modifiers and couplings without one.
 include("adjoints/fallbacks.jl")
+
+# A precompile workload, run last so that every method it calls exists.
+include("precompile.jl")
 
 end # module ComposableRecurrences

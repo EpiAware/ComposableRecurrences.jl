@@ -354,6 +354,7 @@ A parameter it reads as `param(m.a, g, t)`, with `a` a `PerStratum` or `TimeVary
 
 A call with `record = (:trace,)` returns `(; y, trace)`, with `trace.modifiers` holding one matrix per modifier, [`ntrace`](@ref ComposableRecurrences.ntrace) rows by the steps.
 By default a modifier's [trace](@ref ComposableRecurrences.Trace) is its state after each step, and a modifier whose state never changes records nothing.
+A modifier declares that its state never changes with `ComposableRecurrences.isstateless(::MyModifier) = true`.
 A modifier can record another series instead: a function of the step's values and state before it, `v` and `s`, and after it, `v′` and `s′`, written into `r` by `forward!`.
 The smoothing modifier above records its smoothed value and what it leaves of the value it receives,
 

@@ -64,7 +64,8 @@ the call covers the absolute times `start:stop`:
     first, length `h` for a single series or `S × h`; zeros when left out.
     The recursion reads the last ``D`` outputs, with ``D`` at least `L`
     and at least the [`ComposableRecurrences.depth`](@ref) of each part,
-    and a shorter history is zero-padded. A modifier's `Init` sees all of it.
+    and a shorter history is zero-padded.
+    A modifier's `Init` sees all of it.
   - `state`: a [`ComposableRecurrences.State`](@ref) to resume from, in
     place of `history`; `record = (:state,)` returns the next one.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
@@ -1395,7 +1396,7 @@ _keeps_after(m) = false
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,
     # so sharing it is safe; a stateless modifier's state never changes.
-    return _stateless(m) ? s : similar(h, Tp, length(s), T)
+    return isstateless(m) ? s : similar(h, Tp, length(s), T)
 end
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
