@@ -1,17 +1,46 @@
 # [Shapes and couplings](@id explanation-shapes-couplings)
 
-A kernel, a coupling or a modifier parameter is a plain array, or an array in a [wrapper](@ref overview-shapes) that adds axes to it.
-[`PerStratum`](@ref) adds a leading strata axis, [`Pairwise`](@ref) leading `S × S` axes and [`TimeVarying`](@ref) a trailing time axis.
-
 ```@example shapes
 using ComposableRecurrences
 using LinearAlgebra: I
 ```
 
-## [Slots](@id explanation-slots)
+## [Slots and shapes](@id explanation-slots)
 
-A slot is a place an operator reads a coefficient from: a kernel, a coupling or a modifier parameter.
-Data (inputs, history, outputs, `gain` and `add`) are not slots and are not wrapped; their shapes are in the [API overview](@ref overview-shapes).
+An operator reads numbers of two kinds.
+
+- Data change from call to call: the inputs, the history, `gain`, `add` and the outputs.
+- Coefficients belong to the operator and are set when it is built: its kernel, its coupling and its modifiers' parameters.
+
+A *slot* is a place in an operator that holds a coefficient.
+There are four: a `Recurrence` kernel, a `Convolution` kernel, a coupling and a modifier parameter.
+The name is that of a slot in a form: the operator fixes where a number goes, and the model chooses what goes there.
+
+```text
+Recurrence(k; coupling = K, modifiers = (Depletion(N),))
+           |             |                         |
+        kernel       coupling             modifier parameter
+```
+
+A *shape* is how a coefficient varies across strata and time, and so how many numbers fill its slot.
+The name is that of an array's shape, its size along each axis.
+
+- A plain array has only the slot's own axes, so one set of numbers serves every stratum and time.
+  These are the lags for a kernel, `S × S` for a coupling and one value for a modifier parameter.
+- A [wrapper](@ref overview-shapes) adds axes: [`PerStratum`](@ref) a leading strata axis, [`Pairwise`](@ref) leading `S × S` axes and [`TimeVarying`](@ref) a trailing time axis.
+
+Slot and shape are separate because one slot takes many shapes.
+The kernel slot of a `Recurrence` holds one kernel for every stratum, one per stratum or one per step:
+
+```@example shapes
+g = [0.5, 0.3, 0.2]
+shared = Recurrence(g)
+per_stratum = Recurrence(PerStratum([0.5 0.3 0.2; 0.6 0.3 0.1]))
+per_step = Recurrence(TimeVarying(repeat(g, 1, 10)))
+nothing # hide
+```
+
+Data are not slots and are not wrapped; their shapes are in the [API overview](@ref overview-shapes).
 Each slot accepts its own set of wrappers.
 
 | Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | `Pairwise` routes | [`Derived`](@ref ComposableRecurrences.Derived) | [`Recent`](@ref ComposableRecurrences.Recent) |
