@@ -260,6 +260,7 @@ value over its segment.
 The indexing, [`ComposableRecurrences.Secondary`](@ref) (the default) or
 [`ComposableRecurrences.Primary`](@ref), sets which time a kernel's column
 belongs to; it is a type parameter, so nothing branches on it.
+The two agree for a fixed kernel.
 
 # Arguments
 - `x`: the coefficients, time on the last axis, a [`PerStratum`](@ref)
@@ -349,7 +350,10 @@ end
 
 # A kernel's columns, of any lengths, stacked: column `τ` is
 # `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first, with no padding.
-# The checked constructor validates the offsets, so loops skip bounds checks.
+# The integer offsets carry no cotangent and live where the values do, so a
+# device loop reads them. The checked constructor validates them, so loops
+# skip bounds checks; the `_Flat` form takes a checked one's fields as they
+# are, as `adapt` does.
 struct _Ragged{V <: AbstractVector, O <: AbstractVector{Int}}
     values::V
     offsets::O
@@ -413,6 +417,7 @@ param_eltype(x::_Ragged) = param_eltype(x.values)
 
 # A kernel's columns as the caller gave them, lag first, held rather than
 # stacked to save a copy of every weight each time a loss builds the kernel.
+# Each column's mirror is the column's own cotangent.
 struct _Columns{K <: AbstractVector{<:AbstractVector}}
     columns::K
     function _Columns(ks::K) where {K <: AbstractVector{<:AbstractVector}}
@@ -461,7 +466,9 @@ end
 
 # A coefficient that holds its value between change points: segment `j`
 # covers `starts[j]:(starts[j + 1] - 1)`, the last every later time, and its
-# value is column `j` of the dense coefficient `x`.
+# value is column `j` of the dense coefficient `x`. The starts rise from 1
+# and carry no cotangent; the `_Flat` form takes a checked one's fields as
+# they are.
 struct _Piecewise{X, P <: AbstractVector{Int}}
     x::X
     starts::P
@@ -473,7 +480,8 @@ struct _Piecewise{X, P <: AbstractVector{Int}}
     function _Piecewise(x::X, starts::AbstractVector{<:Integer}) where {X}
         Base.require_one_based_indexing(starts)
         s = convert(Vector{Int}, starts)
-        ok = !isempty(s) && first(s) == 1 && issorted(s; lt = <=)
+        ok = !isempty(s) && first(s) == 1 &&
+            all(i -> s[i] < s[i + 1], 1:(length(s) - 1))
         ok || throw(
             ArgumentError(
                 "change points start at time 1 and rise, got the starts " *
@@ -491,8 +499,8 @@ end
 _array(p::_Piecewise) = _array(p.x)
 param_eltype(p::_Piecewise) = param_eltype(p.x)
 
-# The segment of time `t`, the first for a time before 1. A linear scan, as
-# there are few segments.
+# The segment of time `t`, the first for a time before 1. A linear scan from
+# the last segment, as there are few and a run reads them in time order.
 Base.@propagate_inbounds _segment(p::_Piecewise, t) = _segment_of(p.starts, t)
 Base.@propagate_inbounds function _segment_of(s, t)
     j = length(s)
