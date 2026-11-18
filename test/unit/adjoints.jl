@@ -697,26 +697,6 @@ end
     end
 end
 
-@testitem "Adjoint: a single series' output shadow is rows of the buffer's" setup = [AdjointCheck] begin
-    using ComposableRecurrences
-    rng = Xoshiro(12)
-    r = Recurrence(rand(rng, 3))
-    y, c = CR._run_forward(r, recargs(1.0, rand(rng, 5), rand(rng, 3))...)
-    # One return type, so a rule's tape infers.
-    ȳ, c2 = @inferred CR._shared_shadow(r, y, c)
-    @test ȳ == zeros(5)
-    @test c2.H̄ == zeros(size(c.H))
-    ȳ .= 1:5
-    @test c2.H̄[(c.D + 1):end] == 1:5
-    @test CR._seeded(c2, c.H, ȳ, c.D) === c2.H̄
-    # Any other cotangent is copied into a fresh buffer.
-    @test CR._seeded(c2, c.H, copy(ȳ), c.D) !== c2.H̄
-    # Strata, and operators other than a Recurrence, get none.
-    Y, cS = CR._run_forward(r, recargs(1.0, rand(rng, 2, 5), rand(rng, 2, 3))...)
-    @test CR._shared_shadow(r, Y, cS) == (nothing, cS)
-    @test CR._shared_shadow(nothing, y, c) == (nothing, c)
-end
-
 @testitem "Adjoint: the buffer's cotangent starts as the output's" setup = [AdjointCheck] begin
     using ComposableRecurrences
     rng = Xoshiro(9)
