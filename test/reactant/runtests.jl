@@ -4,8 +4,10 @@
 #   julia +1.12 --project=test/reactant -e 'using Pkg; Pkg.instantiate()'
 #   julia +1.12 --project=test/reactant --startup-file=no test/reactant/runtests.jl
 #
-# Reactant is capped at 0.2.292: 0.2.293 hangs in MLIR's ConcatViewCSE pass
-# compiling the flows case.
+# Reactant is held to 0.2.306 - 0.2.308. Mooncake 0.5.64 and later need
+# CUDA 6.4.1 or later once CUDA is loaded, which needs GPUCompiler 2, which
+# Reactant allows from 0.2.306. (0.2.293 hung in MLIR's ConcatViewCSE pass;
+# 0.2.308 runs every case.)
 #
 # Two suites run:
 # - `registry`: every scenario of the shared AD registry (`test/ADFixtures`),

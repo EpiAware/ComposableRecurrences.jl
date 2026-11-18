@@ -41,9 +41,9 @@ ComposableRecurrences._kernel_arg(::Traced) = Serial()
 
 # The loop as the `Device` executor's kernel on the backend of the traced
 # arrays among `args`. A loop whose arguments cannot be a kernel's, such as
-# a user's part holding a traced number, a step from change points or a
-# view of a traced history, fails to launch while tracing and is written
-# out as before, one block a stratum; any other error is the caller's.
+# a user's part holding a traced number or a step from change points, fails
+# to launch while tracing and is written out as before, one block a
+# stratum; any other error is the caller's.
 @inline function ComposableRecurrences.each!(
         body::F, ex::Traced, n, work, args::Vararg{Any, N}
     ) where {F, N}

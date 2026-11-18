@@ -48,5 +48,5 @@ end
 ```
 
 A loop whose arguments cannot be a kernel's is written out too, so its program grows with the strata.
-Such loops include a user's coupling or modifier holding a traced number, a parameter given by change points, and a view of a traced history.
+Such loops include a user's coupling or modifier holding a traced number, and a parameter given by change points.
 The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) records, for every scenario of the AD test registry and a few cases at 20 and 400 steps on the CPU, whether the compiled call matches plain Julia and its gradient matches ForwardDiff.
