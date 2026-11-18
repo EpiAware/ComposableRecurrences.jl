@@ -122,7 +122,7 @@ So the local step and plain AD can differ there, as for `abs` at zero and, on Mo
 | Enzyme forward | never | always |
 | Mooncake reverse | when the call takes the rule | otherwise |
 | Enzyme reverse | when the call takes the rule | otherwise |
-| [Reactant](@ref extension-reactant) (Enzyme reverse inside `Reactant.@compile`) | never | always, on the traced program |
+| [Reactant](@ref extension-reactant) (Enzyme reverse inside its `@compile`) | never | always, on the traced program |
 
 Forward-mode backends run the same forward code on both routes, so a rule only changes the cost of reverse mode.
 The targets are ForwardDiff, Mooncake and Enzyme.
