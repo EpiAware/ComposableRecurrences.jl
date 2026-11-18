@@ -50,6 +50,8 @@ function _check_unwrapped(name, x)
     return nothing
 end
 
+# == Allocation ==
+
 # A state vector of eltype `T`, copied so the caller's input is untouched.
 _state_vector(::Type{T}, s) where {T} = copyto!(similar(s, T, length(s)), s)
 
@@ -202,6 +204,7 @@ function _check_covers(name, n, stop)
     return nothing
 end
 
+# A kernel covers times up to `stop`.
 _check_kernel_times(k, stop) = nothing
 function _check_kernel_times(k::TimeVarying, stop)
     return _check_covers(:kernel, _extent(_array(k)), stop)
@@ -323,7 +326,8 @@ _check_strata(name, x, S) = nothing
 _check_strata(name, x::AbstractMatrix, S) = _check_nrows(name, x, S, "strata")
 
 # Value checks on parameters given as numbers or arrays, on their primal
-# values; a `Derived` parameter is not checked here.
+# values, as a dual number at a bound is not ordered by its value alone; a
+# `Derived` parameter is not checked here.
 function _check_unit(name, x)
     ok = v -> 0 <= _primal_value(v) <= 1
     return _check_values(name, x, ok, "between 0 and 1")
@@ -450,7 +454,8 @@ end
 
 # The one entry of stratum `k` of a vector, or of a `Ref`, as a vector with
 # axes `k:k`, so a step written over `eachindex(v)` reads and writes that
-# entry and reads a per-stratum parameter at `k`.
+# entry and reads a per-stratum parameter at `k`. The axis is an identity
+# range, so Base's linear indices of the view are `k` too.
 struct _At{T, A} <: AbstractVector{T}
     parent::A
     k::Int
@@ -472,8 +477,9 @@ end
     @inbounds a.parent[_ix(a)...] = x
     return a
 end
-# A fixed message, as a step can run in a GPU kernel, which cannot build a
-# string.
+# An index other than the view's own, such as from a step looping over
+# `1:length(v)`. The message is fixed, as a step can run in a GPU kernel,
+# which cannot build a string.
 @noinline function _out_of_view()
     throw(
         ArgumentError(
