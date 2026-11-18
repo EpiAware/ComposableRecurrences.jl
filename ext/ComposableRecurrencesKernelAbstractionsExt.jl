@@ -1,7 +1,7 @@
 module ComposableRecurrencesKernelAbstractionsExt
 
 using ComposableRecurrences: ComposableRecurrences, Allocate,
-    Convolution, Depletion, Derived, Device, Flow, Pairwise, PerStratum, Recurrence,
+    Convolution, Depletion, Derived, Flow, Pairwise, Parallel, PerStratum, Recurrence,
     Redistribute, TimeVarying, Transform, _AllocateImports, _Columns, _DrawFrom,
     _DrawInto, _Flat, _Movement, _OldestFirstPairwise, _PIECEWISE_DEVICE,
     _Piecewise, _Ragged, _kernel_args
@@ -15,10 +15,17 @@ using KernelAbstractions: @index, @kernel
     body(k, args...)
 end
 
+# A loop below `min_work` runs in order on the calling task.
 function ComposableRecurrences.each!(
-        body::F, ex::Device, n, work, args::Vararg{Any, N}
+        body::F, ex::Parallel, n, work, args::Vararg{Any, N}
     ) where {F, N}
     n == 0 && return nothing
+    if work < ex.min_work
+        for k in 1:n
+            @inline body(k, args...)
+        end
+        return nothing
+    end
     _launch!(ex.backend, body, _kernel_args(args), n)
     return nothing
 end

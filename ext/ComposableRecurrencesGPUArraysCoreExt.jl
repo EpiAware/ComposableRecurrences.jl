@@ -1,13 +1,13 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
-using ComposableRecurrences: ComposableRecurrences, Device, Pressure,
+using ComposableRecurrences: ComposableRecurrences, Parallel, Pressure,
     Secondary, Serial, TimeVarying, _Ragged, _Piecewise, _PIECEWISE_DEVICE
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
 using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
 using SparseArrays: SparseMatrixCSC
 
-ComposableRecurrences._resolve(::Serial, x::AbstractGPUArray) = Device(get_backend(x))
+ComposableRecurrences._resolve(::Serial, x::AbstractGPUArray) = Parallel(get_backend(x))
 
 # Device arrays reverse by indexing with a reversed range, one gather,
 # where `reverse` would index each entry from the host.

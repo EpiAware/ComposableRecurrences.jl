@@ -97,8 +97,8 @@ public Derived, Recent, Depletion, Flow, Share, Redistribute,
     Allocate, Transform, Hazard, Floor, Truncate,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
-    Device, EXECUTOR, param, add_param!, Direct, FFTMethod, delay_masses,
-    pressure, Survival, convert_floats, islinear, window_sums
+    Parallel, Device, EXECUTOR, param, add_param!, Direct, FFTMethod,
+    delay_masses, pressure, Survival, convert_floats, islinear, window_sums
 
 # shapes: slot wrappers and shape and eltype helpers.
 # Time-varying, per-stratum and pairwise coefficients.
