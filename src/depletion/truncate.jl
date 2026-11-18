@@ -29,9 +29,12 @@ Then ``0 \le v' \le \min(v, c)``, with ``v' = 2^{-\kappa} v`` at
 and ``c`` part.
 A non-positive value is drawn as it is, and the floor at ``s = 0`` keeps
 its kink.
-The softness is in ``0 \le \kappa < 1``.
 ``\kappa = 0`` is the exact minimum; `Truncate()` is that form with no
 softness to differentiate.
+
+# Arguments
+- `κ`: the softness, with ``0 \le \kappa < 1``; omitted for the exact
+  minimum.
 
 # Keyword Arguments
 - `weights`, `into`, `overflow`: the form's arguments as a draw in a
