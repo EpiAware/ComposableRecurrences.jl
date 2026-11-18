@@ -38,7 +38,7 @@ The arguments mean the same in every role:
   A broadcast against a field with one entry per stratum, such as `v .*= m.w`, cannot run on that view; the pointwise check of `PieceInterface` reports it.
   Its `Init` writes `s[k]` from the parameters read at stratum `k` and time 1, `param(m.a, k, 1)`, and from row `k` of the history only.
   Without an `Init` `pullback!`, its derivative is then taken stratum by stratum, and the pointwise check of `PieceInterface` checks it.
-  Such a step runs on a [`Device`](@ref ComposableRecurrences.Device) when it reads and writes only `eachindex(v)` entries, and allocates nothing.
+  Such a step runs under [`Parallel`](@ref ComposableRecurrences.Parallel) when it reads and writes only `eachindex(v)` entries, and allocates nothing.
 - A blockwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to its `(nv, ns)` and implements the step for one group, `g`, on tuples of one-entry views; read and write a view `x` as `x[]`.
 - Any other modifier implements the step on whole vectors and may read every stratum.
 - A depletion form is pointwise: it draws each entry of `v` from the same entry of `s`.

@@ -1443,6 +1443,7 @@ end
 # Each modifier's initial state, written by its Init into a vector at the
 # buffer eltype.
 function _init_state(::Type{Tp}, m, h, S) where {Tp}
+    _check_modifier_params(m, S)
     s = _zeros(h, Tp, nstate(m, S))
     forward!(m, Init(), s, h)
     return s

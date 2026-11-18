@@ -129,7 +129,7 @@ The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [join
 
 ## [Shapes](@id overview-shapes)
 
-A [slot](@ref explanation-slots) is a place an operator reads numbers from: a kernel, a coupling or a modifier parameter.
+A [slot](@ref explanation-slots) is a place an operator reads a coefficient from: a kernel, a coupling or a modifier parameter.
 A plain array gives one set of numbers for every stratum and time.
 A wrapper, such as [`PerStratum`](@ref PerStratum), gives one set per stratum, per pair of strata or per step.
 In Getting started, `PerStratum(pop)` gives each town its own population.
@@ -375,7 +375,7 @@ y ≈ renewal(R; history = seed)
 | [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) | the executor every call inside a `with` block uses | a setting |
 | [`Serial()`](@ref ComposableRecurrences.Serial) | runs the loops in order; the default | an executor |
 | [`Threaded()`](@ref ComposableRecurrences.Threaded) | runs the loops on threads | an executor |
-| [`Device(backend)`](@ref ComposableRecurrences.Device) | runs the loops on a device, such as a GPU's KernelAbstractions.jl backend | an executor |
+| [`Parallel(backend)`](@ref ComposableRecurrences.Parallel) | runs each loop as one kernel on a KernelAbstractions.jl backend, such as a GPU's; [`Device(backend)`](@ref ComposableRecurrences.Device) makes the same | an executor |
 | [`convert_floats(T, x)`](@ref ComposableRecurrences.convert_floats) | converts every float a model holds, scalars included, to `T`; needs Functors.jl | the model |
 
 `with` comes from `Base.ScopedValues`, and the setting holds inside its block only.
