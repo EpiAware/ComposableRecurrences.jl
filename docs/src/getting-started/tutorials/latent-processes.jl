@@ -145,9 +145,6 @@ saturate(v, κ) = v / (1 + v / κ)
     draw(_; axis = (xlabel = "Day", ylabel = "Infections (log scale)", yscale = log10))
 end
 
-# Without the response infections keep growing.
-# With it they level off at the values above.
-#
 # The total infections over the 100 days depend smoothly on ``\kappa`` and ``R``:
 #
 # ```math

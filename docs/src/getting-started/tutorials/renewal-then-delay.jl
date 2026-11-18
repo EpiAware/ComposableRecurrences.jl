@@ -128,8 +128,6 @@ reports = delay(infections_depleted; gain = 0.4)
     draw(_; axis = (xlabel = "Day", ylabel = "Count"))
 end
 
-# Reports peak three days after infections, at about 40% of their height.
-
 # ## Performance
 #
 # Each bar times a seeded renewal with hazard depletion over 200 days with a 20-day generation interval, against a preallocated hand-written loop.

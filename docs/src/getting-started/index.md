@@ -55,7 +55,6 @@ one_town = Recurrence(gi)(fill(1.8, T); history = one_seed)
 end
 ```
 
-The reproduction number stays at 1.8 and nothing limits growth.
 Infections grow by about 20% a day, so the curve bends upwards.
 
 ### A reporting delay
@@ -207,7 +206,6 @@ reports = delay(infections; gain = 0.4, history = seed)
 round.(Int, vec(sum(infections; dims = 2)))
 ```
 
-The result is each town's total infections over the 75 days.
 The susceptible share of town ``i`` on day ``t`` is ``S_{t,i} / N_i``.
 
 ```@example overview
@@ -294,8 +292,6 @@ reports_of(R) = delay(renewal(R; history = seed); gain = 0.4, history = seed)
 ∂R = ForwardDiff.gradient(R -> sum(reports_of(R)), R)
 round.(vec(sum(∂R; dims = 2)); digits = 1)
 ```
-
-The result is the gradient summed over days for each town.
 
 ```@example overview
 @chain long(∂R, towns) begin

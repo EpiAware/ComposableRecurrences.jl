@@ -244,7 +244,6 @@ round.(totals ./ totals[1]; digits = 3)
 
 Towns B and C have 3.4% and 1.9% of town A's infections, all from the coupling, as only town A is seeded.
 This run has no depletion, so its totals exceed the towns' populations.
-The [Modifiers](@ref overview-modifiers) section adds depletion.
 
 Row ``i`` of a coupling is the stratum that receives, and column ``j`` the stratum that gives.
 The coupling [acts](@ref explanation-coupling) on the weighted sums of past outputs, before the gain.
@@ -268,8 +267,6 @@ In Getting started, a [`Depletion`](@ref ComposableRecurrences.Depletion) of `Pe
 depleted = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 round.(Int, vec(sum(depleted(R; history = seed); dims = 2)))
 ```
-
-The result is each town's total infections over the 75 days.
 
 Modifiers act in [tuple order](@ref explanation-modifier-order), and each keeps its own [state](@ref explanation-modifier-state).
 The `add` input enters before every modifier, and a [`Transform(+, b)`](@ref ComposableRecurrences.Transform) enters where it sits in the tuple.
@@ -318,8 +315,6 @@ N = 60_000.0
 floored = Recurrence(gi; modifiers = (Depletion(N, Floor()),))
 round(Int, sum(floored(fill(1.8, T); history = fill(10.0, 6))))
 ```
-
-The result is the total infections over 75 days in a single pool of `N` people.
 
 | Name | What it does | Example |
 |:--|:--|:--|
