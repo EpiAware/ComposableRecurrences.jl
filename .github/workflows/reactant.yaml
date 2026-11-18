@@ -85,8 +85,8 @@ jobs:
       - run: mv test/reactant/results.tsv "$RUNNER_TEMP/committed.tsv"
       # The test set marks expected failures broken, so any failure or an
       # unexpected pass fails this step and the job; the comparison below
-      # still runs and reports which cells changed. Each case's subprocess
-      # takes the coverage flag from `Base.julia_cmd()`.
+      # still runs and reports which cells changed.
+      # Each case's subprocess takes the coverage flag from `Base.julia_cmd()`.
       - run: julia --project=test/reactant --startup-file=no --code-coverage=user test/reactant/runtests.jl
       - name: Compare with the committed results
         if: ${{ !cancelled() }}
