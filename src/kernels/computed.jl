@@ -1,16 +1,16 @@
 # Operators with a computed kernel (see `weights.jl`). A convolution and
 # `kernel_weights` walk each cohort's weights in turn (see `walk.jl`); a
-# recurrence fills the weights as a dense `Primary()` kernel and takes its
-# cotangent back to the coefficients.
+# recurrence fills the weights as a dense `Primary()` kernel.
+
+# == Convolution ==
 
 const _ComputedConvolution = Convolution{<:_ComputedKernel}
 uses_adjoint(c::_ComputedConvolution, ::Run) = _derived_local(c.kernel)
 
-# The input at time `σ`, buffer row `m + σ`, spreads forward through its
-# cohort's weights, as a `Primary()` kernel's does; serially each cohort's
-# weights come from its walk, shared by the strata unless a `Survival` has
-# strata of its own. Another executor takes the dense kernel of the same
-# weights, whose loops it splits by stratum.
+# Each input spreads forward through its cohort's weights, as a `Primary()`
+# kernel's does: serially from each cohort's walk, shared by the strata
+# unless a `Survival` has strata of its own, and on another executor through
+# the dense kernel of the same weights.
 function _convolve!(ex, Y, c::_ComputedKernel, X, m, start)
     return _convolve_dense!(ex, Y, c, X, m, start)
 end
@@ -65,12 +65,9 @@ end
     return nothing
 end
 
-# The coefficient `x` with each strata × lags matrix read through a copy
-# that holds each stratum's lags contiguously, for loops that read one
-# stratum's weights lag by lag: read in place, the matrix's lags are a
-# stride apart, which keeps the loop from loading them as a vector.
-# A coefficient with no such matrix is returned as it is, decided from its
-# type, so the call builds nothing.
+# The coefficient `x` with each strata × lags matrix read through a copy that
+# holds each stratum's lags contiguously, so a loop over one stratum's lags
+# vectorises; decided from the type, so other coefficients cost nothing.
 _lags_contiguous(x) = x
 function _lags_contiguous(x::PerStratum{<:Matrix})
     return PerStratum(transpose(permutedims(x.x)))
@@ -99,16 +96,18 @@ function _convolve_back!(ex, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start)
     return nothing
 end
 
-# The dense kernel's reverse pass, which returns the weights' cotangent. The
-# kernel and its mirror are built from `K` behind one function boundary, so
-# where the shape of `K` does not infer (an abstract kernel), inference
-# cannot pair a mirror and a kernel of different shapes.
+# The dense kernel's reverse pass, which returns the weights' cotangent;
+# behind a function barrier, so inference never pairs a mirror and a kernel
+# of different shapes when the shape of `K` does not infer.
 @noinline function _dense_convolve_back!(ex, X̄, x̄, K, X, Ȳ, m, start)
     K̄ = _weights_cotangent(x̄, K)
-    _convolve_back!(ex, X̄, _dense_mirror(K̄), _dense_kernel(K), X, Ȳ, m, start)
+    K̄d, Kd = _dense_mirror(K̄), _dense_kernel(K)
+    _convolve_back!(ex, X̄, K̄d, Kd, X, Ȳ, m, start)
     return K̄
 end
-function _convolve_back!(ex::Serial, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start)
+function _convolve_back!(
+        ex::Serial, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start
+    )
     x = c.x
     x̄ = cotangent(c̄, :x)
     L = _nlags(c)
@@ -149,6 +148,8 @@ function _contributions(c::_ComputedConvolution, route, x; kwargs...)
     )
 end
 
+# == Recurrence ==
+
 _pressure_rule(::_ComputedKernel) = false
 function _pressure_kernel(r::Recurrence{<:_ComputedKernel}, stop)
     K, _ = _fill_kernel(r.kernel, 1, stop, stop, Val(false))
@@ -156,7 +157,9 @@ function _pressure_kernel(r::Recurrence{<:_ComputedKernel}, stop)
 end
 
 function _with_kernel(r::Recurrence, K)
-    return Recurrence(_Checked(), _dense_kernel(K), r.coupling, r.modifiers, r.rebuilds)
+    return Recurrence(
+        _Checked(), _dense_kernel(K), r.coupling, r.modifiers, r.rebuilds
+    )
 end
 
 # A recurrence fills the weights of cohorts up to its last time, then runs
@@ -166,7 +169,8 @@ function _recur(
     )
     n = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
     K, sc = _fill_kernel(r.kernel, 1, n, n, cache)
-    Y, H, states, inner = _recur(_with_kernel(r, K), gain, add, h, s0, τ0, stop, cache)
+    rk = _with_kernel(r, K)
+    Y, H, states, inner = _recur(rk, gain, add, h, s0, τ0, stop, cache)
     return Y, H, states, _with_computed(inner, r.kernel, n, sc)
 end
 # A plain call keeps nothing: the weights are filled in blocks and the run
@@ -180,12 +184,18 @@ function _recur(
     return _recur(_with_kernel(r, K), gain, add, h, s0, τ0, stop, cache)
 end
 _with_computed(::Nothing, kernel, n, sc) = nothing
-_with_computed(cache, kernel, n, sc) = merge(cache, (; computed = (; kernel, n, sc)))
-_computed(c::NamedTuple) = hasfield(typeof(c), :computed) ? c.computed : nothing
+function _with_computed(cache, kernel, n, sc)
+    return merge(cache, (; computed = (; kernel, n, sc)))
+end
+function _computed(c::NamedTuple)
+    return hasfield(typeof(c), :computed) ? c.computed : nothing
+end
 
 # The reverse pass of a recurrence with a computed kernel: the dense
 # kernel's cotangent, then the coefficients'.
-function _reverse_computed!(::Nothing, c, Ȳ, r̄, args::Vararg{Any, N}) where {N}
+function _reverse_computed!(
+        ::Nothing, c, Ȳ, r̄, args::Vararg{Any, N}
+    ) where {N}
     return _reverse_run!(c, Ȳ, r̄, args...)
 end
 function _reverse_computed!(comp, c, Ȳ, r̄, args::Vararg{Any, N}) where {N}
@@ -197,17 +207,19 @@ function _reverse_computed!(comp, c, Ȳ, r̄, args::Vararg{Any, N}) where {N}
     return nothing
 end
 
-# ---- the weights as an array -------------------------------------------------
+# == kernel_weights ==
 
 @doc raw"""
     kernel_weights(kernel, n)
 
-The weights of a computed kernel `TimeVarying(w, Primary())` for the
-cohorts at times `1` to `n`, as an array: `L × n`, or `S × L × n` with
-strata, lag 0 first,
+The weights of the computed kernel `TimeVarying(w, Primary())`, with `w` a
+[`Derived`](@ref) or [`ComposableRecurrences.Survival`](@ref).
+They cover the cohorts at times `1` to `n`, as an array: `L × n`, or
+`S × L × n` with strata, lag 0 first,
 
 ```math
-K_{l + 1, \tau} = w_l(\tau), \qquad l = 0, \dots, L - 1, \quad \tau = 1, \dots, n,
+K_{l + 1, \tau} = w_l(\tau),
+\qquad l = 0, \dots, L - 1, \quad \tau = 1, \dots, n,
 ```
 
 where ``w_l(\tau)`` is the weight on lag ``l`` of cohort ``\tau`` and ``L``
@@ -268,7 +280,7 @@ function _weights_walk(op::_KernelWeights, n, keep)
     Tp = float(param_eltype(x))
     L = _coef_lags(x)
     # Every weight of cohorts `1:n` lands by `last`, so the walk writes each.
-    K = _has_strata(x) ? _alloc(Tp, _coef_strata(x), L, n) : _alloc(Tp, L, n)
+    K = _stratified(x) ? _alloc(Tp, _coef_strata(x), L, n) : _alloc(Tp, L, n)
     return _walk_fill!(K, op.kernel, 0, last, keep)
 end
 function pullback!(grads, op::_KernelWeights, ::Run, cache)
