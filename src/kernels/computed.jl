@@ -211,10 +211,10 @@ end
 @doc raw"""
     kernel_weights(kernel, n)
 
-The weights of a computed kernel `TimeVarying(w, Primary())`, `w` a
-[`Derived`](@ref) or a [`ComposableRecurrences.Survival`](@ref), for the
-cohorts at times `1` to `n`, as an array: `L × n`, or `S × L × n` with
-strata, lag 0 first,
+The weights of the computed kernel `TimeVarying(w, Primary())`, with `w` a
+[`Derived`](@ref) or [`ComposableRecurrences.Survival`](@ref).
+They cover the cohorts at times `1` to `n`, as an array: `L × n`, or
+`S × L × n` with strata, lag 0 first,
 
 ```math
 K_{l + 1, \tau} = w_l(\tau),
