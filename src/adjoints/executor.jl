@@ -361,7 +361,7 @@ A traced call runs each step's loop over `S` strata as one
 KernelAbstractions kernel when `S` is at least this, so its program does not
 grow with the strata. A shorter loop is written out, one block a stratum,
 which compiles to a program that grows with `S` but runs faster on the CPU
-than a kernel launch each step. The default, 64, is measured on the CPU;
+than a kernel launch each step. The default, 16, is measured on the CPU;
 on a GPU, where a launch costs less, a lower value may run faster. Set it
 with `with`, as for [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR).
 
@@ -379,7 +379,7 @@ end
 8
 ```
 """
-const TRACED_MIN_STRATA = ScopedValue{Int}(64)
+const TRACED_MIN_STRATA = ScopedValue{Int}(16)
 
 # == Device ==
 

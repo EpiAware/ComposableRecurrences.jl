@@ -453,6 +453,19 @@ function ComposableRecurrences._series_step!(
     return nothing
 end
 
+# The same step from a block that would otherwise run as one kernel: the
+# array operations above run faster.
+function ComposableRecurrences._series_step!(
+        t, ks::_KernelStrata, H::AnyTracedRArray, pr::Nothing, gain, add,
+        coupling::_PointwiseCoupling, kernel::Union{AbstractVector, PerStratum},
+        p, q, ms::Tuple{}, states::Tuple{}, rec::Nothing, τ0, L, D
+    )
+    return ComposableRecurrences._series_step!(
+        t, 1:length(ks), H, pr, gain, add, coupling, kernel, p, q, ms, states,
+        rec, τ0, L, D
+    )
+end
+
 # The kernel convolutions of strata `ks` over the window from row `t`.
 function _strata_kdot(g, H, t, L, ks)
     L == 0 && return Reactant.Ops.fill(zero(unwrapped_eltype(eltype(H))), (length(ks),))
