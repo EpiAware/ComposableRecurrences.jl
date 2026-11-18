@@ -159,7 +159,8 @@ end
 
 # The value of parameter `x` at `(k, t)` and the partials of a `Derived`'s
 # map that has mirrors, else `nothing`, from one read of its arguments, for
-# `_add_param_partials!`. Only the outer map's partials are kept.
+# `_add_param_partials!`. Only the outer map's partials are kept: a nested
+# `Derived` argument reads its own arguments again in its `add_param!`.
 _param_partials(x̄, x, k, t) = (param(x, k, t), nothing)
 function _param_partials(x̄, x::Derived, k, t)
     xs = _params_at(x.args, k, t)

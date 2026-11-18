@@ -175,9 +175,11 @@ Base.:-(a::Recent) = Derived(-, a)
 # A `Recent` bound to a call's buffer `H`, whose row `t + o` holds the
 # output at time `t`, and its cotangent `H̄` in a reverse pass. With a
 # coupling every stratum mixes the same `S` windows, filled once per step
-# into `u` for buffer row `row` (`_refresh!`); the reverse pass adds their
-# cotangents into `z`, which `_flush!` sends on once per step, the weights'
-# share into the mirror kept in `w̄`. Without a coupling these are `nothing`.
+# into `u` for buffer row `row` (`_refresh!`, run serially before the
+# strata read them); the reverse pass adds their cotangents into `z`, which
+# `_flush!` sends on once per step, the weights' share into the mirror kept
+# in `w̄` (with no `H̄`, only into the weights). Without a coupling these are
+# `nothing`.
 struct _BoundRecent{R <: Recent, B, G, U, I, Z, M}
     x::R
     H::B
