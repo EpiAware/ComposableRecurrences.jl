@@ -1,6 +1,8 @@
 @doc raw"""
-A value computed from other values by a function `f`: a modifier parameter,
-or the weights of a cohort kernel.
+    Derived(f, args...)
+
+A value computed from at least one argument `args` by a function `f`: a
+modifier parameter, or the weights of a cohort kernel.
 
 As a modifier parameter, at stratum ``k`` and absolute time ``t``,
 
@@ -140,7 +142,8 @@ function add_param!(x̄, x::Derived, v, k, t)
     return _add_partials!(ā, x, v, ∂, k, t)
 end
 # Add `v ∂_i` into each argument's mirror `ā[i]`, unrolled so a nested
-# `Derived` infers rather than meet inference's recursion limit.
+# `Derived` infers: a helper shared by every level would meet inference's
+# recursion limit and dispatch at run time.
 @generated function _add_partials!(
         ā, x::Derived{F, A}, v, ∂, k, t
     ) where {F, A}
@@ -195,6 +198,7 @@ _float_param(x::Derived) = x
 
 # Whether every `Derived` inside a value of type `T` has a map without float
 # fields of its own, so its local derivative covers every parameter.
+# Type-only, so `_derived_local` folds at compile time.
 function _derived_local_type(::Type{T}) where {T}
     T <: Derived && return _fieldfree_type(fieldtype(T, :f)) &&
         _derived_local_type(fieldtype(T, :args))
