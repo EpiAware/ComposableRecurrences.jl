@@ -522,7 +522,8 @@ function _check_drawn_population(form, N, into)
     N !== nothing || form isa Truncate && into === nothing || throw(
         ArgumentError(
             into === nothing ?
-                "a $(nameof(typeof(form)))() draw reads the population, so give N" :
+                "a $(nameof(typeof(form)))() draw reads the population, " *
+                "so give N" :
                 "a draw into a pool fills it up to N, so give N"
         )
     )
