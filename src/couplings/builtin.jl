@@ -4,14 +4,17 @@
 
 # == Shared ==
 
-# A dense or time-varying coupling's rows and columns against the pressures.
-function _check_pressure(C, q, p)
-    axes(C, 1) == axes(q, 1) && axes(C, 2) == axes(p, 1) || throw(
-        DimensionMismatch(
-            "coupling is $(size(C)), pressures are $(length(q)) and $(length(p))"
-        )
-    )
-    return nothing
+# A coupling held as a strata × strata × time array, read at time `t`.
+const _TVCoupling = TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}
+
+# A dense or time-varying coupling's rows and columns against the pressures,
+# and against the pressures' cotangent `p̄` in a reverse pass.
+function _check_pressure(C, q, p, p̄ = p)
+    axes(C, 1) == axes(q, 1) && axes(C, 2) == axes(p, 1) == axes(p̄, 1) &&
+        return nothing
+    n = "$(length(q)) and $(length(p))"
+    cot = p̄ === p ? "" : ", their cotangent $(length(p̄))"
+    throw(DimensionMismatch("coupling is $(size(C)), pressures are $n$cot"))
 end
 
 # The reverse pass of `q = C[:, :, idx...] * p` for any mirror `C̄`.
@@ -60,7 +63,7 @@ end
 # Which shapes the coupling slot takes. Lags belong to the kernel, so a
 # `Pairwise` is not a coupling.
 _check_coupling_shape(C) = nothing
-_check_coupling_shape(::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}) = nothing
+_check_coupling_shape(::_TVCoupling) = nothing
 function _check_coupling_shape(C::TimeVarying)
     throw(
         ArgumentError(
@@ -70,6 +73,19 @@ function _check_coupling_shape(C::TimeVarying)
     )
 end
 _check_coupling_shape(C::Pairwise) = _kernel_as_coupling_error(C, "Pairwise(A)")
+
+# The matrix of a coupling declared linear (`islinear`) over `S` strata, a
+# column per basis vector. The basis vectors are never overwritten, as one
+# backend's sparse product reads its input in the reverse pass.
+function _coupling_matrix(C, S::Integer)
+    T = float(param_eltype(C))
+    A = zeros(T, S, S)
+    E = Matrix{T}(I, S, S)
+    for b in 1:S
+        forward!(C, Pressure(), view(A, :, b), view(E, :, b), 1)
+    end
+    return A
+end
 
 # == UniformScaling ==
 
@@ -99,7 +115,9 @@ end
         piece = I, role = Pressure(), args = (zeros(2), [1.0, 2.0], 1),
         pullback = false
     ),
-    Arguments(; piece = 0.5I, role = Pressure(), args = (zeros(2), [1.0, 2.0], 1)),
+    Arguments(;
+        piece = 0.5I, role = Pressure(), args = (zeros(2), [1.0, 2.0], 1)
+    ),
 ]
 
 # == Diagonal ==
@@ -165,11 +183,10 @@ end
 # Floats: column by column, the order a column-major matrix is stored in.
 # A loop blocked by columns costs more under plain reverse-mode AD.
 _mix!(q::AbstractVector{<:AbstractFloat}, C, p) = _mix_floats!(q, C, p)
-# From `_BLAS_MIX` strata, a `Float64` or `Float32` matrix with strided
-# pressures takes BLAS's product. Alone it is faster than the loop from 12
-# strata (0.5 of its time at 24 and 28, 0.6 at 62 and 124), but a whole run
-# with a dense coupling measured 1.08× slower at 16 strata and 0.76× at 24,
-# so the loop keeps the strata below 24.
+# From `_BLAS_MIX` strata a `Float64` or `Float32` matrix with strided
+# pressures takes BLAS's product. Alone it wins from 12 strata, but a whole
+# run with a dense coupling measured 1.08× the loop's time at 16 and 0.76×
+# at 24.
 const _BLAS_MIX = 24
 _blas_mix(C) = size(C, 1) >= _BLAS_MIX
 function _mix!(
@@ -226,9 +243,7 @@ function pullback!(grads, C::Matrix, ::Pressure, q, p, t)
     C̄ = _array_mirror(grads.piece)
     C̄ isa _DenseMirror || return _coupling_back!(p̄, C̄, C, q̄, p)
     _check_dense(C̄, C)
-    axes(q̄, 1) == axes(C, 1) && axes(p̄, 1) == axes(p, 1) == axes(C, 2) || throw(
-        DimensionMismatch("coupling is $(size(C)), pressures are $(length(p))")
-    )
+    _check_pressure(C, q̄, p, p̄)
     _dense_coupling_back!(p̄, C̄, C, q̄, p)
     return nothing
 end
@@ -246,10 +261,7 @@ end
 
 # == TimeVarying ==
 
-# A strata × strata × time array, read at time `t`.
-function forward!(
-        C::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, ::Pressure, q, p, t
-    )
+function forward!(C::_TVCoupling, ::Pressure, q, p, t)
     X = C.x
     checkbounds(X, :, :, t)
     _check_pressure(X, q, p)
@@ -263,10 +275,7 @@ function forward!(
     return nothing
 end
 
-function pullback!(
-        grads, C::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, ::Pressure,
-        q, p, t
-    )
+function pullback!(grads, C::_TVCoupling, ::Pressure, q, p, t)
     _coupling_back!(grads.p, cotangent(grads.piece, :x), C.x, grads.q, p, t)
     return nothing
 end
@@ -283,9 +292,7 @@ function pullback!(
         DimensionMismatch("mirror is $(size(X̄)), coupling is $(size(X))")
     )
     checkbounds(X, :, :, t)
-    axes(q̄, 1) == axes(X, 1) && axes(p̄, 1) == axes(p, 1) == axes(X, 2) || throw(
-        DimensionMismatch("coupling is $(size(X)), pressures are $(length(p))")
-    )
+    _check_pressure(X, q̄, p, p̄)
     X̄t = X̄ isa Array ? view(X̄, :, :, t) : X̄
     _dense_coupling_back!(p̄, X̄t, view(X, :, :, t), q̄, p)
     return nothing
@@ -301,20 +308,3 @@ end
         role = Pressure(), args = (zeros(2), [1.0, 2.0], 5)
     ),
 ]
-
-# == Linear couplings ==
-
-# The matrix of a coupling declared linear (`islinear`) over `S` strata: its
-# `forward!` on each basis vector gives a column. Each basis vector is its
-# own column of an identity, never overwritten, as a reverse pass that keeps
-# a reference to its input, as one backend's sparse product does, reads it after
-# the loop.
-function _coupling_matrix(C, S::Integer)
-    T = float(param_eltype(C))
-    A = zeros(T, S, S)
-    E = Matrix{T}(I, S, S)
-    for b in 1:S
-        forward!(C, Pressure(), view(A, :, b), view(E, :, b), 1)
-    end
-    return A
-end
