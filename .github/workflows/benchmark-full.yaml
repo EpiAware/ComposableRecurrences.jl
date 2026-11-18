@@ -48,7 +48,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
-          version: '1'
+          # Repeated Enzyme forward gradients in batch mode corrupt memory and
+          # crash the garbage collector on Julia 1.12 and later, and timing
+          # many calls repeats them thousands of times. The crash is in
+          # Enzyme, on 1.13.3 as on 1.13.4, but 1.13.3 has passed every
+          # scheduled run, so that backend stays there until Enzyme is fixed.
+          version: ${{ matrix.backend == 'Enzyme forward' && '1.13.3' || '1' }}
       - uses: julia-actions/cache@v3
       - run: julia --project=benchmark -e 'using Pkg; Pkg.instantiate()'
       # The step's wall time goes to the run's summary page, to compare
