@@ -178,6 +178,7 @@ end
 # The identity coupling `I` is stored with an integer scale: a source-level AD
 # tool on Julia 1.11 loses the gradient of a scalar field beside a field that
 # wraps a `Bool`, in an operator built in code Julia cannot infer.
+# Route couplings inside a `Pairwise` kernel are stored as given.
 _stored_coupling(J::UniformScaling{Bool}) = UniformScaling(Int(J.λ))
 _stored_coupling(C) = C
 
