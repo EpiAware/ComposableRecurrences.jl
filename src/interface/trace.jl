@@ -110,14 +110,12 @@ function pullback!(grads, m, ::Trace, v::Tuple, s::Tuple, t, g)
     foreach((x̄, r̄) -> x̄[] += r̄[], grads.s′, grads.trace)
     return nothing
 end
-# On the host a step's few entries are copied by a loop, which costs less
-# than setting up `copyto!` of views.
 _copy_trace!(r::Tuple, s′) = _copy_trace!(first(r), s′)
-_copy_trace!(r::AbstractVector, s′) = (copyto!(r, s′); nothing)
-function _copy_trace!(r::_CPUArray, s′::_CPUArray)
-    for k in eachindex(r, s′)
-        r[k] = s′[k]
-    end
+function _copy_trace!(r::AbstractVector, s′)
+    length(r) == length(s′) || throw(
+        DimensionMismatch("trace has $(length(r)) entries, state $(length(s′))")
+    )
+    copyto!(r, s′)
     return nothing
 end
 _add_trace!(s̄′, r̄::Tuple) = _add_trace!(s̄′, first(r̄))
