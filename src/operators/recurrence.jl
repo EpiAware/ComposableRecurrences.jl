@@ -64,7 +64,8 @@ the call covers the absolute times `start:stop`:
     first, length `h` for a single series or `S × h`; zeros when left out.
     The recursion reads the last ``D`` outputs, with ``D`` at least `L`
     and at least the [`ComposableRecurrences.depth`](@ref) of each part,
-    and a shorter history is zero-padded. A modifier's `Init` sees all of it.
+    and a shorter history is zero-padded.
+    A modifier's `Init` sees all of it.
   - `state`: a [`ComposableRecurrences.State`](@ref) to resume from, in
     place of `history`; `record = (:state,)` returns the next one.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.

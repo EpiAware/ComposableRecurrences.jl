@@ -84,6 +84,7 @@ using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
     TYPEDEF, TYPEDFIELDS, TYPEDSIGNATURES
 using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling, mul!
+using PrecompileTools: @compile_workload, @setup_workload
 using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
 using Base.ScopedValues: ScopedValue
 
@@ -185,5 +186,8 @@ include("interface/precision.jl")
 # adjoints, loaded last: it reads `_EntryParam` from `operators/recurrence.jl`.
 # Default pullbacks of modifiers and couplings without one.
 include("adjoints/fallbacks.jl")
+
+# A precompile workload, run last so that every method it calls exists.
+include("precompile.jl")
 
 end # module ComposableRecurrences

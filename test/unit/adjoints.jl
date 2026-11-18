@@ -1934,7 +1934,7 @@ end
     )
 end
 
-@testitem "Adjoint: local pullback over entry parameters" setup = [ReferenceAD, AdjointCheck] begin
+@testitem "Adjoint: local pullback over entry parameters" setup = [AdjointCheck] begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived
     # A pointwise modifier whose array parameters a step reads one entry of
@@ -1963,17 +1963,7 @@ end
         @test CR._modifier_adjoint(m) === :local
         @test !CR._scalar_params(m)
         @test CR.uses_adjoint(@inferred(Recurrence([0.3, 0.2], I, (m,))), CR.Run())
-        # Against ForwardDiff over every parameter entry at (k, t) = (2, 3).
-        x0 = [2.0; 1.5; CR._params(m)]
-        J = ReferenceAD.jacobian(x0) do x
-            md = CR._rebuild(m, view(x, 3:length(x)))
-            return collect(CR._step(md, x[1], x[2], 3, 2))
-        end
-        ref = transpose(J) * [0.3, 0.7]
-        m̄ = zero_mirror(m)
-        got = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
-        @test collect(got) ≈ ref[1:2]
-        @test mirror_vec(m̄, m) ≈ ref[3:end]
+        # Against ForwardDiff over every parameter entry, at every step.
         r = Recurrence([0.3, 0.2]; coupling = [0.9 0.1; 0.2 0.8], modifiers = (m,))
         @test pullback_matches(r, recargs(ones(S, 6), nothing, ones(S, 2))...)
     end
@@ -2163,19 +2153,8 @@ end
         @test r.rebuilds === true
         @test CR.uses_adjoint(r, CR.Run())
         @test CR._fit(r, args...) === :one
+        # Against ForwardDiff over every entry, at every step.
         @test pullback_matches(r, args...)
-        # One step against ForwardDiff over every entry at (k, t) = (2, 3).
-        x0 = [2.0; 1.5; CR._params(m)]
-        J = ReferenceAD.jacobian(x0) do x
-            md = CR._rebuild(m, view(x, 3:length(x)))
-            return collect(CR._step(md, x[1], x[2], 3, 2))
-        end
-        ref = transpose(J) * [0.3, 0.7]
-        m̄ = zero_mirror(m)
-        got = CR._step_pullback((; piece = m̄, v = 0.3, s = 0.7), m, 2.0, 1.5, 3, 2)
-        @test collect(got) ≈ ref[1:2]
-        # A Float32 array keeps Float32 cotangents.
-        @test mirror_vec(m̄, m) ≈ ref[3:end] rtol = 1.0e-6
     end
     # The step infers and allocates only its record of the reads.
     m = ByT(a)

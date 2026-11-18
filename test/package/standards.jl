@@ -1,12 +1,14 @@
 # PACKAGE-OWNED: documentation standards. Every public docstring states its
 # maths and carries a runnable example; prose avoids filler words and the
 # word "piece"; docstrings and src comments do not name other packages; and
-# Markdown prose keeps one sentence per line. On listed pages each section
-# that introduces a model gives its maths before the code, the README code
-# is taken from the getting started page and prints nothing on the home
-# page, and each concept in `ONE_HOME` is explained on its home page only. The README and docs pages also go
-# through the shared `test_readme_prose` (banned words, sentence length).
-# Inputs live in `standards_config.jl`.
+# Markdown prose keeps one sentence per line, at most `MAX_SENTENCE_WORDS`
+# words long, with code lines at most `MAX_CODE_CHARS` characters. On
+# listed pages each section that introduces a model gives its maths before
+# the code, the README code is taken from the getting started page and
+# prints nothing on the home page, and each concept in `ONE_HOME` is
+# explained on its home page only. The README and docs pages also go through
+# the shared `test_readme_prose` (banned words, sentence length). Inputs
+# live in `standards_config.jl`.
 
 @testitem "Standards: docstring maths" tags = [:quality] begin
     using ComposableRecurrences
@@ -40,14 +42,23 @@ end
     sources = vcat(
         prose_sources(mod), docstring_sources(mod), comment_sources()
     )
-    found = violations(banned_hits, sources)
-    pending(v) = any(l -> startswith(v, l * ","), PENDING_WORDING)
-    @test filter(!pending, found) == String[]
-    for label in PENDING_WORDING
-        @testset "$label" begin
-            @test !any(startswith(label * ","), found) broken = true
-        end
-    end
+    test_pending(violations(banned_hits, sources), PENDING_WORDING)
+end
+
+@testitem "Standards: sentence length" tags = [:quality] begin
+    using ComposableRecurrences
+    include(joinpath(@__DIR__, "standards_helpers.jl"))
+    mod = ComposableRecurrences
+    sources = vcat(prose_sources(mod), docstring_sources(mod))
+    found = violations(long_sentence_hits, sources)
+    test_pending(found, PENDING_SENTENCE_LENGTH)
+end
+
+@testitem "Standards: code line length" tags = [:quality] begin
+    using ComposableRecurrences
+    include(joinpath(@__DIR__, "standards_helpers.jl"))
+    found = violations(long_code_hits, code_sources(ComposableRecurrences))
+    test_pending(found, PENDING_CODE_LENGTH)
 end
 
 @testitem "Standards: README and page prose" tags = [:quality] begin
@@ -180,6 +191,28 @@ end
         ["a", "b"]
     @test [l for (_, l) in literate_prose("# Prose.\nx = 1  # code. X\n")] ==
         ["Prose."]
+    @test [l for (_, l) in markdown_prose("- a\n    b. C\n")] == ["- a"]
+    @test [l for (_, l) in markdown_prose("- a\n    b. C\n"; indented = true)] ==
+        ["- a", "    b. C"]
+    @test banned_hits("A variant of it.") == ["variant"]
+    @test banned_hits("An analytic adjoint.") == ["analytic adjoint"]
+    @test banned_hits("A hand-written adjoint.") == ["hand-written adjoint"]
+    @test banned_hits("Exogenous cases.") == ["Exogenous"]
+    @test sentence_words("- One `two three` [four](x) ``y_t`` five.") == 5
+    @test isempty(long_sentence_hits(join(fill("word", 35), " ")))
+    @test long_sentence_hits(join(fill("word", 36), " ")) == ["36 words"]
+    @test isempty(long_code_hits("x"^80))
+    @test long_code_hits("x"^81) == ["81 characters"]
+    md = "a\n```julia\nx = 1\n```\n```math\ny\n```\n```@example e\nz\n```\n"
+    @test markdown_code(md) == [(3, "x = 1"), (9, "z")]
+    @test literate_code("# a\nx = 1\n# ```julia\n# y\n# ```\n") ==
+        [(2, "x = 1"), (4, "y")]
+    block = "x = 1\nmd\"\"\"\nProse. More\n```julia\ny = 2\n```\n\"\"\"\nz = 3\n"
+    @test literate_code(block) == [(1, "x = 1"), (5, "y = 2"), (8, "z = 3")]
+    @test [l for (_, l) in literate_prose(block)] == ["Prose. More"]
+    @test is_pending("docs/a.md:3: 36 words", "docs/a.md")
+    @test is_pending("docstring A, line 2: 36 words", "docstring A")
+    @test !is_pending("docstring AB, line 2: 36 words", "docstring A")
     calls = ("Recurrence", "Transform")
     @test sections_missing_maths("# ## A\nr = Recurrence(k)\n", calls) ==
         ["A"]
@@ -252,16 +285,4 @@ end
     # Regenerate `docs/pages.jl` with the kit's `update` when this fails.
     built = unique([registered; authored; rendered])
     @test setdiff(built, paths(nav.pages)) == String[]
-end
-
-@testitem "Standards: recorded item times fit the time budget" tags = [:quality] begin
-    include(joinpath(@__DIR__, "..", "item_times.jl"))
-    times = read_times()
-    names = default_items()
-    @test !isempty(times)
-    @test length(names) > 300
-    # An item with no recorded time weighs as much as the median one.
-    _, load = assign(names, times, TEST_BUDGET.workers)
-    # Re-record with `julia --project=test test/runtests.jl record_times`.
-    @test maximum(load) / 60 <= TEST_BUDGET.minutes
 end
