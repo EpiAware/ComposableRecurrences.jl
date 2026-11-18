@@ -28,7 +28,6 @@ const PENDING_WORDING = (
     "docstring pullback!",
     "docstring test_adjoint",
     "docstring uses_adjoint",
-    "src/ComposableRecurrences.jl",
     "src/interface/roles.jl",
 )
 
