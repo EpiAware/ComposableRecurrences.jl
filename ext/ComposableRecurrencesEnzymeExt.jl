@@ -11,8 +11,8 @@ using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
     _convolve_masses!, _convolve_masses_back!, _current, _fft_convolve!,
     _fft_convolve_back!, _fft_convolve_terms!, _flat_groups, _is_leaf,
     _keep_inputs, _leaf_paths, _plain_hook, _probe_step_reads, _rebuild_leaves,
-    _route_forward!, _run_forward, _run_pullback!, _spawn_blocks,
-    _spawn_chunks, _untraced
+    _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
+    _spawn_blocks, _spawn_chunks, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Diagonal
@@ -499,7 +499,8 @@ function EnzymeRules.augmented_primal(
     # overwrite it.
     ow = _input_overwritten(X, Base.tail(EnzymeRules.overwritten(config)))
     cache = _keep_inputs(cache, ow)
-    dy = EnzymeRules.needs_shadow(config) ? Enzyme.make_zero(y) : nothing
+    dy, cache = EnzymeRules.needs_shadow(config) ? _shadow_of(first(args), y, cache) :
+        (nothing, cache)
     ret = EnzymeRules.needs_primal(config) ? y : nothing
     R = eltype(RA)
     P = EnzymeRules.needs_primal(config) ? R : Nothing
@@ -535,6 +536,11 @@ end
 end
 @generated function _rets(::Type{L}) where {L <: Tuple}
     return Tuple{(A <: Active ? A.parameters[1] : Nothing for A in L.parameters)...}
+end
+# The output's shadow, sharing the reverse pass's buffer where it can.
+function _shadow_of(op, y, cache)
+    dy, c = _shared_shadow(op, y, cache)
+    return dy === nothing ? (Enzyme.make_zero(y), c) : (dy, c)
 end
 # The pullback compiled on its own for the mirrors' types: inlined into the
 # rule, it ran slower on a coupled run with a modifier.

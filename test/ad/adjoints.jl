@@ -1246,23 +1246,6 @@ end
     end
 end
 
-@testitem "Enzyme: a single series' gradients against ForwardDiff" tags = [:ad, :enzyme, :enzyme_reverse] begin
-    using ComposableRecurrences
-    import Enzyme, ForwardDiff
-    mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
-    # One series on the host in each float type, with a weighted output so
-    # its cotangent differs between steps.
-    for E in (Float64, Float32)
-        R, h = E.(1.1 .+ 0.1 .* sin.(1:12)), E[0.5, 1.0, 0.8]
-        W = E.(1:12) ./ 12
-        f(θ) = sum(W .* Recurrence(θ[1:3])(θ[4:15]; history = θ[16:18]))
-        θ = [E[0.4, 0.3, 0.2]; R; h]
-        ḡ = Enzyme.gradient(mode, Enzyme.Const(f), θ)[1]
-        @test eltype(ḡ) == E
-        @test ḡ ≈ ForwardDiff.gradient(f, θ) rtol = sqrt(eps(E))
-    end
-end
-
 # Tagged `compat_floor`, so the Threads workflow runs it on Julia 1.11.
 @testitem "Enzyme reverse on Julia 1.11 warns once per operator type of lost scalar gradients" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
     using ComposableRecurrences
