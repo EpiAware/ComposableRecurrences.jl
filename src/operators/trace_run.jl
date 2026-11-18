@@ -1,6 +1,9 @@
 # A call with its trace: the output of `op` (a `Recurrence` or its
 # `_WithState`) and each modifier's trace, built after the run from the
 # records the rule keeps, or in each step of a run without records.
+
+# == _WithTrace ==
+
 struct _WithTrace{O <: AbstractOperator} <: AbstractOperator
     op::O
 end
@@ -14,14 +17,12 @@ function _run_forward(w::_WithTrace, gain, add, h, s0, τ0, stop)
     y, cache = _run_forward(w.op, gain, add, h, s0, τ0, stop, Val(:traced))
     return (y, _traces(_traced_recurrence(w.op), cache)), cache
 end
-# The modifiers are read from the operator, as the step reads them, not
-# from the cache: plain reverse AD on Julia 1.11 can lose the cotangent of
-# a scalar field read back from a value that also holds arrays.
+# The modifiers are read from the operator, not the cache: plain reverse AD
+# on Julia 1.11 can lose a scalar field's cotangent read back from the cache.
 _traced_recurrence(r::Recurrence) = r
 _traced_recurrence(w::_WithState) = w.r
-# A call that keeps no records writes each modifier's trace in its step
-# (`_TraceSink`) on host arrays. Elsewhere it runs the traced rule's forward
-# pass, which records the run and builds the trace after it.
+# On host arrays a call writes each modifier's trace in its step
+# (`_TraceSink`); elsewhere it runs the traced rule's forward pass.
 _primal(w::_WithTrace, args...) = first(_run_forward(w, args...))
 function _primal(w::_WithTrace, gain, add, h::_CPUArray, s0, τ0, stop)
     return _traced_primal(w.op, gain, add, h, s0, τ0, stop)
@@ -35,6 +36,8 @@ function _traced_primal(w::_WithState, gain, add, h, s0, τ0, stop)
     return (Y, _state(Y, H, states, h, τ0)), tr
 end
 
+# == Trace sinks ==
+
 # A modifier's trace as the run writes it, with copies `v` and `s` of the
 # step's inputs for a step on the whole vectors that is not pointwise.
 # `out` starts unset, as each step writes its column.
@@ -44,8 +47,7 @@ struct _TraceSink{O, V, W}
     s::W
     S::Int
 end
-# A modifier whose state never changes writes no trace, so its trace is
-# zeros.
+# A modifier whose state never changes writes no trace: its trace is zeros.
 struct _NoTrace{O}
     out::O
 end
@@ -53,7 +55,7 @@ _sinks(::Val{false}, h, ::Type{Tp}, ms, states, S, T) where {Tp} = nothing
 function _sinks(::Val{:trace}, h, ::Type{Tp}, ms, states, S, T) where {Tp}
     return map(ms, states) do m, s
         n = ntrace(m, S)
-        _stateless(m) && return _NoTrace(_zeros(h, Tp, n, T))
+        isstateless(m) && return _NoTrace(_zeros(h, Tp, n, T))
         out = similar(h, Tp, n, T)
         _strata_loop(m) && return _TraceSink(out, nothing, nothing, S)
         return _TraceSink(out, _zeros(h, Tp, S), similar(s), S)
@@ -67,7 +69,7 @@ _record!(::Union{_TraceSink, _NoTrace}, v, s, t, k) = nothing
 @inline _trace_step!(::_NoTrace, m, v, s, v′, s′, τ, t, k) = nothing
 _stage_rec!(::_NoTrace, m, v, s, τ, t) = _stage!(m, v, s, τ)
 # Stratum `k`'s trace of a pointwise modifier at step `t`, on one-entry
-# views as `_step` runs the step. Inlined, so the slots stay off the heap.
+# views as `_step` runs the step; inlined so the slots stay off the heap.
 @inline function _trace_step!(R::_TraceSink, m, v, s, v′, s′, τ, t, k)
     at = x -> _At(x, k)
     r = map(at, _trace_series(view(R.out, :, t), Val(ntrace(m, 1)), R.S))
@@ -79,9 +81,8 @@ _stage_rec!(::_NoTrace, m, v, s, τ, t) = _stage!(m, v, s, τ)
     )
     return nothing
 end
-# A modifier's step on the whole vectors: a pointwise modifier's runs and
-# writes its trace stratum by stratum, as `_thread` does; any other keeps
-# its inputs, then writes its trace.
+# A pointwise modifier's step runs and writes its trace stratum by stratum,
+# as `_thread` does; any other keeps its inputs, then writes its trace.
 function _stage_rec!(R::_TraceSink, m, v, s, τ, t)
     return _stage_trace!(Val(_strata_loop(m)), R, m, v, s, τ, t)
 end
@@ -104,34 +105,34 @@ function _stage_trace!(::Val{false}, R, m, v, s, τ, t)
     return nothing
 end
 
-# The call's trace, `(; modifiers, pressure)`: one matrix per modifier
-# with a column per step, and the pressure of every step from the records.
-# Each step's inputs are the modifier's records, its outputs the next
-# modifier's inputs (or the buffer's row for the last) and its state
-# entering the next step (or its final state).
+# == Traces from the records ==
+
+# The call's trace, `(; modifiers, pressure)`: one matrix per modifier with
+# a column per step, and each step's pressure. A step's outputs are the next
+# modifier's inputs, or the buffer's row for the last.
 function _traces(r, c)
     (; H, rec, D, S, T, τ0) = c
     ms = _bind(r.modifiers, H, nothing, D - τ0 + 1)
     modifiers = _traces(ms, rec, c.states, H, D, S, T, τ0)
-    return (; modifiers, pressure = _output_layout(_pressures(r.coupling, c.pr), c.h))
+    pressure = _output_layout(_pressures(r.coupling, c.pr), c.h)
+    return (; modifiers, pressure)
 end
 _traces(::Tuple{}, ::Tuple{}, ::Tuple{}, H, D, S, T, τ0) = ()
 function _traces(ms::Tuple, rec::Tuple, finals::Tuple, H, D, S, T, τ0)
     m, R = first(ms), first(rec)
     out = _zeros(H, eltype(H), ntrace(m, S), T)
-    # The last step's state after it is the final state, apart so that each
-    # call sees one type.
     rest = Base.tail(rec)
-    _stateless(m) || _trace_steps!(out, m, R, rest, first(finals), H, D, T, τ0)
-    rest = _traces(Base.tail(ms), Base.tail(rec), Base.tail(finals), H, D, S, T, τ0)
-    return (out, rest...)
-end
-function _trace_steps!(out, m, R, rest, final, H, D, T, τ0)
-    for t in 1:(T - 1)
-        _trace_at!(out, m, R, rest, _states_at(R.S, t + 1), H, D, t, τ0)
+    if !isstateless(m)
+        for t in 1:(T - 1)
+            _trace_at!(out, m, R, rest, _states_at(R.S, t + 1), H, D, t, τ0)
+        end
+        # The final state on its own, so each call sees one type.
+        _trace_at!(out, m, R, rest, first(finals), H, D, T, τ0)
     end
-    _trace_at!(out, m, R, rest, final, H, D, T, τ0)
-    return nothing
+    others = _traces(
+        Base.tail(ms), rest, Base.tail(finals), H, D, S, T, τ0
+    )
+    return (out, others...)
 end
 function _trace_at!(out, m, R, rest, s′, H, D, t, τ0)
     v, s = view(R.V, :, t), _states_at(R.S, t)
@@ -139,22 +140,19 @@ function _trace_at!(out, m, R, rest, s′, H, D, t, τ0)
     _trace!(view(out, :, t), m, v, s, v′, s′, τ0 + t - 1)
     return nothing
 end
-# A modifier's values after step `t`: the next modifier's inputs, or the
-# buffer's row for the last.
 _outputs_at(::Tuple{}, H, D, t) = view(H, D + t, :)
 _outputs_at(rec::Tuple, H, D, t) = view(first(rec).V, :, t)
 
-# The records with each modifier's trace cotangent `T̄` and, for a
-# vector-level step, the buffers for the cotangents its trace sends to the
-# step's inputs.
-# A modifier's records with its trace cotangent and buffers, as
-# `_traced_record` builds them; any other record has no trace cotangent.
-# `live` is whether the cotangent has a nonzero entry: a loss that reads
-# one modifier's trace gives the others zeros, and their steps then skip
-# the trace's pullback.
+# == Reverse pass ==
+
+# A modifier's records with its trace cotangent `T̄` and the buffers for the
+# cotangents its trace sends to the step's inputs. `live` is false for an
+# all-zero `T̄`, as a loss that reads another modifier's trace gives.
 const _TracedRecord = NamedTuple{(:V, :S, :A, :T̄, :V̄, :S̄, :live)}
 _traced_records(rec, ::Nothing, S) = rec
-_traced_records(rec, T̄s::Tuple, S) = map((R, T̄) -> _traced_record(R, T̄, S), rec, T̄s)
+function _traced_records(rec, T̄s::Tuple, S)
+    return map((R, T̄) -> _traced_record(R, T̄, S), rec, T̄s)
+end
 _traced_record(R, ::Nothing, S) = R
 function _traced_record(R, T̄, S)
     return (;
@@ -163,21 +161,18 @@ function _traced_record(R, T̄, S)
     )
 end
 
-# One stratum's trace pullback at step `t`, around its step's pullback:
-# `_trace_out` adds the trace's share into the cotangents of the step's
-# outputs `v̄` and `s̄` and returns its share of the inputs', which
-# `_trace_in` adds after the step's pullback. Without a trace cotangent
-# both pass their arguments through.
+# One stratum's trace pullback at step `t`: `_trace_out` adds the trace's
+# share into the step's output cotangents `v̄` and `s̄` and returns its share
+# of the inputs', which `_trace_in` adds after the step's pullback.
 _trace_out(R, m, m̄, v̄, s̄, v, s, τ, t, k) = v̄, s̄, nothing, nothing
 function _trace_out(R::_TracedRecord, m, args...)
-    return _trace_out(Val(_stateless(m)), R, m, args...)
+    return _trace_out(Val(isstateless(m)), R, m, args...)
 end
 # A modifier whose state never changes has no trace, so no cotangent.
-_trace_out(::Val{true}, R, m, m̄, v̄, s̄, v, s, τ, t, k) = v̄, s̄, nothing, nothing
-# The trace's pullback runs on one-entry views of stratum `k`: of the
-# trace's cotangent series, and of slots the pullback adds the cotangents
-# of the step's inputs and outputs into. Inlined, so the slots stay off
-# the heap.
+function _trace_out(::Val{true}, R, m, m̄, v̄, s̄, v, s, τ, t, k)
+    return v̄, s̄, nothing, nothing
+end
+# On one-entry views of stratum `k`; inlined so the slots stay off the heap.
 @inline function _trace_out(::Val{false}, R, m, m̄, v̄, s̄, v, s, τ, t, k)
     z = zero(v̄)
     R.live || return v̄ + z, s̄ + z, z, z
@@ -185,23 +180,25 @@ _trace_out(::Val{true}, R, m, m̄, v̄, s̄, v, s, τ, t, k) = v̄, s̄, nothing
     r̄ = _trace_series(view(R.T̄, :, t), Val(ntrace(m, 1)), S)
     a, b, c, d = Ref(z), Ref(z), Ref(z), Ref(z)
     at = x -> _At(x, k)
-    grads = (; piece = m̄, trace = map(at, r̄), v = at(a), s = at(b), v′ = at(c), s′ = at(d))
-    _written(m, @inline pullback!(grads, m, Trace(), at(Ref(v)), at(Ref(s)), τ))
+    grads = (;
+        piece = m̄, trace = map(at, r̄), v = at(a), s = at(b), v′ = at(c),
+        s′ = at(d),
+    )
+    _written(
+        m, @inline pullback!(grads, m, Trace(), at(Ref(v)), at(Ref(s)), τ)
+    )
     return v̄ + c[], s̄ + d[], a[], b[]
 end
 _trace_in(::Nothing, x̄) = x̄
 _trace_in(a, x̄) = x̄ + a
 
-# The same for a vector-level step: the trace's share of the inputs' goes
-# into the record's buffers, added after the step's pullback. A trace that
-# is the modifier's state after the step sends its cotangent there alone,
-# so it is added into `s̄` with no buffers and no trace pullback.
+# The same for a vector-level step, with the inputs' share in the record's
+# buffers. A trace that is the state after the step (`_trace_is_state`, true
+# only for the default `Trace()` methods) is added into `s̄` alone.
 _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t) = nothing
-# True only while `forward!(m, Trace(), …)` and its pullback are the
-# defaults, which record the state after each step.
 _trace_is_state(m) = false
 function _trace_out!(R::_TracedRecord, m, m̄, v̄, s̄, v, s, τ, t)
-    (_stateless(m) || !R.live) && return nothing
+    (isstateless(m) || !R.live) && return nothing
     _trace_is_state(m) && return _add_trace_column!(s̄, R.T̄, t)
     _trace_back!(_blocks(m), R, m, m̄, v̄, s̄, view(R.T̄, :, t), v, s, τ)
     return nothing
@@ -213,8 +210,8 @@ function _trace_in!(R::_TracedRecord, m, v̄, s̄)
     s̄ .+= R.S̄
     return nothing
 end
-# Column `t` of a trace's cotangent, `n` entries a step as `_copy_column!`
-# writes them, added into the cotangent of the state after the step.
+# Column `t` of a trace's cotangent, added into the cotangent of the state
+# after the step.
 function _add_trace_column!(s̄, T̄, t)
     n = length(s̄)
     length(T̄) == n * size(T̄, ndims(T̄)) ||
@@ -227,10 +224,9 @@ function _add_trace_column!(s̄, T̄, t)
     return nothing
 end
 
-# A pointwise modifier's trace pullback on the strata's vectors, a
-# blockwise one's per group, or another's on the whole step. The
-# cotangents of the step's outputs gather into `v̄` and `s̄`, and those of
-# its inputs into the record's buffers, added after the step's pullback.
+# A trace's pullback on the whole step, or per group for a blockwise
+# modifier: the outputs' cotangents gather into `v̄` and `s̄`, the inputs'
+# into the record's buffers.
 function _trace_back!(::Nothing, R, m, m̄, v̄, s̄, r̄, v, s, τ)
     R.V̄ .= zero(eltype(R.V̄))
     R.S̄ .= zero(eltype(R.S̄))
@@ -240,7 +236,6 @@ function _trace_back!(::Nothing, R, m, m̄, v̄, s̄, r̄, v, s, τ)
     return nothing
 end
 function _trace_back!(::Val{B}, R, m, m̄, v̄, s̄, r̄, v, s, τ) where {B}
-    nv, ns = B
     G = _ngroups(Val(B), length(v))
     R.V̄ .= zero(eltype(R.V̄))
     R.S̄ .= zero(eltype(R.S̄))
@@ -249,17 +244,19 @@ function _trace_back!(::Val{B}, R, m, m̄, v̄, s̄, r̄, v, s, τ) where {B}
     end
     return nothing
 end
-# Group `g`'s trace pullback, adding into the cotangents of the step's
-# outputs and the record's buffers: the modifier's `pullback!` on one-entry
-# views, or a built-in's on the gathered values.
-function _group_trace_back!(m, ::Val{B}, R, m̄, v̄, s̄, r̄, v, s, τ, G, g) where {B}
+# Group `g`'s trace pullback on one-entry views; a built-in may take the
+# gathered values instead.
+function _group_trace_back!(
+        m, ::Val{B}, R, m̄, v̄, s̄, r̄, v, s, τ, G, g
+    ) where {B}
     nv, ns = B
+    V, Σ = Val(nv), Val(ns)
     grads = (;
         piece = m̄, trace = _group_views(r̄, Val(ntrace(m, nv)), G, g),
-        v = _group_views(R.V̄, Val(nv), G, g), s = _group_views(R.S̄, Val(ns), G, g),
-        v′ = _group_views(v̄, Val(nv), G, g), s′ = _group_views(s̄, Val(ns), G, g),
+        v = _group_views(R.V̄, V, G, g), s = _group_views(R.S̄, Σ, G, g),
+        v′ = _group_views(v̄, V, G, g), s′ = _group_views(s̄, Σ, G, g),
     )
-    vg, sg = _group_views(v, Val(nv), G, g), _group_views(s, Val(ns), G, g)
+    vg, sg = _group_views(v, V, G, g), _group_views(s, Σ, G, g)
     _written(m, pullback!(grads, m, Trace(), vg, sg, τ, g))
     return nothing
 end

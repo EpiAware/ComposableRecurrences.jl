@@ -6,6 +6,7 @@
 `x` with every float it holds converted to the float type `T`: float
 arrays, which stay on their device, and single floats, such as a
 population or a scale.
+`T` is a float type such as `Float32`.
 Each float ``v`` becomes the nearest value of type `T`,
 
 ```math
@@ -23,12 +24,9 @@ run `Float32` much faster, and some have no `Float64` at all.
 Compose it with a device move, for example
 `adapt(CuArray, convert_floats(Float32, r))`.
 
+`x` may be an operator, a modifier, a coefficient or an array.
 It needs Functors.jl, whose `fmap` walks the model: run `using Functors`
 first.
-
-# Arguments
-- `T`: the float type, such as `Float32`.
-- `x`: an operator, a modifier, a coefficient or an array.
 
 # Examples
 ```jldoctest
@@ -46,8 +44,9 @@ Float32
 function convert_floats(::Type{T}, x) where {T <: AbstractFloat}
     return _convert_floats(T, x)
 end
-# The Functors extension walks the model.
+# The Functors extension adds the method that walks the model.
 _convert_floats(T, x) = _no_functors()
 @noinline function _no_functors()
-    throw(ArgumentError("convert_floats needs Functors.jl: run `using Functors` first"))
+    msg = "convert_floats needs Functors.jl: run `using Functors` first"
+    throw(ArgumentError(msg))
 end
