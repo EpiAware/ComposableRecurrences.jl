@@ -72,6 +72,10 @@ other side.
 Wrap a plain parameter as `Derived(identity, x)` to start such an
 expression.
 
+# Arguments
+- `f`: the function, called as `f(a_1, ..., a_n)` on the arguments' values.
+- `args`: the arguments, at least one.
+
 # Examples
 ```jldoctest
 using ComposableRecurrences

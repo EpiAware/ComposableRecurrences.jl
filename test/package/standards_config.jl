@@ -23,7 +23,6 @@ const PENDING_EXAMPLES = ()
 # `docstring Recurrence`.
 const PENDING_WORDING = (
     "docstring NoAdjoint",
-    "docstring Pairwise",
     "docstring Step",
     "docstring forward!",
     "docstring pullback!",

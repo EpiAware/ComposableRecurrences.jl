@@ -1,7 +1,5 @@
 @doc raw"""
-    window_sums(x, ends; dims = ndims(x))
-
-Sums of `x` over consecutive windows along dimension `dims`, the first from
+Sum `x` over consecutive windows along dimension `dims`, the first from
 time 1 and each later one from the time after the end before it,
 
 ```math
@@ -19,7 +17,7 @@ cotangent to its times.
 - `ends`: the last time of each window; one not after the end before it
   gives an empty window, whose sum is zero, and the next window starts
   after it, so a time can fall in more than one window.
-- `dims`: the dimension of `x` that is time.
+- `dims`: the dimension of `x` that is time; the last by default.
 
 # Examples
 ```jldoctest
