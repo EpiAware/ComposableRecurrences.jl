@@ -30,8 +30,9 @@ coupling.
 as [`ComposableRecurrences.NoAdjoint`](@ref) does for the call.
 
 # Arguments
-- `y`: the outputs of `r` at times `start` to `start + T - 1`, length `T`
-  for a single series or `S × T`.
+- `r`: the recurrence, or `NoAdjoint(r)`.
+- `y`: its outputs at times `start` to `start + T - 1`, length `T` for a
+  single series or `S × T`.
 
 # Keyword Arguments
 - `history`: the outputs before `start`, as passed to the call; zeros when
