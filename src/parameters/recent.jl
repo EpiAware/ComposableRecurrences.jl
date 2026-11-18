@@ -89,20 +89,26 @@ round.(r([2.0 2.0 2.0; 1.0 1.0 1.0]; history = ones(2, 3)); digits = 3)
  0.861  0.795  0.691
 ```
 """
-struct Recent{W <: AbstractVector{<:Real}, C}
+struct Recent{W <: AbstractVector, C}
     "The weights, lag 1 first."
     w::W
     "The coupling, `nothing` or an `S × S` matrix."
     coupling::C
     function Recent(
             w::W; coupling::C = nothing
-        ) where {W <: AbstractVector{<:Real}, C}
+        ) where {W <: AbstractVector, C}
+        _real_entries(w) || throw(
+            ArgumentError(
+                "Recent's weights are real numbers; got $(_describe(w))"
+            )
+        )
         isempty(w) && throw(
             ArgumentError(
                 "Recent needs at least one weight; got $(_describe(w))"
             )
         )
-        coupling === nothing || coupling isa AbstractMatrix{<:Real} || throw(
+        coupling === nothing ||
+            coupling isa AbstractMatrix && _real_entries(coupling) || throw(
             ArgumentError(
                 "Recent's coupling is nothing or an S × S matrix; got " *
                     _describe(coupling)
@@ -116,6 +122,11 @@ function Recent(n::Integer; coupling = nothing)
         throw(ArgumentError("Recent(n) needs n >= 1 outputs; got n = $n"))
     return Recent(_Ones(n); coupling)
 end
+# Whether an array holds real numbers. A number type that is not a `Real`
+# subtype but stands for one, such as a traced number, adds a method.
+_real_entries(::AbstractArray{<:Real}) = true
+_real_entries(x) = false
+
 # Rebuilt from its fields, which have no positional constructor.
 function ConstructionBase.constructorof(::Type{<:Recent})
     return (w, coupling) -> Recent(w; coupling)

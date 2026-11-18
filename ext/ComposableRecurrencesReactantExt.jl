@@ -334,6 +334,17 @@ end
 ComposableRecurrences._cached(b::_BoundRecent, i::TracedRNumber) = true
 ComposableRecurrences._cache_row!(b::_BoundRecent, i::TracedRNumber) = nothing
 
+# Traced weights or a traced coupling stand for real numbers, and a traced
+# number scales a `Recent` or a `Derived` as a real one does.
+ComposableRecurrences._real_entries(::AbstractArray{<:TracedRNumber}) = true
+for op in (:+, :-, :*, :/, :^),
+        P in (:(ComposableRecurrences.Recent), :(ComposableRecurrences.Derived))
+    @eval begin
+        Base.$op(a::$P, b::TracedRNumber) = ComposableRecurrences.Derived($op, a, b)
+        Base.$op(a::TracedRNumber, b::$P) = ComposableRecurrences.Derived($op, a, b)
+    end
+end
+
 # The soft minimum of `Truncate(κ)` with a traced value picks its arms
 # with `ifelse`, as a traced `Bool` has no branch. The arm not taken sees
 # the ratio 1, so it makes no NaN that a derivative would carry.
