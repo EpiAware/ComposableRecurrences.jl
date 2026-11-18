@@ -457,11 +457,20 @@ _coefs(C::UniformScaling, ks) = C.λ
 _coefs(C::Diagonal, ks) = _traced(C.diag)[ks]
 
 
-# Output `j` of every stratum, as one kernel over the strata.
+# Output `j` of every stratum, as one kernel over the strata when the
+# weights are fixed. A time-varying kernel's weights are looked up in loops
+# with no fixed trip count once raised, which have no reverse pass, so its
+# strata are written out.
 function _conv_step!(j, Y, c, X, m, start, D)
     ComposableRecurrences.each!(
         _conv_output!, Traced(), size(Y, 2), 0, j, Y, c, X, m, start, D
     )
+    return nothing
+end
+function _conv_step!(j, Y, c::TimeVarying, X, m, start, D)
+    for k in axes(Y, 2)
+        _conv_output!(k, j, Y, c, X, m, start, D)
+    end
     return nothing
 end
 function _conv_output!(k, j, Y, c, X, m, start, D)
