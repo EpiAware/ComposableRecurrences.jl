@@ -186,7 +186,11 @@ function _check_param(name, x::Derived)
     map(a -> _check_param(name, a), x.args)
     return x
 end
-# A derived parameter's arguments against `n` rows.
+function _check_param_strata(name, x::Derived, S)
+    _tuple_foreach(a -> _check_param_strata(name, a, S), x.args)
+    return nothing
+end
+# A derived modifier field's arguments against `n` rows.
 function _check_rows(name, x::Derived, n, what)
     _tuple_foreach(a -> _check_rows(name, a, n, what), x.args)
     return nothing
