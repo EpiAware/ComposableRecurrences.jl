@@ -13,7 +13,8 @@ function _check_pressure(C, q, p, p̄ = p)
     axes(C, 1) == axes(q, 1) && axes(C, 2) == axes(p, 1) == axes(p̄, 1) &&
         return nothing
     n = (length(q), length(p))
-    throw(DimensionMismatch("coupling is $(size(C)), pressures are $n"))
+    cot = p̄ === p ? "" : " and their cotangent $(length(p̄))"
+    throw(DimensionMismatch("coupling is $(size(C)), pressures are $n$cot"))
 end
 
 # The reverse pass of `q = C[:, :, idx...] * p` for any mirror `C̄`.
