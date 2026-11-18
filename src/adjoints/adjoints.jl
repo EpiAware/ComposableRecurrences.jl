@@ -188,7 +188,9 @@ _on_gpu(x) = false
 # says so for the operators it can.
 _device_ready(op) = false
 # The kernels whose reverse pass runs on a device: fixed ones and dense
-# time-varying ones. Change points and ragged columns are other storage.
+# time-varying ones. Excluded: `TimeVarying` over change points
+# (`_Piecewise`) or ragged columns (`_AnyRagged`), whose pullbacks read
+# their columns on the host.
 const _DeviceKernel = Union{
     AbstractVector, PerStratum,
     TimeVarying{<:Any, <:Union{AbstractMatrix, PerStratum}},

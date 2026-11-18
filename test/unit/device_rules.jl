@@ -168,7 +168,8 @@ end
             @test agree(p̄1, p̄0)
         end
     end
-    # A per-stratum kernel's cotangent is shared by the blocks, not copied.
+    # The values above cannot show memory: a per-stratum kernel's cotangent
+    # is shared by the blocks, not copied once per block (S × L × T each).
     @test CR._kernel_slots(zeros(2), tv_per_stratum(2)) isa CR._Owned
     @test !(CR._kernel_slots(zeros(2), tv_kernel()) isa CR._Owned)
 end
