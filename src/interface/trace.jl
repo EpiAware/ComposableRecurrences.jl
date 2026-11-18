@@ -138,8 +138,7 @@ function _trace!(::Val{B}, col, m, v, s, v′, s′, t) where {B}
     end
     return nothing
 end
-# Kept apart from the loop: folded into it, a traced two-pool run took 1.27
-# times as long.
+# A function barrier, so each group's views and step specialise on `B`.
 function _group_trace!(m, ::Val{B}, col, v, s, v′, s′, t, G, g) where {B}
     nv, ns = B
     r = _group_views(col, Val(ntrace(m, nv)), G, g)
