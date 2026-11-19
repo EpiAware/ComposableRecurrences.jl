@@ -269,6 +269,8 @@ end
     # A `Transform` without a `derivative` takes its derivative with dual
     # numbers, which needs ForwardDiff.
     using ForwardDiff
+    # A read of the outputs through a coupling.
+    coupled(w, C) = CR.Recent(w; coupling = C)
     # More strata than blocks, so the blocks' copies of a shared pool's
     # cotangent are summed.
     for S in (4, CR._KERNEL_BLOCKS + 1)
@@ -287,6 +289,17 @@ end
             # A scale read from the last three outputs, each stratum its own.
             "feedback from recent outputs" => (
                 CR.Transform(*, CR.Derived(exp, -0.05 * CR.Recent(pmf[1:3]))),
+            ),
+            # The same read across strata, through a coupling, and two
+            # reads of the last three outputs that share their windows.
+            "feedback from recent outputs across strata" => (
+                CR.Transform(
+                    *, CR.Derived(exp, -0.05 * coupled(pmf[1:3], dense(S)))
+                ),
+            ),
+            "two coupled reads that share their windows" => (
+                CR.Transform(*, CR.Derived(exp, -0.02 * coupled(3, dense(S)))),
+                CR.Transform(+, 0.01 * coupled(3, fill(1 / S, S, S))),
             ),
             # Group steps: several pools, two draws on one pool, a queue
             # and grouped totals, which reverse group by group.
@@ -327,6 +340,22 @@ end
     end
     pullback_bytes()
     @test pullback_bytes() < 5000 * sizeof(Float64) * S * T
+    # A coupled read's coupling cotangent (S × S) is written by each stratum
+    # at its own row, so a step's blocks share it rather than each copying
+    # it. JLArrays allocate on every element a kernel reads, so the copies
+    # are counted from the blocks' stacked cotangents.
+    C = JLArray(dense(S))
+    read = CR.Recent(JLArray(pmf[1:3]); coupling = C)
+    ms = (CR.Transform(*, CR.Derived(exp, -0.05 * read)),)
+    H = JLArray(ones(T, S))
+    bound = CR._bind(ms, H, zero(H), 1)
+    m̄s = CR._mirrors(CR._zero_mirror(ms), bound)
+    stacked = CR._stack(CR._step_slots(m̄s, bound, H), CR._KERNEL_BLOCKS, H)
+    bytes(x::CR._ArrayStack) = sizeof(eltype(x.a)) * length(x.a)
+    bytes(x::CR._ScalarStack) = sizeof(eltype(x.v)) * length(x.v)
+    bytes(x::Union{Tuple, NamedTuple}) = sum(bytes, values(x); init = 0)
+    bytes(x) = 0
+    @test bytes(stacked) < sizeof(Float64) * S * S
 end
 
 @testitem "JLArrays: a dense coupling's pullback with and without its own mirror" setup = [DeviceRules] begin
