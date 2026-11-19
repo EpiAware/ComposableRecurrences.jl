@@ -187,16 +187,19 @@ _own_leaf(::Nothing) = nothing
 _own_leaf(m̄) = _Owned(m̄)
 # Field by field, unrolled: a loop, a recursion or `map` over the fields
 # leaves their types to inference, which widens them, and `map` over more
-# than 32 allocates.
+# than 32 allocates. A mirror not shaped like its object, such as a bound
+# wrapper's, keeps its leaves shared.
 _param_leaves(m̄, x) = m̄
 @generated function _param_leaves(m̄::Tuple, x::Tuple)
     n = fieldcount(m̄)
+    n == fieldcount(x) || return :m̄
     leaves = [:(_param_slots(getfield(m̄, $i), getfield(x, $i))) for i in 1:n]
     return :(($(leaves...),))
 end
 @generated function _param_leaves(m̄::NamedTuple{K}, x) where {K}
     leaves = map(K) do k
         name = QuoteNode(k)
+        hasfield(x, k) || return :(getfield(m̄, $name))
         :(_param_slots(getfield(m̄, $name), getfield(x, $name)))
     end
     return :(NamedTuple{$K}(($(leaves...),)))
