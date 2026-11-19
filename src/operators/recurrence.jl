@@ -1064,6 +1064,7 @@ end
 _needs_duals(m) = _modifier_adjoint(m) === :local || _local_modifier(m) !== ()
 # Called by the reverse-mode rules of `_plain_hook`, so only a reverse pass
 # through plain AD logs, once, which parts need the dual-number extension.
+# A `NoAdjoint` call opted out of the rule, so it says nothing.
 _note_missing_duals(op) = nothing
 _note_missing_duals(w::_WithState) = _note_missing_duals(w.r)
 function _note_missing_duals(r::Recurrence)

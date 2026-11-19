@@ -102,6 +102,11 @@ end
     @test_logs th(x)
     transform_ok = isapprox(gradient(th, backend, x), fd(th, x); rtol = 1.0e-5)
     transform_noted = any(m -> occursin("`Transform` without a `derivative`", m), CR._PLAIN_NOTED)
+    # A traced call reaches the hook as a wrapper, and still says why.
+    empty!(CR._PLAIN_NOTED)
+    traced(x) = sum(r(x; history = [1.0, 2.0], record = (:trace,)).y)
+    gradient(traced, backend, x)
+    traced_noted = any(m -> occursin("Cap has no `pullback!`", m), CR._PLAIN_NOTED)
     using Interfaces
     unchecked = Interfaces.test(CR.PieceInterface{(:pullback,)}, CR.Transform; show = false)
     using ForwardDiff
@@ -111,6 +116,7 @@ end
     println(Recurrence([0.3, 0.2]; modifiers = (Cap(5.0),)).rebuilds)
     println(unchecked)
     println("transform ", transform_ok, " ", transform_noted)
+    println("traced ", traced_noted)
     # Reached only if both `@test_logs` above saw no log.
     println("primal silent")
     """
@@ -127,6 +133,7 @@ end
     @test lines[8] == "true"
     @test "transform true true" in lines
     @test "primal silent" in lines
+    @test "traced true" in lines
 end
 
 @testitem "Trace, Mooncake reverse: gradients through the traces of built-in modifiers and flows, the rule against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin

@@ -138,10 +138,10 @@ function Mooncake.frule!!(
     return Mooncake.zero_dual(nothing)
 end
 function Mooncake.rrule!!(
-        f::CoDual{typeof(_plain_hook)}, args::Vararg{CoDual, N}
+        f::CoDual{typeof(_plain_hook)}, op::CoDual, args::Vararg{CoDual, N}
     ) where {N}
-    N > 0 && _note_missing_duals(primal(first(args)))
-    return Mooncake.zero_fcodual(nothing), Mooncake.NoPullback(f, args...)
+    _note_missing_duals(primal(op))
+    return Mooncake.zero_fcodual(nothing), Mooncake.NoPullback(f, op, args...)
 end
 
 # Reading the `EXECUTOR` scoped value walks task-local state Mooncake cannot
