@@ -299,7 +299,7 @@ A computed kernel's reverse pass walks its cohorts again in blocks, and each blo
 With strata the blocks are blocks of strata, so a per-stratum coefficient's cotangent is not copied either.
 `kernel_weights` takes the rule the same way.
 A `Redistribute` step runs as kernels, one index per stratum, and each origin writes only its own column of the kernel's cotangent, so nothing is copied.
-`window_sums` takes the rule too: each sum is one index of a kernel, and in the reverse pass each time adds the cotangents of the windows it falls in.
+The rule covers `window_sums` too: each sum is one index of a kernel, and in the reverse pass each time adds the cotangents of the windows it falls in.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 
