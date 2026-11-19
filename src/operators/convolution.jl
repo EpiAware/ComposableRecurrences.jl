@@ -180,7 +180,7 @@ weights the inputs reaching output ``t``, as above; with
 the input at time ``\tau``, which spreads forward through it, so the weight
 is ``k_{i,l}(t - l)`` and input mass is conserved up to the window's end.
 
-To weight lags from 1, as a renewal's force of infection does, prepend a
+To weight lags from 1, as a renewal's infection pressure does, prepend a
 zero: `Convolution(vcat(0, g))` recomputes ``\sum_{l=1}^{L} g_l\, y_{t-l}``
 from the outputs ``y`` of a [`Recurrence`](@ref) with kernel ``g``.
 A sum that reads the inputs forward from each time is the transpose
@@ -1323,8 +1323,8 @@ end
 end
 
 @doc raw"""
-The lag contributions of a [`Convolution`](@ref): the terms of its sum over
-lags, before the sum,
+Return the lag contributions of a [`Convolution`](@ref): the terms of its
+sum over lags, before the sum,
 
 ```math
 c_{t,i,l} = \gamma_{t,i}\, k_{i,l}(t)\, x_{t-l,i},
@@ -1334,7 +1334,7 @@ c_{t,i,l} = \gamma_{t,i}\, k_{i,l}(t)\, x_{t-l,i},
 in the notation of [`Convolution`](@ref), so that
 ``\sum_l c_{t,i,l} + a_{t,i} = y_{t,i}``.
 A [`ComposableRecurrences.Primary`](@ref) kernel reads ``k_{i,l}(t - l)``,
-so ``c_{t,i,l}`` is the part of the input at time ``t - l`` that arrives
+so ``c_{t,i,l}`` is the share of the input at time ``t - l`` that arrives
 at ``t``: a reporting triangle by arrival time.
 Terms whose input is before the history, or past a ragged column's end,
 are zero.

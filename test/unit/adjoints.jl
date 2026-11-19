@@ -232,6 +232,19 @@ end
     @test pullback_matches(r, recargs(R, nothing, rand(rng, L); start = 4)...)
 end
 
+@testitem "Adjoint: Recurrence, one stratum as a matrix" setup = [AdjointCheck] begin
+    using ComposableRecurrences
+    rng = Xoshiro(31)
+    L, T = 4, 9
+    R, h = 0.5 .+ rand(rng, 1, T), rand(rng, 1, L)
+    # The run's one block holds one stratum, with and without a modifier.
+    for ms in ((), (CR.Transform(*, 0.9),), (CR.Depletion(40.0),))
+        r = Recurrence(rand(rng, L); modifiers = ms)
+        @test pullback_matches(r, recargs(R, nothing, h)...)
+        @test pullback_matches(r, recargs(0.8, randn(rng, 1, T), h)...)
+    end
+end
+
 @testitem "Adjoint: Recurrence, single series through pointwise modifiers" setup = [AdjointCheck] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR

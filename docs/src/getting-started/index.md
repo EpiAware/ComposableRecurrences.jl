@@ -55,7 +55,6 @@ one_town = Recurrence(gi)(fill(1.8, T); history = one_seed)
 end
 ```
 
-The reproduction number stays at 1.8 and nothing limits growth.
 Infections grow by about 20% a day, so the curve bends upwards.
 
 ### A reporting delay
@@ -83,8 +82,6 @@ one_report = delay(one_town; gain = 0.4, history = one_seed)
 end
 ```
 
-Reports follow infections, later and lower.
-The gain reports 40% of infections.
 While infections grow, each day's reports come from the smaller numbers of earlier days, so they are about a quarter of that day's infections.
 
 ### Three towns and a gravity coupling
@@ -127,7 +124,6 @@ coupled = Recurrence(gi; coupling = K)(fill(1.8, 3, T); history = seed)
 end
 ```
 
-The plot uses a log scale.
 Towns B and C start from the infections town A passes on, so they start lower.
 They then grow at about the same rate as town A.
 
@@ -181,7 +177,6 @@ one_intervened = Recurrence(gi)(intervention; history = one_seed)
 end
 ```
 
-The plot uses a log scale.
 The two runs match until day 50.
 Infections peak on day 53, when the reproduction number has fallen to 1.3.
 Once the reproduction number is below one, infections fall by about 6% a day.
@@ -211,7 +206,6 @@ reports = delay(infections; gain = 0.4, history = seed)
 round.(Int, vec(sum(infections; dims = 2)))
 ```
 
-The result is each town's total infections over the 75 days.
 The susceptible share of town ``i`` on day ``t`` is ``S_{t,i} / N_i``.
 
 ```@example overview
@@ -298,8 +292,6 @@ reports_of(R) = delay(renewal(R; history = seed); gain = 0.4, history = seed)
 ∂R = ForwardDiff.gradient(R -> sum(reports_of(R)), R)
 round.(vec(sum(∂R; dims = 2)); digits = 1)
 ```
-
-The result is the gradient summed over days for each town.
 
 ```@example overview
 @chain long(∂R, towns) begin
