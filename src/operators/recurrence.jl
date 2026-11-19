@@ -175,10 +175,9 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
     end
 end
 
-# The identity coupling `I` is stored with an integer scale: a source-level AD
-# tool on Julia 1.11 loses the gradient of a scalar field beside a field that
-# wraps a `Bool`, in an operator built in code Julia cannot infer.
-# Route couplings inside a `Pairwise` kernel are stored as given.
+# The identity coupling is stored with an integer scale: reverse AD on Julia
+# 1.11 loses a scalar field's gradient beside a field wrapping a `Bool` in
+# uninferred code. Route couplings in a `Pairwise` kernel are stored as given.
 _stored_coupling(J::UniformScaling{Bool}) = UniformScaling(Int(J.λ))
 _stored_coupling(C) = C
 
@@ -267,9 +266,8 @@ struct State{H, M, T}
     t::T
 end
 
-# A Primary() kernel reads the column of each value's own time, so a seed
-# must sit at times from 1: `start > m` for a seed of length `m`. The check
-# runs once per call, so it stays out of line.
+# A Primary() kernel reads the column of each value's own time, so a seed of
+# length `m` needs `start > m`. Checked once per call, so out of line.
 _check_primary_seed(kernel, history, start) = nothing
 _check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
 @noinline function _check_primary_seed(::TimeVarying{Primary}, history, start)
@@ -394,10 +392,8 @@ _oldest_first(g) = g
 # The kernel as a run reads it, with any work vectors at buffer eltype `Tp`.
 _run_kernel(::Type{Tp}, g, h, S) where {Tp} = _oldest_first(g)
 
-# A kernel's weight on stratum `b`'s value at lag (or delay) index `i` in
-# stratum `a`, read in column `τ`. Kernels that do not mix strata read only
-# `b = a`. The call checks the kernel's strata and times, so the loops
-# reading it skip bounds checks.
+# Kernels that do not mix strata read only `b = a`. The call checks the
+# kernel's strata and times, so loops reading weights skip bounds checks.
 Base.@propagate_inbounds _weight(g::TimeVarying{<:Any, <:AbstractMatrix}, a, b, i, τ) = g.x[i, τ]
 Base.@propagate_inbounds function _weight(
         g::TimeVarying{<:Any, <:PerStratum}, a, b, i, τ
@@ -438,17 +434,12 @@ _mirror_view(x, I...) = view(x, I...)
 _add_at!(::Nothing, v, i) = nothing
 Base.@propagate_inbounds _add_at!(x̄, v, i) = (x̄[i] += v; nothing)
 
-# Stratum `a`'s kernel convolution of the window `H[t:(t + L - 1), :]`,
-# for a kernel prepared by `_oldest_first`; `τ` is the absolute time.
 # A native loop: at these lengths a BLAS call costs more than the arithmetic.
 _kdot(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
 _kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
-# A run of independent strata with no modifiers, whose steps wait only on
-# their own last values. A run of one stratum carries its last value in a
-# register (`_carried_run!`); more strata interleave and add the newest lag
-# after the older ones (`_window_dot`). This holds for hardware floats and,
-# through an extension, dual numbers; other runs keep one out-of-line loop,
-# where the split gains nothing and costs `Enzyme` more.
+# A run of independent strata with no modifiers. One stratum carries its last
+# value in a register; more interleave. Other number types keep one
+# out-of-line loop, where the split gains nothing and costs `Enzyme` more.
 struct _Chained{G}
     g::G
 end
@@ -474,12 +465,9 @@ end
 end
 @inline _newest(H::AbstractMatrix, r, a) = @inbounds H[r, a]
 @inline _newest(y, r, a) = y
-# Stratum `k` at step `t` of a run of one stratum, from its last value `y`,
-# with weights `w` and the newest of them `newest`: writes the step's value
-# to the buffer, records its kernel convolution and returns the value. The
-# gain, coefficient and `newest` scale `y` together, so a step waits on one
-# fused multiply-add; that rounds differently from the interleaved step, so
-# the two agree to round-off, and still start from `+0.0`.
+# The gain, coefficient and `newest` scale `y` together, so a step waits on
+# one fused multiply-add; this rounds differently from the interleaved step,
+# so the two agree to round-off.
 @inline function _chained_step!(
         w, newest, H, pr, gain, add, C, y, t, τ, L, D, k
     )
@@ -541,9 +529,7 @@ function _kdot(g::TimeVarying{<:Any, <:Pairwise}, H, t, τ, L, a)
     return acc
 end
 
-# The kernel column lag `i` reads at time `τ`: the output's own column, or
-# with `Primary()` the column of the value's own time `τ - i`, which exists
-# only back to time 1.
+# With `Primary()` lag `i` reads column `τ - i`, which exists only from time 1.
 _column(g, τ, i) = τ
 _column(::TimeVarying{Primary}, τ, i) = τ - i
 _lags(g, τ, L) = 1:L
@@ -569,9 +555,8 @@ end
 _kwork(g, S, L) = L
 _kwork(g::_PairwiseKernel, S, L) = S * L
 
-# The run's buffer, `D + T` rows by `S` strata. Only the `D` history rows
-# start at zero, for a history shorter than `D`; each later row is written
-# by its step before any step reads it.
+# Only the `D` history rows start at zero; each later row is written by its
+# step before any step reads it.
 function _buffer(h, ::Type{Tp}, D, T, S) where {Tp}
     H = similar(h, Tp, D + T, S)
     fill!(view(H, 1:D, :), zero(Tp))
@@ -636,26 +621,19 @@ function _public(H::Array, rows::AbstractUnitRange, h::AbstractMatrix)
     return Y
 end
 
-# The output of a run that keeps no cache: the buffer rows after the
-# history. Nothing writes the buffer after the run, so the output takes over
-# its memory where the layouts agree: the buffer holds the history right
-# aligned.
+# Nothing writes the buffer after the run, so the output takes over its memory
+# where the layouts agree.
 _output(H, D, T, h) = _public(H, (D + 1):(D + T), h)
 function _output(H::Matrix{Tp}, D, T, h::AbstractVector) where {Tp}
     isbitstype(Tp) || return _public(H, (D + 1):(D + T), h)
     return deleteat!(vec(H), 1:D)
 end
-# The width in bytes above which a strata output is transposed in place
-# rather than copied. Timed alone, the cycle walk takes 1.4 to 12 times the
-# copy for numbers up to 72 bytes and about as long at 104. In a whole
-# forward-mode gradient, dual numbers of 72 and 104 bytes still gain,
-# because the copy's fresh array on each chunk pass costs more in garbage
-# collection than the walk; plain numbers of 8 bytes lose.
+# Above this width a strata output is transposed in place, not copied: in
+# forward-mode gradients the copy's fresh array per chunk costs more in GC
+# than the cycle walk for 72- and 104-byte duals; 8-byte floats lose.
 const _INPLACE_BYTES = 64
 
-# Strata × time: a buffer of wide numbers is transposed in place, so that
-# the history leads its memory, and the output takes over the rest;
-# narrower ones are copied out.
+# Wide numbers are transposed in place so the output takes over the buffer.
 function _output(H::Matrix{Tp}, D, T, h::AbstractMatrix) where {Tp}
     (isbitstype(Tp) && sizeof(Tp) > _INPLACE_BYTES) ||
         return _public(H, (D + 1):(D + T), h)
@@ -664,10 +642,8 @@ function _output(H::Matrix{Tp}, D, T, h::AbstractMatrix) where {Tp}
     return reshape(deleteat!(x, 1:(D * S)), S, T)
 end
 
-# Transpose the `m × n` matrix held in the first `m * n` entries of `x`, in
-# place, by following the cycles of the permutation. Entry `j` (from zero) of
-# the transpose, at row `c` and column `r`, is entry `r + c * m` of the
-# matrix; the division by `n` is by multiplication.
+# Cycle-following in-place transpose of the `m × n` matrix in `x[1:(m * n)]`;
+# the division by `n` is by multiplication.
 function _transpose!(x::Vector, m, n)
     N = m * n
     (m <= 1 || n <= 1) && return x
@@ -861,10 +837,8 @@ struct _WithState{R <: Recurrence} <: AbstractOperator
     r::R
 end
 
-# The rule applies when the kernel, the coupling and each modifier carry
-# their adjoint or are differentiated locally, read off the types (which
-# route the call, `_type_adjoint`), and the local step rebuilds each part
-# that uses it (`rebuilds`, read per call by `_fit`).
+# The route is read off the types so it folds; `rebuilds` records whether the
+# local step can rebuild each part (read per call by `_fit`).
 function uses_adjoint(r::Recurrence, ::Run)
     return _type_adjoint(r) && r.rebuilds !== false
 end
@@ -881,21 +855,14 @@ function _all_modifiers_adjoint(ms::Tuple)
         _all_modifiers_adjoint(Base.tail(ms))
 end
 
-# Whether the rule covers the kernel, and why not, and the couplings it
-# holds, which the local step rebuilds and fits as it does the coupling;
-# routes add their couplings.
+# Routes add their couplings, which the local step rebuilds and fits.
 _kernel_adjoint(kernel) = true
 _no_adjoint_kernel(kernel) = ()
 _kernel_couplings(kernel) = ()
 
-# How the rule differentiates modifier `m`'s step: `:pullback` with its own
-# `pullback!`, `:local` with a local derivative (a pointwise modifier, or a
-# whole-step one that is neither pointwise nor blockwise, whose float
-# parameters are scalars or strided float arrays, outside functions, with
-# no parameter read from the outputs, rebuilt with dual numbers by
-# `constructorof`), `:linear` for a whole-step modifier declared linear
-# (`_linear_parts`), or `:none` when it cannot, which includes a `Derived`
-# parameter whose map holds float fields of its own.
+# `:pullback` (its own `pullback!`), `:local` (a local derivative, when its
+# float parameters can be rebuilt with dual numbers), `:linear` (declared
+# linear) or `:none`, which includes a `Derived` map with float fields.
 function _modifier_adjoint(m)
     _linear_step(m) && return :linear
     _derived_local(m) || return :none
@@ -905,12 +872,9 @@ function _modifier_adjoint(m)
     return :none
 end
 _local_step_kind(m) = _strata_loop(m) || _whole_step(m)
-# A blockwise modifier differentiated group by group with a local
-# derivative: its float parameters are scalars or read one entry per group
-# (`_local_params`), and none is read from the outputs. A depletion with
-# pools is blockwise, but its forms receive their parameters unresolved, so
-# a rebuild with one entry in place of a `PerStratum` would break a form
-# that indexes it; one whose forms lack a pullback takes plain AD.
+# A depletion with pools is blockwise but its forms get unresolved
+# parameters, so a rebuild with one entry for a `PerStratum` would break a
+# form that indexes it; one whose forms lack a pullback takes plain AD.
 function _block_local(m)
     return !_strata_loop(m) && _blocks(m) !== nothing && _local_params(m) &&
         !_reads_outputs(m)
@@ -922,25 +886,19 @@ _whole_step(m) = !_strata_loop(m) && _blocks(m) === nothing
 # A whole-step modifier the rule differentiates with its local derivative.
 _whole_local(m) = _whole_step(m) && _modifier_adjoint(m) === :local
 
-# The same for the coupling's `Pressure()` step: `:local` when its float
-# parameters are all scalars.
+# How the rule differentiates the coupling's `Pressure()` step: as for a
+# modifier, with `:local` when its float parameters are all scalars.
 function _coupling_adjoint(C)
     uses_adjoint(C, Pressure()) && return :pullback
     _derived_local(C) && _array_params(C) && return :local
     return :none
 end
-# The same for a recurrence's own coupling, which a call replaces by its
-# matrix when it is declared linear (`_linear_parts`); routes keep their
-# couplings.
+# A linear coupling is replaced by its matrix per call; routes keep theirs.
 _primary_adjoint(C) = _linear_coupling(C) ? :linear : _coupling_adjoint(C)
 
-# The `rebuilds` field, set at construction: `Val(true)` when the types
-# send no part to the local step, so the route folds; otherwise whether
-# each part the local step rebuilds gives its scalars back
-# (`_check_rebuild`), or `nothing` when the dual-number extension, which
-# the check needs, is not loaded, and the call checks them (`_fit`). An operator the rule
-# does not cover, by its types or by a part that does not rebuild, says why
-# once.
+# `Val(true)` when the types send no part to the local step, so the route
+# folds; else whether each rebuilt part gives its scalars back, or `nothing`
+# without the dual-number extension, so `_fit` checks at call time.
 function _check_parts(kernel, C, ms::Tuple)
     if !_parts_adjoint(kernel, C, ms)
         C_why = _primary_adjoint(C) === :none ? (_part_why(C),) : ()
@@ -1025,16 +983,13 @@ _part_why(m::Depletion) = _form_why(_forms(m.pieces)...)
 _form_why() = "Depletion has a Derived map that holds floats"
 _form_why(f, fs...) = _form_adjoint(f) ? _form_why(fs...) : _part_why(f)
 
-# The route of a call: the slowest its couplings and whole-step modifiers
-# allow (`_local_fit`).
 # A part the local step cannot rebuild sends every call to plain AD.
 function _fit(r::Recurrence, gain, add, h, args...)
     r.rebuilds === false && return :none
     return _parts_fit(r, h, _last_time(gain, add, args...))
 end
-# An operator built before the dual-number extension was loaded checks its
-# parts when it is called (`_check_now`). Without the extension the call
-# takes the rule, whose forward pass runs and whose reverse pass says to
+# Built before the dual-number extension loaded: check parts at call time.
+# Without the extension the call takes the rule, whose reverse pass says to
 # load it.
 function _fit(r::Recurrence{<:Any, <:Any, <:Tuple, Nothing}, gain, add, h, args...)
     _check_now(r) || return :none
@@ -1057,30 +1012,22 @@ function _step_fit(m, S, tlast = 2)
     _whole_local(m) || return :one
     return _local_fit(S + nstate(m, S) + _step_inputs(m, S, tlast))
 end
-# The parameters a whole-step modifier's local step seeds: its float scalars
-# and, for one that reads fewer entries of its float arrays than they hold
-# (`_reads_fewer`), the entries a step reads, the most of the first two
-# times and the call's last time `tlast`; else every array entry. A step
-# that reads more as the run goes on so routes on its last step, and past
-# the cap takes plain AD.
+# For a modifier that reads fewer entries than its arrays hold, seed the most
+# a step reads at times 1, 2 and `tlast`; else every entry. A step that reads
+# more as the run goes on routes on its last step; past the cap, plain AD.
 function _step_inputs(m, S, tlast = 2)
     _reads_step(m) || return _ninputs(m)
     q = length(_param_tuple(m))
     return q + min(_probe_step_reads(m, S, tlast), _nparams(m) - q)
 end
-# Whether a whole-step modifier's local step seeds only the entries a step
-# reads: it reads its float arrays entry by entry (`_reads_step`), and one
-# step over `S` strata reads fewer entries than the arrays hold, the same
-# number at times 1 and 2. A step that reads them all, or more as time goes
-# on, seeds them all, through views.
+# Seed only read entries when one step reads fewer than the arrays hold, the
+# same number at times 1 and 2; otherwise seed all, through views.
 function _reads_fewer(m, S)
     _reads_step(m) || return false
     return _probe_step_reads(m, S) < _nparams(m) - length(_param_tuple(m))
 end
-# The route of a part's local derivative that seeds `n` inputs: the rule
-# within one pass of dual numbers (`_LOCAL_PRESSURE`), `_ad_wide` within two
-# (`_LOCAL_PRESSURE_WIDE`), and plain AD past that, where the benchmarks in
-# the developer testing page find plain AD cheaper.
+# Past two passes of dual numbers the benchmarks in the developer testing page
+# find plain AD cheaper.
 function _local_fit(n)
     n <= _LOCAL_PRESSURE && return :one
     return n <= _LOCAL_PRESSURE_WIDE ? :wide : :none
@@ -1122,12 +1069,8 @@ const _EntryParam = Union{
     TimeVarying{<:Any, <:_Piecewise{<:PerStratum{<:AbstractMatrix{<:AbstractFloat}}}},
 }
 
-# Whether a type holds a float array (or a field of unknown type) that a
-# local per-value derivative would have to carry, or a function with float
-# fields of its own (a closure's captured values), which the local
-# derivative does not reach. `_local_params` also allows array parameters
-# a step reads one entry of (`_EntryParam`). Closed functions of the type,
-# evaluated once per type by a generated function so the route folds.
+# A closure's captured floats are beyond the local derivative's reach.
+# Evaluated once per type by a generated function so the route folds.
 function _has_array_params(::Type{T}, entries::Bool) where {T}
     entries && T <: _EntryParam && return false
     T <: AbstractArray && return eltype(T) <: AbstractFloat || !isconcretetype(eltype(T))
@@ -1152,12 +1095,8 @@ function _has_float(::Type{T}) where {T}
     end
     return false
 end
-# Whether a type holds a parameter the local step cannot seed: an array of
-# unknown element type or whose elements hold floats of their own (an array
-# of float arrays, say), a field of unknown type, or a function with float
-# fields. Arrays of numbers are allowed: the local step seeds float entries,
-# and integers (or the dual numbers of a forward-mode call) are not
-# parameters, nor are arrays of integer ranges or index vectors.
+# Arrays of numbers are allowed: the local step seeds float entries, and
+# integers, ranges and index vectors are not parameters.
 function _has_opaque_params(::Type{T}) where {T}
     if T <: AbstractArray
         E = eltype(T)
@@ -1175,9 +1114,7 @@ end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _scalar_params(m) = !_has_array_params(m, false)
 @generated _local_params(m) = !_has_array_params(m, true)
-# Whether a type holds a float array that is not strided, outside entry
-# parameters: a `Diagonal` or a sparse matrix, say, whose fields a step may
-# read rather than its entries.
+# A `Diagonal` or sparse matrix: a step may read its fields, not its entries.
 function _has_structured_floats(::Type{T}) where {T}
     T <: _EntryParam && return false
     T <: AbstractArray && return eltype(T) <: AbstractFloat && !(T <: StridedArray)
@@ -1198,11 +1135,8 @@ function _has_entries(::Type{T}) where {T}
     isconcretetype(T) || return false
     return any(_has_entries, fieldtypes(T))
 end
-# Whether a whole-step modifier's local step seeds only the entries of its
-# float arrays that a step reads, as a pointwise modifier's does: it holds
-# float arrays, every one strided, and none read through `param`. The step
-# wraps each array so that the entries it reads are dual numbers, and adds
-# their cotangents to those entries.
+# The step wraps each array so that the entries it reads are dual numbers, and
+# adds their cotangents to those entries.
 @generated function _reads_step(m)
     return _has_array_params(m, false) && !_has_opaque_params(m) &&
         !_has_structured_floats(m) && !_has_entries(m)
@@ -1219,10 +1153,8 @@ function _any_linear_step(ms::Tuple)
     return _linear_step(first(ms)) || _any_linear_step(Base.tail(ms))
 end
 
-# The recurrence a call runs: its linear coupling and modifiers replaced by
-# their matrices for the `S` strata of the history `h`, built here, outside
-# the rules, so the outer AD differentiates the `S` calls of `forward!`.
-# A call through `NoAdjoint` runs the parts as they are.
+# Built outside the rules so the outer AD differentiates the `S` calls of
+# `forward!`. A call through `NoAdjoint` runs the parts as they are.
 _linear_parts(::NoAdjoint, r::Recurrence, h) = r
 function _linear_parts(route, r::Recurrence, h)
     _linear_coupling(r.coupling) || _any_linear_step(r.modifiers) || return r
@@ -1236,9 +1168,7 @@ _as_matrix(::Val{true}, C, S) = _coupling_matrix(C, S)
 _as_step(::Val{false}, m, S) = m
 _as_step(::Val{true}, m, S) = _LinearStep(_step_matrix(m, S))
 
-# The positional Run: the output and the cache the reverse pass reads,
-# including each modifier's final state; `_WithState` builds the state to
-# resume from, which a plain call does not need.
+# `_WithState` builds the state to resume from; a plain call does not need it.
 function _run_forward(r::Recurrence, gain, add, h, s0, τ0, stop, cache = Val(true))
     Y, _, _, cache = _recur(r, gain, add, h, s0, τ0, stop, cache)
     return Y, cache
@@ -1254,9 +1184,8 @@ function _primal(w::_WithState, gain, add, h, s0, τ0, stop)
     return Y, _state(Y, H, states, h, τ0)
 end
 
-# The state to resume from: the last `D` times of the history then the
-# output, in the public layout, read from `Y` and `h` rather than the
-# buffer, which a strata output may have taken over (`_output`).
+# Read from `Y` and `h` rather than the buffer, which a strata output may have
+# taken over (`_output`).
 function _state(Y, H, states, h, τ0)
     T = size(Y, ndims(Y))
     D = size(H, 1) - T
@@ -1367,9 +1296,7 @@ end
 _all_pointwise(::Tuple{}) = true
 _all_pointwise(ms::Tuple) = _strata_loop(first(ms)) && _all_pointwise(Base.tail(ms))
 
-# Thread one stratum's value through pointwise modifiers in tuple order,
-# recording each modifier's input value and state when `rec` holds records,
-# or writing its trace when `rec` holds trace sinks (see `_TraceSink`).
+# `rec` holds records or trace sinks (see `_TraceSink`).
 @inline _thread(::Tuple{}, ::Tuple{}, rec, v, τ, t, k) = v
 @inline function _thread(ms::Tuple, states::Tuple, rec, v, τ, t, k)
     m, s = first(ms), first(states)
@@ -1390,11 +1317,9 @@ end
 # Records write no trace in the step: the rule builds it from them.
 @inline _trace_step!(::NamedTuple, m, v, s, v′, s′, τ, t, k) = nothing
 
-# A modifier's records: its input values, its states entering each step
-# (state entries × steps, or for a modifier whose state never changes the
-# state vector it started from) and, for a vector modifier that asks with
-# `_keeps_after`, its states after each step (`A`, else `nothing`). Every
-# step writes its column of each, so they start unset.
+# A modifier whose state never changes keeps only its starting state; one
+# that asks with `_keeps_after` also keeps its states after each step. Every
+# step writes its column of each record, so they start unset.
 function _records(h, ::Type{Tp}, m, s, S, T) where {Tp}
     A = _keeps_after(m) ? _unset(h, Tp, length(s), T) : nothing
     return (; V = _unset(h, Tp, S, T), S = _state_record(h, Tp, m, s, T), A)
@@ -1410,10 +1335,8 @@ end
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
 _record_states!(R::AbstractMatrix, s, t) = _copy_column!(R, s, t)
-# Column `t` of `R` from `x`, by linear offset: a copy into a column view
-# takes `copyto!`'s generic path, whose checks cost more than the step's
-# short copy, where the offset form is one block copy for host and device
-# arrays alike.
+# By linear offset: `copyto!` into a column view takes a generic path whose
+# checks cost more than the short copy.
 function _copy_column!(R, x, t)
     copyto!(R, (t - 1) * size(R, 1) + 1, x, firstindex(x), length(x))
     return nothing
@@ -1450,9 +1373,7 @@ function _init_state(::Type{Tp}, m, h, S) where {Tp}
     return s
 end
 
-# Strata run on their own when the coupling is pointwise, the kernel does
-# not mix strata, every modifier is pointwise and no parameter reads other
-# strata's outputs: no step reads another stratum.
+# No step reads another stratum.
 _independent(coupling, kernel, modifiers) = false
 function _independent(
         ::_PointwiseCoupling, kernel, modifiers::Tuple
@@ -1461,29 +1382,20 @@ function _independent(
         !_reads_across(modifiers)
 end
 
-# Stratum `k`'s value at step `t` before the modifiers, recording its kernel
-# convolution and, unless the coupling is pointwise, its pressure in `pr`
-# when it is not `nothing`.
 @inline function _value!(pr, gain, add, coupling, kernel, p, q, H, t, τ, L, D, k)
     pk, xk = _step_pressure(coupling, kernel, p, q, H, t, τ, L, D, k)
     _record_pressure!(pr, pk, xk, t, k)
     return @inbounds _core(coupling, gain, add, k, τ, pk, xk)
 end
-# The value before the modifiers. A pointwise coupling's coefficient joins
-# the gain, which does not depend on the step's convolution, so each step
-# waits on one fused multiply-add after it rather than two products and a
-# sum.
+# A pointwise coupling's coefficient joins the gain, so each step waits on one
+# fused multiply-add rather than two products and a sum.
 Base.@propagate_inbounds _core(C, gain, add, k, τ, pk, xk) = _affine(gain, add, k, τ, xk)
 Base.@propagate_inbounds function _core(C::_PointwiseCoupling, gain, add, k, τ, pk, xk)
     return muladd(_at(gain, k, τ) * _coef(C, k), pk, _at(add, k, τ))
 end
-# The records `(; P, X)` of the kernel convolutions and the pressures. A
-# pointwise coupling's pressure is its coefficient times the convolution,
-# so it records no `X`.
-# Every step writes its column of both, so they start unset.
-# A pointwise coupling's convolutions reach only the gain's and the
-# coupling's cotangents, which an integer gain and coefficient have none of,
-# so such a run records none.
+# A pointwise coupling records no `X`, and none at all with an integer gain
+# and coefficient, which have no cotangents. Every step writes its column, so
+# the records start unset.
 function _pressure_records(h, ::Type{Tp}, C, S, T, need) where {Tp}
     C isa _PointwiseCoupling && !need && return nothing
     X = C isa _PointwiseCoupling ? nothing : _unset(h, Tp, S, T)
@@ -1519,10 +1431,8 @@ _pressures(C, pr) = copy(pr.X)
 _output_layout(q, h::AbstractVector) = vec(q)
 _output_layout(q, h) = q
 
-# The whole run of the independent strata `ks`, time outermost. Each
-# stratum's step waits on its own last values, so interleaving the strata
-# overlaps those waits; stratum outermost measured slower even though each
-# stratum's buffer column is contiguous.
+# Time outermost: interleaving strata overlaps their waits on their own last
+# values; stratum outermost measured slower despite contiguous columns.
 function _series_body!(
         ks, ex, H, pr, gain, add, coupling, kernel, p, q, ms, states, rec, τ0, L,
         D, T
@@ -1550,12 +1460,9 @@ function _series_body!(
     return nothing
 end
 
-# A chained run of one stratum carries its last value from step to step.
-# More strata interleave, time outermost, which overlaps their waits on
-# their own last values; a block of one stratum among several, as a
-# threaded run splits them, interleaves too, so it rounds as the serial run
-# does. The row before the run is the history's, or none
-# for a run with no lags, which reads no value.
+# A threaded block of one stratum among several still interleaves, so it
+# rounds as the serial run does. The row before the run is the history's, or
+# none for a run with no lags.
 function _carried_run!(c, steps, k, H, pr, gain, add, coupling, τ0, L, D)
     row = D + first(steps) - 1
     y = row >= 1 ? @inbounds(H[row, k]) : zero(eltype(H))
@@ -1569,10 +1476,8 @@ function _carried_run!(c, steps, k, H, pr, gain, add, coupling, τ0, L, D)
     return nothing
 end
 
-# A call of one stratum through pointwise modifiers carries its last value
-# the same way: `y` is the value the step writes to the buffer, after the
-# modifiers, so it is the next step's newest lag. Only a host `Array`, as the
-# buffer is read without bounds checks, and a fixed or per-stratum kernel.
+# Only a host `Array`, as the buffer is read without bounds checks, and a fixed
+# or per-stratum kernel.
 _carries(g, H) = false
 _carries(::Union{AbstractVector, PerStratum}, ::Array) = true
 function _carried_run!(
@@ -1593,10 +1498,8 @@ function _carried_run!(
     return nothing
 end
 
-# The runs of steps over which the kernel a step reads is fixed, each
-# `(steps, kernel, j)`: the steps (`nothing` for every step of the call),
-# the kernel they read and the run's index, by which the reverse pass reads
-# its kernel buffer. A kernel whose steps all read it is one run.
+# Each run is `(steps, kernel, j)`: `nothing` steps means every step, and `j`
+# indexes the reverse pass's kernel buffer.
 _kernel_runs(kernel, τ0, T) = ((nothing, kernel, 1),)
 _run_steps(::Nothing, T) = 1:T
 _run_steps(ts::AbstractUnitRange, T) = ts
@@ -1688,24 +1591,9 @@ function _sink_trace(rec, pr, h)
     return (; modifiers = _sink_traces(rec), pressure = _output_layout(pr.X, h))
 end
 
-# The buffer loop: returns the output, the buffer, the final states and
-# what `cache` asks for: `Val(true)` the cache the reverse pass reads,
-# `Val(:traced)` that cache with the pressures a trace returns,
-# `Val(:trace)` only each modifier's trace, `Val(false)` nothing. The buffer
-# is `D` rows deep before the run, `D >= L`, and row `D + t` holds absolute
-# time `τ0 + t - 1`; the kernel reads the last `L` rows before each step.
-# The records are each step's kernel convolutions and pressures `pr`
-# (strata × steps; see `_pressure_records`) and each modifier's input
-# values and states.
-#
-# Independent strata run in blocks, each block over the whole series, so a
-# threaded run splits the strata once per call rather than once per step.
-# Otherwise each step is a loop over strata: with pointwise modifiers each
-# stratum's value goes straight to the buffer, else the step's values are
-# collected for the vector Step. Vector Steps (such as `Allocate` and
-# `Redistribute`) read every stratum, and blockwise ones (such as a `Depletion`
-# with more than one pool) loop their groups, so they run on the calling task whatever
-# the executor.
+# `cache`: `Val(true)` the reverse cache, `Val(:traced)` plus pressures,
+# `Val(:trace)` traces only, `Val(false)` nothing. Row `D + t` holds time
+# `τ0 + t - 1`; a threaded run splits independent strata once per call.
 function _run(
         ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, cache::Val
     ) where {Tp}
@@ -1760,10 +1648,8 @@ function _host_array(::Type{<:Base.ReshapedArray{T, N, P}}) where {T, N, P}
     return _host_array(P)
 end
 
-# The run of independent strata in a strata × time buffer: the history's
-# columns, right aligned, then one column per step. Each step is the general
-# step's arithmetic, so the two runs agree exactly, and the output takes
-# over the buffer's memory after the history with no transpose or copy.
+# Each step is the general step's arithmetic, so the two runs agree exactly,
+# and the output takes over the buffer with no transpose or copy.
 function _strata_major_run(
         ::Type{Tp}, r, gain, add, h, τ0, L, D, S, T
     ) where {Tp}

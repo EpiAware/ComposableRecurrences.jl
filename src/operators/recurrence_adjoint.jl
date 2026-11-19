@@ -1,12 +1,8 @@
-# The rule of a `Recurrence`, its own reverse pass. Each step's core is
-# `v = gain ⊙ x + add` with `x` the coupled kernel convolutions of the
-# window, so its pullback is local; the work is sending the pressure's
-# cotangent back through the coupling and correlating it with the kernel into
-# the buffer's cotangent `H̄`, which carries it to earlier steps and the
-# history. Modifier and coupling pullbacks run per step.
+# The rule of a `Recurrence`. Each step's core `v = gain ⊙ x + add` has a
+# local pullback; the work is sending the pressure's cotangent back through
+# the coupling and kernel into the buffer's cotangent `H̄`.
 
-# `grads` is `(; piece, y, args)`: the mirror of the recurrence, the output
-# cotangent and the mirrors of the positional arguments
+# `grads` is `(; piece, y, args)`, with `args` mirroring
 # `(gain, add, history, states, start, stop)`.
 function pullback!(grads, r::Recurrence, ::Run, c)
     ḡain, ādd, h̄, s̄0 = grads.args
@@ -19,11 +15,8 @@ function pullback!(grads, w::_WithState, ::Run, c)
     _reverse!(c, Ȳ, cotangent(grads.piece, :r), ḡain, ādd, h̄, s̄0, st̄)
     return nothing
 end
-# With a trace, its cotangent joins the records the reverse pass reads:
-# each modifier's into its records, and the pressure's into the pressure
-# records, as `Q̄`. A zero cotangent, as a loss that reads only the output
-# gives, adds nothing, so the steps then skip the traces' pullbacks and
-# the pressure's. When both are zero the cache passes on unchanged:
+# A zero trace cotangent adds nothing, so the steps skip the traces' and the
+# pressure's pullbacks; when both are zero the cache passes on unchanged, as
 # rebuilding it costs a runtime `merge` under some AD backends.
 function pullback!(grads, w::_WithTrace, ::Run, c)
     ȳ, tr̄ = grads.y
@@ -54,10 +47,9 @@ _zero_trace(::Nothing) = true
 _zero_trace(T̄s::Tuple) = all(_zero_trace, T̄s)
 _zero_trace(T̄::AbstractArray) = iszero(T̄)
 
-# The reverse pass runs under the executor set when it runs. The default
-# is passed as the singleton `Serial()`, so the loops below hold no
-# abstractly typed executor. Parameters that read across strata share one
-# window cache per step, so their reverse pass runs serially.
+# The default executor is passed as the singleton `Serial()`, so the loops
+# hold no abstractly typed executor. Parameters that read across strata share
+# one window cache per step, so their reverse pass runs serially.
 function _reverse!(c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
     return _reverse_computed!(_computed(c), c, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄)
 end
@@ -89,10 +81,9 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     s̄s = map(m -> _zeros(H, eltype(H), nstate(m, S)), modifiers)
     _seed_states!(s̄s, cotangent(st̄, :states))
     kbuf = _kernel_buffer(ḡ, kernel, H, S, L)
-    # The cotangents the strata add into. The matrix gain and add inputs
-    # have a slot per stratum and step, a fixed kernel's goes through
-    # `kbuf`, and the steps that run on the calling task (`_steps_back!`)
-    # are not copied.
+    # Matrix gain and add inputs have a slot per stratum and step, a fixed
+    # kernel's goes through `kbuf`, and steps on the calling task
+    # (`_steps_back!`) are not copied.
     ādd, ḡain = _slots(ādd), _slots(ḡain)
     kslots = _kernel_slots(ḡ, kernel)
     work = S * _kwork(kernel, S, L)
@@ -169,9 +160,8 @@ const _ReversedPairwise = Union{_OldestFirstPairwise, TimeVarying{<:Any, <:Pairw
 # A mirror as the calling task writes it.
 _own(x̄) = x̄
 _own(x̄::_Owned) = x̄.x
-# The pass's blocks for a loop over strata within a step: on the host it
-# runs on the calling task, as tasks spawned every step cost more than the
-# loop, and on device arrays it is one kernel.
+# On the host it runs on the calling task, as tasks spawned every step cost
+# more than the loop; on device arrays it is one kernel.
 _step_accs(accs) = (first(accs), ())
 _step_accs(accs::Tuple{Any, _Stacked}) = accs
 # A scale every stratum shares is copied once per block for the whole pass;
@@ -179,19 +169,16 @@ _step_accs(accs::Tuple{Any, _Stacked}) = accs
 # couplings reverse on the calling task.
 _coupling_slots(C̄, C) = _Owned(C̄)
 _coupling_slots(C̄, C::UniformScaling) = C̄
-# A modifier's parameter cotangents `m̄` as a step's blocks write them. A
-# `PerStratum` parameter is read, so written, at one stratum or group per
-# entry, so the blocks share it; any other leaf is shared by the strata
-# and copied per block.
+# A `PerStratum` parameter is written at one stratum or group per entry, so
+# blocks share it; any other leaf is copied per block.
 _param_slots(m̄, x) = _param_leaves(m̄, x)
 _param_slots(m̄, ::Union{PerStratum, TimeVarying{<:Any, <:PerStratum}}) =
     _own_leaf(m̄)
 _own_leaf(::Nothing) = nothing
 _own_leaf(m̄) = _Owned(m̄)
-# Field by field, unrolled: a loop, a recursion or `map` over the fields
-# leaves their types to inference, which widens them, and `map` over more
-# than 32 allocates. A mirror not shaped like its object, such as a bound
-# wrapper's, keeps its leaves shared.
+# Unrolled field by field: a loop, recursion or `map` widens the field types,
+# and `map` over more than 32 allocates. A mirror not shaped like its object,
+# such as a bound wrapper's, keeps its leaves shared.
 _param_leaves(m̄, x) = m̄
 @generated function _param_leaves(m̄::Tuple, x::Tuple)
     n = fieldcount(m̄)
@@ -218,9 +205,7 @@ end
     return :(NamedTuple{$K}(($(leaves...),)))
 end
 
-# The reverse run of the independent strata `ks`, time outermost as in
-# `_series_body!`: each stratum's step reads and writes only its own slots
-# and the block's accumulator `acc`.
+# Each stratum's step writes only its own slots and the block's accumulator.
 function _series_back!(
         ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, T
     )
@@ -255,11 +240,9 @@ function _series_back!(
     return nothing
 end
 
-# A chained run of one stratum in reverse carries the cotangent each step
-# sends to its last value, rather than adding it into `H̄` and reading it
-# back, and adds the run's last into the row before its first step. That
-# cotangent is the step's times the gain, the coefficient and the newest
-# weight together, so each step waits on one fused multiply-add.
+# The carried cotangent avoids adding into `H̄` and reading it back; it is the
+# step's times the gain, coefficient and newest weight together, so each step
+# waits on one fused multiply-add.
 function _carried_back!(
         c, steps, k, acc, kb, pr, gain, coupling, H, H̄, τ0, L, D
     )
@@ -277,9 +260,6 @@ function _carried_back!(
     row >= 1 && @inbounds(H̄[row, k] += carry)
     return nothing
 end
-# Stratum `k` at step `t` of a chained run in reverse, given the cotangent
-# `carry` the step after it sends to its value; returns the cotangent this
-# step sends to the value before it.
 @inline function _chained_back!(
         w, newest, kw, acc, pr, gain, C, H, H̄, carry, t, τ, L, D, k
     )
@@ -290,8 +270,8 @@ end
     β = @inbounds _at(gain, k, τ) * _coef(C, k) * newest
     return muladd(β, carry, β * h̄)
 end
-# The same for a run through pointwise modifiers: the cotangent each step
-# sends to its last value is its pressure's times the newest weight.
+# A one-stratum run through pointwise modifiers carries its cotangent too:
+# each step sends its last value its pressure's times the newest weight.
 function _carried_back!(
         g, steps, k, acc, kb, s̄s, rec, pr, gain, coupling, ms, H, H̄, τ0, L, D
     )
@@ -323,9 +303,8 @@ _stratum_buffer(::Nothing, g, k) = nothing
     return _gain_add_back!(acc, v̄k, pr, gain, C, t, τ, k)
 end
 
-# The value's cotangent `v̄k` back through the add input and the gain;
-# returns the pressure's cotangent. The mirrors have their inputs' shapes
-# and the records the call's, so the slots skip bounds checks.
+# The mirrors have their inputs' shapes and the records the call's, so the
+# slots skip bounds checks.
 @inline function _gain_add_back!(acc, v̄k, pr, gain, C, t, τ, k)
     @inbounds _add_slot!(acc.ādd, v̄k, k, τ)
     @inbounds _add_slot!(acc.ḡain, v̄k * _pressure(C, pr, k, t), k, τ)
@@ -343,10 +322,8 @@ _traced_pressure(pr::_TracedPressure, k, t) = @inbounds pr.Q̄[k, t]
     return @inbounds _at(gain, k, τ) * v̄k
 end
 
-# The pullback of `_core` for a pointwise coupling: the value's cotangent
-# `v̄k` into the add input, the gain and the coupling; returns the kernel
-# convolution's. As in the forward step, the coefficient joins the gain, so
-# the cotangent passed back waits on one product.
+# As in the forward step, the coefficient joins the gain, so the cotangent
+# passed back waits on one product.
 @inline function _core_back!(acc, v̄k, pr, gain, C::_PointwiseCoupling, t, τ, k)
     Pk = @inbounds pr.P[k, t]
     gk = @inbounds _at(gain, k, τ)
@@ -373,9 +350,8 @@ end
 _coef_back!(C̄, C::UniformScaling, v, k) = add_cotangent!(cotangent(C̄, :λ), v)
 _coef_back!(C̄, C::Diagonal, v, k) = @inbounds add_cotangent!(cotangent(C̄, :diag), v, k)
 
-# The reverse steps of strata that mix, last first. Each step's loops over
-# strata run in blocks of the executor where each stratum writes only its
-# own slots: the pointwise modifiers and the kernel unless it is pairwise.
+# Each stratum writes only its own slots for the pointwise modifiers, and for
+# the kernel unless it is pairwise, so those loops run in executor blocks.
 function _steps_back!(
         accs, H̄, kbuf, s̄s, rec, bufs, pr, gain, coupling, kernel, ms, H, τ0, L,
         D, S, T
@@ -426,9 +402,7 @@ function _values_back!(ks, acc, q̄, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D)
     return nothing
 end
 
-# The kernel's pullback at step `t`: per stratum in blocks, or for a
-# pairwise kernel or routes (`kernels/routes.jl`), whose strata read every
-# stratum's window, on one block.
+# Pairwise kernels and routes read every stratum's window, so run on one block.
 function _kernels_back!(accs, kbuf, kernel, p̄, H, H̄, t, τ, L)
     _reduce_blocks!(
         _kernels_body!, accs, length(p̄), kbuf, kernel, p̄, H, H̄, t, τ, L
@@ -446,13 +420,9 @@ function _kernels_body!(ks, acc, kbuf, kernel, p̄, H, H̄, t, τ, L)
     return nothing
 end
 
-# The buffer's cotangent, `D` zero rows and then the output's cotangent
-# `Ȳ`, each row written once. Only an integer output has no cotangent; its
-# buffer is integer only when every input and component is, so no other
-# component has one either and the pass adds zeros. This is a method, not an
-# early return in `_reverse!`: where `Ȳ` may be `nothing` by type (`Enzyme`
-# under runtime activity), that branch slowed the whole reverse pass by
-# about 8%.
+# Only an integer output has no cotangent, and then nothing else does. A
+# method, not an early return: where `Ȳ` may be `nothing` by type (`Enzyme`
+# under runtime activity), that branch slowed the reverse pass by about 8%.
 _seeded(H, ::Nothing, D) = _zeros(H, eltype(H), size(H)...)
 # A cotangent `Ȳ` that `_shared_shadow` gave the rule already sits in the
 # buffer's cotangent, below zero rows.
@@ -514,9 +484,6 @@ Base.@propagate_inbounds _add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v
 Base.@propagate_inbounds _add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
 Base.@propagate_inbounds _add_slot!(x̄::_Owned, v, k, t) = _add_slot!(x̄.x, v, k, t)
 
-# One stratum's value cotangent back through pointwise modifiers, last
-# first, with each one's scalar step pullback; returns the cotangent of the
-# step's core value.
 _thread_back(::Tuple{}, m̄s, rec, s̄s, v̄, τ, t, k) = v̄
 function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
     v̄ = _thread_back(
@@ -530,9 +497,7 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
     return _trace_in(a, v̄)
 end
 
-# Walk the step's value cotangent back through the modifiers, last first,
-# with `grads.after` and `grads.pass` for a modifier that asks for them (see
-# `_pass_buffer`).
+# `grads.after` and `grads.pass` go to a modifier that asks (`_pass_buffer`).
 _stages_back!(::Tuple{}, m̄s, rec, s̄s, bufs, v̄, τ, t) = nothing
 function _stages_back!(ms::Tuple, m̄s, rec, s̄s, bufs, v̄, τ, t)
     _stages_back!(
@@ -555,26 +520,9 @@ _column(A::AbstractMatrix, t) = view(A, :, t)
 _column(b::NamedTuple, t) = map(B -> _column(B, t), b)
 _column(x::AbstractVector, t) = x
 
-# What the reverse pass of a `Recurrence` keeps for a vector modifier:
-#
-# - `_keeps_after(m)` true: the forward pass records the modifier's state
-#   after each step (`R.A`, entries × steps), and its step pullback finds
-#   that step's column in `grads.after`.
-# - `_pass_buffer(H, Tp, m, m̄, S, T)`: `nothing`, or a named tuple of arrays
-#   whose matrices (entries × steps) the step pullback writes a column of,
-#   found in `grads.pass`; vectors are scratch shared by every step.
-#   `_finish_pass!(m̄, m, R, b, τ0)` then reads it once, after the last step,
-#   to add the cotangents the steps left for it.
-#
-# `grads` carries `after` and `pass` only when the modifier asks for one of
-# them, so other pullbacks see the usual fields. Without them a pullback
-# must give the same cotangents by its per-step path. They reach only a modifier's own vector
-# `pullback!`: a blockwise modifier split into groups gets neither, so one
-# that asks must have its own vector pullback.
-#
-# A whole-step modifier differentiated by its local derivative takes its
-# dual numbers as its pass buffer (`_StepDuals`), made once per reverse
-# pass, and reads them from `grads.pass`.
+# `grads` carries `after` (`_keeps_after`) and `pass` only when a modifier
+# asks; without them its per-step pullback must give the same cotangents. A
+# blockwise modifier split into groups gets neither, so needs its own.
 _pass_buffer(H, ::Type, m, m̄, S, T) = _local_step_duals(Val(_whole_local(m)), m̄, m, H, S)
 _local_step_duals(::Val{false}, m̄, m, H, S) = nothing
 _local_step_duals(::Val{true}, m̄, m, H, S) = _step_duals(m̄, m, eltype(H), S)
@@ -641,9 +589,7 @@ function _kernel_buffer(ḡ, kernel::_OldestFirstPairwise, H, S, L)
     return cotangent(ḡ, :x) === nothing ? nothing : _zeros(H, eltype(H), L, S, S)
 end
 
-# Correlate stratum `k`'s `a` with the kernel into the window's cotangent,
-# and the window with `a` into the kernel's, in one native loop; a pairwise
-# kernel's strata read every stratum's window, so it runs over all of them.
+# A pairwise kernel's strata read every stratum's window, so it runs over all.
 @inline function _kernel_back_at!(kbuf, ḡ, g::AbstractVector, a, H, H̄, t, τ, L, k)
     kb = kbuf === nothing ? nothing : view(kbuf, :, k)
     _window_back!(kb, g, a, H, H̄, t, L, k)
@@ -668,11 +614,9 @@ function _kernel_back!(kbuf, ḡ, g::_OldestFirstPairwise, p̄, H, H̄, t, τ, L
     end
     return nothing
 end
-# `kbuf`, `g`, `H` and `H̄` are distinct arrays, so the updates are
-# independent (`ivdep`).
-#
-# The newest lag's row is the next step's cotangent, so it is updated first,
-# outside the vector loop, as the forward pass adds it last.
+# The arrays are distinct, so the updates are independent (`ivdep`). The
+# newest lag's row is the next step's cotangent, so it is updated first, as
+# the forward pass adds it last.
 @inline function _window_back!(kbuf, g, a, H, H̄, t, L, k)
     L >= 1 || return nothing
     @inbounds H̄[t + L - 1, k] = muladd(a, g[L], H̄[t + L - 1, k])
@@ -690,12 +634,9 @@ end
     _span_back!(nothing, g, a, H, H̄, o + 1, 1, L - 1, k)
     return nothing
 end
-# Time-varying kernels read their weights through `_weight` and add their
-# cotangents through `_add_weight!`; a pairwise kernel mixes strata, so
-# stratum `a`'s convolution reads every stratum `b`. Lag `i` reads column
-# `_column(g, τ, i)`: `τ`, or `τ - i` for a `Primary()` kernel, whose lags
-# before time 1 have no column (`_lags`). Lag runs innermost, so each
-# sender's window is read in order.
+# Lag `i` reads column `τ`, or `τ - i` for a `Primary()` kernel, whose lags
+# before time 1 have no column. Lag runs innermost, so each sender's window is
+# read in order.
 function _kernel_back!(
         kbuf, ḡ, g::TimeVarying{<:Any, <:Pairwise}, p̄, H, H̄, t, τ, L
     )
@@ -795,11 +736,8 @@ function _scatter_history!(h̄::AbstractMatrix, H̄, h, D)
     return nothing
 end
 
-# A zero output cotangent for a reverse rule to accumulate into, with the
-# cache it goes with, or `nothing` where the rule makes its own. A single
-# series' output is the buffer's rows after the history, so its cotangent can
-# be those rows of the buffer's cotangent, which `_seeded` then need not
-# fill; the cache keeps both.
+# `nothing` where the rule makes its own. A single series' output cotangent
+# can be rows of the buffer's cotangent, which `_seeded` then need not fill.
 _shared_shadow(op, y, c) = (nothing, c)
 _shared_shadow(op::Recurrence, y, c) = _shared_shadow(y, c, c.H, c.D)
 _shared_shadow(y, c, H, D) = (nothing, c)
