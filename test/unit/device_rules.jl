@@ -469,6 +469,36 @@ end
     @test pullback_bytes() < 500 * sizeof(eltype(K̄)) * length(K̄)
 end
 
+@testitem "JLArrays: the rule passes of window sums match the CPU" setup = [DeviceRules] begin
+    # Ends past the series and ends that go back, so a window is empty and a
+    # time falls in two windows.
+    ends = [2, 5, 5, 9, 4, 12, 40]
+    X = inputs(4)
+    @testset "$name" for (name, (x, dims)) in (
+            "a vector" => (X[2, :], 1), "a matrix, time last" => (X, 2),
+            "a matrix, time first" => (permutedims(X), 1),
+        )
+        op = CR._WindowSums(ends, size(x, dims), dims)
+        x1 = JLArray(x)
+        @test CR._route_val(op, x1) === Val(:rule)
+        @test (@inferred CR._route_val(op, x1)) === Val(:rule)
+        y0, c0 = CR._run_forward(op, x)
+        y1, c1 = CR._run_forward(op, x1)
+        @test y1 isa JLArray
+        @test Array(y1) ≈ y0
+        @test Array(CR.window_sums(x1, ends; dims)) ≈ y0
+        # The pullback adds into the inputs' cotangent.
+        Ȳ = cotangent_like(y0)
+        x̄0 = ones(size(x))
+        x̄1 = JLArray(x̄0)
+        CR._run_pullback!((; piece = nothing, y = Ȳ, args = (x̄0,)), op, c0)
+        CR._run_pullback!(
+            (; piece = nothing, y = JLArray(Ȳ), args = (x̄1,)), op, c1
+        )
+        @test Array(x̄1) ≈ x̄0
+    end
+end
+
 @testitem "JLArrays: calls whose reverse pass runs on a device take the rule" setup = [DeviceRules] begin
     S = 4
     route(op, args) = CR._route_val(op, args...)

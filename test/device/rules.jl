@@ -134,6 +134,11 @@ function _rule_cases(S)
         "Convolution, survival per stratum" => conv(computed(stratified)),
         "Recurrence, kernel shortened by a mapped hazard" =>
             rec(Recurrence(computed(mapped); coupling = C); start = L + 1),
+        # Ends that go back, so a time falls in two windows.
+        "Window sums, time last" =>
+            (CR._WindowSums([4, 11, 7, 30], T, 2), (x,)),
+        "Window sums, time first" =>
+            (CR._WindowSums([4, 11, 7, 30], T, 1), (permutedims(x),)),
     ]
     return cases, x
 end
