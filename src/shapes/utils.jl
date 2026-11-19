@@ -66,6 +66,11 @@ const _CPUArray = Union{
 }
 _zeros(::_CPUArray, ::Type{T}, dims...) where {T} = zeros(T, dims...)
 
+# An array like `x` of eltype `T` and size `dims` whose entries a run
+# writes before it reads them, so they start unset. An extension whose
+# numbers a host array cannot hold adds a method.
+_unset(x, ::Type{T}, dims...) where {T} = similar(x, T, dims...)
+
 # A kernel given as columns: host columns of one concrete type are held as
 # given; others are stacked into one vector, of their promoted type so the
 # loops infer, or one device array.

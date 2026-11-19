@@ -139,6 +139,13 @@ function ComposableRecurrences._zeros(
     ) where {T <: TracedRNumber}
     return Reactant.Ops.fill(zero(unwrapped_eltype(T)), dims)
 end
+# A host array cannot hold traced numbers, so a record that a traced step
+# writes is a traced array, zeroed, as the step writes each entry first.
+function ComposableRecurrences._unset(
+        x::_CPUArray, ::Type{T}, dims...
+    ) where {T <: TracedRNumber}
+    return ComposableRecurrences._zeros(x, T, dims...)
+end
 # The core `_buffer` fills a view of `similar`, which is not a traced array.
 function ComposableRecurrences._buffer(
         h, ::Type{Tp}, D, T, S

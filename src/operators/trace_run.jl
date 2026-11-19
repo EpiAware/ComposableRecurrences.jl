@@ -56,7 +56,7 @@ function _sinks(::Val{:trace}, h, ::Type{Tp}, ms, states, S, T) where {Tp}
     return map(ms, states) do m, s
         n = ntrace(m, S)
         isstateless(m) && return _NoTrace(_zeros(h, Tp, n, T))
-        out = similar(h, Tp, n, T)
+        out = _unset(h, Tp, n, T)
         _strata_loop(m) && return _TraceSink(out, nothing, nothing, S)
         return _TraceSink(out, _zeros(h, Tp, S), similar(s), S)
     end
