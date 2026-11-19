@@ -288,7 +288,7 @@ The package's own rules run on device arrays for:
 Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
 A per-stratum time-varying kernel's cotangent (S × L × T) is not copied, as each stratum writes only its own rows.
-Nor is a modifier's `PerStratum` parameter's in a vector step, as each stratum or group writes only its own entries.
+The cotangent of a modifier's `PerStratum` parameter in a vector step is not copied either, as each stratum or group writes only its own entries.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 
