@@ -198,6 +198,7 @@ With Mooncake, or Enzyme and EnzymeTestUtils, loaded, [`ComposableRecurrences.te
 An executor sets how an operator's loops over strata or output times run.
 [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) holds the one in use, [`Serial`](@ref ComposableRecurrences.Serial) by default.
 [`Threaded`](@ref ComposableRecurrences.Threaded) splits a loop across CPU threads, and [`Parallel`](@ref ComposableRecurrences.Parallel) runs it as a kernel on a KernelAbstractions backend, such as a GPU.
+On arrays that live on a GPU, `Serial` and `Threaded` both run as `Parallel` on the arrays' own backend, as host threads cannot index them.
 The older name [`Device(backend)`](@ref ComposableRecurrences.Device) makes the same executor as `Parallel(backend)`.
 
 The threaded executor runs its chunks as Julia tasks rather than on the KernelAbstractions CPU backend, which compiles kernels through OpenCL:
