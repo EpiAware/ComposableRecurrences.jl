@@ -29,21 +29,21 @@ Inputs, histories and outputs are strata × time arrays, or a vector for a
 single series.
 Time is absolute, counted from 1, and a call covers the times `start:stop`.
 
-| concept              | one way                                                              |
-|:---------------------|:---------------------------------------------------------------------|
-| feedback recursion   | `Recurrence(kernel; coupling, modifiers)`, lag 1 first               |
-| convolution          | `Convolution(kernel)`, lag 0 first                                   |
-| strata               | `PerStratum(x)`, `Pairwise(x)`                                       |
-| time variation       | `TimeVarying(x)`, `TimeVarying(x, Primary())`                        |
-| strata and time      | `TimeVarying(PerStratum(x))`, `TimeVarying(Pairwise(x))`             |
-| multiplicative input | `r(gain; ...)`                                                       |
-| additive input       | `add =`, before the modifiers                                        |
-| seed and resume      | `history =`, `state =`                                               |
-| modifiers            | `Depletion`, `Redistribute`, `Allocate`, `Transform`                 |
-| pools and flows      | `Depletion(N, Hazard(), Flow(from => to, d); pools)`                 |
-| filling a pool       | `Depletion(C, Truncate(; into = :O); pools)`                         |
-| variants             | structs: `Hazard()`, `Floor()`, `Primary()`                          |
-| extension            | a type with a `forward!` method for a role                           |
+| concept | one way |
+| :-- | :-- |
+| feedback recursion | `Recurrence(kernel; coupling, modifiers)`, lag 1 first |
+| convolution | `Convolution(kernel)`, lag 0 first |
+| strata | `PerStratum(x)`, `Pairwise(x)` |
+| time variation | `TimeVarying(x)`, `TimeVarying(x, Primary())` |
+| strata and time | `TimeVarying(PerStratum(x))`, `TimeVarying(Pairwise(x))` |
+| multiplicative input | `r(gain; ...)` |
+| additive input | `add =`, before the modifiers |
+| seed and resume | `history =`, `state =` |
+| modifiers | `Depletion`, `Redistribute`, `Allocate`, `Transform` |
+| pools and flows | `Depletion(N, Hazard(), Flow(from => to, d); pools)` |
+| filling a pool | `Depletion(C, Truncate(; into = :O); pools)` |
+| options | structs such as `Hazard()`, `Floor()`, `Primary()` |
+| extension | a type with a `forward!` method for a role |
 
 To extend the package, define a type and add a
 [`ComposableRecurrences.forward!`](@ref) method, and optionally a
@@ -129,7 +129,7 @@ include("adjoints/adjoints.jl")
 # modifiers: the built-in modifiers.
 # The built-in modifiers and the exponent depletion forms.
 include("modifiers/builtin.jl")
-# Rescaling groups of strata to exogenous totals.
+# Rescaling groups of strata to totals given from outside.
 include("modifiers/allocate.jl")
 # A pointwise map with parameters.
 include("modifiers/transform.jl")
