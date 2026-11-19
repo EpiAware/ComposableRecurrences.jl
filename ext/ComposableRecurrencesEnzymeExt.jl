@@ -10,7 +10,7 @@ using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
     _Current, _check_form, _check_now, _check_parts, _check_secondary,
     _convolve_masses!, _convolve_masses_back!, _current, _fft_convolve!,
     _fft_convolve_back!, _fft_convolve_terms!, _flat_groups, _is_leaf,
-    _keep_inputs, _leaf_paths, _plain_hook, _probe_step_reads, _rebuild_leaves,
+    _keep_inputs, _leaf_paths, _note_missing_duals, _plain_hook, _probe_step_reads, _rebuild_leaves,
     _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
     _spawn_blocks, _spawn_chunks, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
@@ -210,6 +210,7 @@ function EnzymeRules.augmented_primal(
         op::Annotation, args::Vararg{Annotation, N}
     ) where {N}
     VERSION < v"1.12" && _warn_scalar_loss(typeof(op.val), op, _active_operator)
+    _note_missing_duals(op.val)
     return EnzymeRules.AugmentedReturn(nothing, nothing, nothing)
 end
 function EnzymeRules.reverse(

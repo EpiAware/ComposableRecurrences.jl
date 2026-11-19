@@ -261,3 +261,5 @@ function _group_trace_back!(
     _written(m, pullback!(grads, m, Trace(), vg, sg, τ, g))
     return nothing
 end
+
+_note_missing_duals(w::_WithTrace) = _note_missing_duals(w.op)
