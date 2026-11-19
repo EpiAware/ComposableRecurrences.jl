@@ -1,6 +1,6 @@
-# Calls route to the rule primitive `_ad` when the operator uses its adjoint
-# and every float is IEEE, otherwise to `_plain`, which the backend
-# differentiates.
+# Calls route to the rule primitive `_ad` (the `Mooncake` and `Enzyme` rules
+# in the extensions) when the operator uses its adjoint and every float is
+# IEEE, otherwise to `_plain`, which the backend differentiates.
 
 # == Operators ==
 
@@ -168,7 +168,8 @@ function _route_val(op, args...)
     return Val(_type_adjoint(op) && ok ? :rule : :plain)
 end
 
-# Each part folds from the types, so the route stays a constant.
+# The GPUArraysCore extension says which arrays live on a device
+# (`_on_gpu`). Each part folds from the types, so the route stays a constant.
 function _device_gate(op, args...)
     return _device_ready(op) && _any_on_gpu(args...) &&
         param_eltype((op, args)) <: _IEEEFloat
@@ -208,9 +209,9 @@ _primal(op, args...) = first(_run_forward(op, args...))
 
 # == Leaves for the rule ==
 
-# Each leaf is passed as its own argument, so no shadowed struct holds both an
-# array and an active scalar: on Julia 1.11 that loses the scalar's cotangent,
-# a silent zero.
+# The `Mooncake` rule passes each leaf to the `Enzyme` rule as its own
+# argument, so `Enzyme` never shadows a struct holding an array and an active
+# scalar: on Julia 1.11 it loses the scalar's cotangent there, a silent zero.
 struct _ADLeaves{X} end
 function (::_ADLeaves{X})(leaves::Vararg{Any, N}) where {X, N}
     return _primal(_rebuild_leaves(X, leaves)...)
@@ -275,7 +276,8 @@ end
 # == Gate ==
 
 # A generated function evaluates `_ok` once per signature: inference does not
-# fold the recursion, and an unfolded gate costs a dynamic dispatch per call.
+# fold the recursion, and an unfolded gate costs a dynamic dispatch per call
+# under `Mooncake`.
 const _IEEEFloat = Union{Float16, Float32, Float64}
 function _ok(::Type{T}) where {T}
     T <: _IEEEFloat && return true

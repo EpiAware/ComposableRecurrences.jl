@@ -7,6 +7,9 @@
 # A parameter is a float leaf: a float scalar, a float array's entries, a
 # sparse matrix's nonzeros or a `Diagonal`'s diagonal.
 
+# A walker defines `_fold_*`, `_mfold_*`, `_map_*` or `_collect_*` for its
+# leaves; `_descends` picks the structs it enters and `_into_stored` whether
+# it reads a sparse or `Diagonal` matrix's stored entries.
 _descends(f, x) = _holds_floats(x)
 _into_stored(f) = true
 _fields(x) = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
@@ -149,6 +152,7 @@ function _map_array(f::_CopyLeaves, x, o)
     return reshape(f.θ[(o + 1):(o + n)], size(x)), o + n
 end
 
+# `leaf!(x̄, x, g, o)` returns the new offset.
 struct _WalkLeaves{F, G}
     leaf!::F
     g::G
@@ -395,6 +399,8 @@ end
 
 # == Depletion form draws ==
 
+# A form's own `pullback!` runs on one-entry views of local slots, with
+# `grads.N` the view it adds into and `grads.piece` the form's mirror.
 @inline function _draw(form, v, s, N)
     T = promote_type(typeof(v), typeof(s), typeof(N), param_eltype(form))
     vr, sr = Base.RefValue{T}(v), Base.RefValue{T}(s)
