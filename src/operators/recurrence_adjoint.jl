@@ -210,14 +210,14 @@ end
     return :(NamedTuple{$K}(($(leaves...),)))
 end
 # A coupled `Recent`'s mirror: each stratum adds to its own row of the
-# coupling's cotangent, and the weights' cotangent is added on the host at
-# the step's flush, so neither is copied per block. An uncoupled read adds
-# its weights' cotangent from every stratum, so it is shared.
+# coupling's cotangent, and the weights' cotangent is added once per step at
+# the flush, so neither is copied per block. An uncoupled read adds its
+# weights' cotangent from every stratum, so it is shared.
 _param_slots(m̄, b::_BoundRecent) = _recent_slots(m̄, b.x.coupling)
 _recent_slots(m̄, ::Nothing) = m̄
-_recent_slots(m̄::NamedTuple, ::Nothing) = m̄
-_recent_slots(::Nothing, C) = nothing
-function _recent_slots(m̄::NamedTuple{K}, C) where {K}
+_recent_slots(m̄, C) = _owned_leaves(m̄)
+_owned_leaves(::Nothing) = nothing
+function _owned_leaves(m̄::NamedTuple{K}) where {K}
     return NamedTuple{K}(map(_own_leaf, values(m̄)))
 end
 # The pointwise modifiers' mirrors as a step's blocks write them: on a

@@ -330,33 +330,39 @@ end
 function _read_back!(x̄, ::Nothing, b, v, k, i)
     return _recent_back!(cotangent(x̄, :w), b.x.w, b.H, b.H̄, v, i, k)
 end
-function _read_back!(x̄, C, b, v, k, i)
-    _ensure_row!(b.site, b, i)
+_read_back!(x̄, C, b, v, k, i) = _coupled_back!(x̄, C, b.z, b, v, k, i)
+# On the host the strata share one vector of window cotangents.
+function _coupled_back!(x̄, C, z::AbstractVector, b, v, k, i)
+    b.row[] == i || (_flush_one!(b); _refresh_one!(b, i))
     C̄ = cotangent(x̄, :coupling)
-    u, z = b.u, b.z
+    u = b.u
     _keep_mirror!(b.w̄, cotangent(x̄, :w))
     for j in axes(b.H, 2)
         _add_entry!(C̄, C, v * u[j], k, j)
-        _add_window!(z, v * C[k, j], k, j)
+        z[j] += v * C[k, j]
+    end
+    return nothing
+end
+# On a device each stratum adds into its own row, as strata run at once.
+function _coupled_back!(x̄, C, z::AbstractMatrix, b, v, k, i)
+    _ensure_row!(b.site, b, i)
+    C̄ = cotangent(x̄, :coupling)
+    u = b.u
+    _keep_mirror!(b.w̄, cotangent(x̄, :w))
+    for j in axes(b.H, 2)
+        _add_entry!(C̄, C, v * u[j], k, j)
+        z[k, j] += v * C[k, j]
     end
     return nothing
 end
 # A read at a row other than the cached one, which the recurrence does not
-# make, first sends on the cached row's cotangents and caches row `i`.
-# Inside a kernel the windows were filled for the step before the launch.
+# make, first sends on the cached row's cotangents and caches row `i`, as
+# the host method does. Inside a kernel the windows were filled for the step before the launch.
 function _ensure_row!(::Nothing, b, i)
     b.row[] == i || (_flush_one!(b); _refresh_one!(b, i))
     return nothing
 end
 _ensure_row!(::_InKernel, b, i) = nothing
-Base.@propagate_inbounds function _add_window!(z::AbstractVector, v, k, j)
-    z[j] += v
-    return nothing
-end
-Base.@propagate_inbounds function _add_window!(z::AbstractMatrix, v, k, j)
-    z[k, j] += v
-    return nothing
-end
 
 # Fill the windows of every coupled `Recent` in `x` at buffer row `i`, once
 # per step and before the strata read them.
@@ -410,30 +416,41 @@ function _flush_windows!(b, z::AbstractVector, i)
     end
     return nothing
 end
-# On a device the strata's rows are summed, then the weights' cotangent
-# runs a thread per lag and the buffer's a thread per stratum.
+# On a device a thread per stratum sums its column of the rows into the
+# first row, then the weights' cotangent runs a thread per lag and the
+# buffer's a thread per stratum, both reading the first row.
 function _flush_windows!(b, Z::AbstractMatrix, i)
-    z = vec(sum(Z; dims = 1))
-    fill!(Z, zero(eltype(Z)))
     w, H, ex = b.x.w, b.H, _resolve(Serial(), b.H)
+    S = size(Z, 2)
+    each!(_sum_rows!, ex, S, typemax(Int), Z)
     w̄ = _kept_mirror(b.w̄)
     w̄ === nothing ||
-        each!(_flush_lag!, ex, length(w), typemax(Int), w̄, z, H, i)
+        each!(_flush_lag!, ex, length(w), typemax(Int), w̄, Z, H, i)
     b.H̄ === nothing ||
-        each!(_flush_stratum!, ex, length(z), typemax(Int), b.H̄, z, w, i)
+        each!(_flush_stratum!, ex, S, typemax(Int), b.H̄, Z, w, i)
+    fill!(view(Z, 1, :), zero(eltype(Z)))
     return nothing
 end
-function _flush_lag!(l, w̄, z, H, i)
-    acc = zero(eltype(z))
-    for j in eachindex(z)
-        @inbounds acc += z[j] * H[i - l, j]
+function _sum_rows!(j, Z)
+    acc = zero(eltype(Z))
+    @inbounds for k in axes(Z, 1)
+        acc += Z[k, j]
+        Z[k, j] = zero(eltype(Z))
+    end
+    @inbounds Z[1, j] = acc
+    return nothing
+end
+function _flush_lag!(l, w̄, Z, H, i)
+    acc = zero(eltype(Z))
+    for j in axes(Z, 2)
+        @inbounds acc += Z[1, j] * H[i - l, j]
     end
     add_cotangent!(w̄, acc, l)
     return nothing
 end
-function _flush_stratum!(j, H̄, z, w, i)
+function _flush_stratum!(j, H̄, Z, w, i)
     @inbounds for l in eachindex(w)
-        H̄[i - l, j] += z[j] * w[l]
+        H̄[i - l, j] += Z[1, j] * w[l]
     end
     return nothing
 end
@@ -447,24 +464,6 @@ function _flush_weights!(w̄, z, w, H, i)
     return nothing
 end
 
-# On a device a read's kernel cannot keep the weights' mirror for the
-# flush, so it is kept from the modifiers' mirrors before the reverse pass,
-# walking the same fields a read's mirror comes through.
-function _keep_mirrors!(x, x̄)
-    x̄ === nothing && return nothing
-    if x isa _BoundRecent
-        _keep_mirror!(x.w̄, cotangent(x̄, :w))
-    elseif x isa Tuple
-        foreach(i -> _keep_mirrors!(x[i], _entry(x̄, i)), eachindex(x))
-    elseif _reads_across(x) && isstructtype(typeof(x))
-        for f in fieldnames(typeof(x))
-            _keep_mirrors!(getfield(x, f), cotangent(x̄, f))
-        end
-    end
-    return nothing
-end
-_entry(x̄::Tuple, i) = x̄[i]
-_entry(x̄, i) = nothing
 
 # Apply `f` to every bound `Recent` with a coupling inside `x`, as a tuple
 # found from the type so the loop is unrolled with no dynamic calls.
@@ -563,6 +562,32 @@ end
 # The bound `Recent`s with a coupling inside `x`, as a tuple. After its
 # helpers: a generator sees only the methods defined before it.
 @generated _coupled_reads(x) = Expr(:tuple, _coupled_paths(x, :x)...)
+
+# On a device a read's kernel cannot keep the weights' mirror for the
+# flush, so it is kept from the modifiers' mirrors `x̄` before the reverse
+# pass. The mirror is walked along the paths `_coupled_paths` takes, by
+# field name, or by index through a tuple.
+function _mirror_paths(::Type{T}, ex, m) where {T}
+    T <: Recent && return Any[]
+    _holds_type(_across_leaf, T) || return Any[]
+    paths = Any[]
+    for (i, F) in enumerate(fieldtypes(T))
+        mi = T <: Tuple ? :(_mirror_entry($m, $i)) :
+            :(cotangent($m, $(QuoteNode(fieldname(T, i)))))
+        append!(paths, _mirror_paths(F, :(getfield($ex, $i)), mi))
+    end
+    return paths
+end
+function _mirror_paths(::Type{<:_BoundRecent{R}}, ex, m) where {R}
+    _has_coupling(R) || return Any[]
+    return Any[:(_keep_mirror!(getfield($ex, :w̄), cotangent($m, :w)))]
+end
+_mirror_entry(x̄::Tuple, i) = x̄[i]
+_mirror_entry(x̄, i) = nothing
+# After its helpers: a generator sees only the methods defined before it.
+@generated function _keep_mirrors!(x, x̄)
+    return Expr(:block, _mirror_paths(x, :x, :x̄)..., nothing)
+end
 
 # Whether a value of type `T` holds a coupled `Recent(n)`, whose windows
 # reads with the same `n` share.

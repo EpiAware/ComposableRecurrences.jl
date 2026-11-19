@@ -536,7 +536,7 @@ end
     recent = ComposableRecurrences.Recent(g; coupling = [0.8 0.2; 0.1 0.9])
     feedback = ComposableRecurrences.Transform(*, Derived(exp, -0.1 * recent))
     r = Recurrence(g; modifiers = (feedback,))
-    @test_throws ArgumentError r(x; history = h)
+    @test_throws "is a host array" r(x; history = h)
 end
 
 @testitem "JLArrays: coefficients from change points refuse a device" begin

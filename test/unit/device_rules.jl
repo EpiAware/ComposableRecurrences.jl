@@ -361,7 +361,7 @@ end
     bytes(x::CR._ArrayStack) = sizeof(eltype(x.a)) * length(x.a)
     bytes(x::CR._ScalarStack) = sizeof(eltype(x.v)) * length(x.v)
     bytes(x::Union{Tuple, NamedTuple}) = sum(bytes, values(x); init = 0)
-    bytes(x) = 0
+    bytes(::Union{Nothing, CR._Owned}) = 0
     @test bytes(stacked) < sizeof(Float64) * S * S
 end
 
