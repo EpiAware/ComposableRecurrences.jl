@@ -161,6 +161,8 @@ Depletion(PerStratum(pop))
 nothing # hide
 ```
 
+A route is one way values pass between strata, such as contact in the community or at funerals, with its own kernel and coupling.
+
 | Name | What it means |
 |:--|:--|
 | vector | one kernel, the weights on each lag, shared by every stratum |
@@ -173,7 +175,8 @@ nothing # hide
 | [`Survival(h)`](@ref ComposableRecurrences.Survival) | each cohort's survival through a computed kernel's lags against a hazard `h`, as in `TimeVarying(S * (1 - Survival(TimeVarying(h))), Primary())` |
 | [`Recent(n)`](@ref ComposableRecurrences.Recent) | a parameter that sums the recurrence's own last `n` outputs, for each stratum and time |
 
-- A route is one way values pass between strata, such as contact in the community or at funerals, with its own kernel and coupling.
+Kernels:
+
 - A `Pairwise` kernel, as an array or as routes, mixes the strata itself, so the coupling stays `LinearAlgebra.I`.
 - A `TimeVarying` kernel can be a vector with one kernel per step, each of any length.
   It can also be change points: `start => value` pairs, each value holding from its start time.
@@ -182,8 +185,14 @@ nothing # hide
 - With [`Primary()`](@ref ComposableRecurrences.Primary), column ``\tau`` belongs to input time ``\tau``.
   It holds how the value at ``\tau`` spreads over later times, such as the delays of the infections at ``\tau``.
   For a recurrence, the value at ``\tau`` is its own output.
+
+Parameters:
+
 - `Derived(exp, TimeVarying(x))` is the exponential of a parameter that changes over time.
 - `Recent(7)` sums the last seven outputs, `β * Recent(7)` scales that sum, and `Recent(7; coupling = K)` mixes it between strata.
+
+All wrappers:
+
 - Most wrappers hold the stored array without copying it.
 - A bare vector where a single value is expected is an error that names the wrapper to use.
 
@@ -282,6 +291,7 @@ The matrix can be dense, `Diagonal` or sparse.
 
 A modifier changes the value of each step after the gain and `add`.
 Modifiers act in [tuple order](@ref explanation-modifier-order), each keeps its own [state](@ref explanation-modifier-state), and [Scope](@ref explanation-modifier-scope) says which strata each reads.
+The `add` input enters before every modifier, and a [`Transform(+, b)`](@ref ComposableRecurrences.Transform) enters where it sits in the tuple.
 In the three-town model, a [`Depletion`](@ref ComposableRecurrences.Depletion) of `PerStratum(pop)` draws each town's infections from the people left to infect.
 
 ```@example api-overview
@@ -302,14 +312,16 @@ round.(Int, vec(sum(depleted(R; history = seed); dims = 2)))
 
 A `Depletion` holds named pools, such as the people left to infect.
 
-- `pools` gives each pool's name and starting size, such as `(S = N, V = 0.0)`, and a step draws its value from them.
-- Its parts are draws and flows, acting in the order given.
-- A draw is a [depletion form](@ref overview-variants), and `Depletion(N)` alone draws with [`Hazard()`](@ref ComposableRecurrences.Hazard).
-- A draw takes each pool's share as a keyword of its form, such as `Hazard(; weights = (S = 1, V = σ))`.
-- A `Flow` names pools by their names in `pools`, and `0` stands for outside the model.
-- A small pool cannot give all a step asks for.
-  A draw's `overflow` keyword sends the rest to a second stratum (`:stratum`), to a queue that joins the next step's demand (`:queue`), or nowhere (the default).
-- With flows and no draw, a `Depletion` only moves values between pools, as for patients moving between wards.
+- Pools: `pools` gives each pool's name and starting size, such as `(S = N, V = 0.0)`, and a step draws its value from them.
+- Parts: draws and flows, acting in the order given.
+- Draws:
+  - A draw is a [depletion form](@ref overview-variants), and `Depletion(N)` alone draws with [`Hazard()`](@ref ComposableRecurrences.Hazard).
+  - It takes each pool's share as a keyword of its form, such as `Hazard(; weights = (S = 1, V = σ))`.
+  - A small pool cannot give all a step asks for.
+    The draw's `overflow` keyword sends the rest to a second stratum (`:stratum`), to a queue that joins the next step's demand (`:queue`), or nowhere (the default).
+- Flows:
+  - A `Flow` names pools by their names in `pools`, and `0` stands for outside the model.
+  - With flows and no draw, a `Depletion` only moves values between pools, as for patients moving between wards.
 
 `Redistribute` and `Allocate` act on several strata.
 
