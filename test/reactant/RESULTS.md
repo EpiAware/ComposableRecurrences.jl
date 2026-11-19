@@ -100,7 +100,7 @@ Total run time 26.3 min, timeout 600 s a case.
 | Convolution epidemic curve by the automatic method | works (6.7 s / 228.2 µs) | works (14.9 s / 2685.4 µs) |
 | Convolution Poisson delay distribution | error: MethodError | error: MethodError |
 | Convolution Poisson delay distribution on a step of two units | error: MethodError | error: MethodError |
-| Convolution chain of two delays as masses | error: ArgumentError in `_delay_kernel` | error: ArgumentError in `_delay_kernel` |
+| Convolution chain of two delays as masses | works (35.8 s / 6.7 µs) | works (2.6 s / 11.4 µs) |
 | Recurrence negative binomial generation interval per stratum | error: MethodError | error: MethodError |
 | Recurrence negative binomial generation interval per pair of strata | error: MethodError | error: MethodError |
 | Convolution kernel from a hazard and a survival | works (3.6 s / 10.2 µs) | works (1.7 s / 50.5 µs) |
@@ -317,8 +317,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Convolution Poisson delay distribution | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.Poisson(::Reactant.TracedRNumber{Float64}) The type `Distributions.Poisson` exists, but no method is defined for t |
 | registry | Convolution Poisson delay distribution on a step of two units | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.Poisson(::Reactant.TracedRNumber{Float64}) The type `Distributions.Poisson` exists, but no method is defined for t |
 | registry | Convolution Poisson delay distribution on a step of two units | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.Poisson(::Reactant.TracedRNumber{Float64}) The type `Distributions.Poisson` exists, but no method is defined for t |
-| registry | Convolution chain of two delays as masses | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _delay_kernel | ArgumentError: `lags` turns delays into masses, and (SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, tr |
-| registry | Convolution chain of two delays as masses | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _delay_kernel | ArgumentError: `lags` turns delays into masses, and (SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, tr |
+| registry | Convolution chain of two delays as masses | forward | cpu | 12 | works | 2.2e-16 | 35.8 | 6.7 | 0.3 |  |  |
+| registry | Convolution chain of two delays as masses | reverse | cpu | 12 | works | 5.0e-16 | 2.6 | 11.4 | 4.0 |  |  |
 | registry | Recurrence negative binomial generation interval per stratum | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.NegativeBinomial(::Reactant.TracedRNumber{Float64}, ::Reactant.TracedRNumber{Float64}) The type `Distributions.Neg |
 | registry | Recurrence negative binomial generation interval per stratum | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.NegativeBinomial(::Reactant.TracedRNumber{Float64}, ::Reactant.TracedRNumber{Float64}) The type `Distributions.Neg |
 | registry | Recurrence negative binomial generation interval per pair of strata | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.NegativeBinomial(::Reactant.TracedRNumber{Float64}, ::Reactant.TracedRNumber{Float64}) The type `Distributions.Neg |

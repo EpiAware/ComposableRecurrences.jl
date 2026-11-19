@@ -3018,10 +3018,10 @@ const REACTANT_BROKEN = Dict(
     "ragged kernel" => [
         "Recurrence ragged Primary kernel",
     ],
-    "Distributions or delay masses from traced parameters" => [
+    # A distribution's constructor takes only real parameters.
+    "Distributions from traced parameters" => [
         "Convolution Poisson delay distribution",
         "Convolution Poisson delay distribution on a step of two units",
-        "Convolution chain of two delays as masses",
         "Recurrence negative binomial generation interval per stratum",
         "Recurrence negative binomial generation interval per pair of strata",
     ],
