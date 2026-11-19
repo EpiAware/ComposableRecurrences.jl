@@ -113,9 +113,8 @@ end
 
 # == Traces from the records ==
 
-# The call's trace, `(; modifiers, pressure)`: one matrix per modifier with
-# a column per step, and each step's pressure. A step's outputs are the next
-# modifier's inputs, or the buffer's row for the last.
+# A step's outputs are the next modifier's inputs, or the buffer's row for the
+# last.
 function _traces(r, c)
     (; H, rec, D, S, T, τ0) = c
     ms = _bind(r.modifiers, H, nothing, D - τ0 + 1)
@@ -167,9 +166,8 @@ function _traced_record(R, T̄, S)
     )
 end
 
-# One stratum's trace pullback at step `t`: `_trace_out` adds the trace's
-# share into the step's output cotangents `v̄` and `s̄` and returns its share
-# of the inputs', which `_trace_in` adds after the step's pullback.
+# `_trace_out` adds the trace's share of the step's output cotangents and
+# returns its share of the inputs', which `_trace_in` adds after the pullback.
 _trace_out(R, m, m̄, v̄, s̄, v, s, τ, t, k) = v̄, s̄, nothing, nothing
 function _trace_out(R::_TracedRecord, m, args...)
     return _trace_out(Val(isstateless(m)), R, m, args...)
@@ -230,9 +228,6 @@ function _add_trace_column!(s̄, T̄, t)
     return nothing
 end
 
-# A trace's pullback on the whole step, or per group for a blockwise
-# modifier: the outputs' cotangents gather into `v̄` and `s̄`, the inputs'
-# into the record's buffers.
 function _trace_back!(::Nothing, R, m, m̄, v̄, s̄, r̄, v, s, τ)
     R.V̄ .= zero(eltype(R.V̄))
     R.S̄ .= zero(eltype(R.S̄))

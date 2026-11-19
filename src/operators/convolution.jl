@@ -321,10 +321,8 @@ function forward(
     return _run_forward(c, x, gain, add, history, start, stop)
 end
 
-# Checks the call, then convolves in the layout of `x` or into a time-first
-# buffer. The cache keeps the lag sums `Y` before the gain, which the gain's
-# cotangent reads, and the inputs they read: the buffer (history then `x`)
-# with its row offset `o`, or `x` itself.
+# The cache keeps the lag sums `Y` before the gain, which the gain's cotangent
+# reads, and the inputs they read.
 function _run_forward(c::Convolution, x, gain, add, history, start, stop)
     kernel = c.kernel
     Tp, S, m, stop = _check_conv(kernel, x, gain, add, history, start, stop)
@@ -360,17 +358,9 @@ function _primal(c::Convolution, x, gain, add, history, start, stop)
     return _convolve_public(path, Tp, kernel, x, gain, add, history, m, S, start, stop)
 end
 
-# How a call without a rule convolves, chosen by dispatch on the buffer
-# eltype, the kernel and the input. `_Buffered()` copies the input into a
-# time-first buffer, convolves there and copies the lag sums out: the
-# per-lag `axpy` body vectorises for IEEE floats and suits device arrays.
-# `_Gathered()` reads the input and history where they are and writes each
-# output once, in the public layout: for numbers that do not vectorise
-# (dual numbers, `BigFloat`, tracked reals inside plain arrays) on CPU
-# arrays, where each copy of a wide number costs more than the arithmetic
-# it saves. A dense time-varying kernel gathers too, reading each weight in
-# place. A tracked array input is not a CPU array here and keeps the
-# buffer.
+# Without a rule: `_Buffered()` copies into a time-first buffer, whose per-lag
+# `axpy` vectorises for IEEE floats and suits device arrays. `_Gathered()`
+# reads in place, for wide numbers on CPU arrays where each copy costs more.
 struct _Buffered end
 struct _Gathered end
 const _FixedKernel = Union{AbstractVector, PerStratum}
@@ -407,9 +397,6 @@ function _convolve_public(
     return out
 end
 
-# Stratum `k`'s outputs, each one dot of the kernel with its window: lags
-# up to `t - 1` read `x`, older ones the history, and lags before the
-# history, or after the end of `x`, read zeros.
 # The call's checks fix every shape and the caller requires one-based
 # indices, so the loops read without bounds checks.
 function _gather_body!(k, out, kernel, x, history, gain, add, m, start)
@@ -436,10 +423,8 @@ end
 Base.@propagate_inbounds _set_at!(y::AbstractVector, v, k, j) = (y[j] = v; nothing)
 Base.@propagate_inbounds _set_at!(y::AbstractMatrix, v, k, j) = (y[k, j] = v; nothing)
 
-# A fixed kernel over a plain array of IEEE floats, with no history and
-# from the first time, convolves in the layout of `x`: lag `d` reads every
-# stratum `S d` entries back. Threaded loops keep the time-first buffer,
-# which splits the work by stratum.
+# Lag `d` reads every stratum `S d` entries back. Threaded loops keep the
+# time-first buffer, which splits the work by stratum.
 _in_layout(::Type, kernel, x, history, start) = false
 function _in_layout(
         ::Type{Tp}, ::AbstractVector, ::Union{Vector, Matrix}, ::Nothing, start
@@ -447,12 +432,9 @@ function _in_layout(
     return start == 1 && _current().ex isa Serial
 end
 
-# The lag sums `Y` of times 1 to `n`, with the inputs they read and the
-# number `r` of times summed. Inputs after the end of `x` are zero, so only
-# the first `min(n, extent + L - 1)` times can be nonzero: `r` covers them
-# (all `n` for a series short enough to gather), they are summed from `x`
-# and zeros by the passes the full series would take, and the later times
-# stay zero.
+# Inputs after the end of `x` are zero, so only the first
+# `min(n, extent + L - 1)` times can be nonzero; `r` covers them, summed by
+# the passes the full series would take, and the later times stay zero.
 function _layout_sums(::Type{Tp}, c, x::Vector, n) where {Tp}
     Y = zeros(Tp, n)
     xr, r = _summed_inputs(c, x, n)
@@ -477,10 +459,8 @@ function _layout_sums(::Type{Tp}, c, x::Matrix, n) where {Tp}
     end
     return Y, xr, r
 end
-# `x` itself when it covers time `n`; otherwise `x` then zeros up to the
-# last time its inputs reach. A series short enough to gather groups its
-# outputs by its own length, so it is summed in full to keep each sum's
-# order.
+# A series short enough to gather groups its outputs by its own length, so it
+# is summed in full to keep each sum's order.
 function _summed_inputs(c, x, n)
     e = _extent(x)
     e >= n && return x, n
@@ -492,10 +472,8 @@ end
 _zeros_to(x::Vector, r) = zeros(eltype(x), r)
 _zeros_to(x::Matrix, r) = zeros(eltype(x), size(x, 1), r)
 
-# `Y[i] += c[d + 1] x[i - s d]` for every lag `d` and entry `i > s d`, in
-# blocks of four lags as `_convolve_series!` takes them: the entries every
-# lag of a block reaches take one pass, and the first entries of the
-# block, which only its earlier lags reach, one pass per lag.
+# In blocks of four lags as `_convolve_series!` takes them, with one pass per
+# lag for the first entries that only a block's earlier lags reach.
 function _convolve_shifted!(Y, c, x, s)
     N = length(Y)
     s == 0 && return Y
@@ -581,11 +559,9 @@ function pullback!(grads, c::Convolution, ::Run, cache::_LayoutCache)
         x̄ === nothing || checkbounds(x̄, 1:N)
         _shifted_back!(x̄, k̄, c.kernel, x, Ȳ, s, L)
     else
-        # Only the first `r` times were summed, from `x` and zeros: the
-        # later outputs read no input, and the zeros take no cotangent.
-        # The back pass writes a cotangent for every summed input, zeros
-        # included, so it takes one over all `r` times, and plain copies
-        # keep the native loops on plain arrays.
+        # Only the first `r` times were summed; the back pass writes a
+        # cotangent for every summed input, zeros included, and plain copies
+        # keep the native loops.
         N = s * r
         x̄r = x̄ === nothing ? nothing : zeros(eltype(x̄), size(x))
         _shifted_back!(x̄r, k̄, c.kernel, x, Ȳ[1:N], s, L)
@@ -688,11 +664,8 @@ function _fft_buffers(
     return Y, X, o
 end
 
-# Whether a call of `T` outputs takes the transform: never for `Direct()`.
-# For `FFTMethod()` the FFT extension adds the methods that answer; without
-# it the call is refused. `Auto()` takes the direct method unless that
-# extension adds a method for the kernel, eltype and arrays, which then
-# checks the sizes.
+# `Auto()` takes the direct method unless the FFT extension adds a method for
+# the kernel, eltype and arrays; without it `FFTMethod()` is refused.
 function _fft_path(method, kernel, ::Type{Tp}, x, T) where {Tp}
     return !(method isa Auto) && _fft_path(method, kernel, Tp, x)
 end
@@ -713,16 +686,9 @@ _fft_convolve!(Y, kernel, X, m, start, gain = true, add = nothing) = _no_fftw()
 _fft_convolve_terms!(Y, terms, m, start) = _no_fftw()
 _fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
 
-# Whether AD is tracing the code that calls this: `false` under forward-mode
-# AD and plain reverse-mode AD, whose extensions say so, and `true`
-# otherwise, including the forward pass of a native rule, which runs as
-# primal code. Inference must not see the constant, or it folds the branch
-# away before the AD rules replace it.
-# Dispatch on the method, kernel and eltype cannot make this choice: code
-# that a reverse-mode AD tool traces reaches `_fft_path` with the same
-# `Float64` arrays as a primal call, so only a call these rules replace can
-# tell them apart. Forward-mode dual eltypes already take the direct method
-# by dispatch.
+# `false` under AD whose extensions say so. Inference must not see the
+# constant, or it folds the branch away before the AD rules replace it; a
+# traced call reaches `_fft_path` with the same arrays as a primal one.
 _untraced() = Base.inferencebarrier(true)::Bool
 
 # The checks a convolution call shares with `contributions`; returns the
@@ -775,12 +741,8 @@ function _conv_buffers(
     return Y, X, o
 end
 
-# The inputs the outputs from `start` read, time first: history then `x`,
-# and the buffer's row offset `o`, so row `o + t` holds time `t`. The
-# buffer starts at the oldest lag of the first output, or at the start of
-# the history if that is later: a late `start` leaves the earlier inputs
-# out rather than copying them. From `start = 1` the offset is the history
-# length `m`, or `L - 1` if the history is longer.
+# Row `o + t` holds time `t`. A late `start` leaves the earlier inputs out
+# rather than copying them.
 function _input_buffer(::Type{Tp}, kernel, x, history, m, S, start, stop) where {Tp}
     lo = clamp(start - _nlags(kernel) + 1, 1 - m, stop + 1)
     o = 1 - lo
@@ -870,8 +832,7 @@ end
 
 # CPU buffers load by loop: a broadcast copy may alias its source, and
 # reverse-mode AD cannot give that branch one activity when the input is
-# constant.
-# The bounds are checked once, so the loops read without bounds checks.
+# constant. Bounds are checked once, so the loops skip bounds checks.
 function _load_input!(X::Array, x::AbstractVector, m, stop, lo = 1)
     f = max(lo, 1)
     stop = min(stop, _extent(x))
@@ -896,17 +857,9 @@ function _load_input!(X::Array, x::AbstractMatrix, m, stop, lo = 1)
     return X
 end
 
-# Lags in blocks of four over each stratum's contiguous series, one pass
-# over the output per block: output row `j` is time `start + j - 1`, and lag
-# `d` adds `c[d + 1]` times buffer row `o + j - d`, `o = m + start - 1`, for
-# every row with a defined input. Rows that only some lags of a block reach,
-# and the lags after the last block, take one `axpy` per lag. IEEE floats
-# vectorise this; other numbers that reach the buffer (on device arrays, a
-# tracked array input or a time-varying kernel's caller) gather instead, one
-# dot of the kernel with the window per output, so each output is written
-# once and its sum stays in registers. Up to three kernel lengths of
-# outputs pay more in per-lag loop overhead than the passes save, so they
-# gather four outputs at a time.
+# IEEE floats vectorise lags in blocks of four, one pass per block; other
+# numbers gather one dot per output so its sum stays in registers. Up to three
+# kernel lengths of outputs pay more in loop overhead, so they gather.
 function _convolve_series!(
         y::AbstractVector{<:_IEEEFloat}, c, X, k, m, start, n = length(y)
     )
@@ -987,10 +940,8 @@ end
     return y
 end
 
-# `y .+= α x` and `y .+= α₀ x₀ .+ α₁ x₁ .+ α₂ x₂ .+ α₃ x₃` as native loops:
-# at these lengths they are faster than BLAS calls. Under plain `Mooncake`
-# AD the extension swaps in BLAS `axpy!`, which `Mooncake` differentiates
-# with one rule.
+# Native loops: at these lengths they are faster than BLAS calls. Under plain
+# reverse AD an extension swaps in BLAS `axpy!`, differentiated by one rule.
 @inline function _axpy!(α, x, y)
     _same_length(y, x)
     @inbounds @simd ivdep for i in eachindex(y)
@@ -1006,10 +957,8 @@ end
     return y
 end
 
-# The vectors an axpy reads have the axes of the one it writes. The message
-# is a constant: a device kernel cannot format the axes into a string, as
-# `eachindex` over several arrays does when they differ. Every comparison
-# runs, and the throw sits behind a call, so the check stays branch-light.
+# The message is a constant: a device kernel cannot format the axes into a
+# string. The throw sits behind a call, so the check stays branch-light.
 @inline _same_length(y, x) = axes(x) == axes(y) || _axpy_mismatch()
 @inline function _same_length(y, x₀, x₁, x₂, x₃)
     a = axes(y)
@@ -1019,9 +968,7 @@ end
 @noinline _axpy_mismatch() =
     throw(DimensionMismatch("axpy vectors have different axes"))
 
-# Each stratum is one index of the executor loop; `work` counts one
-# multiply-add per output row and lag. On a device, a kernel that gathers
-# each output from its window runs one output per index instead: outputs
+# On a device a gathering kernel runs one output per index instead: outputs
 # are independent, and neighbouring indices read neighbouring rows.
 function _convolve!(ex, Y, c, X, m, start)
     S = size(Y, 2)
@@ -1057,9 +1004,7 @@ _output_weights(c::AbstractVector, k, t) = c
 _output_weights(c::PerStratum, k, t) = view(c.x, k, :)
 _output_weights(c::_TVColumns{Secondary}, k, t) = _wcolumn(c, k, t)
 # A per-stratum time-varying kernel stores its weights strata fastest, so
-# strata run inside time, in blocks from `_nblocks`: one, or one per task
-# when the loop splits. Device arrays keep one stratum per index, and a
-# traced call its own loop.
+# strata run inside time. Device arrays keep one stratum per index.
 function _convolve!(
         ex::Union{Serial, _Current}, Y::Array, c::_TVPerStratum, X, m, start
     )
@@ -1117,11 +1062,9 @@ _last_column(c::TimeVarying{<:Any, <:_AnyRagged}) = _ncols(c.x)
 _first_lag(c, t) = 0
 _first_lag(c::TimeVarying{Primary}, t) = max(0, t - _last_column(c))
 
-# A per-stratum kernel, in either indexing: one dot per output time `t` of
-# the window with the weights `_lagweight` reads, from the column
-# `_lagcolumn` picks for the indexing. The column bodies above measured
-# faster for column kernels, this for per-stratum ones. Time runs
-# outermost, so the strata `ks` read neighbouring weights in turn.
+# The column bodies above measured faster for column kernels, this for
+# per-stratum ones. Time runs outermost, so the strata read neighbouring
+# weights in turn.
 function _convolve_body!(k, Y, c::_TVPerStratum, X, m, start)
     _strata_forward!(k:k, Y, c, X, m, start)
     return nothing
@@ -1139,10 +1082,7 @@ function _strata_forward!(ks, Y, c, X, m, start)
     return nothing
 end
 
-# The reverse pass: take the output cotangent back through the gain and
-# add input, then correlate it with the kernel into the input buffer's
-# cotangent and with the inputs into the kernel's. `grads.args` are the
-# mirrors of `(x, gain, add, history, start, stop)`.
+# `grads.args` mirror `(x, gain, add, history, start, stop)`.
 function pullback!(grads, c::Convolution, ::Run, cache)
     _count_pullback()
     (; gain, add, start, X, Y, o, m, stop) = cache
@@ -1165,10 +1105,8 @@ function pullback!(grads, c::Convolution, ::Run, cache)
     return nothing
 end
 
-# The cotangent of the lag sums `Ȳ` from the output's `ȳ`, adding the gain's
-# and the add input's on the way. On device arrays the strata run as one
-# kernel with a copy of a shared gain or add cotangent per block, summed by
-# `_reduce!`. On the CPU this is one serial pass.
+# On device arrays a shared gain or add cotangent is copied per block and
+# summed by `_reduce!`; on the CPU this is one serial pass.
 function _scale_back!(Ȳ, ḡ, ā, ȳ, Y, gain, start)
     S = size(Ȳ, 2)
     accs = _accumulators(Serial(), Ȳ, S, S, (; ḡ = _slots(ḡ), ā = _slots(ā)))
@@ -1306,10 +1244,8 @@ function _strata_back!(ks, X̄, c̄, c::_TVColumns{Primary}, X, Ȳ, m, start)
     return nothing
 end
 
-# A per-stratum kernel's reverse pass, in either indexing, the transpose
-# of its forward body: each output cotangent adds to the weights it read,
-# through `_add_lagweight!`, and to the inputs. Time runs outermost, as in
-# the forward pass; a single stratum keeps its loop free of the strata loop.
+# Time runs outermost, as in the forward pass; a single stratum keeps its loop
+# free of the strata loop.
 function _strata_back!(ks, X̄, c̄, c::_TVPerStratum, X, Ȳ, m, start)
     L = _nlags(c)
     if length(ks) == 1
