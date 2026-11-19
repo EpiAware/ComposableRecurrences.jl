@@ -152,7 +152,9 @@ function ComposableRecurrences._buffer(
 end
 
 # A vector history loads into the traced buffer through a block of rows by
-# one column: a copy into the column `H[rows, 1]` is not traced.
+# one column: a copy into the column `H[rows, 1]` is not traced. A matrix
+# history already loads as a block, `H[rows, :]`, so it keeps the core's
+# method.
 function ComposableRecurrences._load_history!(
         H::AnyTracedRArray, h::AbstractVector, D
     )
