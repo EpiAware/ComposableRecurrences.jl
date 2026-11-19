@@ -364,6 +364,15 @@ function ComposableRecurrences._refresh_one!(b::_BoundRecent, i::TracedRNumber)
     return ComposableRecurrences._fill_windows!(b, i)
 end
 
+# A trace records a step's column at the traced step as one slice: the
+# linear `copyto!` the core uses takes no traced offset.
+function ComposableRecurrences._copy_column!(
+        R::AnyTracedRMatrix, x, t::TracedRNumber
+    )
+    R[:, t] = x
+    return nothing
+end
+
 # Traced weights or a traced coupling stand for real numbers, and a traced
 # number scales a `Recent` or a `Derived` as a real one does.
 ComposableRecurrences._real_entries(::AbstractArray{<:TracedRNumber}) = true
