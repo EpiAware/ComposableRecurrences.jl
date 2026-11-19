@@ -352,7 +352,8 @@ function _coupled_back!(x̄, C, z::AbstractMatrix, b, v, k, i)
 end
 # A read at a row other than the cached one, which the recurrence does not
 # make, first sends on the cached row's cotangents and caches row `i`, as
-# the host method does. Inside a kernel the windows were filled for the step before the launch.
+# the host method does. Inside a kernel the windows were filled for the
+# step before the launch.
 function _ensure_row!(::Nothing, b, i)
     b.row[] == i || (_flush_one!(b); _refresh_one!(b, i))
     return nothing
