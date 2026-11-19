@@ -544,11 +544,9 @@ end
 
 # == Batched reverse pass ==
 
-# Batching asks for a dense pattern or movement matrix whose mirror is a
-# dense matrix: the buffer keeps each step's `h̄` (`hb`) and each step's
-# cotangent of the spilled values (`vc`). Whether it batches depends on the
-# types only, so the buffer's type is inferred; a mirror of the wrong size
-# throws.
+# Batching asks for a dense pattern or movement matrix with a dense mirror;
+# the buffer keeps each step's `h̄` (`hb`) and spilled-value cotangent (`vc`).
+# It depends on the types only, so its type infers.
 function _pass_buffer(
         H, ::Type{Tp}, m::Allocate{<:Any, <:_AllocateImports}, m̄, S, T
     ) where {Tp}

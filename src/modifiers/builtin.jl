@@ -1,12 +1,8 @@
 # == Parameters ==
 
-# The built-in modifiers and depletion forms. A `pullback!`'s `grads.piece`
-# mirrors the object's fields as a NamedTuple: an array for a float array, a
-# `Ref` for a float scalar, a NamedTuple for a wrapper such as `TimeVarying`,
-# and `nothing` for a field without a cotangent.
-#
-# Every built-in modifier reads its parameters through `param`, whose
-# docstring lists the parameter forms.
+# `grads.piece` mirrors fields: an array for a float array, a `Ref` for a
+# float scalar, a NamedTuple for a wrapper, `nothing` without a cotangent.
+# Every built-in modifier reads its parameters through `param`.
 
 
 @doc raw"""
@@ -173,10 +169,8 @@ end
     return :($(calls...); nothing)
 end
 
-# A zero initial state, once the parameters are checked against the state's
-# strata. `foreach` unrolls the pairs, so each keeps its concrete type: in a
-# `for` loop a pair is a `Union`, which an AD backend on Julia 1.11 cannot
-# type.
+# `foreach` unrolls the pairs so each keeps its concrete type: in a `for` loop
+# a pair is a `Union`, which an AD backend on Julia 1.11 cannot type.
 function _zero_state!(s, params::Pair...)
     foreach(p -> _check_param_strata(first(p), last(p), length(s)), params)
     fill!(s, zero(eltype(s)))
@@ -322,9 +316,7 @@ _overflow_name(::_Drop) = nothing
 _overflow_name(::_ToStratum) = :stratum
 _overflow_name(::_Queue) = :queue
 
-# A form with its exponent and its arguments as a draw: `true` is the
-# default exponent of one. The positional method rebuilds a form from its
-# fields.
+# `true` is the default exponent of one.
 const _ExponentForm = Union{Hazard, Floor}
 for F in (:Hazard, :Floor)
     @eval function $F(
@@ -417,11 +409,9 @@ function _float_param(x::TimeVarying{I, <:PerStratum}) where {I}
     return TimeVarying{I}(_float_param(x.x))
 end
 
-# A form's exponent in a `Depletion`: an integer takes the population's
-# float type, so it has a cotangent and a Float32 population stays Float32.
-# A dual population gives its primal type: a dual exponent with zero
-# partials makes `(s / N)^(α - 1)` carry `log(0) * 0 = NaN` at an empty
-# pool. `nothing` and `false` stay fixed, without a cotangent.
+# An integer takes the population's float type, so it has a cotangent and a
+# Float32 population stays Float32; a dual population gives its primal type,
+# avoiding `log(0) * 0 = NaN`. `nothing` and `false` stay fixed.
 _exponent_form(form, N) = form
 function _exponent_form(form::F, N) where {F <: _ExponentForm}
     return typeof(form).name.wrapper(_exponent(form.α, N))
@@ -430,18 +420,14 @@ _exponent(α::Integer, N) = convert(float(_primal_type(param_eltype(N))), α)
 _exponent(α::Bool, N) = α
 _exponent(α, N) = α
 
-# The exponent a step reads: `true` for `nothing`, an exponent of exactly
-# one that the powers below branch on, without a cotangent.
-# A float exponent with an `isone` branch in the steps would still take the
-# exponent's `log` term in the reverse passes, so the fixed form is faster.
+# `true` for `nothing`: an exponent of exactly one that the powers below
+# branch on, without a cotangent. A float exponent with an `isone` branch
+# would still take its `log` term in reverse, so this fixed form is faster.
 _alpha(form) = _alpha_value(form.α)
 _alpha_value(::Nothing) = true
 _alpha_value(α) = α
 
-# The powers of the share of the pool left `r`: `r^(α - 1)` scales the
-# hazard (through `_pool_power` in the step) and `r^α` the floor. A `Bool`
-# exponent is a fixed integer, so each power is a branch on it, and it has
-# no cotangent, so neither has its log term.
+# A `Bool` exponent is fixed, so each power is a branch on it with no log term.
 _share_power(r, α) = _pool_power(r, α - 1)
 _share_power(r, α::Bool) = _power_m1(r, α)
 _power_m1(r, α) = r^(α - 1)
@@ -465,11 +451,8 @@ function forward!(form::Hazard, ::Step, v, s, N)
     return nothing
 end
 
-# `(exp(-x), expm1(-x))` from one exponential: `expm1` below `1/2`, where
-# it keeps the digits `1 - e^{-x}` would lose and `1 + expm1(-x)` loses
-# none, and `exp` above, where neither subtraction cancels. Plain floats
-# and dual numbers branch on their value; a traced number would fix the
-# branch when its trace is recorded, or reject it, so takes both.
+# `expm1` below `1/2` keeps digits `1 - e^{-x}` would lose. A traced number
+# would fix the branch when its trace is recorded, or reject it, so takes both.
 _exp_neg(x) = (exp(-x), expm1(-x))
 _exp_neg(x::AbstractFloat) = _exp_neg_branch(x)
 function _exp_neg_branch(x)
@@ -481,13 +464,9 @@ function _exp_neg_branch(x)
     return e, e - 1
 end
 
-# `r^e` for the share of the pool left. At an empty pool the exponent's
-# tangent is `log(0) * ė`; the pullback sets the exponent's cotangent to
-# zero there, and so does the power. With `e = 0` the power is one for any
-# positive share, so an empty share is swapped for one: the value is
-# unchanged and neither tangent sees `log(0)`. `ifelse` keeps this
-# branch-free for traced shares and exponents. A NaN share is kept, so its
-# NaN reaches the tangent.
+# At an empty pool the exponent's tangent is `log(0) * ė`; the pullback zeroes
+# its cotangent there, and so does the power. With `e = 0` an empty share is
+# swapped for one, which leaves the value unchanged; a NaN share is kept.
 _pool_power(r, e) = ifelse(r <= 0, ifelse(iszero(e), one(r), r), r)^e
 
 function pullback!(grads, form::Hazard, ::Step, v, s, N)
@@ -692,10 +671,7 @@ function _check_movement_shape(M)
     )
 end
 
-# The movement matrix `Redistribute(K, ε)` builds from a kernel and an
-# origin intensity (its docstring gives the maths): a matrix for one value or
-# a vector over origins, `TimeVarying` of an `S × S × T` array for an origins
-# × time matrix, and a movement read at each step for any other parameter.
+# The docstring of `Redistribute` gives the maths.
 function _kernel_movement(K::AbstractMatrix, ε::Union{Real, AbstractVector})
     return _movement(K, _origins(ε))
 end
@@ -730,11 +706,8 @@ function _movement(K, E)
     o = sum(K; dims = 1)
     return (axes(K, 1) .== permutedims(axes(K, 2))) .* (1 .- o .* E) .+ K .* E
 end
-# The cotangents of `_movement(K, E)` from the cotangent `M̄` of its matrix,
-# for the reverse rules: added into `K̄`, and into the origin row `Ē`, or
-# returned for one intensity `E` when `Ē` is `nothing`. A row of one entry is
-# broadcast over every origin, as the movement reads it, so it gathers every
-# origin's cotangent.
+# Returned for one intensity when `Ē` is `nothing`. A row of one entry is
+# broadcast over every origin, so it gathers every origin's cotangent.
 function _movement_back!(K̄, Ē, M̄, K, E)
     e = zero(eltype(M̄))
     for q in axes(K, 2)
@@ -756,13 +729,9 @@ _origin_at(E::Real, q) = E
 _origin_at(E::AbstractMatrix, q) = E[1, _origin_column(E, q)]
 _origin_column(E, q) = size(E, 2) == 1 ? 1 : q
 
-# The movement of a kernel `K` and an intensity `E` (origins × time), read
-# entry by entry: `M[p, q, t] = δ_pq (1 − E[q, t] o[q]) + K[p, q] E[q, t]`
-# with `o` the column sums of `K`, summed where they are read. Its columns
-# sum to one by construction. It is a struct of its arrays, not an array, so
-# the rules read its cotangent field by field. Its own loops below are
-# faster than building the `S × S × T` array first, on the primal and every
-# AD backend (the `materialised` arm of the patch-model benchmark case).
+# Columns sum to one by construction. A struct, not an array, so the rules
+# read its cotangent field by field; its loops beat building the `S × S × T`
+# array on the primal and every AD backend (benchmark `materialised` arm).
 struct _Movement{KT <: AbstractMatrix, ET}
     K::KT
     E::ET
@@ -993,10 +962,8 @@ end
 _diag_at(M::AbstractMatrix, p, t) = M[p, p]
 _diag_at(M::TimeVarying, p, t) = M.x[p, p, t]
 
-# `v′ = M v` and `s′ = M v − diag(M) ∘ v`, so with `q̄ = v̄′ + s̄′` the
-# input's cotangent is `Mᵀ q̄ − diag(M) ∘ s̄′` and the matrix's
-# `q̄ vᵀ − diag(s̄′ ∘ v)`: the coupling's own transposed product, started
-# from the diagonal term.
+# With `q̄ = v̄′ + s̄′`: `v̄ = Mᵀ q̄ − diag(M) ∘ s̄′` and
+# `M̄ = q̄ vᵀ − diag(s̄′ ∘ v)`, the coupling's transposed product.
 function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     M = m.M
     v̄, s̄ = grads.v, grads.s
@@ -1074,9 +1041,7 @@ end
 
 # == Linear steps ==
 
-# The matrix of a whole-step modifier declared linear (`islinear`) over `S`
-# strata: its `forward!` on each basis vector gives a column. The step keeps
-# no state of its own, so its state stays at the default zeros.
+# The step keeps no state, so its state stays at the default zeros.
 function _step_matrix(m, S::Integer)
     nstate(m, S) == S || throw(
         ArgumentError(
