@@ -62,14 +62,18 @@ So a step writes only its own stratum's slots, and never to the type's fields.
 | struct with no fields | `(;)` |
 
 The whole mirror, or any entry, is `nothing` when the backend holds it constant.
-Under [`Threaded`](@ref ComposableRecurrences.Threaded), the reverse pass gives each chunk of strata a zeroed copy of these mirrors and sums the copies after the loop.
-A mirror with an entry of another kind, such as an integer or a `Ref` that is not of a number, runs that loop on one task.
-So read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent).
-Add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), which skips `nothing`.
-Read a modifier parameter with [`param`](@ref ComposableRecurrences.param).
-Add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
-These accept every parameter form, including [`Derived`](@ref ComposableRecurrences.Derived) and [`Recent`](@ref ComposableRecurrences.Recent).
-Call [`add_param!`](@ref ComposableRecurrences.add_param!) for every parameter, even with a `nothing` mirror, as a [`Recent`](@ref ComposableRecurrences.Recent) parameter still sends its cotangent to the outputs it read.
+Under [`Threaded`](@ref ComposableRecurrences.Threaded):
+
+- the reverse pass gives each chunk of strata a zeroed copy of these mirrors and sums the copies after the loop;
+- a mirror with an entry of another kind, such as an integer or a `Ref` that is not of a number, runs that loop on one task.
+
+So use the helpers, which skip `nothing` and accept every parameter form, including [`Derived`](@ref ComposableRecurrences.Derived) and [`Recent`](@ref ComposableRecurrences.Recent):
+
+- read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent), and add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!);
+- read a modifier parameter with [`param`](@ref ComposableRecurrences.param), and add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
+
+Call `add_param!` for every parameter, even with a `nothing` mirror.
+A `Recent` parameter still sends its cotangent to the outputs it read.
 
 A type without a `pullback!` still takes the rule when the [local step](@ref adjoint-local-step) can rebuild it.
 
@@ -531,10 +535,14 @@ Write `forward!` first, and add a `pullback!` when timing shows the modifier's l
 On Julia 1.12 and later, `juliac --trim=safe` compiles an app into an executable that holds only the code the app can reach.
 The build fails on any call the compiler cannot resolve from the argument types.
 A build can pass and still fail when run, for example on a call the runtime makes, so the app is run as well as built.
-The app in `test/trim` runs the forward path of a renewal, a convolution, a depletion with flows, a transform with a derived parameter and a coupled renewal over several strata, and checks the outputs.
-It also runs a loop split into tasks by [`Threaded`](@ref ComposableRecurrences.Threaded).
-A trimmed app cannot set [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) with `with` on Julia 1.12, so its operator calls run serially.
-The Trim workflow builds and runs it when `src` or the app changes.
+
+The app in `test/trim`:
+
+- runs the forward path of a renewal, a convolution, a depletion with flows, a transform with a derived parameter and a coupled renewal over several strata, and checks the outputs;
+- runs a loop split into tasks by [`Threaded`](@ref ComposableRecurrences.Threaded);
+- runs its operator calls serially, as a trimmed app cannot set [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) with `with` on Julia 1.12;
+- is built and run by the Trim workflow when `src` or the app changes.
+
 Gradients and the extensions are not trim-tested.
 A new type used in a trimmed app needs concrete field types, and methods whose calls resolve from the argument types.
 
@@ -604,12 +612,15 @@ These methods are internal and may change without notice; the list says where a 
 ## [Extension API](@id overview-extending)
 
 These names are for writing a new coupling, modifier or depletion form, and for checking its gradient.
-A role is one job a new type can do, such as computing a step.
-Each role is named by a type with no fields, such as `Step()`.
+A role is one job a new type can do, named by a type with no fields.
 A new type does its work in a [`forward!`](@ref ComposableRecurrences.forward!) method for each role it has.
-The role `Step()` computes one step, and [`Init()`](@ref ComposableRecurrences.Init) the starting state.
-The role [`Pressure()`](@ref ComposableRecurrences.Pressure) is a coupling's mixing, and `ComposableRecurrences.Trace()` a modifier's record for a call with `record = (:trace,)`.
-The role `ComposableRecurrences.Run()` is an operator's whole call.
+
+- `Step()` computes one step.
+- [`Init()`](@ref ComposableRecurrences.Init) computes the starting state.
+- [`Pressure()`](@ref ComposableRecurrences.Pressure) is a coupling's mixing.
+- `ComposableRecurrences.Trace()` is a modifier's record for a call with `record = (:trace,)`.
+- `ComposableRecurrences.Run()` is an operator's whole call.
+
 An operator's hand-written gradient is its rule.
 
 | Name | What it does | Returns |
