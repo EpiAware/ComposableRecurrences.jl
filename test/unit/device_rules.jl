@@ -515,10 +515,9 @@ end
     # So do modifiers that move values between strata, whose whole step runs
     # as kernels: a matrix of moves, or a movement of a kernel and an
     # intensity.
-    moves = CR.Redistribute(0.9 .* dense(S); leak = true)
-    for m in (moves, movement(S))
-        op, args = modified_case((m,), S, true)
-        @test (@inferred route(op, args)) === Val(:rule)
+    by_matrix = CR.Redistribute(0.9 .* dense(S); leak = true)
+    for m in (by_matrix, movement(S))
+        @test (@inferred route(modified_case((m,), S, true)...)) === Val(:rule)
     end
     # Moves over time given as an array reverse on the host.
     tv_moves = CR.Redistribute(TimeVarying(repeat(dense(S), 1, 1, T)))
@@ -534,7 +533,7 @@ end
     @test CR._device_coupling(I) && CR._device_coupling(Diagonal(ones(S)))
     @test !CR._device_coupling(TimeVarying(X))
     @test CR._device_modifiers(())
-    @test CR._device_modifier(moves) && CR._device_modifier(movement(S))
+    @test CR._device_modifier(by_matrix) && CR._device_modifier(movement(S))
     @test !CR._device_modifier(tv_moves)
     @test CR._device_modifier(totals(S))
     # These have their own vector pullbacks, which a device skips.
