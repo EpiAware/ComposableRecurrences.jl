@@ -761,3 +761,39 @@ end
         end
     end
 end
+
+@testitem "JLArrays: views and reshapes of device arrays run on the device" begin
+    using ComposableRecurrences
+    using ComposableRecurrences: Primary, Survival
+    using JLArrays, KernelAbstractions
+    const CR = ComposableRecurrences
+    JLArrays.allowscalar(false)
+    x = JLArray(collect(1.0:6.0))
+    backend = CR.Parallel(KernelAbstractions.get_backend(x))
+    for a in (view(x, 2:5), Base.ReshapedArray(x, (2, 3), ()))
+        @test CR._on_gpu(a)
+        @test CR._resolve(CR.Serial(), a) == backend
+        @test CR._resolve(CR.Threaded(), a) == backend
+    end
+    # On the host they stay host arrays, decided from the type.
+    h = collect(1.0:6.0)
+    for a in (view(h, 2:5), reshape(view(h, :), 2, 3), reshape(h, 2, 3))
+        @test !(@inferred CR._on_gpu(a))
+        @test (@inferred CR._resolve(CR.Serial(), a)) === CR.Serial()
+    end
+    # A kernel built from views into one parameter vector, with its input a
+    # reshaped view of the same vector, runs on the device.
+    T, L = 20, 4
+    g0 = [0.4, 0.3, 0.2, 0.1]
+    hz = 0.1 .+ 0.05 .* sin.(1:T)
+    θ = vcat(g0, hz, 1 .+ 0.1 .* sin.(1:(3T)))
+    function run(θ)
+        g, η = view(θ, 1:L), view(θ, (L + 1):(L + T))
+        k = TimeVarying(g * (1 - Survival(TimeVarying(η); from = 1)), Primary())
+        X = reshape(view(θ, (L + T + 1):length(θ)), 3, T)
+        return Convolution(k)(X)
+    end
+    y = run(JLArray(θ))
+    @test y isa JLArray
+    @test Array(y) ≈ run(θ)
+end
