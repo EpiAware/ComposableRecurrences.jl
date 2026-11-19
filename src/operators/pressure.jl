@@ -136,7 +136,7 @@ function _pressure_run(
         )
     end
     keep isa Val{true} || return out, nothing
-    return out, (; H, P, kernel, h, τ0, L, D, S, T)
+    return out, (; H, P, kernel = _kept_kernel(kernel), h, τ0, L, D, S, T)
 end
 
 # Each step's coupling pullback then its kernel's, as `_steps_back!` runs

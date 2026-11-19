@@ -1509,16 +1509,31 @@ end
         h .= 0
         return sum(W .* y)
     end
+    # The kernel is overwritten after the call and after `pressure`; a
+    # single series reads it through a view.
+    x, hx = [1.1, 0.9, 1.2, 1.0], [1.0, 2.0, 0.5]
+    function kernel(θ)
+        k = θ[1:3]
+        y = Recurrence(k)(x; history = hx)
+        k .= 0
+        return sum(abs2, y)
+    end
+    function kernel_pressure(θ)
+        k = θ[1:3]
+        q = ComposableRecurrences.pressure(Recurrence(k), x; history = hx)
+        k .= 0
+        return sum(abs2, q)
+    end
     θ = [1.1, 0.9, 1.2, 1.0, 0.8, 1.3, 1.0, 2.0]
-    ref = gradient(f, AutoForwardDiff(), θ)
     for backend in job_backends(
-            :mooncake_reverse => AutoMooncake(; config = nothing),
-            :enzyme_reverse => AutoEnzyme(;
-                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-                function_annotation = Enzyme.Const
+                :mooncake_reverse => AutoMooncake(; config = nothing),
+                :enzyme_reverse => AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
             ),
-        )
-        @test gradient(f, backend, θ) ≈ ref
+            fn in (f, kernel, kernel_pressure)
+        @test gradient(fn, backend, θ) ≈ gradient(fn, AutoForwardDiff(), θ)
     end
 end
 
