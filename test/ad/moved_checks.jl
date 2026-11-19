@@ -81,6 +81,9 @@ end
     h(x) = sum(r(x; history = [1.0, 2.0]))
     x = fill(1.5, 6)
     println(round(h(x); digits = 6))
+    # A primal call logs nothing, as it takes no gradient.
+    using Test: @test_logs
+    @test_logs h(x)
     # Without the dual-number extension the call takes plain AD, says so
     # once, and gives the right gradient.
     n0 = CR._PULLBACK_CALLS[]
@@ -96,6 +99,7 @@ end
         modifiers = (CR.Transform((v, p) -> p.a * v / (p.a + v), (; a = 5.0)),)
     )
     th(x) = sum(tr(x; history = [1.0, 2.0]))
+    @test_logs th(x)
     transform_ok = isapprox(gradient(th, backend, x), fd(th, x); rtol = 1.0e-5)
     transform_noted = any(m -> occursin("`Transform` without a `derivative`", m), CR._PLAIN_NOTED)
     using Interfaces
@@ -107,6 +111,8 @@ end
     println(Recurrence([0.3, 0.2]; modifiers = (Cap(5.0),)).rebuilds)
     println(unchecked)
     println("transform ", transform_ok, " ", transform_noted)
+    # Reached only if both `@test_logs` above saw no log.
+    println("primal silent")
     """
     project = Base.active_project()
     cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
@@ -120,6 +126,7 @@ end
     @test lines[7] == "true"
     @test lines[8] == "true"
     @test "transform true true" in lines
+    @test "primal silent" in lines
 end
 
 @testitem "Trace, Mooncake reverse: gradients through the traces of built-in modifiers and flows, the rule against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin
