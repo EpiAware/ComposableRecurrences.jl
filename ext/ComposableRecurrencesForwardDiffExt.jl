@@ -21,6 +21,8 @@ using ComposableRecurrences: _ArrayPressure, _cpu_buffer, _Chained, _IEEEFloat, 
 using ForwardDiff: ForwardDiff, Dual, value
 using LinearAlgebra: Transpose, transpose
 
+ComposableRecurrences._duals_loaded(::Nothing) = true
+
 # The local derivatives, `Transform`'s among them, seed each input with a
 # partial of its own.
 # `ForwardDiff` breaks a tie between values by the partials, so at a tie a

@@ -147,6 +147,11 @@ end
 blocks(::Transform) = (1, 1)
 isstateless(::Transform) = true
 uses_adjoint(m::Transform, ::Step) = _local_derivative(m)
+_needs_duals(m::Transform) = m.derivative === nothing && _local_derivative(m)
+function _dual_why(::Transform)
+    return "a `Transform` without a `derivative` takes its local derivative " *
+        "with `ForwardDiff`; add `using ForwardDiff` for the faster rule"
+end
 _scalar_params(::Transform) = false
 _local_params(::Transform) = false
 _array_params(::Transform) = false

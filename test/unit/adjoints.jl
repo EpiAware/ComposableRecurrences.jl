@@ -1458,6 +1458,15 @@ end
     @test invoke(CR._dual_pressure_buffers, two_args, nothing, C, Float64) === nothing
     @test CR._reads_within(nothing) === nothing
     @test CR._check_rebuilds((m, C)) isa Bool
+    # The src method reports the extension absent; the extension adds the
+    # `Nothing` method. Without it, each part that takes the local step is
+    # named, so the call takes plain AD.
+    @test invoke(CR._duals_loaded, Tuple{Any}, nothing) === false
+    @test CR._duals_loaded(nothing)
+    whys = CR._dual_whys([0.3, 0.2], C, ())
+    @test length(whys) == 1
+    @test occursin("Mix has no `pullback!`", only(whys))
+    @test isempty(CR._dual_whys([0.3, 0.2], CR.I, ()))
 end
 
 @testitem "Adjoint: an operator built without `ForwardDiff` checks its parts per call" setup = [

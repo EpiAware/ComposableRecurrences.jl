@@ -213,6 +213,8 @@ _local_form_pullback(grads, form, args...) = _need_forwarddiff(form)
 _init_jacobian(m, args...) = _need_forwarddiff(m)
 _init_strata_back!(m̄, h̄, m, args...) = _need_forwarddiff(m)
 _dual_pressure_buffers(C̄, C, args...) = nothing
+# Whether the dual-number extension is loaded: it adds the `Nothing` method.
+_duals_loaded(::Any) = false
 function _need_forwarddiff(piece)
     name = nameof(typeof(piece))
     return _need_forwarddiff(

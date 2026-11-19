@@ -81,14 +81,22 @@ end
     h(x) = sum(r(x; history = [1.0, 2.0]))
     x = fill(1.5, 6)
     println(round(h(x); digits = 6))
-    msg = try
-        gradient(h, backend, x)
-        ""
-    catch err
-        sprint(showerror, err)
+    # Without the dual-number extension the call takes plain AD, says so
+    # once, and gives the right gradient.
+    n0 = CR._PULLBACK_CALLS[]
+    g0 = gradient(h, backend, x)
+    noted = any(CR._PLAIN_NOTED) do m
+        occursin("Cap has no `pullback!`", m) &&
+            occursin("add `using ForwardDiff`", m)
     end
-    println(occursin("Cap has no `pullback!`", msg), " ",
-        occursin("add `using ForwardDiff`", msg))
+    println(CR._PULLBACK_CALLS[] == n0, " ", isapprox(g0, fd(h, x); rtol = 1.0e-5), " ", noted)
+    # So does a `Transform` without a `derivative`.
+    tr = Recurrence(
+        [0.3, 0.2];
+        modifiers = (CR.Transform((v, p) -> p.a * v / (p.a + v), (; a = 5.0)),)
+    )
+    th(x) = sum(tr(x; history = [1.0, 2.0]))
+    transform_ok = isapprox(gradient(th, backend, x), fd(th, x); rtol = 1.0e-5)
     using Interfaces
     unchecked = Interfaces.test(CR.PieceInterface{(:pullback,)}, CR.Transform; show = false)
     using ForwardDiff
@@ -97,6 +105,7 @@ end
     println(CR._PULLBACK_CALLS[] > n0, " ", isapprox(g, fd(h, x); rtol = 1.0e-5))
     println(Recurrence([0.3, 0.2]; modifiers = (Cap(5.0),)).rebuilds)
     println(unchecked)
+    println(transform_ok)
     """
     project = Base.active_project()
     cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
@@ -105,10 +114,11 @@ end
     @test lines[2] == "true true"
     @test lines[3] == "true true"
     @test parse(Float64, lines[4]) > 0
-    @test lines[5] == "true true"
+    @test lines[5] == "true true true"
     @test lines[6] == "true true"
     @test lines[7] == "true"
     @test lines[8] == "true"
+    @test lines[9] == "true"
 end
 
 @testitem "Trace, Mooncake reverse: gradients through the traces of built-in modifiers and flows, the rule against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin
@@ -468,4 +478,27 @@ end
     @test_throws ArgumentError Mooncake.value_and_gradient!!(
         Mooncake.prepare_gradient_cache(bad, [1.0]), bad, [1.0]
     )
+end
+
+@testitem "Loading: Enzyme gradients without ForwardDiff" tags = [:ad, :enzyme, :enzyme_reverse] begin
+    script = raw"""
+    using ComposableRecurrences, Enzyme
+    CR = ComposableRecurrences
+    println(any(k -> k.name == "ForwardDiff", keys(Base.loaded_modules)))
+    struct Scale{T}
+        a::T
+    end
+    CR.ispointwise(::Scale) = true
+    CR.forward!(m::Scale, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
+    r(a) = Recurrence([0.5, 0.3]; modifiers = (Scale(a),))
+    f(θ) = sum(r(θ[1])(ones(10); history = [1.0, 2.0]))
+    g = Enzyme.gradient(Enzyme.Reverse, Enzyme.Const(f), [0.9])[1]
+    fd = (f([0.9 + 1.0e-6]) - f([0.9 - 1.0e-6])) / 2.0e-6
+    println(isapprox(g[1], fd; rtol = 1.0e-5))
+    """
+    project = Base.active_project()
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
+    lines = split(read(cmd, String), '\n'; keepempty = false)
+    @test lines[1] == "false"
+    @test lines[2] == "true"
 end

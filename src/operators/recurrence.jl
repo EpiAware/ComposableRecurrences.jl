@@ -898,8 +898,10 @@ _primary_adjoint(C) = _linear_coupling(C) ? :linear : _coupling_adjoint(C)
 
 # `Val(true)` when the types send no part to the local step, so the route
 # folds; else whether each rebuilt part gives its scalars back, or `nothing`
-# without the dual-number extension, so `_fit` checks at call time.
+# when a part needs the dual-number extension and it is not loaded, so `_fit`
+# checks at call time.
 function _check_parts(kernel, C, ms::Tuple)
+    _duals_loaded(nothing) || isempty(_dual_whys(kernel, C, ms)) || return nothing
     if !_parts_adjoint(kernel, C, ms)
         C_why = _primary_adjoint(C) === :none ? (_part_why(C),) : ()
         _note_plain((_no_adjoint_kernel(kernel)..., C_why..., _no_adjoint(ms...)...))
@@ -1038,8 +1040,14 @@ function _worse(a::Symbol, b::Symbol)
     return a === :wide || b === :wide ? :wide : :one
 end
 # The construction check of `r`'s parts, run on its primal values when it
-# is called; the backend extensions do not differentiate it.
+# is called; the backend extensions do not differentiate it. Without the
+# dual-number extension, parts that take a local derivative send the call to
+# plain AD, which needs no dual numbers.
 function _check_now(r::Recurrence)
+    if !_duals_loaded(nothing)
+        whys = _dual_whys(r.kernel, r.coupling, r.modifiers)
+        isempty(whys) || (_note_plain(whys); return false)
+    end
     parts = (
         _primary_parts(r.coupling, _kernel_couplings(r.kernel)...)...,
         _local_parts(r.modifiers...)...,
@@ -1047,6 +1055,19 @@ function _check_now(r::Recurrence)
     return _check_rebuilds(parts) !== false
 end
 _fit(w::_WithState, args...) = _fit(w.r, args...)
+# The parts of `r` whose reverse pass takes a local derivative, each with why
+# it needs the dual-number extension.
+function _dual_whys(kernel, C, ms)
+    Cp = _primary_adjoint(C) === :local ? (C,) : ()
+    Ck = filter(K -> _coupling_adjoint(K) === :local, _kernel_couplings(kernel))
+    return map(_dual_why, (Cp..., Ck..., filter(_needs_duals, ms)...))
+end
+_needs_duals(m) = _modifier_adjoint(m) === :local || _local_modifier(m) !== ()
+function _dual_why(p)
+    return "$(nameof(typeof(p))) has no `pullback!`, and its local " *
+        "derivative needs `ForwardDiff`; add `using ForwardDiff` for the " *
+        "faster rule"
+end
 function _coupling_fit(C, h)
     _coupling_adjoint(C) === :local || return :one
     return _local_fit(_nstrata(h) + _ninputs(C))
