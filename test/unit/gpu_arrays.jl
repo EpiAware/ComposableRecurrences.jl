@@ -6,8 +6,8 @@
     using ComposableRecurrences
     using ComposableRecurrences: Derived
     using ComposableRecurrences: Allocate, Depletion,
-        Flow, Floor, Hazard, Primary, Redistribute, Share, Truncate, Transform,
-        contributions
+        Flow, Floor, Hazard, Primary, Recent, Redistribute, Share, Truncate,
+        Transform, contributions
     using JLArrays: JLSparseMatrixCSR
     using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
@@ -278,6 +278,21 @@
             d(g0);
             modifiers = (Redistribute(d(Redistribute(K0 - 0.5I, [0.1, 0.2, 0.3]).M)),)
         )(d(RS); history = d(HS)),
+        "Recurrence, routes" =>
+            d -> Recurrence(
+            Pairwise(d(K0) => d(g0[2:4]), d(0.5 .* K0) => d(g0))
+        )(d(RS); history = d(HS)),
+        "Convolution transpose, Primary kernel with a tail" =>
+            d -> transpose(Convolution(TimeVarying(d(TVK), Primary())))(
+            d(RS); tail = d(HS[:, 1:(L - 1)]), start = 2
+        ),
+        "Recurrence, feedback from recent outputs" =>
+            (d, F = Float64) -> Recurrence(
+            d(g0); coupling = d(K0),
+            modifiers = (
+                Transform(*, Derived(exp, F(-0.05) * Recent(d(g0[1:3])))),
+            )
+        )(d(RS); history = d(HS)),
         "Modifiers in a chain with a dense coupling" =>
             (d, F = Float64) -> Recurrence(
             d(g0); coupling = d(K0),
@@ -370,6 +385,10 @@ end
         return KAExt._launch!(b.inner, body, args, n)
     end
     jl = KernelAbstractions.get_backend(JLArray(ones(1)))
+    # A transpose runs the convolution's reverse blocks, which launch on the
+    # arrays' own backend whatever executor is set, so its launches need not
+    # be recorded.
+    on_arrays_backend = ("Convolution transpose, Primary kernel with a tail",)
     @testset "Device executor, plain kernel arguments" begin
         for (name, f) in GPUCases.CASES
             @testset "$name" begin
@@ -379,7 +398,7 @@ end
                 end
                 @test y isa JLArray
                 @test Array(y) ≈ f(identity)
-                @test !isempty(b.args)
+                name in on_arrays_backend || @test !isempty(b.args)
                 @test all(a -> plain(launched(a)), b.args)
             end
         end
@@ -461,7 +480,7 @@ end
 
 @testitem "JLArrays: host parameters and ragged kernels on device inputs are errors" begin
     using ComposableRecurrences, JLArrays, SparseArrays
-    using ComposableRecurrences: Depletion, Primary
+    using ComposableRecurrences: Depletion, Derived, Primary
     JLArrays.allowscalar(false)
     # JLArrays run kernels on the CPU, where a host array inside a kernel
     # works; on a GPU it does not, so the call refuses it.
@@ -484,6 +503,20 @@ end
     @test_throws ArgumentError Recurrence(TimeVarying(ks))(
         JLArray(ones(3)); history = JLArray(ones(2))
     )
+    # A coupled `Recent` fills its windows on the host, so it refuses a
+    # device and names the uncoupled form.
+    C = JLArray([0.8 0.2; 0.1 0.9])
+    recent = ComposableRecurrences.Recent(g; coupling = C)
+    feedback = ComposableRecurrences.Transform(*, Derived(exp, -0.1 * recent))
+    r = Recurrence(g; modifiers = (feedback,))
+    err = try
+        r(x; history = h)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("Recent with a coupling", err.msg)
 end
 
 @testitem "JLArrays: coefficients from change points refuse a device" begin
@@ -519,7 +552,7 @@ end
     using ComposableRecurrences
     using ComposableRecurrences: Derived
     using ComposableRecurrences: Allocate, Depletion,
-        Flow, Hazard, Redistribute, Share, Transform, Truncate
+        Flow, Hazard, Primary, Redistribute, Share, Transform, Truncate
     using JLArrays
     # Inside a kernel each wrapper and modifier must hold device arrays only:
     # no `JLArray`, the host-side handle, is left after adapting.
@@ -549,6 +582,9 @@ end
                 PerStratum(v), Hazard(; weights = (S = 1, V = 0.3)),
                 Flow(2 => 1, PerStratum(v)); pools = (:S, :V)
             ),
+            Transform(*, Derived(exp, -0.1 * ComposableRecurrences.Recent(v))),
+            Recurrence(Pairwise(m => v, 0.5 .* m => v[1:2])).kernel,
+            transpose(Convolution(TimeVarying(m, Primary()))),
         )
         @test holds_host(x)
         y = adapt(JLArrays.Adaptor(), x)

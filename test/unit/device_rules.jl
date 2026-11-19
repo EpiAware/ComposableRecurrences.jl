@@ -284,6 +284,10 @@ end
             "a function of its own" => (
                 CR.Transform((v, a) -> v * exp(-a), 0.1),
             ),
+            # A scale read from the last three outputs, each stratum its own.
+            "feedback from recent outputs" => (
+                CR.Transform(*, CR.Derived(exp, -0.05 * CR.Recent(pmf[1:3]))),
+            ),
             # Group steps: several pools, two draws on one pool, a queue
             # and grouped totals, which reverse group by group.
             "two pools with a flow between them" => (two_pools(S),),

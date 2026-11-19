@@ -55,6 +55,8 @@ function _rule_cases(S)
         CR.Depletion(PerStratum(fill(150.0, S)), CR.Floor()),
     )
     conv(k) = (Convolution(k), (x, true, nothing, nothing, 1, nothing))
+    recent = CR.Recent(pmf[1:3])
+    feedback = CR.Transform(*, CR.Derived(exp, -0.05 * recent))
     # A gain or add input per stratum and time, per time or shared.
     gain, add = 0.5 .* x, collect(range(0.1, 1.0; length = T))
     scaled(g, a) = (Convolution(pmf), (x, g, a, fill(1.0, S, 2), 1, nothing))
@@ -93,6 +95,9 @@ function _rule_cases(S)
         "Recurrence, dense coupling" => rec(Recurrence(pmf; coupling = C)),
         "Recurrence, pools and a shift" => rec(
             Recurrence(pmf; modifiers = (pools..., CR.Transform(+, 0.5)))
+        ),
+        "Recurrence, feedback from recent outputs" => rec(
+            Recurrence(pmf; coupling = C, modifiers = (feedback,))
         ),
         "Recurrence, time-varying kernel" => rec(Recurrence(TimeVarying(G))),
         "Recurrence, per-stratum time-varying kernel" =>
