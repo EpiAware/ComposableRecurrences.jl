@@ -3002,9 +3002,9 @@ end
 # `test/reactant/` runs the scenarios without their twins, so only the
 # scenario names are listed.
 const REACTANT_BROKEN = Dict(
-    # A modifier field read at the traced step indexes a view with a traced
-    # integer.
-    "modifier field read at a traced step" => [
+    # The modifier is a user's, written with `if` on its values, which a
+    # traced comparison cannot drive; written with `ifelse` it would trace.
+    "a user modifier branches with `if` on a traced value" => [
         "Recurrence whole-step modifier branching at a tie (occupancy)",
         "Recurrence whole-step modifier branching at a tie over five steps (occupancy)",
     ],
