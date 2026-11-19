@@ -63,6 +63,15 @@ end
     @test Reactant.@compile(at(x))(x) == 1.5
 end
 
+# A vector of traced masses is a link in a chain of delays; the check is
+# on the type, so ordinary links keep their rule.
+@testset "Reactant traced masses in a chain of delays" begin
+    CR = ComposableRecurrences
+    @test CR._is_masses(Reactant.TracedRArray{Float64, 1})
+    @test CR._is_masses(Vector{Float64})
+    @test !CR._is_masses(Vector{String})
+end
+
 # Reactant compiles the kernels through CUDA.jl, so a traced call without it
 # says to load it.
 @testset "Reactant traced call needs CUDA.jl" begin

@@ -167,6 +167,13 @@ end
 # A traced array's eltype is a traced number, which is not a `Real`, so the
 # generic array method would reduce over its entries' types; the eltype
 # is the answer, also for reshapes and views of traced arrays.
+# A vector of traced masses is a link in a chain of delays, as a vector of
+# real masses is.
+function ComposableRecurrences._is_masses(
+        ::Type{<:AbstractVector{<:TracedRNumber}}
+    )
+    return true
+end
 # A traced movement matrix's values are not known while tracing, so its
 # columns are not checked.
 ComposableRecurrences._check_columns(::AnyTracedRArray, leak) = nothing
