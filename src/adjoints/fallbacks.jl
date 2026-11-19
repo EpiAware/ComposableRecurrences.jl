@@ -4,8 +4,9 @@
 
 # == Parameter walks ==
 
-# A parameter is a float leaf: a float scalar, a float array's entries, a
-# sparse matrix's nonzeros or a `Diagonal`'s diagonal.
+# A parameter is a float leaf: a float scalar, a float array's entries (a
+# view or reshape is rebuilt as an `Array`), a sparse matrix's nonzeros or a
+# `Diagonal`'s diagonal.
 
 # A walker defines `_fold_*`, `_mfold_*`, `_map_*` or `_collect_*` for its
 # leaves; `_descends` picks the structs it enters and `_into_stored` whether
@@ -431,6 +432,8 @@ end
 function _form_pullback(::Val{false}, grads, form, v, s, N)
     return _local_form_pullback(grads, form, v, s, N)
 end
+# An `_EntryParam` reads its entry at `at = (k, t)`, or a zero for
+# `at = nothing`, where only the types matter.
 struct _ScalarLeaves{A}
     at::A
 end
@@ -486,7 +489,9 @@ function _any_step(::Val{B}, m, x) where {B}
     return _block_step(m, vs, ss, 1, 1)
 end
 _any_step(m::_FormPart, x) = _draw(m.form, x, x, 1)
-# Reading at most `_READ_CAP` entries; above that plain AD is faster.
+# The scalars must come back unchanged, each array must stay its
+# `_ReadArray`, and one step must read at most `_READ_CAP` entries; above that
+# plain AD is faster.
 _check_reads(x) = _reads_within(_probe_reads(x))
 _reads_within(::Nothing) = nothing
 _reads_within(n::Int) = 0 <= n <= _READ_CAP
@@ -595,6 +600,7 @@ function pullback!(grads, m, ::Init, s, history)
     return nothing
 end
 
+# Per stratum needs a history of one row per stratum (`nh % length(s)`).
 function _strata_init(m, s, nh)
     _strata_loop(m) && _local_params(m) || return false
     return nh % max(length(s), 1) == 0

@@ -155,6 +155,7 @@ end
 
 # == Forward pass ==
 
+# Each route's kernel oldest first, with its length and work vectors.
 struct _RouteKernels{C <: Tuple, G <: Tuple, L <: Tuple, W}
     couplings::C
     kernels::G

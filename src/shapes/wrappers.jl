@@ -356,9 +356,9 @@ end
 
 # == Kernel columns ==
 
-# Offsets live where the values do, so a device loop reads them. The checked
-# constructor validates them, so loops within range skip bounds checks; the
-# `_Flat` form takes a checked one's fields as they are, as `adapt` does.
+# Column `τ` is `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first. The
+# offsets carry no cotangent and live with the values, so device loops read
+# them; checked once, so in-range loops skip bounds checks.
 struct _Ragged{V <: AbstractVector, O <: AbstractVector{Int}}
     values::V
     offsets::O
@@ -473,8 +473,9 @@ end
 
 # == Change points ==
 
-# Value `j` is column `j` of the dense `x`, so a dense reader reads column
-# `_segment(p, t)`. The `_Flat` form takes a checked one's fields as they are.
+# Segment `j` covers `starts[j]:(starts[j + 1] - 1)` and reads column `j` of
+# `x`. The starts rise from 1 and carry no cotangent; the `_Flat` form takes a
+# checked one's fields as they are.
 struct _Piecewise{X, P <: AbstractVector{Int}}
     x::X
     starts::P

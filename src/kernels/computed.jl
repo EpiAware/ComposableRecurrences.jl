@@ -1,4 +1,6 @@
-# Operators with a computed kernel (see `weights.jl` and `walk.jl`).
+# Operators with a computed kernel (see `weights.jl`). A convolution and
+# `kernel_weights` walk each cohort's weights in turn (see `walk.jl`); a
+# recurrence fills the weights as a dense `Primary()` kernel.
 
 # == Convolution ==
 

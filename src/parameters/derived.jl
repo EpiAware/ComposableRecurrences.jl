@@ -211,7 +211,8 @@ _float_param(x::Derived) = x
 
 # == Local derivative ==
 
-# Type-only, so `_derived_local` folds at compile time.
+# A map with float fields of its own (a closure's captured values) is beyond
+# the local derivative. Type-only, so `_derived_local` folds at compile time.
 function _derived_local_type(::Type{T}) where {T}
     T <: Derived && return _fieldfree_type(fieldtype(T, :f)) &&
         _derived_local_type(fieldtype(T, :args))

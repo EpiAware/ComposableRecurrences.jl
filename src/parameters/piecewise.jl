@@ -90,7 +90,8 @@ _check_kernel_strata(p::_Piecewise, S) = _check_kernel_strata(p.x, S)
 
 # == Recurrence kernel ==
 
-# `cols[t]` is the segment of time `t` up to the last start.
+# Segment `j`'s weights reversed once per call as `ks[j]`; `cols[t]` is the
+# segment of time `t` up to the last start.
 struct _OldestFirstPiecewise{I, K <: AbstractVector, P <: AbstractVector{Int}}
     ks::K
     starts::P

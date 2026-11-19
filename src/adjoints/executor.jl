@@ -599,8 +599,8 @@ end
 # == Shared cotangents ==
 
 # Each block allocates its copy on its own task, so copies do not share cache
-# lines. `_reduce!` adds them in block order, so split runs match serial ones
-# up to rounding.
+# lines; `_reduce!` adds them in block order, matching serial runs up to
+# rounding. A mirror `_private` cannot copy runs as one block.
 function _accumulators(ex::Serial, x, n, work, acc)
     r = _resolve(ex, x)
     r isa Parallel && return _stacked_accumulators(r, x, n, acc)
@@ -705,7 +705,7 @@ _add_into!(::_Owned, ::_Owned) = nothing
 # == Shared cotangents on a kernel backend ==
 
 # Each shared cotangent has `m` zeroed copies stacked along a new last
-# dimension; `_reduce!` adds them after the loop, so the result does not
+# dimension and block `b` writes slice `b`, so the sum after the loop does not
 # depend on block order. Mirrors written only at own slots are shared.
 struct _Stacked{E, C}
     ex::E

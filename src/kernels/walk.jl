@@ -372,9 +372,9 @@ _no_walk(x) = nothing
 _no_walk(x::Derived) = map(_no_walk, x.args)
 _no_walk(x::Survival) = _NoRecord(_no_walk(x.hazard))
 
-# With strata the blocks are blocks of strata, so a per-stratum coefficient's
-# cotangent is shared by them (`_param_slots`); without, blocks of cohorts.
-# Other shared cotangents are copied per block and summed after the loop.
+# With strata, blocks are blocks of strata and each writes a per-stratum
+# coefficient's cotangent only at its own rows, so it is shared
+# (`_param_slots`); other shared cotangents are copied per block and summed.
 function _device_weights_back!(x̄, x, K̄, o, last)
     n = size(K̄, ndims(K̄))
     strata = ndims(K̄) == 3

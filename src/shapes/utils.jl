@@ -155,8 +155,9 @@ end
 param_eltype(x::Union{Tuple, NamedTuple}) = _fields_eltype(x)
 param_eltype(::Union{Nothing, Symbol, AbstractString, Type, Module}) = Bool
 
-# Unrolled so a concrete type infers: a recursion is widened by inference, and
-# `promote_type` of over about 32 types does not infer.
+# Unrolled so a concrete type infers: a recursion carrying the field count is
+# widened when an inner struct has more fields, and `promote_type` of over
+# about 32 types does not infer, so each promotion takes two.
 @generated function _fields_eltype(x)
     ex = :Bool
     for i in 1:fieldcount(x)
