@@ -154,6 +154,7 @@ The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [join
 ## [Shapes](@id overview-shapes)
 
 A [slot](@ref explanation-slots) is a place an operator reads a coefficient from: a kernel, a coupling or a modifier parameter.
+A shape is how that coefficient varies across strata and time.
 A plain array gives one set of numbers for every stratum and time.
 A wrapper, such as [`PerStratum`](@ref PerStratum), gives one set per stratum, per pair of strata or per step.
 In the three-town model, `PerStratum(pop)` gives each town its own population.
