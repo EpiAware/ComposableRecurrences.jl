@@ -93,8 +93,6 @@ with(EXECUTOR => Threaded(; min_work = 1_000_000)) do
     r(R; history = seed)
 end == y_serial
 
-# The result is the same either way.
-
 # ## GPU arrays
 #
 # The executor `Parallel(backend)` runs the same strata loops as one GPU kernel each.

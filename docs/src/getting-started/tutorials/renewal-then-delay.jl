@@ -37,8 +37,6 @@ infections = renewal(R; history = [5.0])
     draw(_; axis = (xlabel = "Day", ylabel = "Infections"))
 end
 
-# Infections grow while ``R_t`` is above one and fall while it is below one.
-
 # ### Seeding on a growth path
 #
 # A single seed day makes the first generations uneven.
@@ -129,8 +127,6 @@ reports = delay(infections_depleted; gain = 0.4)
     data(_) * mapping(:day, :count, color = :series => "") * visual(Lines, linewidth = 2)
     draw(_; axis = (xlabel = "Day", ylabel = "Count"))
 end
-
-# Reports peak three days after infections, at about 40% of their height.
 
 # ## Performance
 #
