@@ -415,8 +415,7 @@ _before_window(b::_BoundRecent, t) = _before_window(b.site, b, t)
     throw(
         ArgumentError(
             "Recent with $W weights was read at time $t, but this call keeps " *
-                "outputs only for reads from time $t0 on; a modifier's " *
-                "Init reads its parameters at time 1, so start the run at 1"
+                "outputs only for reads from time $t0 on; " * _RECENT_INIT
         )
     )
 end
@@ -424,9 +423,10 @@ end
 # build one.
 @noinline _before_window(::_InKernel, b, t) =
     throw(ArgumentError(_RECENT_BEFORE_WINDOW))
+const _RECENT_INIT = "a modifier's Init reads its parameters at time 1, so " *
+    "start the run at 1"
 const _RECENT_BEFORE_WINDOW = "Recent was read at a time before the outputs " *
-    "this call keeps for its weights; a modifier's Init reads its " *
-    "parameters at time 1, so start the run at 1"
+    "this call keeps for its weights; " * _RECENT_INIT
 
 Base.@propagate_inbounds _add_buffer!(H̄, v, i, k) = (H̄[i, k] += v; nothing)
 _add_buffer!(::Nothing, v, i, k) = nothing

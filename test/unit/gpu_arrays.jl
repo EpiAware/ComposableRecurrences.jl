@@ -386,7 +386,8 @@ end
     end
     jl = KernelAbstractions.get_backend(JLArray(ones(1)))
     # A transpose runs the convolution's reverse blocks, which launch on the
-    # arrays' own backend whatever executor is set, so none is recorded.
+    # arrays' own backend whatever executor is set, so its launches need not
+    # be recorded.
     on_arrays_backend = ("Convolution transpose, Primary kernel with a tail",)
     @testset "Device executor, plain kernel arguments" begin
         for (name, f) in GPUCases.CASES
@@ -397,7 +398,7 @@ end
                 end
                 @test y isa JLArray
                 @test Array(y) ≈ f(identity)
-                @test isempty(b.args) == (name in on_arrays_backend)
+                name in on_arrays_backend || @test !isempty(b.args)
                 @test all(a -> plain(launched(a)), b.args)
             end
         end

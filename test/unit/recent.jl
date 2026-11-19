@@ -320,6 +320,15 @@ end
             x(fill(1.2, 2, 10)); history = x(ones(2, 5)), start = 2
         )
     end
+    # Inside a kernel the message cannot be built, so it is a constant that
+    # gives the same advice.
+    @test_throws ArgumentError(CR._RECENT_BEFORE_WINDOW) CR._before_window(
+        CR._InKernel(), nothing, 1
+    )
+    @test endswith(CR._RECENT_BEFORE_WINDOW, CR._RECENT_INIT)
+    @test_throws CR._RECENT_INIT r(
+        fill(1.2, 2, 10); history = ones(2, 5), start = 2
+    )
 end
 
 @testitem "Recent: an Init that reads the outputs sends its cotangent to the history" setup = [AdjointCheck] begin
