@@ -518,10 +518,8 @@ _column(b::NamedTuple, t) = map(B -> _column(B, t), b)
 _column(x::AbstractVector, t) = x
 
 # A vector modifier may ask for its after-step states (`_keeps_after`) or a
-# pass buffer (`_pass_buffer`, finished by `_finish_pass!`); without them its
-# per-step pullback must give the same cotangents. A blockwise modifier split
-# into groups gets neither. A local-derivative modifier's pass buffer holds
-# its dual numbers (`_StepDuals`), made once per reverse pass.
+# pass buffer (`_finish_pass!` reads it); without them its per-step pullback
+# must give the same cotangents. Blockwise groups get neither.
 _pass_buffer(H, ::Type, m, m̄, S, T) = _local_step_duals(Val(_whole_local(m)), m̄, m, H, S)
 _local_step_duals(::Val{false}, m̄, m, H, S) = nothing
 _local_step_duals(::Val{true}, m̄, m, H, S) = _step_duals(m̄, m, eltype(H), S)
