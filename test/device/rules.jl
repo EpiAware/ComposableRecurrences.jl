@@ -62,6 +62,10 @@ function _rule_cases(S)
     conv(k) = (Convolution(k), (x, true, nothing, nothing, 1, nothing))
     recent = CR.Recent(pmf[1:3])
     feedback = CR.Transform(*, CR.Derived(exp, -0.05 * recent))
+    # The same read through a coupling, which reads every stratum's window.
+    across = CR.Transform(
+        *, CR.Derived(exp, -0.05 * CR.Recent(pmf[1:3]; coupling = C))
+    )
     # A gain or add input per stratum and time, per time or shared.
     gain, add = 0.5 .* x, collect(range(0.1, 1.0; length = T))
     scaled(g, a) = (Convolution(pmf), (x, g, a, fill(1.0, S, 2), 1, nothing))
@@ -119,6 +123,9 @@ function _rule_cases(S)
         ),
         "Recurrence, feedback from recent outputs" => rec(
             Recurrence(pmf; coupling = C, modifiers = (feedback,))
+        ),
+        "Recurrence, feedback from recent outputs across strata" => rec(
+            Recurrence(pmf; modifiers = (across,))
         ),
         "Recurrence, time-varying kernel" => rec(Recurrence(TimeVarying(G))),
         "Recurrence, per-stratum time-varying kernel" =>
