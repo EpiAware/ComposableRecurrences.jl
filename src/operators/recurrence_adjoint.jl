@@ -185,21 +185,32 @@ _param_slots(m̄, ::Union{PerStratum, TimeVarying{<:Any, <:PerStratum}}) =
     _own_leaf(m̄)
 _own_leaf(::Nothing) = nothing
 _own_leaf(m̄) = _Owned(m̄)
+# Field by field, unrolled: a loop, a recursion or `map` over the fields
+# leaves their types to inference, which widens them, and `map` over more
+# than 32 allocates.
 _param_leaves(m̄, x) = m̄
-_param_leaves(m̄::Tuple, x::Tuple) = map(_param_slots, m̄, x)
-# Field by field, each name a constant: a loop or a recursion over the
-# names leaves the fields' types to inference, which widens them.
+@generated function _param_leaves(m̄::Tuple, x::Tuple)
+    n = fieldcount(m̄)
+    leaves = [:(_param_slots(getfield(m̄, $i), getfield(x, $i))) for i in 1:n]
+    return :(($(leaves...),))
+end
 @generated function _param_leaves(m̄::NamedTuple{K}, x) where {K}
-    fields = map(K) do k
+    leaves = map(K) do k
         name = QuoteNode(k)
         :(_param_slots(getfield(m̄, $name), getfield(x, $name)))
     end
-    return :(NamedTuple{$K}(($(fields...),)))
+    return :(NamedTuple{$K}(($(leaves...),)))
 end
 # The mirror itself, from slots `_param_slots` made.
 _unown(x) = x
 _unown(x::_Owned) = x.x
-_unown(x::Union{Tuple, NamedTuple}) = map(_unown, x)
+@generated function _unown(x::Tuple)
+    return :(($((:(_unown(getfield(x, $i))) for i in 1:fieldcount(x))...),))
+end
+@generated function _unown(x::NamedTuple{K}) where {K}
+    leaves = (:(_unown(getfield(x, $i))) for i in 1:length(K))
+    return :(NamedTuple{$K}(($(leaves...),)))
+end
 
 # The reverse run of the independent strata `ks`, time outermost as in
 # `_series_body!`: each stratum's step reads and writes only its own slots
