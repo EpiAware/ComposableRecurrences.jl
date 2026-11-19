@@ -143,6 +143,50 @@ end
     end
 end
 
+@testitem "JLArrays: the rule passes of a convolution with gain and add match the CPU" setup = [DeviceRules] begin
+    # The output, and the cotangents of the input, gain, add input and
+    # history, after the rule's passes with output cotangent `Ȳ`. A scalar
+    # gain's cotangent is a `Ref`.
+    function scaled_passes(x, gain, add, h, start, stop, Ȳ, dev)
+        move(a) = dev && a isa AbstractArray ? JLArray(a) : a
+        op = dev ? adapt(JLArray, Convolution(pmf)) : Convolution(pmf)
+        args = map(move, (x, gain, add, h))
+        y, cache = CR._run_forward(op, args..., start, stop)
+        mirror(a) = a isa Real ? Ref(zero(a)) : zero(a)
+        x̄, ḡ, ā, h̄ = map(mirror, args)
+        piece = (; kernel = move(zeros(L)))
+        grads = (; piece, y = move(Ȳ), args = (x̄, ḡ, ā, h̄, nothing, nothing))
+        CR._run_pullback!(grads, op, cache)
+        return Array(y), map(a -> a isa Ref ? a[] : Array(a), (x̄, ḡ, ā, h̄)),
+            Array(piece.kernel)
+    end
+    # More strata than blocks, so the blocks' copies of a gain or add
+    # input shared by the strata are summed.
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        x, h = inputs(S), fill(1.0, S, 2)
+        gain, add = 0.5 .* inputs(S), collect(range(0.1, 1.0; length = T))
+        short = x[:, 1:(T ÷ 2)]
+        cases = [
+            # The registry's gain and add cases: a gain per stratum and
+            # time, an add input per time, and a history.
+            "a gain per stratum and time and an add per time" =>
+                (x, gain, add, h, 1, T),
+            "a short series from the second time" =>
+                (short, gain, add, h, 2, T),
+            "a scalar gain and an add per stratum and time" =>
+                (x, 0.7, gain, h, 1, T),
+        ]
+        @testset "$name, $S strata" for (name, (xi, g, a, hi, t0, t1)) in cases
+            Ȳ = weights(S)[:, t0:t1]
+            y0, c0, k̄0 = scaled_passes(xi, g, a, hi, t0, t1, Ȳ, false)
+            y1, c1, k̄1 = scaled_passes(xi, g, a, hi, t0, t1, Ȳ, true)
+            @test y1 ≈ y0
+            @test all(map(≈, c1, c0))
+            @test k̄1 ≈ k̄0
+        end
+    end
+end
+
 @testitem "JLArrays: the rule passes of time-varying kernels match the CPU" setup = [DeviceRules] begin
     # More strata than blocks, so the blocks' copies of a shared kernel's
     # cotangent are summed.
