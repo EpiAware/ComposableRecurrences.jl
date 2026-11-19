@@ -1042,12 +1042,11 @@ end
 # The construction check of `r`'s parts, run on its primal values when it
 # is called; the backend extensions do not differentiate it. Without the
 # dual-number extension, parts that take a local derivative send the call to
-# plain AD, which needs no dual numbers.
+# plain AD, which needs no dual numbers. It logs nothing here, as a primal
+# call runs it too; a reverse pass says why (`_note_missing_duals`).
 function _check_now(r::Recurrence)
-    if !_duals_loaded(nothing)
-        whys = _dual_whys(r.kernel, r.coupling, r.modifiers)
-        isempty(whys) || (_note_plain(whys); return false)
-    end
+    _duals_loaded(nothing) || isempty(_dual_whys(r.kernel, r.coupling, r.modifiers)) ||
+        return false
     parts = (
         _primary_parts(r.coupling, _kernel_couplings(r.kernel)...)...,
         _local_parts(r.modifiers...)...,
@@ -1063,6 +1062,17 @@ function _dual_whys(kernel, C, ms)
     return map(_dual_why, (Cp..., Ck..., filter(_needs_duals, ms)...))
 end
 _needs_duals(m) = _modifier_adjoint(m) === :local || _local_modifier(m) !== ()
+# Called by the reverse-mode rules of `_plain_hook`, so only a reverse pass
+# through plain AD logs, once, which parts need the dual-number extension.
+# A `NoAdjoint` call opted out of the rule, so it says nothing.
+_note_missing_duals(op) = nothing
+_note_missing_duals(w::_WithState) = _note_missing_duals(w.r)
+function _note_missing_duals(r::Recurrence)
+    _duals_loaded(nothing) && return nothing
+    whys = _dual_whys(r.kernel, r.coupling, r.modifiers)
+    isempty(whys) || _note_plain(whys)
+    return nothing
+end
 function _dual_why(p)
     return "$(nameof(typeof(p))) has no `pullback!`, and its local " *
         "derivative needs `ForwardDiff`; add `using ForwardDiff` for the " *

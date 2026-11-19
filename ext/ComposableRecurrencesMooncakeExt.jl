@@ -10,7 +10,7 @@ using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
     _check_now, _check_parts, _check_pieces, _check_secondary, _check_unit,
     _convolve_masses, _convolve_masses_back!, _current,
     _fft_convolve!, _fft_convolve_back!, _fit, _flat_groups, _hooked_plain,
-    _movement, _movement_back!, _plain_hook, _route, _run_forward,
+    _movement, _movement_back!, _note_missing_duals, _plain_hook, _route, _run_forward,
     _run_pullback!, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
@@ -138,9 +138,10 @@ function Mooncake.frule!!(
     return Mooncake.zero_dual(nothing)
 end
 function Mooncake.rrule!!(
-        f::CoDual{typeof(_plain_hook)}, args::Vararg{CoDual, N}
+        f::CoDual{typeof(_plain_hook)}, op::CoDual, args::Vararg{CoDual, N}
     ) where {N}
-    return Mooncake.zero_fcodual(nothing), Mooncake.NoPullback(f, args...)
+    _note_missing_duals(primal(op))
+    return Mooncake.zero_fcodual(nothing), Mooncake.NoPullback(f, op, args...)
 end
 
 # Reading the `EXECUTOR` scoped value walks task-local state Mooncake cannot
