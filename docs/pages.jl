@@ -29,8 +29,10 @@ pages = [
     # docs_config.jl.
     "Getting started" => [
         "Overview" => "getting-started/index.md",
+        "Three towns, step by step" => "getting-started/three-towns.md",
         "API overview" => "getting-started/api-overview.md",
         "Time units" => "getting-started/time-units.md",
+        "Infectious disease models" => "domain-guides/infectious-disease-models.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
         "Vaccination" => "getting-started/tutorials/vaccination.md",
         "Imported cases" => "getting-started/tutorials/imported-cases.md",
@@ -51,14 +53,15 @@ pages = [
         "ADTypes + Enzyme + EnzymeTestUtils" => "extensions/enzyme-test-utils.md",
         "ADTypes + Mooncake + Random" => "extensions/mooncake.md",
         "Adapt + KernelAbstractions" => "extensions/kernel-abstractions.md",
+        "Adapt + KernelAbstractions + Reactant" => "extensions/reactant.md",
         "CensoredDistributions + Distributions" => "extensions/censored-distributions.md",
         "Distributions" => "extensions/distributions.md",
         "Enzyme" => "extensions/enzyme.md",
         "FFTW" => "extensions/fftw.md",
         "ForwardDiff" => "extensions/forward-diff.md",
+        "Functors" => "extensions/functors.md",
         "GPUArrays + GPUArraysCore + KernelAbstractions" => "extensions/gpuarrays.md",
         "GPUArraysCore + KernelAbstractions" => "extensions/gpuarrays-core.md",
-        "Reactant" => "extensions/reactant.md",
     ],
     "Benchmarks" => [
         "Performance over time" => "benchmarks/over-time.md",
@@ -71,9 +74,6 @@ pages = [
         "Shapes and couplings" => "explanation/shapes-and-couplings.md",
         "Modifiers" => "explanation/modifiers.md",
         "Adjoints and backends" => "explanation/adjoints-and-backends.md",
-    ],
-    "Domain guides" => [
-        "Infectious disease models" => "domain-guides/infectious-disease-models.md",
     ],
     "Development" => [
         "Overview" => "developer/index.md",

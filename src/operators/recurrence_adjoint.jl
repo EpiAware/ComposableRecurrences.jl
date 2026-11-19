@@ -137,9 +137,10 @@ end
 
 _slots(x̄) = x̄
 _slots(x̄::AbstractMatrix) = _Owned(x̄)
-# Takes the rule on device arrays (`_device_gate`): a fixed kernel, a
-# pointwise or on-device dense coupling and per-stratum built-in modifiers.
-function _device_ready(r::Recurrence{<:Union{AbstractVector, PerStratum}})
+# Takes the rule on device arrays (`_device_gate`): a fixed or dense
+# time-varying kernel, a pointwise or on-device dense coupling and
+# per-stratum built-in modifiers.
+function _device_ready(r::Recurrence{<:_DeviceKernel})
     return _device_coupling(r.coupling) && _device_modifiers(r.modifiers)
 end
 _device_coupling(C) = false
@@ -157,9 +158,13 @@ _device_modifier(m::Union{Transform, Depletion}) = _strata_loop(m)
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)
 _kernel_slots(ḡ, kernel::TimeVarying) = ḡ
 _kernel_slots(ḡ, kernel::TimeVarying{<:Any, <:Pairwise}) = _Owned(ḡ)
+# Each stratum writes only its own rows of a per-stratum kernel's cotangent,
+# so blocks share it rather than each holding a copy of every stratum's.
+_kernel_slots(ḡ, kernel::TimeVarying{<:Any, <:PerStratum}) = _Owned(ḡ)
 # The pairwise kernels as the reverse pass reads them, fixed ones oldest first.
 const _ReversedPairwise = Union{_OldestFirstPairwise, TimeVarying{<:Any, <:Pairwise}}
 # A mirror as the calling task writes it.
+_own(x̄) = x̄
 _own(x̄::_Owned) = x̄.x
 
 # The reverse run of the independent strata `ks`, time outermost as in

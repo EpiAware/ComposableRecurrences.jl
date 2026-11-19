@@ -1,4 +1,4 @@
-# The forward pass compiled as OpenCL device code (see
+# The forward pass and the rules compiled as OpenCL device code (see
 # `test/device/forward.jl`), on pocl's CPU device, so it runs without a GPU.
 # Not part of `Pkg.test`. From the repository root:
 #
@@ -25,3 +25,6 @@ const SKIP = Dict(
 device_forward_tests(
     "OpenCL forward pass", GPUCases, CLArray, OpenCLBackend(); skip = SKIP
 )
+
+include(joinpath(@__DIR__, "..", "device", "rules.jl"))
+device_rule_tests("OpenCL rule passes", CLArray)

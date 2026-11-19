@@ -1034,10 +1034,10 @@ function _convolve!(ex, Y, c, X, m, start)
     return Y
 end
 
-# A fixed kernel convolves and pulls back on a device, so a call on device
-# arrays takes the rule (see `_device_gate`).
+# A fixed or dense time-varying kernel convolves and pulls back on a device,
+# so a call on device arrays takes the rule (see `_device_gate`).
 const _DeviceReadyConvolution = Convolution{
-    <:Union{AbstractVector, PerStratum}, <:Union{Direct, Auto},
+    <:_DeviceKernel, <:Union{Direct, Auto},
 }
 _device_ready(::_DeviceReadyConvolution) = true
 
@@ -1208,17 +1208,21 @@ end
 # cotangent into its own accumulator.
 function _convolve_back!(ex, X̄, c̄, c, X, Ȳ, m, start)
     S = size(Ȳ, 2)
-    accs = _accumulators(
-        ex, X̄, S, _work(_ConvLoop(), X̄, length(Ȳ) * _nlags(c)), (; c̄)
-    )
+    work = _work(_ConvLoop(), X̄, length(Ȳ) * _nlags(c))
+    accs = _accumulators(ex, X̄, S, work, (; c̄ = _conv_slots(c̄, c)))
     _reduce_blocks!(_convolve_back_body!, accs, S, X̄, c, X, Ȳ, m, start)
     _reduce!(accs)
     return nothing
 end
 function _convolve_back_body!(ks, acc, X̄, c, X, Ȳ, m, start)
-    _strata_back!(ks, X̄, acc.c̄, c, X, Ȳ, m, start)
+    _strata_back!(ks, X̄, _own(acc.c̄), c, X, Ȳ, m, start)
     return nothing
 end
+# Each stratum writes only its own rows of a per-stratum time-varying
+# kernel's cotangent, so blocks share it rather than each holding a copy
+# of every stratum's (S × L × T).
+_conv_slots(c̄, c) = c̄
+_conv_slots(c̄, c::TimeVarying{<:Any, <:PerStratum}) = _Owned(c̄)
 
 # One fused pass per lag: the kernel cotangent's dot product and the input
 # cotangent's update together, the reverse of `_convolve_series!`.

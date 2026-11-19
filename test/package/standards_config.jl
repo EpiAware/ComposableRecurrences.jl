@@ -42,7 +42,7 @@ const PENDING_CODE_LENGTH = (
     "docs/src/developer/testing.md",
     "docs/src/explanation/adjoints-and-backends.md",
     "docs/src/getting-started/api-overview.md",
-    "docs/src/getting-started/index.md",
+    "docs/src/getting-started/three-towns.md",
     "docs/src/getting-started/time-units.md",
     "docs/src/getting-started/tutorials/backend-case-study.jl",
     "docs/src/getting-started/tutorials/clinical-outcomes.jl",
@@ -95,7 +95,7 @@ const PACKAGE_NAME_SKIP = ("src/docstrings.jl",)
 # tutorial is a draft outside the build and is not listed.
 const MATHS_FIRST_PAGES = (
     "README.md",
-    "docs/src/getting-started/index.md",
+    "docs/src/getting-started/three-towns.md",
     "docs/src/developer/extending.md",
     "docs/src/getting-started/tutorials/backend-case-study.jl",
     "docs/src/getting-started/tutorials/clinical-outcomes.jl",
