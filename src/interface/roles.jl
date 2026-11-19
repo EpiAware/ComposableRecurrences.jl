@@ -803,23 +803,34 @@ end
 # The vector step's pullback: the modifier's own, or per stratum or group
 # for a pointwise or a blockwise modifier without one. Not a `pullback!`
 # method, which would count as every modifier's own.
+# On device arrays a pointwise modifier reverses per stratum instead, as its
+# own vector pullback is a host loop.
 function _vector_pullback!(grads, m, v, s, t)
-    _has_vector_pullback(m) ||
-        return _split_pullback!(_blocks(m), grads, m, v, s, t)
-    return pullback!(grads, m, Step(), v, s, t)
+    _has_vector_pullback(m) && !(_on_gpu(v) && _strata_loop(m)) &&
+        return pullback!(grads, m, Step(), v, s, t)
+    return _split_pullback!(_blocks(m), grads, m, v, s, t)
 end
 function _split_pullback!(::Nothing, grads, m, v, s, t)
     _strata_loop(m) && return _strata_pullback!(grads, m, v, s, t)
     uses_adjoint(m, Step()) && return pullback!(grads, m, Step(), v, s, t)
     return _local_step_back!(grads, m, v, s, t)
 end
+# Groups that share a parameter add into stacked copies of its cotangent.
 function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
-    nv, ns = B
-    v̄, s̄ = grads.v, grads.s
     G = _ngroups(Val(B), length(v))
-    for g in 1:G
+    accs = _accumulators(Serial(), v, G, G, _param_slots(grads.piece, m))
+    _reduce_blocks!(
+        _group_back!, accs, G, grads.v, grads.s, m, v, s, t, Val(B), G
+    )
+    _reduce!(accs)
+    return nothing
+end
+function _group_back!(gs, acc, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
+    nv, ns = B
+    m̄ = _unown(acc)
+    for g in gs
         gg = (;
-            piece = grads.piece, v = _gather(v̄, Val(nv), G, g),
+            piece = m̄, v = _gather(v̄, Val(nv), G, g),
             s = _gather(s̄, Val(ns), G, g),
         )
         vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
@@ -829,11 +840,22 @@ function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
     end
     return nothing
 end
+# Per stratum, or per group in the method above: in order on the host, and
+# as one kernel on device arrays, with a cotangent the strata share copied
+# per block and summed by `_reduce!`.
 function _strata_pullback!(grads, m, v, s, t)
     v̄, s̄ = grads.v, grads.s
-    for k in eachindex(v, s, v̄, s̄)
-        v̄[k], s̄[k] = _step_pullback(
-            (; piece = grads.piece, v = v̄[k], s = s̄[k]), m, v[k], s[k], t, k
+    n = length(eachindex(v, s, v̄, s̄))
+    accs = _accumulators(Serial(), v, n, n, _param_slots(grads.piece, m))
+    _reduce_blocks!(_strata_steps_back!, accs, n, v̄, s̄, m, v, s, t)
+    _reduce!(accs)
+    return nothing
+end
+function _strata_steps_back!(ks, acc, v̄, s̄, m, v, s, t)
+    m̄ = _unown(acc)
+    for k in ks
+        @inbounds v̄[k], s̄[k] = _step_pullback(
+            (; piece = m̄, v = v̄[k], s = s̄[k]), m, v[k], s[k], t, k
         )
     end
     return nothing
