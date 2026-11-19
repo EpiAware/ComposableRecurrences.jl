@@ -358,10 +358,9 @@ function _primal(c::Convolution, x, gain, add, history, start, stop)
     return _convolve_public(path, Tp, kernel, x, gain, add, history, m, S, start, stop)
 end
 
-# Without a rule: `_Buffered()` copies into a time-first buffer, whose per-lag
-# `axpy` vectorises for IEEE floats and suits device arrays. `_Gathered()`
-# reads in place, for wide numbers on CPU arrays where each copy costs more;
-# a tracked array input is not a CPU array here and keeps the buffer.
+# `_Buffered()`'s per-lag `axpy` vectorises for IEEE floats and suits device
+# arrays; `_Gathered()` reads in place, for wide numbers on CPU arrays. A
+# tracked array input is not a CPU array here and keeps the buffer.
 struct _Buffered end
 struct _Gathered end
 const _FixedKernel = Union{AbstractVector, PerStratum}
