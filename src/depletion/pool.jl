@@ -1,10 +1,8 @@
 # == Depletion: type and construction ==
 
-# A `Depletion`'s parts act on the step's value and its pools in the order
-# given: a draw takes the value from the pools, or fills one, and flows move
-# between them. The step is a fold of the parts, and its pullback the fold in
-# reverse. The number of pools and the parts are in the type, so each kind of
-# `Depletion` has methods of its own.
+# The step is a fold of the parts, and its pullback the fold in reverse. The
+# number of pools and the parts are in the type, so each kind of `Depletion`
+# has methods of its own.
 
 @doc raw"""
 Depletion of pools: each group of strata holds pools, and parts act on
@@ -326,9 +324,7 @@ function _Depletion(pools::I, pieces::C) where {I, C}
 end
 ConstructionBase.constructorof(::Type{<:Depletion}) = _Depletion
 
-# A draw from the weighted pools, with `first` the pool it takes from when
-# they are empty, and a draw into pool `pool`; each with the population its
-# form reads, or `nothing`, and where what it leaves goes.
+# `first` is the pool a draw takes from when the weighted pools are empty.
 struct _DrawFrom{F, P, W, O}
     form::F
     N::P
@@ -348,9 +344,7 @@ const _Drawing = Union{_DrawFrom, _DrawInto}
 # A run of flows that act together.
 const _Flows = Tuple{Flow, Vararg{Flow}}
 
-# That the flows and the draws name no pool beyond the `n` there are, and
-# that one draw at most has a queue; the message is built only when one
-# does not hold.
+# The message is built only when a check fails.
 function _check_pieces(pieces::Tuple, n)
     _tuple_foreach(p -> _check_piece_pools(p, n), pieces)
     _nqueues(pieces) <= 1 || throw(
@@ -398,10 +392,9 @@ function _kind_of(ps::Tuple, K)
     return _either(o isa K ? o : _Drop(), _kind_of(Base.tail(ps), K))
 end
 
-# Inlined, so that a differentiated function that builds a `Depletion`
-# holds no call returning it.
-# A first argument that is a parameter, or an array given where one was
-# meant, is the population.
+# Inlined, so that a differentiated function that builds a `Depletion` holds
+# no call returning it. A first argument that is a parameter, or an array
+# given where one was meant, is the population.
 const _Population = Union{
     Real, PerStratum, TimeVarying, Derived, Recent, AbstractArray,
 }
@@ -472,9 +465,7 @@ _pool_starts(pools) = _bad_pools(pools)
     )
 end
 
-# A run or a part with its pools as positions among `starts`: each flow of
-# a run, or a draw by its form's arguments, a form of another type drawn
-# from the first pool alone. The draw holds the form without its arguments.
+# The draw holds the form without its arguments.
 function _place_run(fs::_Flows, N, ::NamedTuple{names}) where {names}
     return _tuple_map(f -> _placed(f, Val(names)), fs)
 end
@@ -530,9 +521,7 @@ function _check_drawn_population(form, N, into)
     return nothing
 end
 
-# The weights the draw names: the first pool's alone at `1` by default.
-# The names are read from the type of the pools, so the weights' names are
-# known where a `Depletion` is built.
+# Names read from the pools' type, so known where a `Depletion` is built.
 function _drawn_weights(::Nothing, ::NamedTuple{K}) where {K}
     return NamedTuple{(K[1],)}((1,))
 end
@@ -659,18 +648,16 @@ _npools(m::Depletion) = length(m.pools)
 _queue_of(m::Depletion) = _kind_of(m.pieces, _Queue)
 _stratum_of(m::Depletion) = _kind_of(m.pieces, _ToStratum)
 
-# The values and state entries of each group: with a draw, one value (two
-# with an overflow into a stratum) and one entry per pool (and the queue);
-# without, the pools are both.
+# With a draw, one value (two with an overflow into a stratum) and one entry
+# per pool (and the queue); without, the pools are both.
 function blocks(m::Depletion)
     n = _npools(m)
     _draws(m) || return (n, n)
     return (1 + (_stratum_of(m) isa _ToStratum), n + (_queue_of(m) isa _Queue))
 end
-# One pool drawn from once, then flows or none, with nothing left over,
-# steps per stratum; any other runs the group kernel, a group of one
-# included, as a per-stratum loop through the group step is slower. The
-# shape needs no check here: `blocks` above always gives positive integers.
+# One pool drawn from once, then flows or none, with nothing left over, steps
+# per stratum; any other runs the group kernel, as a per-stratum loop through
+# the group step is slower. `blocks` always gives positive integers.
 _blocks(m::_Pointwise) = nothing
 _blocks(m::Depletion) = Val(blocks(m))
 
@@ -711,9 +698,8 @@ function _first_from(ps::Tuple, j)
     return first(ps) isa _DrawFrom ? j : _first_from(Base.tail(ps), j + 1)
 end
 
-# Pool `i`'s value before the first step at group `k`, and its cotangent:
-# by default the first draw's `N` at time 1 for the pool it takes from
-# first, else zero.
+# By default the first draw's `N` at time 1 for the pool it takes from first,
+# else zero.
 _initial(x, m, i, k) = param(x, k, 1)
 function _initial(::Nothing, m, i, k)
     j = _first_from(m.pieces)
@@ -736,9 +722,7 @@ end
 _nth(::Nothing, j) = nothing
 _nth(x̄::Tuple, j) = x̄[j]
 
-# Every pool's value before the first step at group `k`, and their
-# cotangents from the state cotangent `s̄` of `G` groups, mapped over the
-# pools so each reads its own starting value.
+# Mapped over the pools so each reads its own starting value.
 _places(xs::Tuple) = ntuple(identity, Val(length(xs)))
 function _initials(m::Depletion, k)
     xs = values(m.pools)
@@ -857,11 +841,9 @@ _block_step(m::Depletion, v::Tuple, s::Tuple, t, g) = _group_step(m, v, s, t, g)
     return _flow_group(only(m.pieces), v, g, t)
 end
 
-# With a draw: the parts fold over the group's value, the value of its
-# overflow stratum, its pools and its queue, `(a, b, x, Q)`, with
-# `nothing` for an overflow it lacks. The parts' modifier-role steps
-# below reshape views into this tuple and call the same `_piece_step`,
-# which is faster than folding on views.
+# The parts fold over `(a, b, x, Q)`, with `nothing` for an overflow it lacks.
+# The parts' modifier-role steps reshape views into this tuple and call the
+# same `_piece_step`, which is faster than folding on views.
 @inline function _group_step(m, v, s, t, g)
     q, st = _queue_of(m), _stratum_of(m)
     x, Q = _pools_queue(q, s, Val(_npools(m)))
@@ -912,10 +894,8 @@ _to_stratum(::_ToStratum, b, u) = b + u
 _to_queue(o, Q, u) = Q
 _to_queue(::_Queue, Q, u) = u
 
-# The weights at group `g` and time `t`, promoted to one type so the
-# reverse pass (`_take_back`) indexes them without a union, and the
-# weighted pools `Σ w_i x_i`, summed in order. A fixed weight of one
-# promotes to an exact one.
+# Promoted to one type so `_take_back` indexes them without a union; a fixed
+# weight of one promotes to an exact one.
 function _weights_at(p, ::Val{n}, g, t) where {n}
     return promote(ntuple(i -> param(p.weights[i], g, t), Val(n))...)
 end
@@ -1009,9 +989,7 @@ end
     return _out_values(st, ā, b̄), _with_queue(q, x̄0, Q̄0)
 end
 
-# The fold in reverse: each part's step forward, so the parts after it
-# read what it gives, then its pullback, last first. The last part's step
-# is not run: its pullback reads what it gives only where it says so.
+# The last part's step is not run: its pullback reads it only if it says so.
 @inline function _pieces_back(ps::Tuple{Any}, p̄s, c, c̄, t, g)
     return _piece_back(first(ps), _head(p̄s), c, nothing, c̄, t, g)
 end
@@ -1030,9 +1008,6 @@ end
     return ā, b̄, _flows_pullback(fs, f̄s, x, x̄′, z, g, t), Q̄
 end
 
-# A draw: the cotangents of its value, with the queue's for the draw that
-# holds it, and of the pools before it, from those of the value it passes
-# on, its overflow and the pools after it.
 @inline function _piece_back(p::_Drawing, p̄, c, c′, c̄, t, g)
     a, b, x, Q = c
     ā′, b̄′, x̄′, Q̄′ = c̄
@@ -1062,10 +1037,6 @@ end
 _drawn_again(c′::Tuple, p, d, x, t, g) = first(c′)
 _drawn_again(::Nothing, p, d, x, t, g) = first(_take(p, d, x, t, g))
 
-# The draw's pullback: the cotangents of the value it takes and of the
-# pools before it, from those of the value drawn `y`, `ȳ`, and of the
-# pools after it, `x̄′`; the parameters' are added into the draw's mirror
-# `p̄`.
 @inline function _take_back(
         p::_DrawInto, p̄, d, x::NTuple{n}, y, ȳ, x̄′, t, g
     ) where {n}
@@ -1116,10 +1087,8 @@ end
     return v̄k, ntuple(i -> x̄[i] + w[i] * P̄, Val(n))
 end
 
-# The cotangents of the pools, the weights, the value drawn and the
-# weighted pools from those of the pools after the draw `x̄′`: each pool
-# lost the share `q = y / P` of its weighted pool, or with `P <= 0` the
-# first pool drawn lost `y`.
+# Each pool lost the share `q = y / P` of its weighted pool, or with `P <= 0`
+# the first pool drawn lost `y`.
 @inline function _shares_back(on, x̄′, w, x, q, P, ȳ, d, z, ::Val{n}) where {n}
     on || return x̄′, ntuple(_ -> z, Val(n)), ȳ - x̄′[d], z
     q̄ = _weighted_back(x̄′, w, x)
@@ -1151,12 +1120,9 @@ end
 
 # == The parts as modifiers ==
 
-# Each part is a modifier on the values of a group and the pools the
-# `Depletion` shares among its parts: its group step takes the group's
-# values `v`, with the overflow stratum's second, and its state `s`, the
-# pools with the queue last, as tuples of one-entry views; a part on one
-# pool takes vectors of one value and one pool per stratum. The
-# `Depletion` folds the same steps over the group's scalars.
+# Each part's group step takes tuples of one-entry views, the pools with the
+# queue last; a part on one pool takes vectors of one value and one pool per
+# stratum. The `Depletion` folds the same steps over the group's scalars.
 const _Piece = Union{_Drawing, Flow, _Flows}
 
 # A lone flow is a run of one.
@@ -1331,9 +1297,8 @@ end
 
 # == Trace ==
 
-# A pool's trace: with a draw, its pools after the step, the value passed
-# on and what the draws leave of the demand, per stratum for one pool and
-# per group otherwise; without one, the amount each flow moves, per group.
+# With a draw: pools after the step, the value passed on and what the draws
+# leave of the demand; without, the amount each flow moves, per group.
 function ntrace(m::Depletion, S)
     B = _blocks(m)
     B === nothing && return 3S

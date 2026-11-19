@@ -98,16 +98,14 @@ end
     throw(ArgumentError(msg))
 end
 
-# The exact and the smooth form, told apart by the type of the softness.
-# The constructor lets through a real softness in [0, 1), or a number that
-# an extension's `_check_softness` method accepts, such as a traced one
-# that is not a `Real` subtype.
+# An extension's `_check_softness` may accept a traced softness that is not a
+# `Real` subtype.
 const _HardTruncate = Truncate{Nothing}
 const _SoftTruncate = Truncate{<:Number}
 
-# The built-in draw forms, known without a method lookup at run time.
-# `_ExponentForm` comes from `modifiers/builtin.jl`, included before this
-# file; `Truncate` is defined above, so the union lives here.
+# Built-in draw forms, known without a run-time method lookup. `_ExponentForm`
+# comes from `modifiers/builtin.jl`, included before this file; `Truncate` is
+# defined above, so the union lives here.
 const _BuiltinForm = Union{_ExponentForm, Truncate}
 _is_form(::Type{<:_BuiltinForm}) = true
 _draw_args(form::Truncate) = (form.weights, form.into, form.overflow)
@@ -168,11 +166,8 @@ function pullback!(grads, form::_SoftTruncate, ::Step, v, s, N)
     return nothing
 end
 
-# The minimum of `a` and a non-negative `b`, or with softness `κ` the
-# smooth minimum `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`, for `m` and
-# `M` the smaller and larger. A non-positive `m` or an infinite `M` gives `m`.
-# The exact minimum, for no softness or a zero one, is `_removal`: it takes
-# `a` on a tie and returns a NaN.
+# Smooth minimum `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`. The exact
+# minimum is `_removal`: it takes `a` on a tie and returns a NaN.
 _soft_min(::Nothing, a, b) = _removal(a, b)
 function _soft_min(κ, a, b)
     iszero(_primal_value(κ)) && return _soft_min(nothing, a, b)

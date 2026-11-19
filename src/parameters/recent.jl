@@ -186,15 +186,10 @@ Base.:-(a::Recent) = Derived(-, a)
 
 # == _BoundRecent ==
 
-# A `Recent` bound to a call's buffer `H`, whose row `t + o` holds the
-# output at time `t`, and its cotangent `H̄` in a reverse pass. With a
-# coupling every stratum mixes the same `S` windows, filled once per step
-# into `u` for buffer row `row` (`_refresh!`, run before the strata read
-# them); the reverse pass adds their cotangents into `z`, which `_flush!`
-# sends on once per step, the weights' share into the mirror kept in `w̄`
-# (with no `H̄`, only into the weights). On a device `z` holds a row per
-# stratum, so strata that run at once never add into one entry. Without a
-# coupling these are `nothing`.
+# Row `t + o` of `H` holds time `t`. With a coupling, strata share `S` windows
+# that `_refresh!` fills before they read them, cotangents gathering in `z`
+# for `_flush!` (a row per stratum on a device); without one these fields are
+# `nothing`.
 struct _BoundRecent{R <: Recent, B, G, U, I, Z, M, K}
     x::R
     H::B

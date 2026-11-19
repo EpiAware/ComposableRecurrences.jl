@@ -155,10 +155,9 @@ end
 param_eltype(x::Union{Tuple, NamedTuple}) = _fields_eltype(x)
 param_eltype(::Union{Nothing, Symbol, AbstractString, Type, Module}) = Bool
 
-# Promote over the fields of `x`, unrolled so a concrete type infers. A
-# recursion carrying the field count is widened by inference when an inner
-# struct has more fields; `promote_type` of over about 32 types does not
-# infer, so each promotion takes two.
+# Unrolled so a concrete type infers: a recursion carrying the field count is
+# widened when an inner struct has more fields, and `promote_type` of over
+# about 32 types does not infer, so each promotion takes two.
 @generated function _fields_eltype(x)
     ex = :Bool
     for i in 1:fieldcount(x)
@@ -458,10 +457,8 @@ end
 
 # == One-entry views ==
 
-# The one entry of stratum `k` of a vector, or of a `Ref`, as a vector with
-# axes `k:k`, so a step written over `eachindex(v)` reads and writes that
-# entry and reads a per-stratum parameter at `k`. The axis is an identity
-# range, so Base's linear indices of the view are `k` too.
+# Axes `k:k` let a step written over `eachindex(v)` touch only entry `k`; the
+# identity axis keeps Base's linear indices `k` too.
 struct _At{T, A} <: AbstractVector{T}
     parent::A
     k::Int

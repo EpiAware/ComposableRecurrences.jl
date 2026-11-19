@@ -1,8 +1,6 @@
-# The native adjoint rules' entry point. An operator's call goes through
-# `adjoint_call`, which routes to the rule primitive `_ad` (the `Mooncake` and
-# `Enzyme` rules in the extensions) when the operator uses its adjoint and
-# every float is IEEE, and otherwise to `_plain`, which the backend
-# differentiates.
+# Calls route to the rule primitive `_ad` (the `Mooncake` and `Enzyme` rules
+# in the extensions) when the operator uses its adjoint and every float is
+# IEEE, otherwise to `_plain`, which the backend differentiates.
 
 # == Operators ==
 
@@ -155,10 +153,9 @@ end
 
 # == Routing ==
 
-# The rule or plain AD, read from the types. `_fit` refines the rule per call
-# for a `Recurrence` (`:one` the rule, `:wide` `_ad_wide`, `:none` plain AD)
-# and is the constant `:one` otherwise, so the route folds. `Vararg{Any, N}`
-# makes the routes specialise on the arguments.
+# `_fit` refines the route per call for a `Recurrence` and is the constant
+# `:one` otherwise, so the route folds. `Vararg{Any, N}` makes the routes
+# specialise on the arguments.
 adjoint_call(op, args...) = _route(_route_val(op, args...), op, args...)
 # The hook gets the wrapper, so a backend tells it from the operator's own
 # plain call.
@@ -171,10 +168,8 @@ function _route_val(op, args...)
     return Val(_type_adjoint(op) && ok ? :rule : :plain)
 end
 
-# A call on device arrays takes the rule when the operator's reverse pass
-# runs on a device (`_device_ready`) and every float is an IEEE float; the
-# GPUArraysCore extension says which arrays live on a device (`_on_gpu`).
-# Each part folds from the types, so the route stays a constant.
+# The GPUArraysCore extension says which arrays live on a device
+# (`_on_gpu`). Each part folds from the types, so the route stays a constant.
 function _device_gate(op, args...)
     return _device_ready(op) && _any_on_gpu(args...) &&
         param_eltype((op, args)) <: _IEEEFloat
@@ -187,10 +182,8 @@ _on_gpu(x) = false
 # Whether operator `op`'s reverse pass runs on a device; each operator file
 # says so for the operators it can.
 _device_ready(op) = false
-# The kernels whose reverse pass runs on a device: fixed ones and dense
-# time-varying ones. Excluded: `TimeVarying` over change points
-# (`_Piecewise`) or ragged columns (`_AnyRagged`), whose pullbacks read
-# their columns on the host.
+# Change-point and ragged kernels are excluded: their pullbacks read columns
+# on the host.
 const _DeviceKernel = Union{
     AbstractVector, PerStratum,
     TimeVarying{<:Any, <:Union{AbstractMatrix, PerStratum}},
@@ -216,10 +209,9 @@ _primal(op, args...) = first(_run_forward(op, args...))
 
 # == Leaves for the rule ==
 
-# `_ad` (the `Mooncake` rule) passes each leaf of the operator and arguments
-# to `_ADLeaves` (the `Enzyme` rule) as its own argument, so `Enzyme` never
-# shadows a struct holding both an array and an active scalar: on Julia 1.11
-# it loses the scalar's cotangent there, a silent zero.
+# The `Mooncake` rule passes each leaf to the `Enzyme` rule as its own
+# argument, so `Enzyme` never shadows a struct holding an array and an active
+# scalar: on Julia 1.11 it loses the scalar's cotangent there, a silent zero.
 struct _ADLeaves{X} end
 function (::_ADLeaves{X})(leaves::Vararg{Any, N}) where {X, N}
     return _primal(_rebuild_leaves(X, leaves)...)
@@ -283,10 +275,9 @@ end
 
 # == Gate ==
 
-# Rules apply when every float leaf is IEEE and every array one whose tangent
-# the wiring reads. A generated function evaluates `_ok` once per signature:
-# inference does not fold the recursion, and an unfolded gate costs a
-# dynamic dispatch per call under `Mooncake`.
+# A generated function evaluates `_ok` once per signature: inference does not
+# fold the recursion, and an unfolded gate costs a dynamic dispatch per call
+# under `Mooncake`.
 const _IEEEFloat = Union{Float16, Float32, Float64}
 function _ok(::Type{T}) where {T}
     T <: _IEEEFloat && return true

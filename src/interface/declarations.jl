@@ -172,11 +172,8 @@ function _pointwise_ok(m, ::Step, args)
     return v ≈ first.(pairs) && s ≈ last.(pairs)
 end
 
-# A pointwise modifier's Init writes each stratum's state from that
-# stratum's inputs only: rebuilt with the parameters read at stratum `k`
-# and time 1, and given a history whose other rows differ, it writes the
-# same `s[k]`. The Init derivative is taken stratum by stratum on that
-# promise.
+# The Init derivative is taken stratum by stratum on the promise that each
+# stratum's state depends only on that stratum's inputs.
 function _pointwise_ok(m, ::Init, args)
     _strata_loop(m) || return true
     s, history = float(copy(args[1])), args[2]
@@ -358,9 +355,9 @@ end
 # A fixed, non-degenerate seed: entries of both signs and none zero.
 _probe_cotangent(n) = [cospi(0.37 * i + 0.105) for i in 1:n]
 
-# A zeroed mirror of `x`: a `Ref` for a float scalar, an array for a float
-# array, `(; nzval)` or `(; diag)` for a sparse or `Diagonal` matrix, a
-# NamedTuple for a struct and `nothing` otherwise.
+# A `Ref` for a float scalar, an array for a float array, `(; nzval)` or
+# `(; diag)` for a sparse or `Diagonal` matrix, a NamedTuple for a struct and
+# `nothing` otherwise.
 _zero_mirror(x::AbstractFloat) = Ref(zero(x))
 _zero_mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
 function _zero_mirror(x::SparseMatrixCSC{<:AbstractFloat})

@@ -1,6 +1,6 @@
-# The built-in couplings. `forward!(C, Pressure(), q, p, t)` mixes the
-# per-stratum kernel convolutions `p` into the pressures `q`; `pullback!` adds
-# `q̄`'s share to `grads.p` and to the coupling's own `grads.piece`.
+# `forward!(C, Pressure(), q, p, t)` mixes the kernel convolutions `p` into
+# the pressures `q`; `pullback!` adds `q̄`'s share to `grads.p` and to
+# `grads.piece`.
 
 # == Shared ==
 
@@ -183,10 +183,8 @@ end
 # Floats: column by column, the order a column-major matrix is stored in.
 # A loop blocked by columns costs more under plain reverse-mode AD.
 _mix!(q::AbstractVector{<:AbstractFloat}, C, p) = _mix_floats!(q, C, p)
-# From `_BLAS_MIX` strata a `Float64` or `Float32` matrix with strided
-# pressures takes BLAS's product. Alone it wins from 12 strata, but a whole
-# run with a dense coupling measured 1.08× the loop's time at 16 and 0.76×
-# at 24.
+# Alone BLAS wins from 12 strata, but a whole run with a dense coupling
+# measured 1.08× the loop's time at 16 strata and 0.76× at 24.
 const _BLAS_MIX = 24
 _blas_mix(C) = size(C, 1) >= _BLAS_MIX
 function _mix!(
