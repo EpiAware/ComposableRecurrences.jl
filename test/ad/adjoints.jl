@@ -1522,6 +1522,52 @@ end
     end
 end
 
+@testitem "Rule gradients survive an operator's arrays overwritten after the call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using LinearAlgebra: Diagonal
+    import Enzyme, ForwardDiff, Mooncake
+    # The reverse pass reads the coupling's and the modifiers' arrays, so
+    # an array the loss overwrites after the call must reach it unchanged:
+    # a `Diagonal`, whose array `Enzyme` does not mark as overwritten, a
+    # dense coupling and a pool.
+    x = [1.1 0.9 1.2 1.0; 0.8 1.3 1.0 0.7]
+    h = [1.0 2.0; 0.5 1.5]
+    g = [0.3, 0.2]
+    function diagonal(θ)
+        d = θ[1:2]
+        y = Recurrence(g; coupling = Diagonal(d))(x; history = h)
+        d .= 0
+        return sum(abs2, y)
+    end
+    function dense(θ)
+        K = reshape(θ[1:4], 2, 2)
+        y = Recurrence(g; coupling = K)(x; history = h)
+        K .= 0
+        return sum(abs2, y)
+    end
+    function pool(θ)
+        N = θ[1:2] .* 10
+        m = CR.Depletion(CR.PerStratum(N))
+        y = Recurrence(g; modifiers = (m,))(x; history = h)
+        N .= 1
+        return sum(abs2, y)
+    end
+    θ = [1.1, 0.9, 0.2, 0.8]
+    for backend in job_backends(
+                :mooncake_reverse => AutoMooncake(; config = nothing),
+                :enzyme_reverse => AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
+            ),
+            f in (diagonal, dense, pool)
+        @test gradient(f, backend, θ) ≈ gradient(f, AutoForwardDiff(), θ)
+    end
+end
+
 @testitem "A pool held in a view gets its gradient" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
