@@ -171,7 +171,7 @@ DifferentiationInterface has no Reactant extension, so Reactant is not one of th
 Its own suite, `test/reactant/`, compiles every scenario of the AD registry forward and in reverse and checks each against ForwardDiff, entry by entry.
 The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) gives each scenario's result.
 The scenarios that do not run are listed in the registry under the `Reactant` backend, grouped by cause.
-Most are parts built from traced values, such as sparse couplings, ragged kernels and delay masses.
+Most are parts built from traced values, such as sparse couplings and delay distributions, or user modifiers that branch with `if` on traced values.
 A model that does not run under Reactant runs as it is on the other backends, so Enzyme reverse is the fallback for its gradient.
 
 ## [Which rules are kept](@id rule-policy)

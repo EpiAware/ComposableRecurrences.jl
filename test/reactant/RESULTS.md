@@ -55,9 +55,9 @@ Total run time 26.3 min, timeout 600 s a case.
 | Convolution with gain and add | works (2.6 s / 5.7 µs) | works (1.0 s / 37.0 µs) |
 | Convolution of a series that ends before the outputs | works (0.9 s / 8.7 µs) | works (0.9 s / 12.0 µs) |
 | Convolution of a short series with gain, add and history | works (1.3 s / 5.8 µs) | works (1.1 s / 12.9 µs) |
-| Convolution lag contributions | error: MethodError in `_contribute!` | error: MethodError in `_contribute!` |
+| Convolution lag contributions | works (30.0 s / 64.5 µs) | works (3.4 s / 97.9 µs) |
 | Convolution transpose of a Primary kernel with a tail | works (3.3 s / 6.4 µs) | works (1.3 s / 62.6 µs) |
-| Recurrence ragged Primary kernel | error: ErrorException in `_ragged` | error: ErrorException in `_ragged` |
+| Recurrence ragged Primary kernel | works (31.3 s / 6.8 µs) | works (2.6 s / 66.8 µs) |
 | Recurrence Transform with per-stratum parameters | works (2.6 s / 9.5 µs) | works (1.0 s / 10.9 µs) |
 | Recurrence population varying over time with births | works (4.0 s / 9.4 µs) | works (1.5 s / 123.9 µs) |
 | Recurrence empty pool with a differentiated heterogeneity | works (3.9 s / 14.4 µs) | works (1.1 s / 12.8 µs) |
@@ -100,7 +100,7 @@ Total run time 26.3 min, timeout 600 s a case.
 | Convolution epidemic curve by the automatic method | works (6.7 s / 228.2 µs) | works (14.9 s / 2685.4 µs) |
 | Convolution Poisson delay distribution | error: MethodError | error: MethodError |
 | Convolution Poisson delay distribution on a step of two units | error: MethodError | error: MethodError |
-| Convolution chain of two delays as masses | error: ArgumentError in `_delay_kernel` | error: ArgumentError in `_delay_kernel` |
+| Convolution chain of two delays as masses | works (35.8 s / 6.7 µs) | works (2.6 s / 11.4 µs) |
 | Recurrence negative binomial generation interval per stratum | error: MethodError | error: MethodError |
 | Recurrence negative binomial generation interval per pair of strata | error: MethodError | error: MethodError |
 | Convolution kernel from a hazard and a survival | works (3.6 s / 10.2 µs) | works (1.7 s / 50.5 µs) |
@@ -227,12 +227,12 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Convolution of a series that ends before the outputs | reverse | cpu | 12 | works | 1.5e-14 | 0.9 | 12.0 | 3.7 |  |  |
 | registry | Convolution of a short series with gain, add and history | forward | cpu | 12 | works | 0.0e+00 | 1.3 | 5.8 | 1.3 |  |  |
 | registry | Convolution of a short series with gain, add and history | reverse | cpu | 12 | works | 1.0e-14 | 1.1 | 12.9 | 25.6 |  |  |
-| registry | Convolution lag contributions | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _contribute! | MethodError: no method matching _at(::Reactant.TracedRNumber{Float64}, ::Int64, ::Int64) The function `_at` exists, but no method is defined for this combinatio |
-| registry | Convolution lag contributions | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _contribute! | MethodError: no method matching _at(::Reactant.TracedRNumber{Float64}, ::Int64, ::Int64) The function `_at` exists, but no method is defined for this combinatio |
+| registry | Convolution lag contributions | forward | cpu | 12 | works | 2.0e-16 | 30.0 | 64.5 | 1.1 |  |  |
+| registry | Convolution lag contributions | reverse | cpu | 12 | works | 1.3e-14 | 3.4 | 97.9 | 60.9 |  |  |
 | registry | Convolution transpose of a Primary kernel with a tail | forward | cpu | 12 | works | 7.8e-16 | 3.3 | 6.4 | 0.6 |  |  |
 | registry | Convolution transpose of a Primary kernel with a tail | reverse | cpu | 12 | works | 7.0e-15 | 1.3 | 62.6 | 44.6 |  |  |
-| registry | Recurrence ragged Primary kernel | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _ragged | Create Operation 'stablehlo.gather' failed |
-| registry | Recurrence ragged Primary kernel | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _ragged | Create Operation 'stablehlo.gather' failed |
+| registry | Recurrence ragged Primary kernel | forward | cpu | 12 | works | 2.4e-14 | 31.3 | 6.8 | 1.6 |  |  |
+| registry | Recurrence ragged Primary kernel | reverse | cpu | 12 | works | 1.6e-15 | 2.6 | 66.8 | 22.9 |  |  |
 | registry | Recurrence Transform with per-stratum parameters | forward | cpu | 12 | works | 7.9e-16 | 2.6 | 9.5 | 2.4 |  |  |
 | registry | Recurrence Transform with per-stratum parameters | reverse | cpu | 12 | works | 5.8e-16 | 1.0 | 10.9 | 8.9 |  |  |
 | registry | Recurrence population varying over time with births | forward | cpu | 12 | works | 5.9e-16 | 4.0 | 9.4 | 2.8 |  |  |
@@ -317,8 +317,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Convolution Poisson delay distribution | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.Poisson(::Reactant.TracedRNumber{Float64}) The type `Distributions.Poisson` exists, but no method is defined for t |
 | registry | Convolution Poisson delay distribution on a step of two units | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.Poisson(::Reactant.TracedRNumber{Float64}) The type `Distributions.Poisson` exists, but no method is defined for t |
 | registry | Convolution Poisson delay distribution on a step of two units | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.Poisson(::Reactant.TracedRNumber{Float64}) The type `Distributions.Poisson` exists, but no method is defined for t |
-| registry | Convolution chain of two delays as masses | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _delay_kernel | ArgumentError: `lags` turns delays into masses, and (SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, tr |
-| registry | Convolution chain of two delays as masses | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _delay_kernel | ArgumentError: `lags` turns delays into masses, and (SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, tr |
+| registry | Convolution chain of two delays as masses | forward | cpu | 12 | works | 2.2e-16 | 35.8 | 6.7 | 0.3 |  |  |
+| registry | Convolution chain of two delays as masses | reverse | cpu | 12 | works | 5.0e-16 | 2.6 | 11.4 | 4.0 |  |  |
 | registry | Recurrence negative binomial generation interval per stratum | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.NegativeBinomial(::Reactant.TracedRNumber{Float64}, ::Reactant.TracedRNumber{Float64}) The type `Distributions.Neg |
 | registry | Recurrence negative binomial generation interval per stratum | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.NegativeBinomial(::Reactant.TracedRNumber{Float64}, ::Reactant.TracedRNumber{Float64}) The type `Distributions.Neg |
 | registry | Recurrence negative binomial generation interval per pair of strata | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.NegativeBinomial(::Reactant.TracedRNumber{Float64}, ::Reactant.TracedRNumber{Float64}) The type `Distributions.Neg |

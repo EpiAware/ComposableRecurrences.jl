@@ -171,13 +171,21 @@ function ComposableRecurrences._load_history!(
     return H
 end
 
-# A traced array's eltype is a traced number, which is not a `Real`, so the
-# generic array method would reduce over its entries' types; the eltype
-# is the answer, also for reshapes and views of traced arrays.
 # A traced movement matrix's values are not known while tracing, so its
 # columns are not checked.
 ComposableRecurrences._check_columns(::AnyTracedRArray, leak) = nothing
 
+# A vector of traced masses is a link in a chain of delays, as a vector of
+# real masses is.
+function ComposableRecurrences._is_masses(
+        ::Type{<:AbstractVector{<:TracedRNumber}}
+    )
+    return true
+end
+
+# A traced array's eltype is a traced number, which is not a `Real`, so the
+# generic array method would reduce over its entries' types; the eltype
+# is the answer, also for reshapes and views of traced arrays.
 function ComposableRecurrences.param_eltype(x::AbstractArray{<:TracedRNumber})
     return eltype(x)
 end
@@ -407,6 +415,9 @@ end
 # Traced weights or a traced coupling stand for real numbers, and a traced
 # number scales a `Recent` or a `Derived` as a real one does.
 ComposableRecurrences._real_entries(::AbstractArray{<:TracedRNumber}) = true
+# A traced scalar input is one value for every stratum and time, as a real
+# one is.
+ComposableRecurrences._at(x::TracedRNumber, k, t) = x
 for op in (:+, :-, :*, :/, :^),
         P in (:(ComposableRecurrences.Recent), :(ComposableRecurrences.Derived))
     @eval begin
