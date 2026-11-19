@@ -74,12 +74,11 @@ A call sent to plain AD by its number of strata, or by its float or array types,
 #### ForwardDiff
 
 The local step needs `using ForwardDiff`, which the package loads only as an [extension](@ref extension-forwarddiff).
-Without it:
+Without it, a call with a part that takes the local step uses plain AD instead, and logs once which part and what to load.
+The gradient is the same, but slower.
+An initial state without its own `pullback!` still throws an `ArgumentError` that says to load ForwardDiff.
 
-- the forward pass runs, and a gradient through the local step throws an `ArgumentError` that names the part and says to load ForwardDiff;
-- a part that the local step cannot rebuild also throws, rather than taking plain AD, as the check itself needs ForwardDiff.
-
-A `Recurrence` built before ForwardDiff loads checks its parts at each call rather than once at construction.
+A `Recurrence` built before ForwardDiff loads checks its parts at each call rather than once at construction, so it takes the local step once ForwardDiff is loaded.
 
 #### Types it can rebuild
 
