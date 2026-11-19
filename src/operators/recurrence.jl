@@ -1068,6 +1068,10 @@ function _dual_why(p)
         "derivative needs `ForwardDiff`; add `using ForwardDiff` for the " *
         "faster rule"
 end
+function _dual_why(::Depletion)
+    return "a Depletion form without a `pullback!` takes a local derivative, " *
+        "which needs `ForwardDiff`; add `using ForwardDiff` for the faster rule"
+end
 function _coupling_fit(C, h)
     _coupling_adjoint(C) === :local || return :one
     return _local_fit(_nstrata(h) + _ninputs(C))

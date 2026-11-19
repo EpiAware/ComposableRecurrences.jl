@@ -97,6 +97,7 @@ end
     )
     th(x) = sum(tr(x; history = [1.0, 2.0]))
     transform_ok = isapprox(gradient(th, backend, x), fd(th, x); rtol = 1.0e-5)
+    transform_noted = any(m -> occursin("`Transform` without a `derivative`", m), CR._PLAIN_NOTED)
     using Interfaces
     unchecked = Interfaces.test(CR.PieceInterface{(:pullback,)}, CR.Transform; show = false)
     using ForwardDiff
@@ -105,7 +106,7 @@ end
     println(CR._PULLBACK_CALLS[] > n0, " ", isapprox(g, fd(h, x); rtol = 1.0e-5))
     println(Recurrence([0.3, 0.2]; modifiers = (Cap(5.0),)).rebuilds)
     println(unchecked)
-    println(transform_ok)
+    println("transform ", transform_ok, " ", transform_noted)
     """
     project = Base.active_project()
     cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
@@ -118,7 +119,7 @@ end
     @test lines[6] == "true true"
     @test lines[7] == "true"
     @test lines[8] == "true"
-    @test lines[9] == "true"
+    @test "transform true true" in lines
 end
 
 @testitem "Trace, Mooncake reverse: gradients through the traces of built-in modifiers and flows, the rule against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin
@@ -492,13 +493,18 @@ end
     CR.forward!(m::Scale, ::CR.Step, v, s, t) = (v .*= m.a; nothing)
     r(a) = Recurrence([0.5, 0.3]; modifiers = (Scale(a),))
     f(θ) = sum(r(θ[1])(ones(10); history = [1.0, 2.0]))
+    # `Scale` has no `pullback!`, so its step takes the local derivative:
+    # the call takes plain AD and says so.
+    println(length(CR._dual_whys([0.5, 0.3], CR.I, (Scale(0.9),))))
     g = Enzyme.gradient(Enzyme.Reverse, Enzyme.Const(f), [0.9])[1]
     fd = (f([0.9 + 1.0e-6]) - f([0.9 - 1.0e-6])) / 2.0e-6
-    println(isapprox(g[1], fd; rtol = 1.0e-5))
+    noted = any(m -> occursin("Scale has no `pullback!`", m), CR._PLAIN_NOTED)
+    println(isapprox(g[1], fd; rtol = 1.0e-5), " ", noted)
     """
     project = Base.active_project()
     cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
     lines = split(read(cmd, String), '\n'; keepempty = false)
     @test lines[1] == "false"
-    @test lines[2] == "true"
+    @test lines[2] == "1"
+    @test lines[3] == "true true"
 end
