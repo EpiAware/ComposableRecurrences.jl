@@ -423,6 +423,21 @@ end
         @test agree(p̄1, p̄0)
         @test Array(CR.kernel_weights(op1.kernel, n)) ≈ K0
     end
+    # The values above cannot show memory: with strata the reverse pass runs
+    # in blocks of strata, which share a per-stratum hazard's cotangent
+    # rather than each copying it. On JLArrays the pullback allocates about
+    # 230 times the weights' cotangent (S × L × n) when shared and over 3000
+    # times when copied, so the bound sits between.
+    S = CR._KERNEL_BLOCKS + 1
+    op = adapt(JLArray, CR._KernelWeights(computed(stratified(S))))
+    K, c = CR._run_forward(op, n)
+    K̄ = JLArray(cotangent_like(Array(K)))
+    function pullback_bytes()
+        grads = (; piece = CR._zero_mirror(op), y = K̄, args = (nothing,))
+        return @allocated CR._run_pullback!(grads, op, c)
+    end
+    pullback_bytes()
+    @test pullback_bytes() < 1000 * sizeof(eltype(K̄)) * length(K̄)
 end
 
 @testitem "JLArrays: calls whose reverse pass runs on a device take the rule" setup = [DeviceRules] begin

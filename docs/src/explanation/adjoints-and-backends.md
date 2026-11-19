@@ -295,6 +295,7 @@ Each block of strata adds the cotangents it shares with other blocks, such as th
 A per-stratum time-varying kernel's cotangent (S × L × T) is not copied, as each stratum writes only its own rows.
 The cotangent of a modifier's `PerStratum` parameter in a vector step is not copied either, as each stratum or group writes only its own entries.
 A computed kernel's reverse pass walks its cohorts again in blocks, and each block adds into its own copy of the coefficients' cotangents, as cohorts share them.
+With strata the blocks are blocks of strata, so a per-stratum coefficient's cotangent is not copied either.
 `kernel_weights` takes the rule the same way.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:

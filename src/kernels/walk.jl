@@ -385,17 +385,23 @@ _no_walk(x::Survival) = _NoRecord(_no_walk(x.hazard))
 
 # The reverse pass runs the walks in blocks, one kernel index each: a block
 # walks each of its cohorts again into its own column of the scratch, adds
-# the weights' cotangents and walks back. Cohorts share coefficients, so
-# each block adds into its own copy of the mirror, summed after the loop.
+# the weights' cotangents and walks back. With strata the blocks are blocks
+# of strata, each walking every cohort of its strata, so a per-stratum
+# coefficient's cotangent, which each stratum writes only at its own rows,
+# is shared by the blocks (`_param_slots`); without, the blocks are blocks
+# of cohorts. Cotangents the blocks share otherwise are copied per block
+# and summed after the loop.
 function _device_weights_back!(x̄, x, K̄, o, last)
-    nk = ndims(K̄) == 3 ? size(K̄, 1) : 1
-    N = nk * size(K̄, ndims(K̄))
-    accs = _accumulators(Serial(), K̄, N, N, x̄)
+    n = size(K̄, ndims(K̄))
+    strata = ndims(K̄) == 3
+    N = strata ? size(K̄, 1) : n
+    slots = strata ? _param_slots(x̄, x) : x̄
+    accs = _accumulators(Serial(), K̄, N, N, slots)
     st = accs[2]
     L = size(K̄, ndims(K̄) - 1)
     sc = _device_walk_scratch(x, eltype(K̄), L, st.m, K̄)
     block = _WalkBack(N, st.m)
-    each!(block, st.ex, st.m, typemax(Int), st.copies, sc, x, K̄, o, last, nk)
+    each!(block, st.ex, st.m, typemax(Int), st.copies, sc, x, K̄, o, last)
     _reduce!(accs)
     return nothing
 end
@@ -413,20 +419,31 @@ struct _WalkBack
     n::Int
     m::Int
 end
-function (w::_WalkBack)(b, copies, sc, x, K̄, o, last, nk)
-    x̄ = _block(copies, b)
+function (w::_WalkBack)(b, copies, sc, x, K̄, o, last)
+    x̄ = _unown(_block(copies, b))
     scb = _walk_column(sc, b)
-    T = eltype(K̄)
-    L = size(K̄, ndims(K̄) - 1)
-    for j in _chunk(b, w.n, w.m)
-        k, τ = _cohort_item(j, nk)
-        imax = _imax(τ, L, o, last)
-        _walk_cohort!(x, scb, k, τ, o, imax, T)
-        for i in 1:imax
-            v = @inbounds _weight(K̄, k, i, τ)
-            @inbounds _add_value!(x̄, x, scb, v, k, i, τ, i - 1 + o, 1)
+    js = _chunk(b, w.n, w.m)
+    if ndims(K̄) == 3
+        for k in js, τ in axes(K̄, 3)
+            _walk_back_one!(x̄, x, scb, K̄, k, τ, o, last)
         end
-        _walk_cohort_back!(x̄, x, scb, k, τ, o, imax, T)
+    else
+        for τ in js
+            _walk_back_one!(x̄, x, scb, K̄, 1, τ, o, last)
+        end
     end
+    return nothing
+end
+# Cohort `τ` of stratum `k`: walked again, its weights' cotangents added,
+# and walked back.
+function _walk_back_one!(x̄, x, sc, K̄, k, τ, o, last)
+    T = eltype(K̄)
+    imax = _imax(τ, size(K̄, ndims(K̄) - 1), o, last)
+    _walk_cohort!(x, sc, k, τ, o, imax, T)
+    for i in 1:imax
+        v = @inbounds _weight(K̄, k, i, τ)
+        @inbounds _add_value!(x̄, x, sc, v, k, i, τ, i - 1 + o, 1)
+    end
+    _walk_cohort_back!(x̄, x, sc, k, τ, o, imax, T)
     return nothing
 end
