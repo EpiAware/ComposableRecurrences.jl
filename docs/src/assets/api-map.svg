@@ -10,10 +10,10 @@
     @media (prefers-color-scheme: dark) {
       .box { fill: #1f2a3a; stroke: #aaa; }
       .band { fill: #3a3020; stroke: #aaa; }
-      .line { stroke: #aaa; }
-      .head { fill: #aaa; }
+      .line { stroke: #888; }
+      .head { fill: #888; }
       text { fill: #e6e6e6; }
-      text.note { fill: #aaa; }
+      text.note { fill: #888; }
     }
   </style>
   <defs>
