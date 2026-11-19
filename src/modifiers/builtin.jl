@@ -872,6 +872,7 @@ function forward!(
     (; K, E) = m.M.x
     _check_time(E, t)
     _check_pressure(K, s, v)
+    _on_gpu(v) && return _device_movement_step!(K, E, v, s, t)
     fill!(s, zero(eltype(s)))
     for b in axes(K, 2)
         e = _intensity(E, b, t)
@@ -887,6 +888,30 @@ function forward!(
     for a in eachindex(v, s)
         v[a] += s[a]
     end
+    return nothing
+end
+
+# On a device a thread per destination sums its arrivals into `s`, then a
+# second kernel updates `v`, as every arrival reads the old `v`.
+function _device_movement_step!(K, E, v, s, t)
+    S, ex = length(v), _resolve(Serial(), v)
+    each!(_movement_arrivals!, ex, S, typemax(Int), s, K, E, v, t)
+    each!(_movement_keep!, ex, S, typemax(Int), v, s, K, E, t)
+    return nothing
+end
+function _movement_arrivals!(a, s, K, E, v, t)
+    acc = zero(eltype(s))
+    @inbounds for b in axes(K, 2)
+        b == a && continue
+        acc += K[a, b] * (_intensity(E, b, t) * v[b])
+    end
+    @inbounds s[a] = acc
+    return nothing
+end
+function _movement_keep!(a, v, s, K, E, t)
+    e = _intensity(E, a, t)
+    @inbounds v[a] = (1 - e * _colsum(K, a)) * v[a] + K[a, a] * (e * v[a]) +
+        s[a]
     return nothing
 end
 
@@ -969,6 +994,7 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     v̄, s̄ = grads.v, grads.s
     _stays(M) && return (fill!(s̄, zero(eltype(s̄))); nothing)
     M̄ = cotangent(grads.piece, :M)
+    _on_gpu(v) && return _device_redistribute_back!(M̄, M, v̄, s̄, v, t)
     for p in eachindex(v, v̄, s̄)
         s̄p = s̄[p]
         s̄[p] = v̄[p] + s̄p
@@ -977,6 +1003,22 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     end
     pullback!((; piece = M̄, q = s̄, p = v̄), M, Pressure(), s̄, v, t)
     fill!(s̄, zero(eltype(s̄)))
+    return nothing
+end
+# On a device a thread per stratum takes the diagonal's share, then the
+# coupling's products run as on a device coupling.
+function _device_redistribute_back!(M̄, M, v̄, s̄, v, t)
+    S, ex = length(v), _resolve(Serial(), v)
+    each!(_redistribute_back_body!, ex, S, typemax(Int), M̄, M, v̄, s̄, v, t)
+    pullback!((; piece = M̄, q = s̄, p = v̄), M, Pressure(), s̄, v, t)
+    fill!(s̄, zero(eltype(s̄)))
+    return nothing
+end
+function _redistribute_back_body!(p, M̄, M, v̄, s̄, v, t)
+    @inbounds s̄p = s̄[p]
+    @inbounds s̄[p] = v̄[p] + s̄p
+    @inbounds v̄[p] = -_diag_at(M, p, t) * s̄p
+    _add_diag!(M̄, M, -s̄p * v[p], p, t)
     return nothing
 end
 _add_diag!(M̄, M::AbstractMatrix, x, p, t) = _add_entry!(M̄, M, x, p, p)
@@ -999,6 +1041,7 @@ function pullback!(
     (; K, E) = m.M.x
     X̄ = cotangent(cotangent(grads.piece, :M), :x)
     K̄, Ē = cotangent(X̄, :K), cotangent(X̄, :E)
+    _on_gpu(v) && return _device_movement_back!(K̄, Ē, K, E, v̄, s̄, v, t)
     # `v̄` holds `s̄′` until its column is done, which reads it for the
     # diagonal.
     for p in eachindex(v, v̄, s̄)
@@ -1036,6 +1079,42 @@ function pullback!(
         _add_intensity!(Ē, E, ē, b, t)
     end
     fill!(s̄, zero(eltype(s̄)))
+    return nothing
+end
+
+# On a device the same as a kernel per origin `b`, which alone writes
+# column `b` of `K̄`, `Ē[b, t]` and `v̄[b]`, while every origin reads `s̄`.
+function _device_movement_back!(K̄, Ē, K, E, v̄, s̄, v, t)
+    S, ex = length(v), _resolve(Serial(), v)
+    each!(_movement_swap!, ex, S, typemax(Int), v̄, s̄)
+    each!(
+        _movement_back_body!, ex, S, typemax(Int), K̄, Ē, K, E, v̄, s̄, v, t
+    )
+    fill!(s̄, zero(eltype(s̄)))
+    return nothing
+end
+function _movement_swap!(p, v̄, s̄)
+    @inbounds d = s̄[p]
+    @inbounds s̄[p] = v̄[p] + d
+    @inbounds v̄[p] = d
+    return nothing
+end
+function _movement_back_body!(b, K̄, Ē, K, E, v̄, s̄, v, t)
+    e = _intensity(E, b, t)
+    @inbounds w, d = e * v[b], v̄[b]
+    c = zero(eltype(v̄))
+    o = zero(eltype(K))
+    xe = -d * w
+    @inbounds for a in axes(K, 1)
+        c += K[a, b] * s̄[a]
+        o += K[a, b]
+        add_cotangent!(K̄, w * (s̄[a] - s̄[b]) - xe, a, b)
+    end
+    add_cotangent!(K̄, xe, b, b)
+    @inbounds diag = -(1 - e * o + K[b, b] * e) * d
+    @inbounds v̄[b] = diag + e * c + (1 - e * o) * s̄[b]
+    @inbounds ē = v[b] * (c - o * s̄[b]) - d * v[b] * (K[b, b] - o)
+    _add_intensity!(Ē, E, ē, b, t)
     return nothing
 end
 

@@ -286,8 +286,9 @@ The package's own rules run on device arrays for:
 - a recurrence with:
   - a kernel that is fixed, time-varying as a dense array, or computed;
   - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
-  - modifiers that are `Transform`s, `Depletion`s and `Allocate`s without imports;
-    a `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
+  - modifiers that are `Transform`s, `Depletion`s, `Allocate`s without imports and `Redistribute`s;
+    a `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue;
+    a `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time.
 
 Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
@@ -296,12 +297,14 @@ The cotangent of a modifier's `PerStratum` parameter in a vector step is not cop
 A computed kernel's reverse pass walks its cohorts again in blocks, and each block adds into its own copy of the coefficients' cotangents, as cohorts share them.
 With strata the blocks are blocks of strata, so a per-stratum coefficient's cotangent is not copied either.
 `kernel_weights` takes the rule the same way.
+A `Redistribute` step runs as kernels, one index per stratum, and each origin writes only its own column of the kernel's cotangent, so nothing is copied.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 
 - a kernel given by change points or as ragged columns;
 - a time-varying coupling;
-- `Redistribute`, and an `Allocate` with imports;
+- a `Redistribute` whose moves are a time-varying array, or whose intensity is read from a parameter;
+- an `Allocate` with imports;
 - a modifier type the package does not define.
 
 What is checked:

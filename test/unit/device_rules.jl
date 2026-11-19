@@ -86,6 +86,12 @@
             flow, CR.Truncate(; overflow = :queue); pools = (B = 50.0,)
         )
     end
+    # Movement between every pair of strata from a kernel whose columns sum
+    # to `c` and an intensity per origin and time, or a matrix of moves.
+    move_kernel(S, c = 0.6) = c .* (ones(S, S) .- I(S)) ./ max(S - 1, 1)
+    intensity(S) = [0.1 + 0.01 * k + 0.005 * t for k in 1:S, t in 1:T]
+    movement(S; kw...) = CR.Redistribute(move_kernel(S), intensity(S); kw...)
+    moves(S) = Matrix(0.8I, S, S) .+ 0.2 .* (ones(S, S) .- I(S)) ./ (S - 1)
     function totals(S)
         h = S ÷ 2
         return CR.Allocate([1:h, (h + 1):S], PerStratum(fill(1.0, 2)))
@@ -301,6 +307,12 @@ end
             "two draws on one pool" => (two_draws(),),
             "an overflow that joins a queue" => (queued(),),
             "grouped totals" => (totals(S),),
+            # Whole steps that move between strata, as kernels.
+            "movement of a kernel and an intensity" => (movement(S),),
+            "movement that leaks, and a pool" => (
+                movement(S; leak = true), first(pools(S)),
+            ),
+            "a matrix of moves" => (CR.Redistribute(moves(S)),),
             # Per-stratum modifiers with their own vector pullbacks beside
             # a vector step, which on a device reverse per stratum instead.
             "a pool per stratum and a scale beside two draws" => (
@@ -334,6 +346,15 @@ end
     end
     pullback_bytes()
     @test pullback_bytes() < 5000 * sizeof(Float64) * S * T
+    # A movement's whole step runs on the calling task, so its kernel's
+    # cotangent (S × S) is shared by a step's blocks rather than copied per
+    # block. JLArrays allocate on every element a kernel reads, so the copies
+    # are counted from the blocks' stacked cotangents.
+    ms = adapt(JLArray, (movement(S),))
+    @test !CR._all_pointwise(ms)
+    m̄s = CR._Owned(CR._mirrors(CR._zero_mirror(ms), ms))
+    H = JLArray(ones(T, S))
+    @test CR._stack(m̄s, CR._KERNEL_BLOCKS, H) === m̄s
 end
 
 @testitem "JLArrays: a dense coupling's pullback with and without its own mirror" setup = [DeviceRules] begin
@@ -464,9 +485,17 @@ end
         op, args = modified_case((m,), S, true)
         @test (@inferred route(op, args)) === Val(:rule)
     end
-    # A modifier that moves values between strata reverses on the host.
+    # So do modifiers that move values between strata, whose whole step runs
+    # as kernels: a matrix of moves, or a movement of a kernel and an
+    # intensity.
     moves = CR.Redistribute(0.9 .* dense(S); leak = true)
-    op, args = modified_case((moves,), S, true)
+    for m in (moves, movement(S))
+        op, args = modified_case((m,), S, true)
+        @test (@inferred route(op, args)) === Val(:rule)
+    end
+    # Moves over time given as an array reverse on the host.
+    tv_moves = CR.Redistribute(TimeVarying(repeat(dense(S), 1, 1, T)))
+    op, args = modified_case((tv_moves,), S, true)
     @test (@inferred route(op, args)) === Val(:plain)
     # The gate's defaults, called directly: inference folds them into the
     # routes above, so those calls never run them.
@@ -478,7 +507,8 @@ end
     @test CR._device_coupling(I) && CR._device_coupling(Diagonal(ones(S)))
     @test !CR._device_coupling(TimeVarying(X))
     @test CR._device_modifiers(())
-    @test !CR._device_modifier(moves)
+    @test CR._device_modifier(moves) && CR._device_modifier(movement(S))
+    @test !CR._device_modifier(tv_moves)
     @test CR._device_modifier(totals(S))
     # These have their own vector pullbacks, which a device skips.
     for m in (last(pools(S)), CR.Transform(*, PerStratum(fill(0.9, S))))

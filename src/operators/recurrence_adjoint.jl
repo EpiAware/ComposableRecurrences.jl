@@ -148,6 +148,18 @@ _device_modifier(m) = false
 _device_modifier(m::Transform) = _strata_loop(m)
 # Their group steps reverse in blocks too, as their forward steps run.
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
+# A whole step on the calling task, whose loops run as kernels: a matrix, or
+# a movement of a kernel and an intensity matrix, whose origins each write
+# their own entries.
+_device_modifier(::Redistribute{<:Any, <:AbstractMatrix}) = true
+function _device_modifier(
+        ::Redistribute{
+            <:Any,
+            <:TimeVarying{Secondary, <:_Movement{<:AbstractMatrix, <:AbstractMatrix}},
+        }
+    )
+    return true
+end
 
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)
 _kernel_slots(ḡ, kernel::TimeVarying) = ḡ
