@@ -46,10 +46,12 @@ recurrence's rule gives its gradient.
 # Arguments
 - `w`: the weights, lag 1 first, or an integer `n` for the sum of the last
   `n` outputs.
+  The weights are real numbers and keep their element type, so integer,
+  `Float32` and traced weights are held as given.
 
 # Keyword Arguments
 - `coupling`: `nothing` to read each stratum's own outputs, or an `S × S`
-  matrix mixing them.
+  matrix of real numbers mixing them.
 
 # Examples
 ```jldoctest
@@ -329,11 +331,16 @@ end
 _refresh!(x, i) = _each_coupled(b -> _refresh_one!(b, i), x)
 function _refresh_one!(b::_BoundRecent, i)
     _cached(b, i) && return nothing
+    _fill_windows!(b, i)
+    _cache_row!(b, i)
+    return nothing
+end
+# Each stratum's window at buffer row `i`, into `u`.
+function _fill_windows!(b::_BoundRecent, i)
     u, w, H = b.u, b.x.w, b.H
     for j in axes(H, 2)
         u[j] = _recent_window(w, H, i, j)
     end
-    _cache_row!(b, i)
     return nothing
 end
 

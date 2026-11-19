@@ -71,6 +71,7 @@ end
     @test Recent(Float32[0.5]).w isa Vector{Float32}
     @test Recent(view([0.5, 0.2, 0.1], 1:2)).w == [0.5, 0.2]
     @test_throws ArgumentError Recent(["a"])
+    @test_throws ArgumentError Recent(Any[0.5])
     @test_throws "weights are real numbers" Recent([1.0 + 2.0im])
     @test_throws MethodError Recent(0.5)
     err = try

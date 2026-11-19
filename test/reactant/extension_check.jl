@@ -27,6 +27,16 @@ end
     @test Reactant.@compile(check(x2)) isa Any
 end
 
+# Traced weights and a traced coupling count as real entries, so a Recent
+# holds them; an array of no number type is still refused.
+@testset "Reactant Recent from traced weights and coupling" begin
+    w = Reactant.to_rarray([0.5, 0.2])
+    C = Reactant.to_rarray(ones(2, 2))
+    build(w, C) = (ComposableRecurrences.Recent(w; coupling = C); sum(w))
+    @test Reactant.@compile(build(w, C)) isa Any
+    @test_throws ArgumentError ComposableRecurrences.Recent(Any[0.5])
+end
+
 # Reactant compiles the kernels through CUDA.jl, so a traced call without it
 # says to load it.
 @testset "Reactant traced call needs CUDA.jl" begin
