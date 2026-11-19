@@ -1166,9 +1166,9 @@ function pullback!(grads, c::Convolution, ::Run, cache)
 end
 
 # The cotangent of the lag sums `Ȳ` from the output's `ȳ`, adding the gain's
-# and the add input's on the way. The strata run in blocks, one kernel on
-# device arrays; a scalar or per-time gain or add input's cotangent is
-# shared by the blocks, a per-stratum one is not copied.
+# and the add input's on the way. On device arrays the strata run as one
+# kernel with a copy of a shared gain or add cotangent per block, summed by
+# `_reduce!`. On the CPU this is one serial pass.
 function _scale_back!(Ȳ, ḡ, ā, ȳ, Y, gain, start)
     S = size(Ȳ, 2)
     accs = _accumulators(Serial(), Ȳ, S, S, (; ḡ = _slots(ḡ), ā = _slots(ā)))

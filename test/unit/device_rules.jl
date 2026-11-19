@@ -159,11 +159,11 @@ end
         cases = [
             # The registry's gain and add cases: a gain per stratum and
             # time, an add input per time, and a history.
-            "a gain per stratum and an add per time" =>
+            "a gain per stratum and time and an add per time" =>
                 (x, gain, add, h, 1, T),
             "a short series from the second time" =>
                 (short, gain, add, h, 2, T),
-            "a scalar gain and an add per stratum" =>
+            "a scalar gain and an add per stratum and time" =>
                 (x, 0.7, gain, h, 1, T),
         ]
         @testset "$name, $S strata" for (name, (xi, g, a, hi, t0, t1)) in cases
