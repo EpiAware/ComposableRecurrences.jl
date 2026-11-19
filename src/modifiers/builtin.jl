@@ -872,6 +872,10 @@ function forward!(
     (; K, E) = m.M.x
     _check_time(E, t)
     _check_pressure(K, s, v)
+    # Every movement steps forward as kernels on a device, though only those
+    # `_device_modifier` admits reverse there: a call whose intensity is read
+    # from a parameter takes plain AD, which runs this forward step on the
+    # device too, so it must not index from the host.
     _on_gpu(v) && return _device_movement_step!(K, E, v, s, t)
     fill!(s, zero(eltype(s)))
     for b in axes(K, 2)
