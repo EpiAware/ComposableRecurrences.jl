@@ -1396,8 +1396,8 @@ end
 # `_keeps_after`, its states after each step (`A`, else `nothing`). Every
 # step writes its column of each, so they start unset.
 function _records(h, ::Type{Tp}, m, s, S, T) where {Tp}
-    A = _keeps_after(m) ? similar(h, Tp, length(s), T) : nothing
-    return (; V = similar(h, Tp, S, T), S = _state_record(h, Tp, m, s, T), A)
+    A = _keeps_after(m) ? _unset(h, Tp, length(s), T) : nothing
+    return (; V = _unset(h, Tp, S, T), S = _state_record(h, Tp, m, s, T), A)
 end
 # Whether a vector modifier's pullback reads its state after each step,
 # so the forward pass records it (see `_pass_buffer`).
@@ -1405,7 +1405,7 @@ _keeps_after(m) = false
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,
     # so sharing it is safe; a stateless modifier's state never changes.
-    return isstateless(m) ? s : similar(h, Tp, length(s), T)
+    return isstateless(m) ? s : _unset(h, Tp, length(s), T)
 end
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
@@ -1486,8 +1486,8 @@ end
 # so such a run records none.
 function _pressure_records(h, ::Type{Tp}, C, S, T, need) where {Tp}
     C isa _PointwiseCoupling && !need && return nothing
-    X = C isa _PointwiseCoupling ? nothing : similar(h, Tp, S, T)
-    return (; P = similar(h, Tp, S, T), X)
+    X = C isa _PointwiseCoupling ? nothing : _unset(h, Tp, S, T)
+    return (; P = _unset(h, Tp, S, T), X)
 end
 @generated _floats(gain, C) = _has_float(gain) || _has_float(C)
 # A run without a reverse pass needs no kernel convolutions, only the
@@ -1495,7 +1495,9 @@ end
 struct _TracePressures{X}
     X::X
 end
-_trace_pressures(h, ::Type{Tp}, S, T) where {Tp} = _TracePressures(similar(h, Tp, S, T))
+function _trace_pressures(h, ::Type{Tp}, S, T) where {Tp}
+    return _TracePressures(_unset(h, Tp, S, T))
+end
 _record_pressure!(::Nothing, pk, xk, t, k) = nothing
 @inline function _record_pressure!(pr::_TracePressures, pk, xk, t, k)
     pr.X[k, t] = xk

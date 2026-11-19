@@ -200,11 +200,12 @@ end
 #
 # The rates are hazards, so the share leaving a pool never exceeds what it holds.
 # The two pools are the strata of a recurrence with the unit kernel, suspected first.
-# The recurrence carries yesterday's pools forward and adds the admissions to the suspected one.
-# A [`Depletion`](@ref ComposableRecurrences.Depletion) without a draw then applies the day's flows.
-# Its pools are the suspected and confirmed patients, held in the strata.
-# Each flow is a [`Flow`](@ref ComposableRecurrences.Flow) from one pool to another, or to `0` to leave, with a hazard rate as its demand.
-# Each rate is a parameter, so it can differ by ward or change over time.
+#
+# - The recurrence carries yesterday's pools forward and adds the admissions to the suspected one.
+# - A [`Depletion`](@ref ComposableRecurrences.Depletion) without a draw then applies the day's flows, with its pools held in the strata.
+# - Each flow is a [`Flow`](@ref ComposableRecurrences.Flow) from one pool to another, or to `0` to leave, with a hazard rate as its demand.
+# - Each rate is a parameter, so it can differ by ward or change over time.
+#
 # Here ``c = 0.3``, ``r = 0.4`` and ``d = 0.1``.
 
 ward_flows = Depletion(

@@ -63,10 +63,12 @@ end
 # Each pool starts at its patch's population ``N_i``.
 # The pairwise kernel ``A_{ij,l}`` is ``K_{ij} g_l`` within a patch and ``K_{ij} g^{\text{between}}_l`` between patches, with ``g^{\text{between}}_l`` a longer interval, `gi_between` below.
 # The coupling ``K_{t,ij}`` is ``K_{ij}`` with its off-diagonal entries cut by 80% from day 30, and the gain is ``\gamma = 1.6``.
-# A [`Pairwise`](@ref) kernel weights each interval by `K`, so its coupling stays `I`.
-# A [`TimeVarying`](@ref) coupling gives ``K_{t,ij}``.
-# It changes once, so it is given by its change points.
-# A [`Depletion`](@ref ComposableRecurrences.Depletion) per patch is the only modifier.
+#
+# - A [`Pairwise`](@ref) kernel weights each interval by `K`, so its coupling stays `I`.
+# - A [`TimeVarying`](@ref) coupling gives ``K_{t,ij}``.
+#   It changes once, so it is given by its change points.
+# - A [`Depletion`](@ref ComposableRecurrences.Depletion) per patch is the only modifier.
+#
 # Each model starts from ten infections a day in patch A on the six days before day 1.
 
 gi = [0.1, 0.3, 0.3, 0.2, 0.1]

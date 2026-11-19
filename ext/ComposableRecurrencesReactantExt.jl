@@ -139,6 +139,13 @@ function ComposableRecurrences._zeros(
     ) where {T <: TracedRNumber}
     return Reactant.Ops.fill(zero(unwrapped_eltype(T)), dims)
 end
+# A host array cannot hold traced numbers, so a record that a traced step
+# writes is a traced array, zeroed, as the step writes each entry first.
+function ComposableRecurrences._unset(
+        x::_CPUArray, ::Type{T}, dims...
+    ) where {T <: TracedRNumber}
+    return ComposableRecurrences._zeros(x, T, dims...)
+end
 # The core `_buffer` fills a view of `similar`, which is not a traced array.
 function ComposableRecurrences._buffer(
         h, ::Type{Tp}, D, T, S
@@ -375,6 +382,26 @@ ComposableRecurrences._cache_row!(b::_BoundRecent, i::TracedRNumber) = nothing
 # be the one filled before, so it cannot be skipped as cached.
 function ComposableRecurrences._refresh_one!(b::_BoundRecent, i::TracedRNumber)
     return ComposableRecurrences._fill_windows!(b, i)
+end
+
+# A trace records a step's column at the traced step as one slice: the
+# linear `copyto!` the core uses takes no traced offset.
+function ComposableRecurrences._copy_column!(
+        R::AnyTracedRMatrix, x, t::TracedRNumber
+    )
+    R[:, t] = x
+    return nothing
+end
+# A whole-step trace fills a fresh column, then records it at the traced
+# step: a view of the column at a traced step is not traced.
+function ComposableRecurrences._trace_column!(
+        R, m, v, s, τ, t::TracedRNumber
+    )
+    CR = ComposableRecurrences
+    col = CR._zeros(R.out, eltype(R.out), size(R.out, 1))
+    CR._trace!(col, m, R.v, R.s, v, s, τ)
+    CR._copy_column!(R.out, col, t)
+    return nothing
 end
 
 # Traced weights or a traced coupling stand for real numbers, and a traced

@@ -56,7 +56,7 @@ function _sinks(::Val{:trace}, h, ::Type{Tp}, ms, states, S, T) where {Tp}
     return map(ms, states) do m, s
         n = ntrace(m, S)
         isstateless(m) && return _NoTrace(_zeros(h, Tp, n, T))
-        out = similar(h, Tp, n, T)
+        out = _unset(h, Tp, n, T)
         _strata_loop(m) && return _TraceSink(out, nothing, nothing, S)
         return _TraceSink(out, _zeros(h, Tp, S), similar(s), S)
     end
@@ -99,6 +99,12 @@ function _stage_trace!(::Val{false}, R, m, v, s, τ, t)
     _copy_trace!(R.v, v)
     _copy_trace!(R.s, s)
     _stage!(m, v, s, τ)
+    _trace_column!(R, m, v, s, τ, t)
+    return nothing
+end
+# Step `t`'s column of a whole-step trace, from the inputs kept in `R` and
+# the outputs `v` and `s`.
+function _trace_column!(R, m, v, s, τ, t)
     col = view(R.out, :, t)
     fill!(col, zero(eltype(col)))
     _trace!(col, m, R.v, R.s, v, s, τ)
