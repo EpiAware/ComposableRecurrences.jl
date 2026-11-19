@@ -84,7 +84,6 @@ long(x, name) = DataFrame(
 end
 
 # The outbreak grows first in patch 1 and reaches the far patches through importation.
-# Reports lag infections by the delay.
 #
 # ## Checking against the source loops
 #

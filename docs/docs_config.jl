@@ -239,6 +239,7 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # ecosystem rather than a per-repo choice. These are the only tutorials
 # in the nav; the kit itself writes no tutorial page.
 const PACKAGE_TUTORIALS = [
+    "Three towns, step by step" => "getting-started/three-towns.md",
     "API overview" => "getting-started/api-overview.md",
     "Time units" => "getting-started/time-units.md",
     "Renewal then delay" =>

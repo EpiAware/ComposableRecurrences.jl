@@ -18,3 +18,6 @@ const GPUCases = gpu_cases(
 )
 
 device_forward_tests("CUDA forward pass", GPUCases, CuArray, CUDABackend())
+
+include(joinpath(@__DIR__, "..", "device", "rules.jl"))
+device_rule_tests("CUDA rule passes", CuArray)

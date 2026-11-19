@@ -180,7 +180,7 @@ weights the inputs reaching output ``t``, as above; with
 the input at time ``\tau``, which spreads forward through it, so the weight
 is ``k_{i,l}(t - l)`` and input mass is conserved up to the window's end.
 
-To weight lags from 1, as a renewal's force of infection does, prepend a
+To weight lags from 1, as a renewal's infection pressure does, prepend a
 zero: `Convolution(vcat(0, g))` recomputes ``\sum_{l=1}^{L} g_l\, y_{t-l}``
 from the outputs ``y`` of a [`Recurrence`](@ref) with kernel ``g``.
 A sum that reads the inputs forward from each time is the transpose
@@ -1034,10 +1034,10 @@ function _convolve!(ex, Y, c, X, m, start)
     return Y
 end
 
-# A fixed kernel convolves and pulls back on a device, so a call on device
-# arrays takes the rule (see `_device_gate`).
+# A fixed or dense time-varying kernel convolves and pulls back on a device,
+# so a call on device arrays takes the rule (see `_device_gate`).
 const _DeviceReadyConvolution = Convolution{
-    <:Union{AbstractVector, PerStratum}, <:Union{Direct, Auto},
+    <:_DeviceKernel, <:Union{Direct, Auto},
 }
 _device_ready(::_DeviceReadyConvolution) = true
 
@@ -1217,17 +1217,21 @@ end
 # cotangent into its own accumulator.
 function _convolve_back!(ex, X̄, c̄, c, X, Ȳ, m, start)
     S = size(Ȳ, 2)
-    accs = _accumulators(
-        ex, X̄, S, _work(_ConvLoop(), X̄, length(Ȳ) * _nlags(c)), (; c̄)
-    )
+    work = _work(_ConvLoop(), X̄, length(Ȳ) * _nlags(c))
+    accs = _accumulators(ex, X̄, S, work, (; c̄ = _conv_slots(c̄, c)))
     _reduce_blocks!(_convolve_back_body!, accs, S, X̄, c, X, Ȳ, m, start)
     _reduce!(accs)
     return nothing
 end
 function _convolve_back_body!(ks, acc, X̄, c, X, Ȳ, m, start)
-    _strata_back!(ks, X̄, acc.c̄, c, X, Ȳ, m, start)
+    _strata_back!(ks, X̄, _own(acc.c̄), c, X, Ȳ, m, start)
     return nothing
 end
+# Each stratum writes only its own rows of a per-stratum time-varying
+# kernel's cotangent, so blocks share it rather than each holding a copy
+# of every stratum's (S × L × T).
+_conv_slots(c̄, c) = c̄
+_conv_slots(c̄, c::TimeVarying{<:Any, <:PerStratum}) = _Owned(c̄)
 
 # One fused pass per lag: the kernel cotangent's dot product and the input
 # cotangent's update together, the reverse of `_convolve_series!`.
@@ -1332,8 +1336,8 @@ end
 end
 
 @doc raw"""
-The lag contributions of a [`Convolution`](@ref): the terms of its sum over
-lags, before the sum,
+Return the lag contributions of a [`Convolution`](@ref): the terms of its
+sum over lags, before the sum,
 
 ```math
 c_{t,i,l} = \gamma_{t,i}\, k_{i,l}(t)\, x_{t-l,i},
@@ -1343,7 +1347,7 @@ c_{t,i,l} = \gamma_{t,i}\, k_{i,l}(t)\, x_{t-l,i},
 in the notation of [`Convolution`](@ref), so that
 ``\sum_l c_{t,i,l} + a_{t,i} = y_{t,i}``.
 A [`ComposableRecurrences.Primary`](@ref) kernel reads ``k_{i,l}(t - l)``,
-so ``c_{t,i,l}`` is the part of the input at time ``t - l`` that arrives
+so ``c_{t,i,l}`` is the share of the input at time ``t - l`` that arrives
 at ``t``: a reporting triangle by arrival time.
 Terms whose input is before the history, or past a ragged column's end,
 are zero.

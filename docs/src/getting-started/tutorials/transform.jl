@@ -153,7 +153,6 @@ end
     draw(_; axis = (xlabel = "Day", ylabel = "Cases (log scale)", yscale = log10))
 end
 
-# More tracing means fewer cases.
 # On day 60 there are 90 252 cases with no tracing, 590 with half traced and 2.3 with 90% traced.
 # With 90% traced the outbreak declines.
 

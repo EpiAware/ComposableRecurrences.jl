@@ -1,4 +1,4 @@
-# The analytic reverse pass of a `Recurrence`. Each step's core is
+# The rule of a `Recurrence`, its own reverse pass. Each step's core is
 # `v = gain ⊙ x + add` with `x` the coupled kernel convolutions of the
 # window, so its pullback is local; the work is sending the pressure's
 # cotangent back through the coupling and correlating it with the kernel into
@@ -91,7 +91,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     kbuf = _kernel_buffer(ḡ, kernel, H, S, L)
     # The cotangents the strata add into. The matrix gain and add inputs
     # have a slot per stratum and step, a fixed kernel's goes through
-    # `kbuf`, and the parts that run on the calling task (`_steps_back!`)
+    # `kbuf`, and the steps that run on the calling task (`_steps_back!`)
     # are not copied.
     ādd, ḡain = _slots(ādd), _slots(ḡain)
     kslots = _kernel_slots(ḡ, kernel)
@@ -137,9 +137,10 @@ end
 
 _slots(x̄) = x̄
 _slots(x̄::AbstractMatrix) = _Owned(x̄)
-# Takes the rule on device arrays (`_device_gate`): a fixed kernel, a
-# pointwise or on-device dense coupling and per-stratum built-in modifiers.
-function _device_ready(r::Recurrence{<:Union{AbstractVector, PerStratum}})
+# Takes the rule on device arrays (`_device_gate`): a fixed or dense
+# time-varying kernel, a pointwise or on-device dense coupling and
+# per-stratum built-in modifiers.
+function _device_ready(r::Recurrence{<:_DeviceKernel})
     return _device_coupling(r.coupling) && _device_modifiers(r.modifiers)
 end
 _device_coupling(C) = false
@@ -157,9 +158,13 @@ _device_modifier(m::Union{Transform, Depletion}) = _strata_loop(m)
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)
 _kernel_slots(ḡ, kernel::TimeVarying) = ḡ
 _kernel_slots(ḡ, kernel::TimeVarying{<:Any, <:Pairwise}) = _Owned(ḡ)
+# Each stratum writes only its own rows of a per-stratum kernel's cotangent,
+# so blocks share it rather than each holding a copy of every stratum's.
+_kernel_slots(ḡ, kernel::TimeVarying{<:Any, <:PerStratum}) = _Owned(ḡ)
 # The pairwise kernels as the reverse pass reads them, fixed ones oldest first.
 const _ReversedPairwise = Union{_OldestFirstPairwise, TimeVarying{<:Any, <:Pairwise}}
 # A mirror as the calling task writes it.
+_own(x̄) = x̄
 _own(x̄::_Owned) = x̄.x
 
 # The reverse run of the independent strata `ks`, time outermost as in
@@ -168,14 +173,6 @@ _own(x̄::_Owned) = x̄.x
 function _series_back!(
         ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, T
     )
-    # A block of one stratum runs with the stratum fixed, as in
-    # `_series_body!`.
-    if ks isa AbstractUnitRange && length(ks) == 1
-        return _series_back!(
-            (first(ks),), acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms,
-            H, τ0, L, D, T
-        )
-    end
     for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
         kb = _run_buffer(kbuf, kernel, j)
         c = _chain(g, ms, eltype(H))
@@ -394,10 +391,11 @@ end
 
 # The buffer's cotangent, `D` zero rows and then the output's cotangent
 # `Ȳ`, each row written once. Only an integer output has no cotangent; its
-# buffer is integer only when every input and part is, so no other part has
-# one either and the pass adds zeros. This is a method, not an early return
-# in `_reverse!`: where `Ȳ` may be `nothing` by type (`Enzyme` under runtime
-# activity), that branch slowed the whole reverse pass by about 8%.
+# buffer is integer only when every input and component is, so no other
+# component has one either and the pass adds zeros. This is a method, not an
+# early return in `_reverse!`: where `Ȳ` may be `nothing` by type (`Enzyme`
+# under runtime activity), that branch slowed the whole reverse pass by
+# about 8%.
 _seeded(H, ::Nothing, D) = _zeros(H, eltype(H), size(H)...)
 # A cotangent `Ȳ` that `_shared_shadow` gave the rule already sits in the
 # buffer's cotangent, below zero rows.
