@@ -116,8 +116,8 @@ Some cases add arms:
   They add a `loop` arm, a hand loop in the style of the BVDOutbreakSize backend.
   They also add a `handrule` arm, the same loop with the hand-written Mooncake rules in `benchmark/bvd_handrule.jl`.
 - The cases in `TUTORIAL_HANDRULE_CASES` add a `handrule` arm beside their `loop` arm, with the rules in `benchmark/tutorial_handrule.jl`.
-- The `handrule` arm runs on Mooncake reverse only, since on any other target it is the `loop` arm.
 
+The `handrule` arm runs on Mooncake reverse only, since on any other target it is the `loop` arm.
 A test item in `test/ad/handrules.jl` checks that each of these rules is a Mooncake primitive and that its gradient matches `ForwardDiff` on the case's hand loop.
 
 `--executor` and `--threads` time the operators under an executor.

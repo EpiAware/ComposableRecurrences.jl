@@ -67,10 +67,10 @@ Under [`Threaded`](@ref ComposableRecurrences.Threaded):
 - the reverse pass gives each chunk of strata a zeroed copy of these mirrors and sums the copies after the loop;
 - a mirror with an entry of another kind, such as an integer or a `Ref` that is not of a number, runs that loop on one task.
 
-So use the helpers, which skip `nothing` and accept every parameter form, including [`Derived`](@ref ComposableRecurrences.Derived) and [`Recent`](@ref ComposableRecurrences.Recent):
+So use the helpers:
 
-- read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent), and add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!);
-- read a modifier parameter with [`param`](@ref ComposableRecurrences.param), and add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!).
+- read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent), and add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), which skips `nothing`;
+- read a modifier parameter with [`param`](@ref ComposableRecurrences.param), and add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!); both accept every parameter form, including [`Derived`](@ref ComposableRecurrences.Derived) and [`Recent`](@ref ComposableRecurrences.Recent).
 
 Call `add_param!` for every parameter, even with a `nothing` mirror.
 A `Recent` parameter still sends its cotangent to the outputs it read.
