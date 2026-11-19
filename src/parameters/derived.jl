@@ -165,9 +165,7 @@ end
     end
 end
 
-# The value of `x` at `(k, t)` and, for a `Derived` with mirrors, its map's
-# partials (else `nothing`), from one read of the arguments. Only the outer
-# map's are kept: a nested `Derived` reads its own again in `add_param!`.
+# Only the outer map's partials are kept; a nested `Derived` rereads its own.
 _param_partials(x̄, x, k, t) = (param(x, k, t), nothing)
 function _param_partials(x̄, x::Derived, k, t)
     xs = _params_at(x.args, k, t)
@@ -213,8 +211,6 @@ _float_param(x::Derived) = x
 
 # == Local derivative ==
 
-# Whether every `Derived` inside a value of type `T` has a map without float
-# fields of its own, so its local derivative covers every parameter.
 # Type-only, so `_derived_local` folds at compile time.
 function _derived_local_type(::Type{T}) where {T}
     T <: Derived && return _fieldfree_type(fieldtype(T, :f)) &&

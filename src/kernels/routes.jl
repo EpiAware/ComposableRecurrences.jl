@@ -155,9 +155,6 @@ end
 
 # == Forward pass ==
 
-# The routes as a run reads them: each kernel oldest first and its length,
-# and work vectors `z` and `w` for one route's convolution and its coupled
-# pressure, or their cotangents.
 struct _RouteKernels{C <: Tuple, G <: Tuple, L <: Tuple, W}
     couplings::C
     kernels::G

@@ -180,9 +180,7 @@ function _convolve_masses!(c, a, b)
     return c
 end
 
-# The reverse pass of `c += a ⊛ b` for the rules: `ā` and `b̄` take the
-# cotangent `c̄` correlated with `b` and with `a`, and either may be
-# `nothing`. The cotangent of `c` passes through unchanged.
+# Either cotangent may be `nothing`; `c̄` passes through unchanged.
 function _convolve_masses_back!(ā, b̄, c̄, a, b)
     ā === nothing || _correlate_masses!(ā, c̄, b)
     b̄ === nothing || _correlate_masses!(b̄, c̄, a)
@@ -295,9 +293,7 @@ function _check_lags(lags, origin)
     return nothing
 end
 
-# The kernel with each delay replaced by its masses from lag `origin`.
-# Arrays of masses stay as they are, but a kernel with no delays takes no
-# `lags`.
+# A kernel with no delays takes no `lags`.
 function _delay_kernel(kernel, lags, origin, step)
     _check_lags(lags, origin)
     _check_step(step)

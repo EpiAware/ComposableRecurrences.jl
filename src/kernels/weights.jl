@@ -104,9 +104,7 @@ const _COEFFICIENTS = "a number, a vector of lag weights, a PerStratum " *
     )
 end
 
-# An argument of a `Derived`: a coefficient a kernel reads, or a modifier
-# parameter. Which use it is checked where the `Derived` is used; a value
-# that is neither is named against both.
+# Which use it is checked where the `Derived` is used.
 struct _DerivedArg end
 @noinline function _param_error(::_DerivedArg, x)
     throw(
@@ -231,14 +229,9 @@ _first_array(a::Tuple) = first(a)
 
 # == The weights, a block of cohorts at a time ==
 
-# A computed kernel is filled `_BLOCK` cohorts at a time, lag outermost and
-# cohort innermost, so a block's survival products run side by side. Each
-# `Survival` keeps the block's values `S`, hazards `H` and, in the reverse
-# pass, their cotangents `S̄` in a scratch tree that mirrors the kernel. The
+# Cohort innermost, so a block's survival products run side by side. The
 # reverse pass recomputes a block before taking its cotangent back, so no
-# weight is stored past its block (`_fill_kernel` says when one block keeps
-# every cohort). A recurrence and a convolution off the serial executor fill
-# this way; a serial convolution and `kernel_weights` walk each cohort.
+# weight is stored past its block (`_fill_kernel` says when one keeps all).
 const _BLOCK = 32
 
 # `P` is whether the hazard has a strata axis; without one, row 1 serves all.
@@ -335,9 +328,7 @@ function _block!(x::Survival, sc, τ0, nb, o, last)
     return nothing
 end
 
-# The value of a coefficient at stratum `k`, lag index `i` (lag `l`) and
-# cohort `τ`, the `b`th of its block, with its scratch `sc` filled for the
-# block. The call's checks fix every shape, so reads skip bounds checks.
+# The call's checks fix every shape, so reads skip bounds checks.
 Base.@propagate_inbounds _value(x::Real, sc, k, i, τ, l, b) = x
 Base.@propagate_inbounds _value(x::AbstractVector, sc, k, i, τ, l, b) = x[i]
 Base.@propagate_inbounds function _value(
@@ -459,10 +450,8 @@ _partials(::typeof(-), (a,)::Tuple{Real}) = (-one(a),)
 _partials(::typeof(*), (a, b)::Tuple{Real, Real}) = (b, a)
 _partials(::typeof(/), (a, b)::Tuple{Real, Real}) = (inv(b), -a / b^2)
 
-# Once the block's own cotangents are added, each `Survival` takes the
-# cotangents of its values back to its hazard, back along the lags: with
-# `a` the cotangent of the survival from lag `i` on carried back to it,
-# `η̄_i = -s_{i-1} a_i`. It clears its cotangents for the next block.
+# `η̄_i = -s_{i-1} a_i`, with `a` the survival's cotangent carried back along
+# the lags. Cotangents are cleared for the next block.
 _block_back!(x̄, x, sc, τ0, nb, o, last) = nothing
 function _block_back!(x̄, x::Derived, sc, τ0, nb, o, last)
     ā = _arg_mirrors(cotangent(x̄, :args), x.args)
@@ -533,10 +522,8 @@ function _back_block!(x̄, x, sc, W̄, τ0, nb, o, last)
     return nothing
 end
 
-# The weights of a computed kernel for cohorts `1:n`, lags from `o`, that
-# land by `last`, as lags × cohorts (or strata × lags × cohorts), and the
-# scratch of the last block. Arithmetic maps fill in blocks the reverse pass
-# recomputes; costlier maps fill one block of every cohort, kept for it.
+# Arithmetic maps fill in blocks the reverse pass recomputes; costlier maps
+# fill one block of every cohort, kept for it.
 function _fill_kernel(
         kernel::_ComputedKernel, o, n, last, keep::Val = Val(true)
     )
@@ -567,9 +554,7 @@ function _weights_array(::Val{true}, ::Type{Tp}, ns, L, n) where {Tp}
     return zeros(Tp, ns, L, n)
 end
 
-# The weights array `K` read and written as the block of cohorts from `τ0`:
-# entry `[b, i, k]` is stratum `k`'s weight on lag index `i` of cohort
-# `τ0 + b - 1`, so a block is filled, or its cotangent read, in place.
+# Entry `[b, i, k]` is stratum `k`'s weight on lag `i` of cohort `τ0 + b - 1`.
 struct _KernelBlock{A <: AbstractArray}
     K::A
     τ0::Int
@@ -612,9 +597,7 @@ end
 _keeps_fill_type(::Type{<:Survival{H}}) where {H} = _keeps_fill_type(H)
 @generated _keeps_fill(x) = _keeps_fill_type(x)
 
-# Take the cotangent `K̄` of the weights back to the coefficients' mirror
-# `x̄`. Blocks are recomputed, unless `_fill_kernel` kept one block of every
-# cohort, in which case its scratch `sc` is reused.
+# Blocks are recomputed unless `_fill_kernel` kept every cohort's scratch.
 _weights_back!(::Nothing, kernel::_ComputedKernel, K̄, o, last, sc) = nothing
 function _weights_back!(x̄, kernel::_ComputedKernel, K̄, o, last, sc)
     x = kernel.x

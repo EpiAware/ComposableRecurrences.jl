@@ -1,7 +1,5 @@
-# A `TimeVarying` coefficient given by change points (`_Piecewise`). Each
-# segment holds one value, so a call runs each segment with the fixed
-# coefficient's loops; other readers read the values as a dense coefficient
-# with one column per segment.
+# Each change-point segment holds one value, so a call runs each segment with
+# the fixed coefficient's loops.
 
 # == Shared ==
 
@@ -92,9 +90,7 @@ _check_kernel_strata(p::_Piecewise, S) = _check_kernel_strata(p.x, S)
 
 # == Recurrence kernel ==
 
-# The kernel as a run reads it: segment `j`'s weights reversed once per call
-# as `ks[j]`, read as a fixed kernel's. `cols[t]` is the segment of time `t`
-# up to the last start.
+# `cols[t]` is the segment of time `t` up to the last start.
 struct _OldestFirstPiecewise{I, K <: AbstractVector, P <: AbstractVector{Int}}
     ks::K
     starts::P
@@ -295,11 +291,8 @@ function _strata_back!(ks, X̄, c̄, c::_TVPiecewise{Secondary}, X, Ȳ, m, start
     return nothing
 end
 
-# Primary: the sum over segments of a fixed convolution of the input masked
-# to the segment. Segment `j`'s outputs `a:b` do not overlap the other
-# segments', so the fixed loop writes them first and the tails are added.
-# The buffer has no history, so its rows from `m + lo` hold the times from
-# `lo`.
+# Segment outputs do not overlap, so the fixed loop writes them first and the
+# tails are added. With no history, rows from `m + lo` hold times from `lo`.
 function _convolve_body!(k, Y, c::_TVPiecewise{Primary}, X, m, start)
     p = c.x
     D = _nlags(c)

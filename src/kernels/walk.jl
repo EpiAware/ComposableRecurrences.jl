@@ -1,15 +1,10 @@
-# A computed kernel's weights for the calls that read each weight once (a
-# convolution, `kernel_weights`): one walk per cohort along its lags, each
-# `Survival` carrying its survival as state; the reverse pass walks back.
+# Each cohort walks its lags once, each `Survival` carrying its survival.
 
 # == Scratch ==
 
-# Each `Survival`'s survival `S`, hazard `H` and added cotangent `P` at each
-# lag of the cohort walked, or for `S` and `H` a column per kept cohort, read
-# through `_walk_column`. `P` is cleared as it is read, so one serves every
-# cohort a walk takes in turn; on a device each block of walks has a column
-# of its own. `D` keeps the partials of a costly hazard map when every walk
-# is kept.
+# `P` is cleared as it is read, so one serves every cohort a walk takes in
+# turn; on a device each block of walks has its own column. `D` keeps the
+# partials of a costly hazard map when every walk is kept.
 struct _WalkScratch{C, A <: AbstractArray, V <: AbstractArray, D}
     hazard::C
     S::A
@@ -242,10 +237,8 @@ _first_mirror(::Nothing) = nothing
 _first_mirror(ā::Tuple) = first(ā)
 _tail_mirrors(::Nothing) = nothing
 _tail_mirrors(ā::Tuple) = Base.tail(ā)
-# A `Survival` carries `a`, the cotangent of its survival from the current
-# lag on: at lag index `i` its parent's share joins it, `-s_{i-1} a` goes to
-# its hazard and `a (1 - η_i)` on to the lag before. Its parent reads it once
-# per lag, so `a` is whole once the parent's share is added.
+# `a` is the cotangent of the survival from the current lag on; its parent
+# reads it once per lag, so it is whole once the parent's share is added.
 @inline _walk_back(::Nothing, x::Survival, sc, a, k, i, τ, l) = a
 @inline function _walk_back(x̄, x::Survival, sc, a, k, i, τ, l)
     h̄ = cotangent(x̄, :hazard)
@@ -265,10 +258,8 @@ end
 
 # == The weights as an array ==
 
-# The weights of cohorts `1:n`, lags from `o`, that land by `last`, into `K`
-# (lags × cohorts, or strata × lags × cohorts), and the walks' scratch.
-# Arithmetic maps are walked again in the reverse pass, which costs less
-# than keeping the walk; costlier ones keep every cohort's walk when `keep`.
+# Arithmetic maps are walked again in the reverse pass, which costs less than
+# keeping the walk; costlier ones keep every cohort's walk when `keep`.
 function _walk_fill!(
         K, kernel::_ComputedKernel, o, last, keep::Val = Val(false)
     )
@@ -351,10 +342,8 @@ end
 
 # == On a device ==
 
-# One kernel thread per cohort, and per stratum when the weights have
-# strata, walks the cohort's lags, so the weights fill as one launch. When
-# the weights have strata and a `Survival` in them does not, each stratum's
-# thread walks that survival again, as a thread holds one walk.
+# One thread per cohort (and stratum), so the weights fill in one launch; a
+# thread holds one walk, so a survival without strata is walked per stratum.
 function _device_fill(x, like, ::Type{Tp}, ns, L, n, o, last) where {Tp}
     K = _stratified(x) ? similar(like, Tp, ns, L, n) : similar(like, Tp, L, n)
     fill!(K, zero(Tp))
@@ -383,14 +372,9 @@ _no_walk(x) = nothing
 _no_walk(x::Derived) = map(_no_walk, x.args)
 _no_walk(x::Survival) = _NoRecord(_no_walk(x.hazard))
 
-# The reverse pass runs the walks in blocks, one kernel index each: a block
-# walks each of its cohorts again into its own column of the scratch, adds
-# the weights' cotangents and walks back. With strata the blocks are blocks
-# of strata, each walking every cohort of its strata, so a per-stratum
-# coefficient's cotangent, which each stratum writes only at its own rows,
-# is shared by the blocks (`_param_slots`); without, the blocks are blocks
-# of cohorts. Cotangents the blocks share otherwise are copied per block
-# and summed after the loop.
+# With strata the blocks are blocks of strata, so a per-stratum coefficient's
+# cotangent is shared by them (`_param_slots`); without, blocks of cohorts.
+# Other shared cotangents are copied per block and summed after the loop.
 function _device_weights_back!(x̄, x, K̄, o, last)
     n = size(K̄, ndims(K̄))
     strata = ndims(K̄) == 3

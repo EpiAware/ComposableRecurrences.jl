@@ -1,21 +1,12 @@
-# Default pullbacks for modifiers, couplings, depletion forms and initial
-# states without a hand-written one: a local forward-mode derivative of one
-# step, parameters included. The dual-number code is in the dual-number
-# extension; this file holds the parameter walks it uses and, for each local
-# derivative, a method that says to load the extension.
+# Default pullbacks without a hand-written one: a local forward-mode
+# derivative of one step. The dual-number code is in an extension; this file
+# holds the parameter walks and methods that say to load it.
 
 # == Parameter walks ==
 
-# A parameter is a float leaf of the object: a float scalar, the entries of a
-# float array (a view or reshape is rebuilt as an `Array`), the nonzeros of a
-# sparse matrix or the diagonal of a `Diagonal`, found by recursing through
-# fields, tuples and named tuples.
+# A parameter is a float leaf: a float scalar, a float array's entries, a
+# sparse matrix's nonzeros or a `Diagonal`'s diagonal.
 
-# Shared walks over the parameter leaves, in field order. A walker is a
-# struct with methods of `_fold_*`, `_mfold_*`, `_map_*` or `_collect_*` for
-# the leaves it handles; `_descends` picks the structs it enters and
-# `_into_stored` whether it reads a sparse or `Diagonal` matrix's stored
-# entries or the whole matrix.
 _descends(f, x) = _holds_floats(x)
 _into_stored(f) = true
 _fields(x) = ntuple(i -> getfield(x, i), Val(fieldcount(typeof(x))))
@@ -73,9 +64,6 @@ _mfold_scalar(f, x̄, x, s) = s
 _mfold_array(f, x̄, x, s) = s
 _mfold_entry(f, x̄, x, s) = _mfold_fields(f, x̄, x, s)
 
-# A rebuild, returning the new object and state: a stored matrix around its
-# rebuilt entries, a tuple or named tuple of its rebuilt elements and a
-# struct, through `ConstructionBase.constructorof`, of its rebuilt fields.
 _remap(f, x::AbstractFloat, s) = _map_scalar(f, x, s)
 _remap(f, x::_FloatArray, s) = _map_array(f, x, s)
 # A stored matrix's entries reach `_map_array` as a `Vector`.
@@ -161,9 +149,6 @@ function _map_array(f::_CopyLeaves, x, o)
     return reshape(f.θ[(o + 1):(o + n)], size(x)), o + n
 end
 
-# Walk the parameters of `x` and its mirror `x̄` after offset `o`, calling
-# `leaf!(x̄, x, g, o)` on each float scalar or array, which returns the new
-# offset; returns the last offset.
 struct _WalkLeaves{F, G}
     leaf!::F
     g::G
@@ -198,11 +183,8 @@ function _step_pullback(grads, m, v, s, t, k)
     return _step_back(grads, m, v, s, t, k)
 end
 
-# Default scalar pullback of a pointwise modifier without its own: a local
-# forward-mode derivative in the value, the state and the modifier's float
-# parameters, of which an array parameter read by `param` gives the one
-# entry the step reads. Each case is its own method, so no variable is
-# shared with a closure (which would box it and allocate on every step).
+# Each case is its own method, so no variable is shared with a closure, which
+# would box it and allocate on every step.
 function _local_pullback(grads, m, v, s, t, k)
     m̄, v̄, s̄ = grads.piece, grads.v, grads.s
     if m̄ !== nothing
@@ -238,10 +220,8 @@ end
 
 # == Read steps ==
 
-# The reads of a modifier's float arrays in one dual step, with room for
-# `R` after the first `lo`: for each, the array (its position among them,
-# `_rebuild_reads`'s leaf) and the linear index read. `n` counts every
-# read, so `n > lo + R` marks a step that read more than the partials hold.
+# `n` counts every read, so `n > lo + R` marks a step that read more than the
+# partials hold.
 const _READ_WIDTHS = (4, 8, 12)
 const _READ_CAP = 2 * last(_READ_WIDTHS)
 mutable struct _Reads{R}
@@ -264,9 +244,6 @@ function _ReadSeed{D}(reads::_Reads{R}, slot0) where {D, R}
     return _ReadSeed{D, R}(reads, slot0)
 end
 
-# A modifier's float array inside its read step: each entry read is a dual
-# number of type `D`, with the next read partial set when the read is
-# among those the pass seeds, and is recorded.
 struct _ReadArray{D, N, A <: AbstractArray, R} <: AbstractArray{D, N}
     x::A
     leaf::Int
@@ -279,9 +256,6 @@ function _ReadArray(
 end
 Base.size(a::_ReadArray) = size(a.x)
 Base.IndexStyle(::Type{<:_ReadArray}) = IndexLinear()
-# `x` with its float scalars, entry parameters included, taken from `θ` and
-# each other float array wrapped as a `_ReadArray`, numbered from leaf `l`
-# in field order; returns the object, the rest of `θ` and the next leaf.
 struct _ReadingLeaves{W}
     w::W
 end
@@ -333,9 +307,6 @@ end
 
 # == Coupling pullback ==
 
-# A coupling's pullback at one step: its own when it uses one, else the
-# local derivative, which takes its dual numbers from `bufs`
-# (`_pressure_buffers`). Adds into `p̄`.
 function _pressure_back!(p̄, C̄, C, q̄, p, t, bufs = nothing)
     own = Val(uses_adjoint(C, Pressure()))
     return _pressure_back!(own, p̄, C̄, C, q̄, p, t, bufs)
@@ -358,27 +329,18 @@ _pressure_scalars(C̄, C) = C̄ === nothing ? () : _param_tuple(C)
 # scalars: only when the coupling is differentiated and holds any.
 _array_seeds(C̄, C) = C̄ !== nothing && !_scalar_params(C)
 
-# The dual-number buffers of a coupling's local derivative, made once per
-# reverse pass so a step allocates nothing: a pair of vectors for each
-# number of partials, sized on first use; `nothing` for a coupling with its
-# own pullback. A step whose dual type is not among them allocates its own.
+# Made once per reverse pass so a step allocates nothing.
 function _pressure_buffers(C̄, C, Tp)
     return _pressure_buffers(Val(uses_adjoint(C, Pressure())), C̄, C, Tp)
 end
 _pressure_buffers(::Val{true}, C̄, C, Tp) = nothing
 _pressure_buffers(::Val{false}, C̄, C, Tp) = _dual_pressure_buffers(C̄, C, Tp)
-# The local step seeds the strata and the scalars `N` at a time, `N` the
-# smallest of 4, 8, 12 and 24 that covers them. The rule takes this route
-# while one pass covers every input (`_LOCAL_PRESSURE`), and through
-# `_ad_wide` while two do (`_LOCAL_PRESSURE_WIDE`).
+# The rule takes this route while one pass covers every input, and
+# `_ad_wide` while two do.
 const _LOCAL_PRESSURE = 24
 const _LOCAL_PRESSURE_WIDE = 2 * _LOCAL_PRESSURE
-# The local derivative of a coupling with float arrays among its parameters:
-# every scalar and array entry is seeded alongside the strata, in the order
-# `_params` reads them, through a rebuild whose arrays are views of one
-# vector of dual numbers, so each pass reseeds them in place. The buffers
-# hold the parameters, their cotangent for one step, and the dual vectors
-# of the strata, the pressures and the parameters for each width.
+# Parameter arrays are views of one vector of dual numbers, so each pass
+# reseeds them in place.
 struct _ArrayPressure{T, L}
     θ::Vector{T}
     ḡ::Vector{T}
@@ -387,14 +349,9 @@ end
 
 # == Whole-step local derivative ==
 
-# The local derivative of a whole-step modifier without a `pullback!`, the
-# step `forward!(m, Step(), v, s, t)` over every stratum at once: the
-# values, the state and the parameters are seeded `N` at a time, as a
-# coupling's are, through a rebuild whose float arrays are views of one
-# vector of dual numbers. The buffers hold the output cotangents, the
-# parameters and their cotangent for one step, and the dual vectors of the
-# values, the state and the parameters for each width. Without the
-# dual-number extension there are none, and the step says to load it.
+# Seeded `N` at a time as a coupling's are, with float arrays as views of one
+# vector of dual numbers. Without the dual-number extension there are none,
+# and the step says to load it.
 struct _StepDuals{T, L}
     v̄::Vector{T}
     s̄::Vector{T}
@@ -408,10 +365,8 @@ struct _StepDuals{T, L}
 end
 _step_duals(m̄, m, args...) = nothing
 _local_step!(m̄, m, args...) = _need_forwarddiff(m)
-# Overwrites `grads.v` and `grads.s` with the cotangents of the step's
-# inputs and adds the parameters' into `grads.piece`. The reverse pass of a
-# `Recurrence` passes its buffers in `grads.pass`; a direct call makes
-# them.
+# The reverse pass of a `Recurrence` passes its buffers in `grads.pass`; a
+# direct call makes them.
 function _local_step_back!(grads, m, v, s, t)
     pass = get(grads, :pass, nothing)
     b = _given_duals(pass, grads.piece, m, eltype(v), length(v))
@@ -424,10 +379,9 @@ _given_duals(::Any, m̄, m, Tp, S) = _step_duals(m̄, m, Tp, S)
 _column(b::_StepDuals, t) = b
 _finish_pass!(m̄, m, R, ::_StepDuals, τ0) = nothing
 
-# `_rebuild` with each float array a view of `θ` rather than a copy, so a
-# change to `θ` reaches the rebuilt object. A `Diagonal` is rebuilt around a
-# view; a sparse matrix's constructor takes only a `Vector`, so parts that
-# hold one keep to plain AD (`_has_structured_floats`).
+# Views rather than copies, so a change to `θ` reaches the rebuilt object. A
+# sparse constructor takes only a `Vector`, so parts holding one keep to plain
+# AD (`_has_structured_floats`).
 struct _ViewLeaves{V}
     θ::V
 end
@@ -441,11 +395,6 @@ end
 
 # == Depletion form draws ==
 
-# The draw of a depletion form, `(v, s, N) -> (y, s′)`, and its pullback,
-# which returns the cotangents of `(v, s, N)`: a built-in's kernel, or the
-# form's `forward!` and `pullback!` on one-entry views of local slots, with
-# `grads.N` the view its pullback adds into and `grads.piece` the form's
-# mirror, which takes the cotangents of its own parameters.
 @inline function _draw(form, v, s, N)
     T = promote_type(typeof(v), typeof(s), typeof(N), param_eltype(form))
     vr, sr = Base.RefValue{T}(v), Base.RefValue{T}(s)
@@ -466,10 +415,6 @@ end
     _written(form, @inline pullback!(g, form, Step(), vv, sv, N))
     return v̄r[], s̄r[], N̄r[]
 end
-# The pullback of a depletion form's step `(v, s, N) -> (y, s′)`: its own
-# when it declares one, else a local derivative that seeds the value, the
-# pool, the population and the form's float scalars as one tuple of dual
-# numbers.
 _form_adjoint(form) = uses_adjoint(form, Step()) || _scalar_params(form)
 function _form_pullback(grads, form, v, s, N)
     return _form_pullback(Val(uses_adjoint(form, Step())), grads, form, v, s, N)
@@ -480,9 +425,6 @@ end
 function _form_pullback(::Val{false}, grads, form, v, s, N)
     return _local_form_pullback(grads, form, v, s, N)
 end
-# The float scalars of `x` in the order `_getparams!` reads them, as a tuple,
-# with the entry of each `_EntryParam` read at `at = (k, t)` (a zero for
-# `at = nothing`, where only the types matter).
 struct _ScalarLeaves{A}
     at::A
 end
@@ -504,15 +446,9 @@ _map_entry(::_CopyScalars, x, θ) = (first(θ), Base.tail(θ))
 
 # == Rebuild checks ==
 
-# Whether the local step's rebuild of `x` from its float scalars gives them
-# back: each is seeded as a dual number with its own partial, `x` is
-# rebuilt by `constructorof` and its scalars must come back unchanged. A
-# keyword-only constructor, a field typed `Float64` or a constructor that
+# A keyword-only constructor, a `Float64` field or a constructor that
 # transforms its arguments fails; the last would give a wrong gradient. A
-# modifier with `_EntryParam`s gets a scalar in their place, so one step of
-# the rebuild must also run, on the entries at stratum or group 1 and time 1:
-# a step that indexes such a parameter's array fails. Checked once, when a
-# `Recurrence` is built, for each part with float scalars.
+# step on `_EntryParam` scalars must also run. Checked once, at construction.
 function _check_rebuild(x)
     _scalar_params(x) || (_entry_step(x) && _local_params(x)) ||
         return _strata_loop(x) ? _check_reads(x) :
@@ -524,9 +460,7 @@ _check_rebuild(::Val{true}, x) = _check_scalars(x, _param_tuple(x, (1, 1)))
 # A pointwise or blockwise modifier passes an `_EntryParam` as its entry at
 # the stratum or group, and the step's time.
 _entry_step(x) = _strata_loop(x) || _blocks(x) !== nothing
-# A part with float arrays among its parameters, rebuilt as the local step
-# does (`_rebuild_views`) from a vector of dual numbers, each with its own
-# partial: the parameters read back must be those dual numbers.
+# The parameters read back must be the seeded dual numbers.
 _check_rebuild(::Val{false}, x) = _check_views(x)
 # The checks rebuild with dual numbers, so are in the dual-number extension.
 # Without it they return `nothing`: the part is unchecked, and the call
@@ -535,9 +469,6 @@ _check_scalars(x, args...) = nothing
 _check_views(x, args...) = nothing
 _probe_reads(x, args...) = nothing
 _check_read_rebuild(x, args...) = nothing
-# The entries of its float arrays one step of a whole-step modifier over `S`
-# strata reads at time 1: from the dual-number extension, which the local
-# step needs; without it, none.
 _probe_step_reads(m, S, args...) = 0
 _steps(m, md, x) = _scalar_params(m) || (_any_step(md, x); true)
 # One step of a part rebuilt with dual numbers: a pointwise modifier's, a
@@ -549,10 +480,7 @@ function _any_step(::Val{B}, m, x) where {B}
     return _block_step(m, vs, ss, 1, 1)
 end
 _any_step(m::_FormPart, x) = _draw(m.form, x, x, 1)
-# A pointwise modifier with other float arrays, rebuilt as its read step
-# does: the scalars must come back unchanged, each array must stay its
-# `_ReadArray`, and one step must run on the rebuild, reading at most
-# `_READ_CAP` entries; above that plain AD is faster.
+# Reading at most `_READ_CAP` entries; above that plain AD is faster.
 _check_reads(x) = _reads_within(_probe_reads(x))
 _reads_within(::Nothing) = nothing
 _reads_within(n::Int) = 0 <= n <= _READ_CAP
@@ -642,14 +570,9 @@ _descends(::Union{_CopyScalars, _AddScalars}, x) = _param_tuple(x) !== ()
 
 # == Init pullback ==
 
-# Default initial-state pullback: a local forward-mode derivative of the
-# Init, skipped for the default zero state and for a zero state cotangent (a
-# modifier whose state never reaches the output), where the derivative in
-# the whole history would cost more than the rest of the reverse pass. A
-# pointwise modifier whose parameters are scalars or read one entry per
-# stratum writes each stratum's state from that stratum's inputs, so its
-# derivative is taken stratum by stratum; any other takes the Jacobian in
-# every parameter and history entry.
+# Skipped for the default zero state and a zero cotangent, where the
+# derivative in the whole history costs more than the rest of the pass. A
+# pointwise modifier with per-stratum reads is differentiated per stratum.
 function pullback!(grads, m, ::Init, s, history)
     _default_init(m, s, history) && return nothing
     m̄, s̄, h̄ = grads.piece, grads.s, grads.history
@@ -666,19 +589,14 @@ function pullback!(grads, m, ::Init, s, history)
     return nothing
 end
 
-# Whether the Init derivative of `m` is taken stratum by stratum: a
-# pointwise modifier with scalars or entry parameters, and a history (when
-# differentiated) of one row per stratum.
 function _strata_init(m, s, nh)
     _strata_loop(m) && _local_params(m) || return false
     return nh % max(length(s), 1) == 0
 end
 
-# Whether modifier `m` uses the default zero initial state. The method
-# lookup runs at run time, once per signature, and its answer is cached
-# with the world age it was found in, so a method defined later is still
-# seen; a lookup on every reverse pass cost more than the rest of a short
-# run's gradient on Julia 1.13.
+# Cached per signature with its world age, so a method defined later is still
+# seen; a lookup on every reverse pass cost more than a short run's gradient
+# on Julia 1.13.
 const _DEFAULT_INIT = Dict{Type, Tuple{UInt, Bool}}()
 const _DEFAULT_INIT_LOCK = ReentrantLock()
 function _default_init(m, s, history)
