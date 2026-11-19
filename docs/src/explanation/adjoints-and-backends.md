@@ -274,17 +274,21 @@ Array(y) ≈ Recurrence([0.4, 0.3, 0.2, 0.1]; coupling = [0.9 0.1; 0.2 0.8])(
 
 The package's own rules run on device arrays for:
 
-- a convolution with a fixed kernel (a vector or `PerStratum`);
+- a convolution with a kernel that is:
+  - fixed (a vector or `PerStratum`);
+  - time-varying as a dense array (a `TimeVarying` matrix or `PerStratum` array);
 - a recurrence with:
-  - a fixed kernel;
+  - a kernel that is fixed, or time-varying as a dense array;
   - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
   - modifiers that are `Transform`s and `Depletion`s whose steps run per stratum, including a `Depletion` with flows or a floor.
 
 Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
+A per-stratum time-varying kernel's cotangent (S × L × T) is not copied, as each stratum writes only its own rows.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 
+- a kernel given by change points or as ragged columns;
 - a time-varying coupling;
 - a modifier with a vector step, such as `Allocate`;
 - a modifier type the package does not define.
