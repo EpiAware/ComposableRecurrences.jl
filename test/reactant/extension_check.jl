@@ -56,6 +56,13 @@ end
     end
 end
 
+# A traced scalar input reads as the same value at every stratum and time.
+@testset "Reactant traced scalar input" begin
+    at(x) = ComposableRecurrences._at(x, 2, 3)
+    x = Reactant.ConcreteRNumber(1.5)
+    @test Reactant.@compile(at(x))(x) == 1.5
+end
+
 # Reactant compiles the kernels through CUDA.jl, so a traced call without it
 # says to load it.
 @testset "Reactant traced call needs CUDA.jl" begin

@@ -3033,9 +3033,6 @@ const REACTANT_BROKEN = Dict(
         "Recurrence default traces of user modifiers",
         "Recurrence user traces on groups and over the whole step",
     ],
-    "lag contributions read a traced number (`_at`)" => [
-        "Convolution lag contributions",
-    ],
 )
 
 """

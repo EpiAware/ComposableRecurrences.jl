@@ -380,6 +380,9 @@ end
 # Traced weights or a traced coupling stand for real numbers, and a traced
 # number scales a `Recent` or a `Derived` as a real one does.
 ComposableRecurrences._real_entries(::AbstractArray{<:TracedRNumber}) = true
+# A traced scalar input is one value for every stratum and time, as a real
+# one is.
+ComposableRecurrences._at(x::TracedRNumber, k, t) = x
 for op in (:+, :-, :*, :/, :^),
         P in (:(ComposableRecurrences.Recent), :(ComposableRecurrences.Derived))
     @eval begin

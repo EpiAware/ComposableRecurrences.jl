@@ -55,7 +55,7 @@ Total run time 26.3 min, timeout 600 s a case.
 | Convolution with gain and add | works (2.6 s / 5.7 µs) | works (1.0 s / 37.0 µs) |
 | Convolution of a series that ends before the outputs | works (0.9 s / 8.7 µs) | works (0.9 s / 12.0 µs) |
 | Convolution of a short series with gain, add and history | works (1.3 s / 5.8 µs) | works (1.1 s / 12.9 µs) |
-| Convolution lag contributions | error: MethodError in `_contribute!` | error: MethodError in `_contribute!` |
+| Convolution lag contributions | works (30.0 s / 64.5 µs) | works (3.4 s / 97.9 µs) |
 | Convolution transpose of a Primary kernel with a tail | works (3.3 s / 6.4 µs) | works (1.3 s / 62.6 µs) |
 | Recurrence ragged Primary kernel | error: ErrorException in `_ragged` | error: ErrorException in `_ragged` |
 | Recurrence Transform with per-stratum parameters | works (2.6 s / 9.5 µs) | works (1.0 s / 10.9 µs) |
@@ -227,8 +227,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Convolution of a series that ends before the outputs | reverse | cpu | 12 | works | 1.5e-14 | 0.9 | 12.0 | 3.7 |  |  |
 | registry | Convolution of a short series with gain, add and history | forward | cpu | 12 | works | 0.0e+00 | 1.3 | 5.8 | 1.3 |  |  |
 | registry | Convolution of a short series with gain, add and history | reverse | cpu | 12 | works | 1.0e-14 | 1.1 | 12.9 | 25.6 |  |  |
-| registry | Convolution lag contributions | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _contribute! | MethodError: no method matching _at(::Reactant.TracedRNumber{Float64}, ::Int64, ::Int64) The function `_at` exists, but no method is defined for this combinatio |
-| registry | Convolution lag contributions | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _contribute! | MethodError: no method matching _at(::Reactant.TracedRNumber{Float64}, ::Int64, ::Int64) The function `_at` exists, but no method is defined for this combinatio |
+| registry | Convolution lag contributions | forward | cpu | 12 | works | 2.0e-16 | 30.0 | 64.5 | 1.1 |  |  |
+| registry | Convolution lag contributions | reverse | cpu | 12 | works | 1.3e-14 | 3.4 | 97.9 | 60.9 |  |  |
 | registry | Convolution transpose of a Primary kernel with a tail | forward | cpu | 12 | works | 7.8e-16 | 3.3 | 6.4 | 0.6 |  |  |
 | registry | Convolution transpose of a Primary kernel with a tail | reverse | cpu | 12 | works | 7.0e-15 | 1.3 | 62.6 | 44.6 |  |  |
 | registry | Recurrence ragged Primary kernel | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _ragged | Create Operation 'stablehlo.gather' failed |
