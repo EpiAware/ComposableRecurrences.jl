@@ -23,22 +23,23 @@ _mirror(a::AbstractArray{<:AbstractFloat}) = zero(a)
 _mirror(a::AbstractFloat) = Ref(zero(a))
 _mirror(a) = nothing
 
+# A cotangent with the shape of `y`: the same on the host and the device for
+# outputs of one shape, so a device output of another shape fails the check.
+_cotangent_like(y) = cos.(0.37 .* reshape(1:length(y), size(y)))
+
 # The output, the input's cotangent and the leaves of the parameter mirror
-# after the rule's passes with output cotangent `Ȳ`, for `op` on arrays made
-# by `A`. A convolution's gain, add input and history take cotangents too.
-function _rule_passes(op0, args0, Ȳ0, A)
+# after the rule's passes, for `op` on arrays made by `A`. A convolution's
+# gain, add input and history take cotangents too.
+function _rule_passes(op0, args0, A)
     op = A === identity ? op0 : adapt(A, op0)
     move(x) = x isa AbstractArray ? A(x) : x
     args = map(move, args0)
     y, cache = CR._run_forward(op, args...)
-    # A run from a later start is shorter, so its cotangent takes its shape.
-    if size(y) != size(Ȳ0)
-        Ȳ0 = cos.(0.37 .* reshape(1:length(y), size(y)))
-    end
     x̄ = zero(args[1])
     rest = map(a -> op isa Convolution ? _mirror(a) : nothing, Base.tail(args))
     piece = CR._zero_mirror(op)
-    grads = (; piece, y = move(Ȳ0), args = (x̄, rest...))
+    Ȳ = move(_cotangent_like(Array(y)))
+    grads = (; piece, y = Ȳ, args = (x̄, rest...))
     CR._run_pullback!(grads, op, cache)
     return Array(y), Array(x̄), vcat(_leaves(piece), _leaves(rest))
 end
@@ -137,11 +138,10 @@ function device_rule_tests(title, A)
     return @testset "$title" begin
         for S in (4, CR._KERNEL_BLOCKS + 1)
             cases, x = _rule_cases(S)
-            Ȳ = cos.((1:S) .* 0.3 .+ (1:size(x, 2))' .* 0.1)
             for (name, (op, args)) in cases
                 @testset "$name, $S strata" begin
-                    y0, x̄0, p̄0 = _rule_passes(op, args, Ȳ, identity)
-                    y1, x̄1, p̄1 = _rule_passes(op, args, Ȳ, A)
+                    y0, x̄0, p̄0 = _rule_passes(op, args, identity)
+                    y1, x̄1, p̄1 = _rule_passes(op, args, A)
                     @test y1 ≈ y0
                     @test x̄1 ≈ x̄0
                     @test length(p̄1) == length(p̄0)

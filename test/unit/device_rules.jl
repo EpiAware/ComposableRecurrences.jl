@@ -91,13 +91,17 @@
         return CR.Allocate([1:h, (h + 1):S], PerStratum(fill(1.0, 2)))
     end
 
+    # A cotangent with the shape of `y`, the same on the host and the
+    # device for outputs of one shape.
+    cotangent_like(y) = cos.(0.37 .* reshape(1:length(y), size(y)))
     # The input's cotangent and the parameter mirror after the rule's
-    # forward pass and pullback with output cotangent `weights(S)`.
-    function rule_cotangents(op, args, piece, S, dev)
+    # forward pass and pullback with output cotangent `weights(S)`, or for a
+    # run from a later start, which `shorter` says to expect, one of its
+    # shape.
+    function rule_cotangents(op, args, piece, S, dev; shorter = false)
         y, cache = CR._run_forward(op, args...)
-        # The output's own shape: a run from a later start is shorter.
-        W = size(y) == (S, T) ? weights(S) :
-            cos.(0.37 .* reshape(1:length(y), size(y)))
+        @test size(y) == (S, shorter ? T - L : T)
+        W = shorter ? cotangent_like(y) : weights(S)
         Ȳ = dev ? JLArray(W) : W
         x̄ = zero(args[1])
         rest = map(_ -> nothing, Base.tail(args))
@@ -358,44 +362,39 @@ end
     using ForwardDiff: ForwardDiff
     logistic(z) = inv(1 + exp(-z))
     hz = 0.1 .+ 0.05 .* sin.(1:T)
-    # A hazard per stratum and time: with 10 strata, 300 walks run in more
-    # walks than blocks, so blocks walk several cohorts in turn.
+    # A hazard per stratum and time. With 10 strata there are more walks
+    # than blocks, so blocks walk several cohorts in turn.
     HZ(S) = [0.1 + 0.05 * sin(k + t) for k in 1:S, t in 1:T]
-    d(dev, x) = dev ? JLArray(x) : x
-    survival(dev, h; kw...) = CR.Survival(TimeVarying(d(dev, h)); kw...)
-    confirmed(dev) = d(dev, pmf) * (1 - survival(dev, hz; from = 1))
-    per_stratum(dev, S) = TimeVarying(PerStratum(d(dev, HZ(S))))
-    stratified(dev, S) = d(dev, pmf) * CR.Survival(per_stratum(dev, S))
-    z(dev) = TimeVarying(d(dev, 3 .* hz .- 2))
-    mapped(dev) = d(dev, pmf) * CR.Survival(CR.Derived(logistic, z(dev)))
+    @test 10 * T > CR._KERNEL_BLOCKS
+    confirmed() = pmf * (1 - CR.Survival(TimeVarying(hz); from = 1))
+    stratified(S) = pmf * CR.Survival(TimeVarying(PerStratum(HZ(S))))
+    z = TimeVarying(3 .* hz .- 2)
+    mapped() = pmf * CR.Survival(CR.Derived(logistic, z))
     computed(w) = TimeVarying(w, CR.Primary())
-    # A cohort-indexed kernel starts after its history.
+    # A cohort-indexed kernel starts after its history, so its output is
+    # shorter.
     by_cohort(k, C, S) = recurrence_case(C, S, false; kernel = k, start = L + 1)
+    # Each case is built on the host, and moved to the device once.
     cases = [
-        ("convolution, a confirmed survival", 4) =>
-            dev -> convolution_case(computed(confirmed(dev)), 4, false),
-        ("convolution, a survival per stratum", 10) =>
-            dev -> convolution_case(computed(stratified(dev, 10)), 10, false),
-        ("convolution, a mapped hazard", 4) =>
-            dev -> convolution_case(computed(mapped(dev)), 4, false),
-        ("recurrence, a confirmed survival", 4) =>
-            dev -> by_cohort(computed(confirmed(dev)), I, 4),
-        ("recurrence, a survival per stratum", 10) =>
-            dev -> by_cohort(computed(stratified(dev, 10)), dense(10), 10),
+        ("convolution, a confirmed survival", 4, false) =>
+            convolution_case(computed(confirmed()), 4, false),
+        ("convolution, a survival per stratum", 10, false) =>
+            convolution_case(computed(stratified(10)), 10, false),
+        ("convolution, a mapped hazard", 4, false) =>
+            convolution_case(computed(mapped()), 4, false),
+        ("recurrence, a confirmed survival", 4, true) =>
+            by_cohort(computed(confirmed()), I, 4),
+        ("recurrence, a survival per stratum", 10, true) =>
+            by_cohort(computed(stratified(10)), dense(10), 10),
     ]
-    # Each case builds its kernel on the host or the device and its inputs on
-    # the host; the device's are moved after.
-    function on(dev, op, args)
-        dev || return op, args
-        return adapt(JLArray, op), adapt(JLArray, args)
-    end
-    @testset "$name" for ((name, S), case) in cases
-        op0, args0 = on(false, case(false)...)
-        op1, args1 = on(true, case(true)...)
+    @testset "$name" for ((name, S, shorter), (op0, args0)) in cases
+        op1, args1 = adapt(JLArray, op0), adapt(JLArray, args0)
         @test CR._route_val(op1, args1...) === Val(:rule)
+        # On the host the call does not take the device route.
+        @test !CR._device_gate(op0, args0...)
         p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
-        y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
-        y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
+        y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false; shorter)
+        y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true; shorter)
         @test y1 ≈ y0
         @test x̄1 ≈ x̄0
         @test agree(p̄1, p̄0)
@@ -405,23 +404,24 @@ end
     n = T - L + 1
     @testset "kernel_weights, $name" for (name, w) in (
             "a confirmed survival" => confirmed, "a mapped hazard" => mapped,
-            "a survival per stratum" => dev -> stratified(dev, 10),
+            "a survival per stratum" => () -> stratified(10),
         )
-        op0 = CR._KernelWeights(computed(w(false)))
-        op1 = CR._KernelWeights(computed(w(true)))
+        op0 = CR._KernelWeights(computed(w()))
+        op1 = adapt(JLArray, op0)
         @test CR._route_val(op1, n) === Val(:rule)
+        @test !CR._device_gate(op0, n)
         K0, c0 = CR._run_forward(op0, n)
         K1, c1 = CR._run_forward(op1, n)
         @test K1 isa JLArray
         @test Array(K1) ≈ K0
-        K̄ = cos.(reshape(1:length(K0), size(K0)) .* 0.37)
+        K̄ = cotangent_like(K0)
         p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
         g0 = (; piece = p̄0, y = K̄, args = (nothing,))
         g1 = (; piece = p̄1, y = JLArray(K̄), args = (nothing,))
         CR._run_pullback!(g0, op0, c0)
         CR._run_pullback!(g1, op1, c1)
         @test agree(p̄1, p̄0)
-        @test Array(CR.kernel_weights(computed(w(true)), n)) ≈ K0
+        @test Array(CR.kernel_weights(op1.kernel, n)) ≈ K0
     end
 end
 

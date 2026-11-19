@@ -351,9 +351,10 @@ end
 
 # == On a device ==
 
-# One kernel thread per cohort and stratum walks the cohort's lags, so the
-# weights fill as one launch. A `Survival` without strata is walked again
-# for each stratum the weights have, as a thread holds one walk.
+# One kernel thread per cohort, and per stratum when the weights have
+# strata, walks the cohort's lags, so the weights fill as one launch. When
+# the weights have strata and a `Survival` in them does not, each stratum's
+# thread walks that survival again, as a thread holds one walk.
 function _device_fill(x, like, ::Type{Tp}, ns, L, n, o, last) where {Tp}
     K = _stratified(x) ? similar(like, Tp, ns, L, n) : similar(like, Tp, L, n)
     fill!(K, zero(Tp))
