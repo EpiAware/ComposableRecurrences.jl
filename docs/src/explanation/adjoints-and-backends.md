@@ -261,6 +261,9 @@ Float types:
   Columns that live on a device, or `Adapt.adapt`, put both there.
 - Routes (`Pairwise(K₁ => k₁, K₂ => k₂)`), a convolution's transpose and a `Recent` run on a device too.
   A `Recent` with a coupling fills each stratum's window as one kernel once a step, before the strata read them.
+- A computed kernel (a `Survival` or a `Derived` kernel) fills its weights as one kernel, each thread walking one cohort's lags for one stratum.
+  `kernel_weights` fills them the same way when its coefficients live on a device.
+- Views and reshapes of device arrays, such as views into one parameter vector, run on the device as the arrays themselves do.
 
 `test/unit/gpu_arrays.jl` runs every operator, coupling and built-in modifier on JLArrays, with scalar indexing disallowed, on every pull request.
 On a machine with an NVIDIA GPU, the same checks run on CUDA arrays by hand:
@@ -280,8 +283,9 @@ The package's own rules run on device arrays for:
 - a convolution with a kernel that is:
   - fixed (a vector or `PerStratum`);
   - time-varying as a dense array (a `TimeVarying` matrix or `PerStratum` array);
+  - computed from coefficients (a `Survival` or a `Derived` kernel);
 - a recurrence with:
-  - a kernel that is fixed, or time-varying as a dense array;
+  - a kernel that is fixed, time-varying as a dense array, or computed;
   - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
   - modifiers that are `Transform`s, `Depletion`s and `Allocate`s without imports;
     a `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
@@ -290,6 +294,9 @@ Their forward pass and pullback run as kernels, and AD backends see only the rul
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
 A per-stratum time-varying kernel's cotangent (S × L × T) is not copied, as each stratum writes only its own rows.
 The cotangent of a modifier's `PerStratum` parameter in a vector step is not copied either, as each stratum or group writes only its own entries.
+A computed kernel's reverse pass walks its cohorts again in blocks, and each block adds into its own copy of the coefficients' cotangents, as cohorts share them.
+With strata the blocks are blocks of strata, so a per-stratum coefficient's cotangent is not copied either.
+`kernel_weights` takes the rule the same way.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 

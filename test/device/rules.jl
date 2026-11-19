@@ -23,10 +23,14 @@ _mirror(a::AbstractArray{<:AbstractFloat}) = zero(a)
 _mirror(a::AbstractFloat) = Ref(zero(a))
 _mirror(a) = nothing
 
+# A cotangent with the shape of `y`: the same on the host and the device for
+# outputs of one shape, so a device output of another shape fails the check.
+_cotangent_like(y) = cos.(0.37 .* reshape(1:length(y), size(y)))
+
 # The output, the input's cotangent and the leaves of the parameter mirror
-# after the rule's passes with output cotangent `Ȳ`, for `op` on arrays made
-# by `A`. A convolution's gain, add input and history take cotangents too.
-function _rule_passes(op0, args0, Ȳ0, A)
+# after the rule's passes, for `op` on arrays made by `A`. A convolution's
+# gain, add input and history take cotangents too.
+function _rule_passes(op0, args0, A)
     op = A === identity ? op0 : adapt(A, op0)
     move(x) = x isa AbstractArray ? A(x) : x
     args = map(move, args0)
@@ -34,7 +38,8 @@ function _rule_passes(op0, args0, Ȳ0, A)
     x̄ = zero(args[1])
     rest = map(a -> op isa Convolution ? _mirror(a) : nothing, Base.tail(args))
     piece = CR._zero_mirror(op)
-    grads = (; piece, y = move(Ȳ0), args = (x̄, rest...))
+    Ȳ = move(_cotangent_like(Array(y)))
+    grads = (; piece, y = Ȳ, args = (x̄, rest...))
     CR._run_pullback!(grads, op, cache)
     return Array(y), Array(x̄), vcat(_leaves(piece), _leaves(rest))
 end
@@ -64,7 +69,9 @@ function _rule_cases(S)
     # A gain or add input per stratum and time, per time or shared.
     gain, add = 0.5 .* x, collect(range(0.1, 1.0; length = T))
     scaled(g, a) = (Convolution(pmf), (x, g, a, fill(1.0, S, 2), 1, nothing))
-    rec(r) = (r, (CR._run_args(r, x, h, nothing, nothing, 1)..., nothing))
+    function rec(r; start = 1)
+        return (r, (CR._run_args(r, x, h, nothing, nothing, start)..., nothing))
+    end
     # Modifiers with a vector step: two pools, two draws on one pool, a
     # queue and grouped totals.
     hazard = CR.Hazard(; weights = (S = 1, V = 0.5))
@@ -81,6 +88,15 @@ function _rule_cases(S)
     )
     totals = CR.Allocate([1:(S ÷ 2), (S ÷ 2 + 1):S], PerStratum(fill(1.0, 2)))
     stepped(m) = rec(Recurrence(pmf; modifiers = (m,)))
+    # Kernels computed from a hazard over time: shared by the strata and
+    # confirmed from the lag after entry, one per stratum, and one through a
+    # map, whose partials come from a local forward-mode derivative.
+    hz = 0.1 .+ 0.05 .* sin.(1:T)
+    HZ = [0.1 + 0.05 * sin(k + t) for k in 1:S, t in 1:T]
+    computed(w) = TimeVarying(w, CR.Primary())
+    confirmed = pmf * (1 - CR.Survival(TimeVarying(hz); from = 1))
+    stratified = pmf * CR.Survival(TimeVarying(PerStratum(HZ)))
+    mapped = pmf * CR.Survival(CR.Derived(exp, TimeVarying(log.(hz))))
     cases = [
         "Convolution, vector kernel" => conv(pmf),
         "Convolution, per-stratum kernel" => conv(PerStratum(repeat(pmf', S))),
@@ -113,6 +129,11 @@ function _rule_cases(S)
         "Recurrence, two draws on one pool" => stepped(two_draws),
         "Recurrence, a queue" => stepped(queued),
         "Recurrence, grouped totals" => stepped(totals),
+        "Convolution, kernel from a hazard and a survival" =>
+            conv(computed(confirmed)),
+        "Convolution, survival per stratum" => conv(computed(stratified)),
+        "Recurrence, kernel shortened by a mapped hazard" =>
+            rec(Recurrence(computed(mapped); coupling = C); start = L + 1),
     ]
     return cases, x
 end
@@ -124,11 +145,10 @@ function device_rule_tests(title, A)
     return @testset "$title" begin
         for S in (4, CR._KERNEL_BLOCKS + 1)
             cases, x = _rule_cases(S)
-            Ȳ = cos.((1:S) .* 0.3 .+ (1:size(x, 2))' .* 0.1)
             for (name, (op, args)) in cases
                 @testset "$name, $S strata" begin
-                    y0, x̄0, p̄0 = _rule_passes(op, args, Ȳ, identity)
-                    y1, x̄1, p̄1 = _rule_passes(op, args, Ȳ, A)
+                    y0, x̄0, p̄0 = _rule_passes(op, args, identity)
+                    y1, x̄1, p̄1 = _rule_passes(op, args, A)
                     @test y1 ≈ y0
                     @test x̄1 ≈ x̄0
                     @test length(p̄1) == length(p̄0)

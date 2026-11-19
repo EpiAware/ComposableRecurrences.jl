@@ -6,8 +6,8 @@
     using ComposableRecurrences
     using ComposableRecurrences: Derived
     using ComposableRecurrences: Allocate, Depletion,
-        Flow, Floor, Hazard, Primary, Recent, Redistribute, Share, Truncate,
-        Transform, contributions
+        Flow, Floor, Hazard, Primary, Recent, Redistribute, Share, Survival,
+        Truncate, Transform, contributions
     using JLArrays: JLSparseMatrixCSR
     using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
@@ -30,6 +30,9 @@
     const KR = [g0[1:mod1(t, L)] .* (1 + 0.01 * t) for t in 1:T]
     const NS = [60.0, 50.0, 40.0]
     const TOT = [4.0 + 0.2 * t + p for p in 1:2, t in 1:T]
+    # Hazards over time, shared by the strata or one per stratum.
+    const HZ1 = 0.1 .+ 0.05 .* sin.(1:T)
+    const HZS = [0.1 + 0.05 * sin(k + t) for k in 1:S, t in 1:T]
 
     # A sparse coupling on the host, or in CSR form on the device.
     _sparse(d, K) = d(zeros(1)) isa Array ? sparse(K) : JLSparseMatrixCSR(sparse(K))
@@ -286,6 +289,20 @@
             d -> transpose(Convolution(TimeVarying(d(TVK), Primary())))(
             d(RS); tail = d(HS[:, 1:(L - 1)]), start = 2
         ),
+        "Convolution, kernel from a hazard and a survival" =>
+            (d, F = Float64) -> Convolution(
+            TimeVarying(
+                d(g0) * (F(1) - Survival(TimeVarying(d(HZ1)); from = 1)),
+                Primary()
+            )
+        )(d(RS)),
+        "Recurrence, kernel shortened by a survival per stratum" =>
+            d -> Recurrence(
+            TimeVarying(
+                d(g0) * Survival(TimeVarying(PerStratum(d(HZS)))), Primary()
+            );
+            coupling = d(K0)
+        )(d(RS); history = d(HS), start = L + 1),
         "Recurrence, feedback from recent outputs across strata" =>
             (d, F = Float64) -> Recurrence(
             d(g0);
@@ -588,6 +605,10 @@ end
             Transform(*, Derived(exp, -0.1 * ComposableRecurrences.Recent(v))),
             Recurrence(Pairwise(m => v, 0.5 .* m => v[1:2])).kernel,
             transpose(Convolution(TimeVarying(m, Primary()))),
+            ComposableRecurrences.Survival(tv; from = 1),
+            ComposableRecurrences._KernelWeights(
+                TimeVarying(v * ComposableRecurrences.Survival(tv), Primary())
+            ),
         )
         @test holds_host(x)
         y = adapt(JLArrays.Adaptor(), x)
@@ -597,6 +618,9 @@ end
     # The rebuild keeps a Transform's map and the order of its bounds.
     y = adapt(JLArrays.Adaptor(), Transform(clamp, PerStratum(v), tv))
     @test y.f === clamp && y.θ[1] isa PerStratum && y.θ[2] isa TimeVarying
+    # A survival keeps the first lag its hazard acts at.
+    y = adapt(JLArrays.Adaptor(), ComposableRecurrences.Survival(tv; from = 2))
+    @test y.from == 2
 end
 
 @testitem "JLArrays: adapting an operator moves its parameters to the device" begin
@@ -739,4 +763,40 @@ end
             @test Array(y) ≈ CR.Convolution(k)(x)
         end
     end
+end
+
+@testitem "JLArrays: views and reshapes of device arrays run on the device" tags = [:threads] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: Primary, Survival
+    using JLArrays, KernelAbstractions
+    const CR = ComposableRecurrences
+    JLArrays.allowscalar(false)
+    x = JLArray(collect(1.0:6.0))
+    backend = CR.Parallel(KernelAbstractions.get_backend(x))
+    for a in (view(x, 2:5), Base.ReshapedArray(x, (2, 3), ()))
+        @test CR._on_gpu(a)
+        @test CR._resolve(CR.Serial(), a) == backend
+        @test CR._resolve(CR.Threaded(), a) == backend
+    end
+    # On the host they stay host arrays, decided from the type.
+    h = collect(1.0:6.0)
+    for a in (view(h, 2:5), reshape(view(h, :), 2, 3), reshape(h, 2, 3))
+        @test !(@inferred CR._on_gpu(a))
+        @test (@inferred CR._resolve(CR.Serial(), a)) === CR.Serial()
+    end
+    # A kernel built from views into one parameter vector, with its input a
+    # reshaped view of the same vector, runs on the device.
+    T, L = 20, 4
+    g0 = [0.4, 0.3, 0.2, 0.1]
+    hz = 0.1 .+ 0.05 .* sin.(1:T)
+    θ = vcat(g0, hz, 1 .+ 0.1 .* sin.(1:(3T)))
+    function run(θ)
+        g, η = view(θ, 1:L), view(θ, (L + 1):(L + T))
+        k = TimeVarying(g * (1 - Survival(TimeVarying(η); from = 1)), Primary())
+        X = reshape(view(θ, (L + T + 1):length(θ)), 3, T)
+        return Convolution(k)(X)
+    end
+    y = run(JLArray(θ))
+    @test y isa JLArray
+    @test Array(y) ≈ run(θ)
 end
