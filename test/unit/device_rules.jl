@@ -426,8 +426,8 @@ end
 
 @testitem "JLArrays: Threaded runs device arrays on their own backend" tags = [:threads] setup = [DeviceRules] begin
     using Base.ScopedValues: with
-    # Host threads cannot index device arrays, so `Threaded` runs them as
-    # the default executor does, and gives the same values and cotangents.
+    # The default `min_work` runs small loops without splitting them, and
+    # `min_work = 0` splits every loop.
     S = 6
     cases = [
         "independent strata" => recurrence_case(I, S, true),
@@ -446,5 +446,4 @@ end
             @test agree(p̄, p̄0)
         end
     end
-    @test CR._resolve(CR.Threaded(), JLArray(ones(2))) isa CR.Parallel
 end

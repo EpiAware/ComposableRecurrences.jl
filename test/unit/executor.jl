@@ -80,8 +80,6 @@ end
     x = JLArray(rand(3))
     @test CR._resolve(CR.Serial(), x) == CR.Device(KernelAbstractions.get_backend(x))
     @test CR._resolve(CR.Serial(), rand(3)) === CR.Serial()
-    # Host threads cannot index device arrays, so `Threaded` selects the
-    # device too, and keeps host arrays.
     ex = CR.Threaded()
     @test CR._resolve(ex, x) == CR.Device(KernelAbstractions.get_backend(x))
     @test CR._resolve(ex, rand(3)) === ex
