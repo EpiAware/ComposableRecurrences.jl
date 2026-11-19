@@ -358,6 +358,26 @@ function ComposableRecurrences._recent_row(b::_BoundRecent, k, t::TracedRNumber)
 end
 ComposableRecurrences._cached(b::_BoundRecent, i::TracedRNumber) = true
 ComposableRecurrences._cache_row!(b::_BoundRecent, i::TracedRNumber) = nothing
+# The fill itself runs at every traced step: a traced row is never known to
+# be the one filled before, so it cannot be skipped as cached.
+function ComposableRecurrences._refresh_one!(b::_BoundRecent, i::TracedRNumber)
+    return ComposableRecurrences._fill_windows!(b, i)
+end
+
+# Traced weights or a traced coupling stand for real numbers, and a traced
+# number scales a `Recent` or a `Derived` as a real one does.
+ComposableRecurrences._real_entries(::AbstractArray{<:TracedRNumber}) = true
+for op in (:+, :-, :*, :/, :^),
+        P in (:(ComposableRecurrences.Recent), :(ComposableRecurrences.Derived))
+    @eval begin
+        function Base.$op(a::$P, b::TracedRNumber)
+            return ComposableRecurrences.Derived($op, a, b)
+        end
+        function Base.$op(a::TracedRNumber, b::$P)
+            return ComposableRecurrences.Derived($op, a, b)
+        end
+    end
+end
 
 # The soft minimum of `Truncate(κ)` with a traced value picks its arms
 # with `ifelse`, as a traced `Bool` has no branch. The arm not taken sees

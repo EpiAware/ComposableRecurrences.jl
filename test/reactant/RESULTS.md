@@ -35,7 +35,7 @@ Total run time 26.3 min, timeout 600 s a case.
 | Recurrence grouped totals with empty groups and imports (Allocate) | works (0.9 s / 21.8 µs) | works (1.9 s / 93.5 µs) |
 | Recurrence Redistribute of a time-varying movement | works (3.9 s / 55.7 µs) | works (1.5 s / 117.2 µs) |
 | Recurrence Redistribute with a leak | works (2.6 s / 36.6 µs) | works (1.6 s / 122.2 µs) |
-| Recurrence Redistribute of a movement read from recent outputs | error: MethodError | error: MethodError |
+| Recurrence Redistribute of a movement read from recent outputs | works (46.1 s / 13.7 µs) | works (3.3 s / 61.6 µs) |
 | Recurrence dense coupling, Redistribute and imports as Matrix | works (8.0 s / 43.2 µs) | works (1.8 s / 147.2 µs) |
 | Recurrence grouped totals with time-varying imports (Allocate) | works (4.6 s / 10.6 µs) | works (1.6 s / 111.4 µs) |
 | Recurrence sparse coupling | error: MethodError | error: MethodError |
@@ -61,10 +61,10 @@ Total run time 26.3 min, timeout 600 s a case.
 | Recurrence Transform with per-stratum parameters | works (2.6 s / 9.5 µs) | works (1.0 s / 10.9 µs) |
 | Recurrence population varying over time with births | works (4.0 s / 9.4 µs) | works (1.5 s / 123.9 µs) |
 | Recurrence empty pool with a differentiated heterogeneity | works (3.9 s / 14.4 µs) | works (1.1 s / 12.8 µs) |
-| Recurrence Derived modifier parameters | works (4.2 s / 11.5 µs) | works (1.2 s / 101.6 µs) |
+| Recurrence Derived modifier parameters | works (5.9 s / 12.4 µs) | works (1.2 s / 90.8 µs) |
 | Recurrence Redistribute, Transform(+) and Transform(clamp) | works (3.2 s / 33.7 µs) | works (1.4 s / 147.1 µs) |
 | Recurrence capacity, beds with overflow | works (3.7 s / 7.0 µs) | works (1.3 s / 12.5 µs) |
-| Recurrence bed cap with a stay that is not geometric | error: MethodError | error: MethodError |
+| Recurrence bed cap with a stay that is not geometric | error: MethodError in `_load_history!` | error: MethodError in `_load_history!` |
 | Recurrence capacity, weekly budget with a queue | works (3.6 s / 12.5 µs) | works (1.3 s / 127.0 µs) |
 | Recurrence trace of the importation (Redistribute) | error: MethodError in `_copy_column!` | error: MethodError in `_copy_column!` |
 | Recurrence trace through a sparse coupling | error: MethodError | error: MethodError |
@@ -85,9 +85,9 @@ Total run time 26.3 min, timeout 600 s a case.
 | Recurrence routes, dense and sparse | error: MethodError | error: MethodError |
 | Recurrence routes in a buffer deeper than the kernels | error: MethodError | error: MethodError |
 | Recurrence with a buffer deeper than the kernel | works (1.7 s / 15.2 µs) | works (1.3 s / 59.9 µs) |
-| Recurrence feedback from recent outputs | error: MethodError | error: MethodError |
-| Recurrence removals from recent outputs | error: MethodError | error: MethodError |
-| Recurrence feedback from recent outputs across strata | error: ArgumentError | error: ArgumentError |
+| Recurrence feedback from recent outputs | works (6.5 s / 11.4 µs) | works (1.5 s / 102.8 µs) |
+| Recurrence removals from recent outputs | works (4.9 s / 9.4 µs) | works (1.2 s / 14.9 µs) |
+| Recurrence feedback from recent outputs across strata | works (4.8 s / 10.4 µs) | works (1.3 s / 13.6 µs) |
 | Convolution per-stratum kernel with history | works (1.4 s / 12.9 µs) | works (1.1 s / 9.3 µs) |
 | Recurrence kernel from change points | works (3.5 s / 20.5 µs) | works (2.1 s / 181.7 µs) |
 | Recurrence Primary per-stratum kernel from change points | works (3.9 s / 65.7 µs) | works (1.4 s / 96.8 µs) |
@@ -187,8 +187,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence Redistribute of a time-varying movement | reverse | cpu | 12 | works | 4.2e-05 | 1.5 | 117.2 | 53.3 |  |  |
 | registry | Recurrence Redistribute with a leak | forward | cpu | 12 | works | 0.0e+00 | 2.6 | 36.6 | 2.4 |  |  |
 | registry | Recurrence Redistribute with a leak | reverse | cpu | 12 | works | 2.8e-05 | 1.6 | 122.2 | 71.6 |  |  |
-| registry | Recurrence Redistribute of a movement read from recent outputs | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching *(::Reactant.TracedRNumber{Float64}, ::ComposableRecurrences.Recent{ComposableRecurrences._Ones, Nothing}) The function `*` exis |
-| registry | Recurrence Redistribute of a movement read from recent outputs | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching *(::Reactant.TracedRNumber{Float64}, ::ComposableRecurrences.Recent{ComposableRecurrences._Ones, Nothing}) The function `*` exis |
+| registry | Recurrence Redistribute of a movement read from recent outputs | forward | cpu | 12 | works | 7.9e-16 | 46.1 | 13.7 | 2.2 |  |  |
+| registry | Recurrence Redistribute of a movement read from recent outputs | reverse | cpu | 12 | works | 2.8e-05 | 3.3 | 61.6 | 38.8 |  |  |
 | registry | Recurrence dense coupling, Redistribute and imports as Matrix | forward | cpu | 12 | works | 1.3e-16 | 8.0 | 43.2 | 4.7 |  |  |
 | registry | Recurrence dense coupling, Redistribute and imports as Matrix | reverse | cpu | 12 | works | 3.2e-04 | 1.8 | 147.2 | 89.2 |  |  |
 | registry | Recurrence grouped totals with time-varying imports (Allocate) | forward | cpu | 12 | works | 4.5e-16 | 4.6 | 10.6 | 2.5 |  |  |
@@ -239,14 +239,14 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence population varying over time with births | reverse | cpu | 12 | works | 6.9e-15 | 1.5 | 123.9 | 99.4 |  |  |
 | registry | Recurrence empty pool with a differentiated heterogeneity | forward | cpu | 12 | works | 0.0e+00 | 3.9 | 14.4 | 0.9 |  |  |
 | registry | Recurrence empty pool with a differentiated heterogeneity | reverse | cpu | 12 | works | 1.7e-16 | 1.1 | 12.8 | 4.6 |  |  |
-| registry | Recurrence Derived modifier parameters | forward | cpu | 12 | works | 9.6e-16 | 4.2 | 11.5 | 2.7 |  |  |
-| registry | Recurrence Derived modifier parameters | reverse | cpu | 12 | works | 1.1e-14 | 1.2 | 101.6 | 50.8 |  |  |
+| registry | Recurrence Derived modifier parameters | forward | cpu | 12 | works | 9.6e-16 | 5.9 | 12.4 | 1.7 |  |  |
+| registry | Recurrence Derived modifier parameters | reverse | cpu | 12 | works | 1.1e-14 | 1.2 | 90.8 | 55.0 |  |  |
 | registry | Recurrence Redistribute, Transform(+) and Transform(clamp) | forward | cpu | 12 | works | 2.1e-16 | 3.2 | 33.7 | 2.3 |  |  |
 | registry | Recurrence Redistribute, Transform(+) and Transform(clamp) | reverse | cpu | 12 | works | 7.9e-06 | 1.4 | 147.1 | 75.9 |  |  |
 | registry | Recurrence capacity, beds with overflow | forward | cpu | 12 | works | 1.1e-16 | 3.7 | 7.0 | 2.4 |  |  |
 | registry | Recurrence capacity, beds with overflow | reverse | cpu | 12 | works | 3.1e-14 | 1.3 | 12.5 | 22.0 |  |  |
-| registry | Recurrence bed cap with a stay that is not geometric | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching ComposableRecurrences.Recent(::Vector{Reactant.TracedRNumber{Float64}}) The type `ComposableRecurrences.Recent` exists, but no m |
-| registry | Recurrence bed cap with a stay that is not geometric | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching ComposableRecurrences.Recent(::Vector{Reactant.TracedRNumber{Float64}}) The type `ComposableRecurrences.Recent` exists, but no m |
+| registry | Recurrence bed cap with a stay that is not geometric | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _load_history! | MethodError: no method matching Float64(::Reactant.TracedRArray{Float64, 1}) The type `Float64` exists, but no method is defined for this combination of argumen |
+| registry | Recurrence bed cap with a stay that is not geometric | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _load_history! | MethodError: no method matching Float64(::Reactant.TracedRArray{Float64, 1}) The type `Float64` exists, but no method is defined for this combination of argumen |
 | registry | Recurrence capacity, weekly budget with a queue | forward | cpu | 12 | works | 0.0e+00 | 3.6 | 12.5 | 2.3 |  |  |
 | registry | Recurrence capacity, weekly budget with a queue | reverse | cpu | 12 | works | 1.4e-14 | 1.3 | 127.0 | 81.6 |  |  |
 | registry | Recurrence trace of the importation (Redistribute) | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
@@ -287,12 +287,12 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence routes in a buffer deeper than the kernels | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching SparseArrays.SparseMatrixCSC(::Int64, ::Int64, ::Vector{Int64}, ::Vector{Int64}, ::Reactant.TracedRArray{Float64, 1}) The type ` |
 | registry | Recurrence with a buffer deeper than the kernel | forward | cpu | 12 | works | 0.0e+00 | 1.7 | 15.2 | 2.3 |  |  |
 | registry | Recurrence with a buffer deeper than the kernel | reverse | cpu | 12 | works | 3.2e-15 | 1.3 | 59.9 | 40.9 |  |  |
-| registry | Recurrence feedback from recent outputs | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching ComposableRecurrences.Recent(::SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{I |
-| registry | Recurrence feedback from recent outputs | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching ComposableRecurrences.Recent(::SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{I |
-| registry | Recurrence removals from recent outputs | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching *(::Reactant.TracedRNumber{Float64}, ::ComposableRecurrences.Recent{ComposableRecurrences._Ones, Nothing}) The function `*` exis |
-| registry | Recurrence removals from recent outputs | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching *(::Reactant.TracedRNumber{Float64}, ::ComposableRecurrences.Recent{ComposableRecurrences._Ones, Nothing}) The function `*` exis |
-| registry | Recurrence feedback from recent outputs across strata | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | ArgumentError: Recent's coupling is nothing or an S × S matrix; got 3×3 reshape(view(::Reactant.TracedRArray{Float64, 1}, 1:9), 3, 3) with eltype Reactant.Trace |
-| registry | Recurrence feedback from recent outputs across strata | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | ArgumentError: Recent's coupling is nothing or an S × S matrix; got 3×3 reshape(view(::Reactant.TracedRArray{Float64, 1}, 1:9), 3, 3) with eltype Reactant.Trace |
+| registry | Recurrence feedback from recent outputs | forward | cpu | 12 | works | 7.2e-16 | 6.5 | 11.4 | 1.9 |  |  |
+| registry | Recurrence feedback from recent outputs | reverse | cpu | 12 | works | 4.0e-14 | 1.5 | 102.8 | 62.5 |  |  |
+| registry | Recurrence removals from recent outputs | forward | cpu | 12 | works | 7.1e-16 | 4.9 | 9.4 | 3.5 |  |  |
+| registry | Recurrence removals from recent outputs | reverse | cpu | 12 | works | 2.0e-14 | 1.2 | 14.9 | 31.3 |  |  |
+| registry | Recurrence feedback from recent outputs across strata | forward | cpu | 12 | works | 3.5e-16 | 4.8 | 10.4 | 1.5 |  |  |
+| registry | Recurrence feedback from recent outputs across strata | reverse | cpu | 12 | works | 4.0e-15 | 1.3 | 13.6 | 41.4 |  |  |
 | registry | Convolution per-stratum kernel with history | forward | cpu | 12 | works | 1.1e-16 | 1.4 | 12.9 | 1.0 |  |  |
 | registry | Convolution per-stratum kernel with history | reverse | cpu | 12 | works | 1.8e-14 | 1.1 | 9.3 | 17.3 |  |  |
 | registry | Recurrence kernel from change points | forward | cpu | 12 | works | 3.3e-16 | 3.5 | 20.5 | 2.7 |  |  |
