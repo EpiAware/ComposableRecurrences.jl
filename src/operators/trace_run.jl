@@ -99,6 +99,12 @@ function _stage_trace!(::Val{false}, R, m, v, s, τ, t)
     _copy_trace!(R.v, v)
     _copy_trace!(R.s, s)
     _stage!(m, v, s, τ)
+    _trace_column!(R, m, v, s, τ, t)
+    return nothing
+end
+# Step `t`'s column of a whole-step trace, from the inputs kept in `R` and
+# the outputs `v` and `s`.
+function _trace_column!(R, m, v, s, τ, t)
     col = view(R.out, :, t)
     fill!(col, zero(eltype(col)))
     _trace!(col, m, R.v, R.s, v, s, τ)

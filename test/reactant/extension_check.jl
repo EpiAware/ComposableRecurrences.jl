@@ -60,9 +60,10 @@ end
 # a host array or not, takes each step's column at that step.
 @testset "Reactant step records at a traced step" begin
     CR = ComposableRecurrences
+    # No fill: a traced record on a host array starts at zero, so the
+    # columns the step does not write read as zeros.
     function record(x, t)
         R = CR._unset(zeros(1), eltype(x), 2, 3)
-        fill!(R, zero(eltype(x)))
         CR._copy_column!(R, x, t)
         return R
     end
