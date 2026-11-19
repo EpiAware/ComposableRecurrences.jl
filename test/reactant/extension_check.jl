@@ -81,13 +81,23 @@ end
     @test Reactant.@compile(at(x))(x) == 1.5
 end
 
-# A vector of traced masses is a link in a chain of delays; the check is
-# on the type, so ordinary links keep their rule.
+# A vector of traced masses is a link in a chain of delays, alone or with
+# real masses, so a chain of them turns into masses at `lags`.
 @testset "Reactant traced masses in a chain of delays" begin
     CR = ComposableRecurrences
-    @test CR._is_masses(Reactant.TracedRArray{Float64, 1})
-    @test CR._is_masses(Vector{Float64})
-    @test !CR._is_masses(Vector{String})
+    Tr = Reactant.TracedRArray{Float64, 1}
+    @test CR._links(Tuple{Tr, Tr})
+    @test CR._links(Tuple{Tr, Vector{Float64}})
+end
+
+# A ragged kernel's columns stack past an empty traced column: the stacking
+# skips it, as a copy from an empty traced array does not build.
+@testset "Reactant ragged kernel with an empty traced column" begin
+    CR = ComposableRecurrences
+    stack(x) = CR._ragged([x[1:2], x[1:0], x[2:3]]).values
+    x = Reactant.to_rarray([1.0, 2.0, 3.0])
+    f(x) = Reactant.@allowscalar sum(stack(x))
+    @test Reactant.@compile(f(x))(x) ≈ 8.0
 end
 
 # Reactant compiles the kernels through CUDA.jl, so a traced call without it

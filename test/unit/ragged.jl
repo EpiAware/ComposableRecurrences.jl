@@ -178,7 +178,9 @@ end
     CR = ComposableRecurrences
     (; pad, KS, X) = RaggedChecks
     # Views mixed with vectors make the column type abstract, so the
-    # columns stack into one values vector, past the empty one too.
+    # columns stack into one values vector, past the empty one too. This
+    # covers the stacking only: an empty copy from a plain array is a no-op
+    # either way, so the skip of an empty column is tested under tracing.
     mixed = AbstractVector{Float64}[
         isodd(c) ? view(k, :) : k for (c, k) in enumerate(KS)
     ]
