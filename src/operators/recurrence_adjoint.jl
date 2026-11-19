@@ -138,7 +138,8 @@ end
 _slots(x̄) = x̄
 _slots(x̄::AbstractMatrix) = _Owned(x̄)
 # Takes the rule on device arrays (`_device_gate`): a fixed kernel, a
-# pointwise or on-device dense coupling and per-stratum built-in modifiers.
+# pointwise or on-device dense coupling and built-in modifiers whose steps
+# run per stratum or per group.
 function _device_ready(r::Recurrence{<:Union{AbstractVector, PerStratum}})
     return _device_coupling(r.coupling) && _device_modifiers(r.modifiers)
 end
@@ -152,7 +153,9 @@ function _device_modifiers(ms::Tuple)
     return _device_modifier(first(ms)) && _device_modifiers(Base.tail(ms))
 end
 _device_modifier(m) = false
-_device_modifier(m::Union{Transform, Depletion}) = _strata_loop(m)
+_device_modifier(m::Transform) = _strata_loop(m)
+# Their group steps reverse in blocks too, as their forward steps run.
+_device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
 
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)
 _kernel_slots(ḡ, kernel::TimeVarying) = ḡ
@@ -349,18 +352,23 @@ function _steps_back!(
                     t, τ, D
                 )
             else
-                for k in 1:S
-                    v̄[k] = H̄[D + t, k]
-                end
+                copyto!(v̄, view(H̄, D + t, :))
                 _stages_back!(ms, _own(acc.m̄s), rec, s̄s, bufs, v̄, τ, t)
-                for k in 1:S
-                    q̄[k] = _gain_add_back!(acc, v̄[k], pr, gain, coupling, t, τ, k)
-                end
+                _reduce_blocks!(
+                    _gain_adds_back!, accs, S, q̄, v̄, pr, gain, coupling, t, τ
+                )
             end
             _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ, pbufs)
             _kernels_back!(accs, kb, g, p̄, H, H̄, t + D - L, τ, L)
             _flush!(ms)
         end
+    end
+    return nothing
+end
+
+function _gain_adds_back!(ks, acc, q̄, v̄, pr, gain, C, t, τ)
+    for k in ks
+        q̄[k] = _gain_add_back!(acc, @inbounds(v̄[k]), pr, gain, C, t, τ, k)
     end
     return nothing
 end
@@ -527,11 +535,20 @@ _finish_pass!(m̄, m, R, ::Nothing, τ0) = nothing
 
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
 # the kernel convolutions and add the coupling's own cotangent into `C̄`.
+# A pointwise coupling runs per stratum: in order on the host, and as one
+# kernel on device arrays, with a shared scale's cotangent stacked.
 function _coupling_back!(p̄, C̄, C::_PointwiseCoupling, q̄, pr, t, τ, pbufs)
-    for k in eachindex(p̄)
-        p̄[k] = _coupling_back_at(C̄, C, q̄[k], pr, t, k)
-    end
+    n = length(p̄)
+    accs = _accumulators(Serial(), p̄, n, n, C̄)
+    _reduce_blocks!(_couplings_back!, accs, n, p̄, C, q̄, pr, t)
+    _reduce!(accs)
     return p̄
+end
+function _couplings_back!(ks, C̄, p̄, C, q̄, pr, t)
+    for k in ks
+        @inbounds p̄[k] = _coupling_back_at(C̄, C, q̄[k], pr, t, k)
+    end
+    return nothing
 end
 function _coupling_back!(p̄, C̄, C, q̄, pr, t, τ, pbufs)
     fill!(p̄, zero(eltype(p̄)))

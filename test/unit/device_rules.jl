@@ -55,6 +55,32 @@
         )
     end
 
+    # Modifiers whose steps run per group.
+    function two_pools(S)
+        hazard = CR.Hazard(; weights = (S = 1, V = 0.5))
+        rate = PerStratum(fill(0.5, S))
+        doses = CR.Flow(:S => :V, rate; form = CR.Truncate())
+        return CR.Depletion(
+            PerStratum(fill(60.0, S)), hazard, doses; pools = (:S, :V)
+        )
+    end
+    function two_draws()
+        flow = CR.Flow(:S => 0, 0.1; form = CR.Share())
+        return CR.Depletion(
+            60.0, CR.Hazard(), flow, CR.Floor(); pools = (S = 50.0,)
+        )
+    end
+    function queued()
+        flow = CR.Flow(0 => :B, 2.0; form = CR.Truncate())
+        return CR.Depletion(
+            flow, CR.Truncate(; overflow = :queue); pools = (B = 50.0,)
+        )
+    end
+    function totals(S)
+        h = S ÷ 2
+        return CR.Allocate([1:h, (h + 1):S], PerStratum(fill(1.0, 2)))
+    end
+
     # The input's cotangent and the parameter mirror after the rule's
     # forward pass and pullback with output cotangent `weights(S)`.
     function rule_cotangents(op, args, piece, S, dev)
@@ -152,6 +178,12 @@ end
             "a function of its own" => (
                 CR.Transform((v, a) -> v * exp(-a), 0.1),
             ),
+            # Group steps: several pools, two draws on one pool, a queue
+            # and grouped totals, which reverse group by group.
+            "two pools with a flow between them" => (two_pools(S),),
+            "two draws on one pool" => (two_draws(),),
+            "an overflow that joins a queue" => (queued(),),
+            "grouped totals" => (totals(S),),
         ]
         @testset "$name, $S strata" for (name, ms) in cases
             op0, args0 = modified_case(ms, S, false)
@@ -206,16 +238,14 @@ end
     # Built-in modifiers that reverse per stratum take the rule.
     op, args = modified_case((pools(S)...,), S, true)
     @test (@inferred route(op, args)) === Val(:rule)
-    # A modifier that reads a group of strata reverses on the host.
-    groups = CR.Allocate([1:2, 3:4], PerStratum(fill(1.0, 2)))
-    op, args = modified_case((groups,), S, true)
-    @test (@inferred route(op, args)) === Val(:plain)
-    # So does a pool whose overflow joins a queue.
-    flow = CR.Flow(0 => :B, 2.0; form = CR.Truncate())
-    queued = CR.Depletion(
-        flow, CR.Truncate(; overflow = :queue); pools = (B = 50.0,)
-    )
-    op, args = modified_case((queued,), S, true)
+    # So do built-in modifiers whose steps run per group.
+    for m in (two_pools(S), two_draws(), queued(), totals(S))
+        op, args = modified_case((m,), S, true)
+        @test (@inferred route(op, args)) === Val(:rule)
+    end
+    # A modifier that moves values between strata reverses on the host.
+    moves = CR.Redistribute(0.9 .* dense(S); leak = true)
+    op, args = modified_case((moves,), S, true)
     @test (@inferred route(op, args)) === Val(:plain)
     # The gate's defaults, called directly: inference folds them into the
     # routes above, so those calls never run them.
@@ -227,7 +257,8 @@ end
     @test CR._device_coupling(I) && CR._device_coupling(Diagonal(ones(S)))
     @test !CR._device_coupling(TimeVarying(X))
     @test CR._device_modifiers(())
-    @test !CR._device_modifier(groups)
+    @test !CR._device_modifier(moves)
+    @test CR._device_modifier(totals(S))
     # Numbers other than IEEE floats keep plain AD.
     xq, cq = JLArray(fill(1 // 2, S, T)), Convolution(JLArray(fill(1 // 5, L)))
     @test route(cq, (xq, true, nothing, nothing, 1, nothing)) === Val(:plain)

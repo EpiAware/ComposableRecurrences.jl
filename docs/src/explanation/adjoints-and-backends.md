@@ -218,10 +218,11 @@ Array(y) ≈ Recurrence([0.4, 0.3, 0.2, 0.1]; coupling = [0.9 0.1; 0.2 0.8])(
 
 The package's own rules run on device arrays for a convolution with a fixed kernel (a vector or `PerStratum`) and for a recurrence with a fixed kernel.
 The recurrence's coupling is an identity, scalar or `Diagonal` coupling, or a dense matrix on the device.
-Its modifiers are `Transform`s and `Depletion`s whose steps run per stratum, including a `Depletion` with flows or a floor.
+Its modifiers are `Transform`s, `Depletion`s and `Allocate`s without imports.
+A `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
 Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
-Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host: a time-varying coupling, a modifier with a vector step such as `Allocate`, and a modifier type the package does not define.
+Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host: a time-varying coupling, `Redistribute`, an `Allocate` with imports, and a modifier type the package does not define.
 These rule passes are checked on JLArrays, whose kernels compile through OpenCL; the reverse-mode backends themselves are not.
 On JLArrays no reverse-mode backend gets that far: Enzyme's KernelAbstractions rules have no JLArrays backend, and Mooncake does not differentiate the JLArray allocator.
 Dual-number inputs on device arrays give forward-mode derivatives through the device forward pass; `ForwardDiff.gradient` seeds its inputs by scalar indexing, so build the duals directly.
