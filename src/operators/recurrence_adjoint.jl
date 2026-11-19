@@ -76,6 +76,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     ḡ = cotangent(r̄, :kernel)
     C̄ = cotangent(r̄, :coupling)
     m̄s = _mirrors(cotangent(r̄, :modifiers), modifiers)
+    _on_gpu(H) && _keep_mirrors!(modifiers, m̄s)
     # `eltype(H)`, not a type bound to a local: a closure that captures a
     # type as a value does not infer it on Julia 1.11.
     s̄s = map(m -> _zeros(H, eltype(H), nstate(m, S)), modifiers)
@@ -96,7 +97,8 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
             D, T
         )
     else
-        m̄v = _all_pointwise(modifiers) ? m̄s : _Owned(m̄s)
+        m̄v = _all_pointwise(modifiers) ? _step_slots(m̄s, modifiers, H) :
+            _Owned(m̄s)
         C̄s = _coupling_slots(C̄, coupling)
         acc = (; ādd, ḡain, C̄ = C̄s, ḡ = kslots, m̄s = m̄v)
         accs = _accumulators(ex, H, S, _work(_StepLoop(), H, work), acc)
@@ -194,6 +196,23 @@ end
     end
     return :(NamedTuple{$K}(($(leaves...),)))
 end
+# A coupled `Recent`'s mirror: each stratum adds to its own row of the
+# coupling's cotangent, and the weights' cotangent is added once per step at
+# the flush, so neither is copied per block. An uncoupled read adds its
+# weights' cotangent from every stratum, so it is shared.
+_param_slots(m̄, b::_BoundRecent) = _recent_slots(m̄, b.x.coupling)
+_recent_slots(m̄, ::Nothing) = m̄
+_recent_slots(m̄, C) = _owned_leaves(m̄)
+_owned_leaves(::Nothing) = nothing
+function _owned_leaves(m̄::NamedTuple{K}) where {K}
+    return NamedTuple{K}(map(_own_leaf, values(m̄)))
+end
+# The pointwise modifiers' mirrors as a step's blocks write them: on a
+# device each block's copy holds only the cotangents strata share, so a
+# per-stratum parameter's and a coupled read's are shared; the host keeps
+# its copies whole.
+_step_slots(m̄s, ms, H) = _on_gpu(H) ? _param_slots(m̄s, ms) : m̄s
+
 # The mirror itself, from slots `_param_slots` made.
 _unown(x) = x
 _unown(x::_Owned) = x.x
@@ -299,7 +318,8 @@ _stratum_buffer(::Nothing, g, k) = nothing
 # Stratum `k`'s output cotangent at step `t` back through the pointwise
 # modifiers, then `_gain_add_back!`.
 @inline function _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D, k)
-    v̄k = _thread_back(ms, acc.m̄s, rec, s̄s, @inbounds(H̄[D + t, k]), τ, t, k)
+    m̄s = _unown(acc.m̄s)
+    v̄k = _thread_back(ms, m̄s, rec, s̄s, @inbounds(H̄[D + t, k]), τ, t, k)
     return _gain_add_back!(acc, v̄k, pr, gain, C, t, τ, k)
 end
 

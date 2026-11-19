@@ -4,7 +4,7 @@ using ComposableRecurrences: ComposableRecurrences, Allocate,
     Convolution, Depletion, Derived, Flow, Pairwise, Parallel, PerStratum,
     Recent, Recurrence, Redistribute, TimeVarying, Transform,
     _AllocateImports, _BoundRecent, _Columns, _DrawFrom, _DrawInto, _Flat,
-    _InKernel, _Movement, _OldestFirstPairwise, _PIECEWISE_DEVICE,
+    _InKernel, _RowAt, _Movement, _OldestFirstPairwise, _PIECEWISE_DEVICE,
     _Piecewise, _Ragged, _RouteBuffers, _RouteKernels, _Routes,
     _TransposedConvolution, Serial, _kernel_args, _Owned, _ArrayStack,
     _ScalarStack, Survival, _KernelWeights, _WalkScratch
@@ -55,15 +55,18 @@ function Adapt.adapt_structure(to, x::_Adapted)
 end
 
 # A `Recent` bound to a call's buffer, as the strata's kernels read it: its
-# buffer, cotangent and windows move with it; its row and weights' mirror
-# slots are not arrays. It is marked as in a kernel, where an error cannot
-# build its message.
+# buffer, cotangent, windows and their cotangents move with it. The row of
+# its windows is read as it is at the launch, and the weights' mirror is
+# kept on the host for the step's flush. It is marked as in a kernel, where
+# an error cannot build its message.
 function Adapt.adapt_structure(to, b::_BoundRecent)
     return _BoundRecent(
         adapt(to, b.x), adapt(to, b.H), adapt(to, b.H̄), b.o, adapt(to, b.u),
-        b.row, adapt(to, b.z), b.w̄, _InKernel()
+        _launch_row(b.row), adapt(to, b.z), nothing, _InKernel()
     )
 end
+_launch_row(::Nothing) = nothing
+_launch_row(row::Base.RefValue{Int}) = _RowAt(row[])
 
 # The wrappers a reverse pass hands its kernels: mirrors each stratum
 # writes at its own slots, and the stacked copies of shared ones.

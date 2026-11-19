@@ -303,6 +303,18 @@
             );
             coupling = d(K0)
         )(d(RS); history = d(HS), start = L + 1),
+        "Recurrence, feedback from recent outputs across strata" =>
+            (d, F = Float64) -> Recurrence(
+            d(g0);
+            modifiers = (
+                Transform(
+                    *,
+                    Derived(
+                        exp, F(-0.05) * Recent(d(g0[1:3]); coupling = d(K0))
+                    )
+                ),
+            )
+        )(d(RS); history = d(HS)),
         "Recurrence, feedback from recent outputs" =>
             (d, F = Float64) -> Recurrence(
             d(g0); coupling = d(K0),
@@ -520,20 +532,11 @@ end
     @test_throws ArgumentError Recurrence(TimeVarying(ks))(
         JLArray(ones(3)); history = JLArray(ones(2))
     )
-    # A coupled `Recent` fills its windows on the host, so it refuses a
-    # device and names the uncoupled form.
-    C = JLArray([0.8 0.2; 0.1 0.9])
-    recent = ComposableRecurrences.Recent(g; coupling = C)
+    # A coupled `Recent` with a host coupling is refused too.
+    recent = ComposableRecurrences.Recent(g; coupling = [0.8 0.2; 0.1 0.9])
     feedback = ComposableRecurrences.Transform(*, Derived(exp, -0.1 * recent))
     r = Recurrence(g; modifiers = (feedback,))
-    err = try
-        r(x; history = h)
-        nothing
-    catch e
-        e
-    end
-    @test err isa ArgumentError
-    @test occursin("Recent with a coupling", err.msg)
+    @test_throws "is a host array" r(x; history = h)
 end
 
 @testitem "JLArrays: coefficients from change points refuse a device" begin

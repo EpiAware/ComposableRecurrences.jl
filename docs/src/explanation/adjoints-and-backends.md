@@ -258,8 +258,8 @@ Float types:
   Arrays captured by the function of a `Transform` or `Derived` are not moved.
 - A ragged `TimeVarying` kernel (a vector of columns) keeps its column offsets where its values live.
   Columns that live on a device, or `Adapt.adapt`, put both there.
-- Routes (`Pairwise(K₁ => k₁, K₂ => k₂)`), a convolution's transpose and a `Recent` without a coupling run on a device too.
-  A `Recent` with a coupling fills each stratum's window on the host once a step, so a call with device inputs refuses it.
+- Routes (`Pairwise(K₁ => k₁, K₂ => k₂)`), a convolution's transpose and a `Recent` run on a device too.
+  A `Recent` with a coupling fills each stratum's window as one kernel once a step, before the strata read them.
 - A computed kernel (a `Survival` or a `Derived` kernel) fills its weights as one kernel, each thread walking one cohort's lags for one stratum.
   `kernel_weights` fills them the same way when its coefficients live on a device.
 - Views and reshapes of device arrays, such as views into one parameter vector, run on the device as the arrays themselves do.

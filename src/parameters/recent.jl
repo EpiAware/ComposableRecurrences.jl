@@ -187,8 +187,9 @@ Base.:-(a::Recent) = Derived(-, a)
 # == _BoundRecent ==
 
 # Row `t + o` of `H` holds time `t`. With a coupling, strata share `S` windows
-# that `_refresh!` fills serially before they read them, cotangents gathering
-# in `z` for `_flush!`; without one these fields are `nothing`.
+# that `_refresh!` fills before they read them, cotangents gathering in `z`
+# for `_flush!` (a row per stratum on a device); without one these fields are
+# `nothing`.
 struct _BoundRecent{R <: Recent, B, G, U, I, Z, M, K}
     x::R
     H::B
@@ -208,10 +209,15 @@ struct _BoundRecent{R <: Recent, B, G, U, I, Z, M, K}
 end
 # Marks a value adapted for a device kernel.
 struct _InKernel end
+# The row of a coupled read's windows as a kernel reads it: the row they
+# were filled for before the launch.
+struct _RowAt
+    i::Int
+end
+Base.getindex(r::_RowAt) = r.i
 function _BoundRecent(x::Recent, H, H̄, o, shared)
     C = x.coupling
     _check_recent_strata(C, size(H, 2))
-    _check_recent_device(C, H)
     u, row, z = _windows(shared, C, x.w, H)
     return _BoundRecent(x, H, H̄, o, u, row, z, _mirror_slot(C, x.w))
 end
@@ -220,7 +226,7 @@ end
 # cotangent.
 _windows(shared, ::Nothing, w, H) = nothing, nothing, nothing
 function _windows(shared, C, w, H)
-    return _window_cache(C, H), _row_slot(C), _window_cache(C, H)
+    return _window_cache(C, H), _row_slot(C), _window_cotangents(C, H)
 end
 function _windows(shared, C::AbstractMatrix, w::_Ones, H)
     _, u, row, z = _find_windows(w.n, shared, H)
@@ -241,10 +247,17 @@ function _find_windows(n, sets, H)
     for set in sets
         first(set) == n && return set
     end
-    return n, _window_cache(true, H), _row_slot(true), _window_cache(true, H)
+    return n, _window_cache(true, H), _row_slot(true),
+        _window_cotangents(true, H)
 end
 _window_cache(::Nothing, H) = nothing
 _window_cache(C, H) = _zeros(H, eltype(H), size(H, 2))
+# A vector on the host; strata × strata on a device, where each stratum adds
+# into its own row and `_flush!` sums the rows.
+function _window_cotangents(C, H)
+    S = size(H, 2)
+    return _on_gpu(H) ? _zeros(H, eltype(H), S, S) : _zeros(H, eltype(H), S)
+end
 _row_slot(::Nothing) = nothing
 _row_slot(C) = Ref(_STALE_ROW)
 # The row of windows not yet filled, or already flushed.
@@ -261,15 +274,6 @@ _keep_mirror!(slot, w̄) = (slot[] = w̄; nothing)
 _kept_mirror(::Nothing) = nothing
 _kept_mirror(slot) = slot[]
 _check_recent_strata(::Nothing, S) = nothing
-# A coupled read fills each stratum's window on the host once a step, so it
-# runs on the host only.
-_check_recent_device(::Nothing, H) = nothing
-function _check_recent_device(C, H)
-    _on_gpu(H) && throw(ArgumentError(_COUPLED_RECENT_DEVICE))
-    return nothing
-end
-const _COUPLED_RECENT_DEVICE = "a Recent with a coupling runs on the host; " *
-    "on a device, use a Recent without one"
 function _check_recent_strata(C, S)
     size(C) == (S, S) || throw(
         DimensionMismatch(
@@ -321,12 +325,12 @@ end
 function _read_back!(x̄, ::Nothing, b, v, k, i)
     return _recent_back!(cotangent(x̄, :w), b.x.w, b.H, b.H̄, v, i, k)
 end
-function _read_back!(x̄, C, b, v, k, i)
-    # A read at a row other than the cached one, which the recurrence does
-    # not make, first sends on the cached row's cotangents and caches row `i`.
+_read_back!(x̄, C, b, v, k, i) = _coupled_back!(x̄, C, b.z, b, v, k, i)
+# On the host the strata share one vector of window cotangents.
+function _coupled_back!(x̄, C, z::AbstractVector, b, v, k, i)
     b.row[] == i || (_flush_one!(b); _refresh_one!(b, i))
     C̄ = cotangent(x̄, :coupling)
-    u, z = b.u, b.z
+    u = b.u
     _keep_mirror!(b.w̄, cotangent(x̄, :w))
     for j in axes(b.H, 2)
         _add_entry!(C̄, C, v * u[j], k, j)
@@ -334,6 +338,27 @@ function _read_back!(x̄, C, b, v, k, i)
     end
     return nothing
 end
+# On a device each stratum adds into its own row, as strata run at once.
+function _coupled_back!(x̄, C, z::AbstractMatrix, b, v, k, i)
+    _ensure_row!(b.site, b, i)
+    C̄ = cotangent(x̄, :coupling)
+    u = b.u
+    _keep_mirror!(b.w̄, cotangent(x̄, :w))
+    for j in axes(b.H, 2)
+        _add_entry!(C̄, C, v * u[j], k, j)
+        z[k, j] += v * C[k, j]
+    end
+    return nothing
+end
+# A read at a row other than the cached one, which the recurrence does not
+# make, first sends on the cached row's cotangents and caches row `i`, as
+# the host method does. Inside a kernel the windows were filled for the
+# step before the launch.
+function _ensure_row!(::Nothing, b, i)
+    b.row[] == i || (_flush_one!(b); _refresh_one!(b, i))
+    return nothing
+end
+_ensure_row!(::_InKernel, b, i) = nothing
 
 # Fill the windows of every coupled `Recent` in `x` at buffer row `i`, once
 # per step and before the strata read them.
@@ -344,12 +369,22 @@ function _refresh_one!(b::_BoundRecent, i)
     _cache_row!(b, i)
     return nothing
 end
-# Each stratum's window at buffer row `i`, into `u`.
+# Each stratum's window at buffer row `i`, into `u`: on a device as one
+# kernel, a thread per stratum.
 function _fill_windows!(b::_BoundRecent, i)
     u, w, H = b.u, b.x.w, b.H
-    for j in axes(H, 2)
-        u[j] = _recent_window(w, H, i, j)
+    if _on_gpu(H)
+        ex = _resolve(Serial(), H)
+        each!(_window_body!, ex, size(H, 2), typemax(Int), u, w, H, i)
+    else
+        for j in axes(H, 2)
+            u[j] = _recent_window(w, H, i, j)
+        end
     end
+    return nothing
+end
+function _window_body!(j, u, w, H, i)
+    @inbounds u[j] = _recent_window(w, H, i, j)
     return nothing
 end
 
@@ -362,15 +397,57 @@ _cache_row!(b::_BoundRecent, i) = (b.row[] = i; nothing)
 # the weights, then clear them.
 _flush!(x) = _each_coupled(_flush_one!, x)
 function _flush_one!(b::_BoundRecent)
-    z, i = b.z, b.row[]
+    i = b.row[]
     i == _STALE_ROW && return nothing
+    _flush_windows!(b, b.z, i)
+    # Stale: a read at this row now takes the uncached path.
+    _cache_row!(b, _STALE_ROW)
+    return nothing
+end
+function _flush_windows!(b, z::AbstractVector, i)
     _flush_weights!(_kept_mirror(b.w̄), z, b.x.w, b.H, i)
     for j in eachindex(z)
         _recent_back!(nothing, b.x.w, b.H, b.H̄, z[j], i, j)
         z[j] = zero(eltype(z))
     end
-    # Stale: a read at this row now takes the uncached path.
-    _cache_row!(b, _STALE_ROW)
+    return nothing
+end
+# On a device a thread per stratum sums its column of the rows into the
+# first row, then the weights' cotangent runs a thread per lag and the
+# buffer's a thread per stratum, both reading the first row.
+function _flush_windows!(b, Z::AbstractMatrix, i)
+    w, H, ex = b.x.w, b.H, _resolve(Serial(), b.H)
+    S = size(Z, 2)
+    each!(_sum_rows!, ex, S, typemax(Int), Z)
+    w̄ = _kept_mirror(b.w̄)
+    w̄ === nothing ||
+        each!(_flush_lag!, ex, length(w), typemax(Int), w̄, Z, H, i)
+    b.H̄ === nothing ||
+        each!(_flush_stratum!, ex, S, typemax(Int), b.H̄, Z, w, i)
+    fill!(view(Z, 1, :), zero(eltype(Z)))
+    return nothing
+end
+function _sum_rows!(j, Z)
+    acc = zero(eltype(Z))
+    @inbounds for k in axes(Z, 1)
+        acc += Z[k, j]
+        Z[k, j] = zero(eltype(Z))
+    end
+    @inbounds Z[1, j] = acc
+    return nothing
+end
+function _flush_lag!(l, w̄, Z, H, i)
+    acc = zero(eltype(Z))
+    for j in axes(Z, 2)
+        @inbounds acc += Z[1, j] * H[i - l, j]
+    end
+    add_cotangent!(w̄, acc, l)
+    return nothing
+end
+function _flush_stratum!(j, H̄, Z, w, i)
+    @inbounds for l in eachindex(w)
+        H̄[i - l, j] += Z[1, j] * w[l]
+    end
     return nothing
 end
 # The weights' cotangent, `w̄_l += Σ_j z_j y_{i-l,j}`; behind a function
@@ -382,6 +459,7 @@ function _flush_weights!(w̄, z, w, H, i)
     end
     return nothing
 end
+
 
 # Apply `f` to every bound `Recent` with a coupling inside `x`, as a tuple
 # found from the type so the loop is unrolled with no dynamic calls.
@@ -480,6 +558,32 @@ end
 # The bound `Recent`s with a coupling inside `x`, as a tuple. After its
 # helpers: a generator sees only the methods defined before it.
 @generated _coupled_reads(x) = Expr(:tuple, _coupled_paths(x, :x)...)
+
+# On a device a read's kernel cannot keep the weights' mirror for the
+# flush, so it is kept from the modifiers' mirrors `x̄` before the reverse
+# pass. The mirror is walked along the paths `_coupled_paths` takes, by
+# field name, or by index through a tuple.
+function _mirror_paths(::Type{T}, ex, m) where {T}
+    T <: Recent && return Any[]
+    _holds_type(_across_leaf, T) || return Any[]
+    paths = Any[]
+    for (i, F) in enumerate(fieldtypes(T))
+        mi = T <: Tuple ? :(_mirror_entry($m, $i)) :
+            :(cotangent($m, $(QuoteNode(fieldname(T, i)))))
+        append!(paths, _mirror_paths(F, :(getfield($ex, $i)), mi))
+    end
+    return paths
+end
+function _mirror_paths(::Type{<:_BoundRecent{R}}, ex, m) where {R}
+    _has_coupling(R) || return Any[]
+    return Any[:(_keep_mirror!(getfield($ex, :w̄), cotangent($m, :w)))]
+end
+_mirror_entry(x̄::Tuple, i) = x̄[i]
+_mirror_entry(x̄, i) = nothing
+# After its helpers: a generator sees only the methods defined before it.
+@generated function _keep_mirrors!(x, x̄)
+    return Expr(:block, _mirror_paths(x, :x, :x̄)..., nothing)
+end
 
 # Whether a value of type `T` holds a coupled `Recent(n)`, whose windows
 # reads with the same `n` share.
