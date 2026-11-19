@@ -1,4 +1,4 @@
-# The analytic reverse pass of a `Recurrence`. Each step's core is
+# The rule of a `Recurrence`, its own reverse pass. Each step's core is
 # `v = gain ⊙ x + add` with `x` the coupled kernel convolutions of the
 # window, so its pullback is local; the work is sending the pressure's
 # cotangent back through the coupling and correlating it with the kernel into
@@ -91,7 +91,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     kbuf = _kernel_buffer(ḡ, kernel, H, S, L)
     # The cotangents the strata add into. The matrix gain and add inputs
     # have a slot per stratum and step, a fixed kernel's goes through
-    # `kbuf`, and the parts that run on the calling task (`_steps_back!`)
+    # `kbuf`, and the steps that run on the calling task (`_steps_back!`)
     # are not copied.
     ādd, ḡain = _slots(ādd), _slots(ḡain)
     kslots = _kernel_slots(ḡ, kernel)
@@ -386,10 +386,11 @@ end
 
 # The buffer's cotangent, `D` zero rows and then the output's cotangent
 # `Ȳ`, each row written once. Only an integer output has no cotangent; its
-# buffer is integer only when every input and part is, so no other part has
-# one either and the pass adds zeros. This is a method, not an early return
-# in `_reverse!`: where `Ȳ` may be `nothing` by type (`Enzyme` under runtime
-# activity), that branch slowed the whole reverse pass by about 8%.
+# buffer is integer only when every input and component is, so no other
+# component has one either and the pass adds zeros. This is a method, not an
+# early return in `_reverse!`: where `Ȳ` may be `nothing` by type (`Enzyme`
+# under runtime activity), that branch slowed the whole reverse pass by
+# about 8%.
 _seeded(H, ::Nothing, D) = _zeros(H, eltype(H), size(H)...)
 # A cotangent `Ȳ` that `_shared_shadow` gave the rule already sits in the
 # buffer's cotangent, below zero rows.
