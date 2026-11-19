@@ -370,8 +370,12 @@ ComposableRecurrences._real_entries(::AbstractArray{<:TracedRNumber}) = true
 for op in (:+, :-, :*, :/, :^),
         P in (:(ComposableRecurrences.Recent), :(ComposableRecurrences.Derived))
     @eval begin
-        Base.$op(a::$P, b::TracedRNumber) = ComposableRecurrences.Derived($op, a, b)
-        Base.$op(a::TracedRNumber, b::$P) = ComposableRecurrences.Derived($op, a, b)
+        function Base.$op(a::$P, b::TracedRNumber)
+            return ComposableRecurrences.Derived($op, a, b)
+        end
+        function Base.$op(a::TracedRNumber, b::$P)
+            return ComposableRecurrences.Derived($op, a, b)
+        end
     end
 end
 
