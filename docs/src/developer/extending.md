@@ -87,6 +87,7 @@ s_t = a \, s_{t-1} + (1 - a) \, v_t, \qquad v'_t = s_t,
 
 where ``v_t`` is the value it receives, ``v'_t`` the value it passes on and ``s_t`` its state.
 It acts on each stratum alone, so it is pointwise and writes each entry from its own.
+It says so with `blocks(::Smooth) = (1, 1)`: `ispointwise` is read from `blocks`, so a modifier declares `blocks`, not `ispointwise`.
 Its state starts at the last value of the history.
 The field has a type parameter so that a dual number can take its place.
 
@@ -647,6 +648,7 @@ For an operator, pass `ComposableRecurrences.Run()` as the role to `ComposableRe
 `blocks` gives `(nv, ns)`, the number of values and of state entries in each group.
 It is `(1, 1)` for a pointwise modifier and `nothing` for one that reads every stratum.
 `ComposableRecurrences.ispointwise` and `nstate` are read from `blocks`.
+A modifier that defines `ispointwise` without `blocks` still runs, and has its parameters checked, as one that reads every stratum.
 A run keeps at least `ComposableRecurrences.depth` past outputs, even when the kernel is shorter.
 
 ### [Checking gradients](@id overview-gradients)
