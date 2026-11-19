@@ -154,6 +154,8 @@ end
                 dev -> recurrence_case(I, S, dev; kernel = tv_per_stratum(S)),
             "convolution, one kernel" =>
                 dev -> convolution_case(tv_kernel(), S, dev),
+            "convolution, a kernel per stratum" =>
+                dev -> convolution_case(tv_per_stratum(S), S, dev),
             "convolution, a kernel per stratum, by output" =>
                 dev -> convolution_case(by_output(tv_per_stratum(S)), S, dev),
         ]
@@ -168,10 +170,29 @@ end
             @test agree(p̄1, p̄0)
         end
     end
-    # The values above cannot show memory: a per-stratum kernel's cotangent
-    # is shared by the blocks, not copied once per block (S × L × T each).
-    @test CR._kernel_slots(zeros(2), tv_per_stratum(2)) isa CR._Owned
-    @test !(CR._kernel_slots(zeros(2), tv_kernel()) isa CR._Owned)
+    # The values above cannot show memory: blocks share a per-stratum
+    # kernel's cotangent rather than each copying it (S × L × T). The
+    # pullback allocates about 100 times that cotangent's size when shared
+    # and over 16000 times when copied, so the bound sits between.
+    S = CR._KERNEL_BLOCKS + 1
+    bound = 1000 * sizeof(Float64) * S * L * T
+    function pullback_bytes(op, args)
+        y, cache = CR._run_forward(op, args...)
+        rest = map(_ -> nothing, Base.tail(args))
+        x̄, Ȳ = zero(args[1]), JLArray(weights(S))
+        grads = (; piece = CR._zero_mirror(op), y = Ȳ, args = (x̄, rest...))
+        return @allocated CR._run_pullback!(grads, op, cache)
+    end
+    k = tv_per_stratum(S)
+    cases = [
+        "recurrence" => recurrence_case(I, S, true; kernel = k),
+        "convolution" => convolution_case(k, S, true),
+        "convolution by output" => convolution_case(by_output(k), S, true),
+    ]
+    @testset "$name shares its cotangent" for (name, case) in cases
+        pullback_bytes(case...)
+        @test pullback_bytes(case...) < bound
+    end
 end
 
 @testitem "JLArrays: the rule passes of built-in modifiers match the CPU" setup = [DeviceRules] begin

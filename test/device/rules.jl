@@ -50,10 +50,12 @@ function _rule_cases(S)
     )
     conv(k) = (Convolution(k), (x, true, nothing, nothing, 1, nothing))
     rec(r) = (r, (CR._run_args(r, x, h, nothing, nothing, 1)..., nothing))
-    return [
+    cases = [
         "Convolution, vector kernel" => conv(pmf),
         "Convolution, per-stratum kernel" => conv(PerStratum(repeat(pmf', S))),
         "Convolution, time-varying kernel" => conv(TimeVarying(G)),
+        "Convolution, per-stratum time-varying kernel" =>
+            conv(TimeVarying(PerStratum(GS))),
         "Convolution, per-stratum time-varying kernel by output" =>
             conv(TimeVarying(PerStratum(GS), CR.Primary())),
         "Recurrence, identity coupling" => rec(Recurrence(pmf)),
@@ -66,7 +68,8 @@ function _rule_cases(S)
         "Recurrence, time-varying kernel" => rec(Recurrence(TimeVarying(G))),
         "Recurrence, per-stratum time-varying kernel" =>
             rec(Recurrence(TimeVarying(PerStratum(GS)))),
-    ], x
+    ]
+    return cases, x
 end
 
 # Runs every rule case on arrays made by `A`, at a few strata and at more

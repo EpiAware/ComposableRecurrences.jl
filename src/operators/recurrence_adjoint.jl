@@ -164,6 +164,7 @@ _kernel_slots(ḡ, kernel::TimeVarying{<:Any, <:PerStratum}) = _Owned(ḡ)
 # The pairwise kernels as the reverse pass reads them, fixed ones oldest first.
 const _ReversedPairwise = Union{_OldestFirstPairwise, TimeVarying{<:Any, <:Pairwise}}
 # A mirror as the calling task writes it.
+_own(x̄) = x̄
 _own(x̄::_Owned) = x̄.x
 
 # The reverse run of the independent strata `ks`, time outermost as in
