@@ -27,6 +27,18 @@ end
     @test Reactant.@compile(check(x2)) isa Any
 end
 
+# A vector history, of traced numbers or a view of a traced array, loads
+# into the traced buffer and gives the plain call's output.
+@testset "Reactant vector history into a traced buffer" begin
+    r = Recurrence([0.5, 0.2])
+    numbers(θ) = sum(r(; history = [sum(θ)], add = fill(1.0, 5)))
+    viewed(θ) = sum(r(; history = reshape(view(θ, 1:2), 2), add = fill(1.0, 5)))
+    θ = [0.1, 0.3]
+    x = Reactant.to_rarray(θ)
+    @test Reactant.@compile(numbers(x))(x) ≈ numbers(θ)
+    @test Reactant.@compile(viewed(x))(x) ≈ viewed(θ)
+end
+
 # Reactant compiles the kernels through CUDA.jl, so a traced call without it
 # says to load it.
 @testset "Reactant traced call needs CUDA.jl" begin
