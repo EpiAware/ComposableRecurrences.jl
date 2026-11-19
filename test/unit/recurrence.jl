@@ -439,11 +439,11 @@ end
     @test_throws ArgumentError r(R; state = bad)
 end
 
-@testitem "Recurrence: a resumed call checks its modifiers' parameters against the strata" begin
+@testitem "Recurrence: a resumed call checks its modifiers' parameters against the strata, as a fresh call does" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    # A resumed call skips `Init`, so the parameter check runs where the
-    # state is checked; a parameter with the wrong strata names the field.
+    # A resumed call rejects a parameter with the wrong number of strata, as
+    # a fresh call does, and names the field.
     struct Scale{T}
         b::T
     end
@@ -456,7 +456,10 @@ end
     end
     R, h = fill(1.1, 2, 6), ones(2, 2)
     for (good, bad, name) in (
-            (Scale(PerStratum([1.0, 0.9])), Scale(PerStratum([1.0, 0.9, 0.8])), "b"),
+            (
+                Scale(PerStratum([1.0, 0.9])),
+                Scale(PerStratum([1.0, 0.9, 0.8])), "b",
+            ),
             (
                 CR.Transform(*, PerStratum([1.0, 0.9])),
                 CR.Transform(*, PerStratum([1.0, 0.9, 0.8])), "θ",

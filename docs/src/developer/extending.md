@@ -648,7 +648,7 @@ For an operator, pass `ComposableRecurrences.Run()` as the role to `ComposableRe
 `blocks` gives `(nv, ns)`, the number of values and of state entries in each group.
 It is `(1, 1)` for a pointwise modifier and `nothing` for one that reads every stratum.
 `ComposableRecurrences.ispointwise` and `nstate` are read from `blocks`.
-A modifier that defines `ispointwise` without `blocks` still runs, and has its parameters checked, as one that reads every stratum.
+A modifier that defines `ispointwise` without `blocks` still runs as one that reads every stratum, so its parameters are not checked against the strata.
 A run keeps at least `ComposableRecurrences.depth` past outputs, even when the kernel is shorter.
 
 ### [Checking gradients](@id overview-gradients)
