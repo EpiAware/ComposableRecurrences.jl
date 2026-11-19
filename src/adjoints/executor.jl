@@ -1,7 +1,5 @@
-# Executors: how a loop over independent slots runs. A loop is a per-index
-# body `body(k, args...)` that writes only the slots index `k` owns, run by
-# `each!(body, ex, n, work, args...)`. Shared cotangents go to per-block
-# copies, reduced after the loop.
+# Executors: a loop body `body(k, args...)` writes only the slots index `k`
+# owns; shared cotangents go to per-block copies, reduced after the loop.
 
 # == Executor ==
 
@@ -206,10 +204,9 @@ Threaded(; min_work = 500_000, ntasks = 0) = Threaded(min_work, ntasks)
     return nothing
 end
 
-# The split loop, behind its own function: a closure over `args` built
-# inline in a caller is copied field by field, and on Julia 1.12 a struct
-# with a float ahead of its arrays, such as routes that mix a user coupling
-# and a matrix, is copied as raw bytes that an AD backend cannot type.
+# Behind its own function: an inline closure over `args` is copied field by
+# field, and on Julia 1.12 a struct with a float ahead of its arrays is copied
+# as raw bytes that an AD backend cannot type.
 @noinline function _each_split!(body::F, n, m, args::Vararg{Any, N}) where {F, N}
     run = function (ks)
         for k in ks
@@ -242,10 +239,8 @@ _chunk(c, n, m) = ((c - 1) * n ÷ m + 1):(c * n ÷ m)
 # Run `run(ks)` on `m` contiguous chunks of `1:n`.
 _spawn_chunks(run::R, n, m) where {R} = _run_chunks(c -> run(_chunk(c, n, m)), m)
 
-# `f(c)` for `c` in `1:m`: chunk 1 on the calling task, the others on one
-# new task each. Every task is waited for, so a failing chunk cannot leave
-# others writing after the loop returns; failures, the calling task's
-# included, are rethrown together.
+# Every task is waited for, so a failing chunk cannot leave others writing
+# after the loop returns; failures are rethrown together.
 function _run_chunks(f::F, m) where {F}
     tasks = Vector{Task}(undef, m - 1)
     for c in 2:m
@@ -282,10 +277,9 @@ struct _Chunk{F}
 end
 @noinline (t::_Chunk)() = (t.f(t.c); nothing)
 
-# A task running `t()`, made as `Threads.@spawn` makes one. The runtime
-# starts it with a dynamic call, which a trimmed build resolves only to a
-# method the code also calls directly, so the calling task runs its own
-# chunk through `_Chunk` too.
+# The runtime starts a task with a dynamic call, which a trimmed build
+# resolves only to a method also called directly, so the calling task runs
+# its own chunk through `_Chunk` too.
 function _spawn(t::_Chunk)
     task = Task(t)
     task.sticky = false
@@ -492,9 +486,7 @@ end
 _current() = _Current(EXECUTOR[])
 _launches(c::_Current, x, work) = _launches(c.ex, x, work)
 
-# Calls `f(ex, args...)`, with `ex = Serial()` for the default executor and
-# the `_Current` wrapper otherwise, so callers never hold an abstractly
-# typed executor.
+# Callers never hold an abstractly typed executor.
 @inline function _with_executor(f::F, args::Vararg{Any, N}) where {F, N}
     cur = _current()
     cur.ex isa Serial && return f(Serial(), args...)
@@ -507,10 +499,8 @@ _kernel_args(args::Tuple) = map(_kernel_arg, args)
 _kernel_arg(::_Current) = Serial()
 _kernel_arg(x) = x
 
-# `each!` as operators run it. A `Threaded` loop too small to split runs
-# inline; one that splits is reached by a dynamic call, so AD backends that
-# compile the whole call see no task code unless a loop splits. Operators
-# pass the default executor as `Serial()`, known at compile time.
+# A loop that splits is reached by a dynamic call, so AD backends that compile
+# the whole call see no task code unless a loop splits.
 @inline function _each!(
         body::F, c::_Current, x, n, work, args::Vararg{Any, N}
     ) where {F, N}
@@ -608,11 +598,9 @@ end
 
 # == Shared cotangents ==
 
-# A loop whose indices also add into the shared mirrors `acc`. The first
-# block writes `acc`; block `b` writes a zeroed copy it allocates on its own
-# task, so copies written by different tasks do not share cache lines.
-# `_reduce!` adds the copies in block order, so split runs match serial ones
-# up to rounding. A mirror `_private` cannot copy runs as one block.
+# The first block writes `acc`; others allocate copies on their own tasks, so
+# copies do not share cache lines, and `_reduce!` adds them in block order. A
+# mirror `_private` cannot copy runs as one block.
 function _accumulators(ex::Serial, x, n, work, acc)
     r = _resolve(ex, x)
     r isa Parallel && return _stacked_accumulators(r, x, n, acc)
@@ -716,12 +704,9 @@ _add_into!(::_Owned, ::_Owned) = nothing
 
 # == Shared cotangents on a kernel backend ==
 
-# Under `Parallel`, the strata run in `m` blocks, one kernel index each, and
-# every cotangent the blocks share has `m` zeroed copies stacked along a
-# new last dimension: an array of size `(size(x)..., m)`, or a vector of `m`
-# for a scalar. Block `b` writes slice `b`, and `_reduce!` adds the slices
-# after the loop, so the result does not depend on the order the blocks
-# run in. Mirrors each stratum writes only at its own slots are shared.
+# Each shared cotangent has `m` zeroed copies stacked along a new last
+# dimension and block `b` writes slice `b`, so the sum after the loop does not
+# depend on block order. Mirrors written only at own slots are shared.
 struct _Stacked{E, C}
     ex::E
     m::Int

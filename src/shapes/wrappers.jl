@@ -356,13 +356,9 @@ end
 
 # == Kernel columns ==
 
-# A kernel's columns, of any lengths, stacked: column `τ` is
-# `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first, with no padding.
-# The integer offsets carry no cotangent and live where the values do, so a
-# device loop reads them. The checked constructor validates them on the
-# host, so a loop that reads column `τ ≤ ncols` within its range skips bounds
-# checks; the `_Flat` form takes a checked one's fields as they are, as
-# `adapt` does.
+# Column `τ` is `values[(offsets[τ] + 1):offsets[τ + 1]]`, lag first. The
+# offsets carry no cotangent and live with the values, so device loops read
+# them; checked once, so in-range loops skip bounds checks.
 struct _Ragged{V <: AbstractVector, O <: AbstractVector{Int}}
     values::V
     offsets::O
@@ -477,12 +473,9 @@ end
 
 # == Change points ==
 
-# A coefficient that holds its value between change points: segment `j`
-# covers `starts[j]:(starts[j + 1] - 1)`, the last every later time, and its
-# value is column `j` of the dense coefficient `x`, so a reader of a dense
-# coefficient reads it at column `_segment(p, t)`. The starts rise from 1 and
-# carry no cotangent; the `_Flat` form takes a checked one's fields as they
-# are.
+# Segment `j` covers `starts[j]:(starts[j + 1] - 1)` and reads column `j` of
+# `x`. The starts rise from 1 and carry no cotangent; the `_Flat` form takes a
+# checked one's fields as they are.
 struct _Piecewise{X, P <: AbstractVector{Int}}
     x::X
     starts::P

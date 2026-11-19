@@ -10,10 +10,7 @@ uses_adjoint(c::_ComputedConvolution, ::Run) = _derived_local(c.kernel)
 # kernel of them convolves there, so a call on device arrays takes the rule.
 _device_ready(::Convolution{<:_ComputedKernel, <:Union{Direct, Auto}}) = true
 
-# Each input spreads forward through its cohort's weights, as a `Primary()`
-# kernel's does: serially from each cohort's walk, shared by the strata
-# unless a `Survival` has strata of its own, and on another executor through
-# the dense kernel of the same weights.
+# On another executor the dense kernel of the same weights is used.
 function _convolve!(ex, Y, c::_ComputedKernel, X, m, start)
     return _convolve_dense!(ex, Y, c, X, m, start)
 end
@@ -69,9 +66,8 @@ end
     return nothing
 end
 
-# The coefficient `x` with each strata × lags matrix read through a copy that
-# holds each stratum's lags contiguously, so a loop over one stratum's lags
-# vectorises; decided from the type, so other coefficients cost nothing.
+# Contiguous lags let a loop over one stratum's lags vectorise; decided from
+# the type, so other coefficients cost nothing.
 _lags_contiguous(x) = x
 function _lags_contiguous(x::PerStratum{<:Matrix})
     return PerStratum(transpose(permutedims(x.x)))
@@ -88,9 +84,7 @@ end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _has_strata_lags(x) = _strata_lags_type(x)
 
-# Its reverse pass walks each cohort again, adds each input's cotangent and
-# the weights', and takes the weights' back to the coefficients along the
-# same walk; another executor takes the dense kernel's reverse pass.
+# Another executor takes the dense kernel's reverse pass.
 function _convolve_back!(ex, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start)
     return _convolve_back_dense!(ex, X̄, c̄, c, X, Ȳ, m, start)
 end
@@ -105,9 +99,8 @@ function _convolve_back_dense!(
     return nothing
 end
 
-# The dense kernel's reverse pass, which returns the weights' cotangent;
-# behind a function barrier, so inference never pairs a mirror and a kernel
-# of different shapes when the shape of `K` does not infer.
+# Behind a function barrier, so inference never pairs a mirror and a kernel
+# of different shapes.
 @noinline function _dense_convolve_back!(ex, X̄, x̄, K, X, Ȳ, m, start)
     K̄ = _weights_cotangent(x̄, K)
     K̄d, Kd = _dense_mirror(K̄), _dense_kernel(K)
