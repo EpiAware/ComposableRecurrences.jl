@@ -361,8 +361,9 @@ end
     E, gH = _leave(_out(_rate, fs, i, g, t, z))
     return E, gH, _out(_share, fs, i, g, t, z)
 end
-# The shares are summed in their own type, not the pools': under a dual
-# number that would make each share's product with a pool one of two duals.
+# Without a hazard flow `e^{-0}` and `g(0)` are exactly one. The shares are
+# summed in their own type, not the pools': under a dual number that would
+# make each share's product with a pool one of two duals.
 const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _FlowCount}}}}
 _leaves(fs::_NoHazard, i, g, t, z) = _no_hazard_leaves(fs, i, g, t)
 _no_hazard_leaves(fs, i, g, t) = true, true, _out(_share, fs, i, g, t, false)
@@ -459,9 +460,9 @@ _spread_one(f::_Count, x, L, y, a, g, t) = (y, a)
     return _add(y, _to(f), m), _add(a, _to(f), m)
 end
 
-# The arms follow primal values: a dual with value zero is ordered by its
-# partials, so `min` and `max` could take the other arm at an empty pool.
-# `s + z` turns `-0.0` into `0.0`; `ifelse` keeps a traced step branch-free.
+# Arms follow primal values: a zero dual is ordered by its partials, so
+# `min`/`max` could pick the other arm at an empty pool. `s + z` maps `-0.0`
+# to `0.0`, a NaN input is returned as `min` does; `ifelse` is branch-free.
 function _removal(r, s)
     r, s = promote(r, s)
     z = zero(s)

@@ -544,8 +544,9 @@ end
 
 # == Batched reverse pass ==
 
-# Whether it batches depends on the types only, so the buffer's type is
-# inferred; a mirror of the wrong size throws.
+# The buffer keeps each step's `h̄` (`hb`) and spilled-value cotangent (`vc`).
+# Batching depends on the types only, so the buffer's type infers; a mirror
+# of the wrong size throws.
 function _pass_buffer(
         H, ::Type{Tp}, m::Allocate{<:Any, <:_AllocateImports}, m̄, S, T
     ) where {Tp}

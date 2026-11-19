@@ -1,8 +1,8 @@
 # == Parameters ==
 
-# A `pullback!`'s `grads.piece` mirrors the object's fields as a NamedTuple:
-# an array for a float array, a `Ref` for a float scalar, a NamedTuple for a
-# wrapper and `nothing` for a field without a cotangent.
+# `grads.piece` mirrors fields: an array for a float array, a `Ref` for a
+# float scalar, a NamedTuple for a wrapper, `nothing` without a cotangent.
+# Every built-in modifier reads its parameters through `param`.
 
 
 @doc raw"""
@@ -463,9 +463,9 @@ function _exp_neg_branch(x)
     return e, e - 1
 end
 
-# With `e = 0` an empty share is swapped for one, so the value is unchanged
-# and neither tangent sees `log(0)`. `ifelse` keeps this branch-free for traced
-# inputs; a NaN share is kept, so its NaN reaches the tangent.
+# At an empty pool the pullback zeroes the exponent's cotangent, as the power
+# does; with `e = 0` an empty share is swapped for one, so no tangent sees
+# `log(0)`. Branch-free for traced inputs; a NaN share is kept.
 _pool_power(r, e) = ifelse(r <= 0, ifelse(iszero(e), one(r), r), r)^e
 
 function pullback!(grads, form::Hazard, ::Step, v, s, N)
@@ -705,8 +705,8 @@ function _movement(K, E)
     o = sum(K; dims = 1)
     return (axes(K, 1) .== permutedims(axes(K, 2))) .* (1 .- o .* E) .+ K .* E
 end
-# A row of one entry is broadcast over every origin, as the movement reads it,
-# so it gathers every origin's cotangent.
+# Returned for one intensity when `Ē` is `nothing`. A row of one entry is
+# broadcast over every origin, so it gathers every origin's cotangent.
 function _movement_back!(K̄, Ē, M̄, K, E)
     e = zero(eltype(M̄))
     for q in axes(K, 2)
@@ -728,9 +728,9 @@ _origin_at(E::Real, q) = E
 _origin_at(E::AbstractMatrix, q) = E[1, _origin_column(E, q)]
 _origin_column(E, q) = size(E, 2) == 1 ? 1 : q
 
-# A struct of its arrays, not an array, so the rules read its cotangent field
-# by field; its own loops beat building the `S × S × T` array first on the
-# primal and every AD backend (the patch-model benchmark's `materialised` arm).
+# Columns sum to one by construction. A struct, not an array, so the rules
+# read its cotangent field by field; its loops beat building the `S × S × T`
+# array on the primal and every AD backend (benchmark `materialised` arm).
 struct _Movement{KT <: AbstractMatrix, ET}
     K::KT
     E::ET

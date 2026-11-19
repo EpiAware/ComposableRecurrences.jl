@@ -1,3 +1,7 @@
+# `forward!(C, Pressure(), q, p, t)` mixes the kernel convolutions `p` into
+# the pressures `q`; `pullback!` adds `q̄`'s share to `grads.p` and to
+# `grads.piece`.
+
 # == Shared ==
 
 # A coupling held as a strata × strata × time array, read at time `t`.

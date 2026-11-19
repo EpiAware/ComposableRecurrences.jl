@@ -653,7 +653,8 @@ function blocks(m::Depletion)
     return (1 + (_stratum_of(m) isa _ToStratum), n + (_queue_of(m) isa _Queue))
 end
 # Any other runs the group kernel, a group of one included, as a per-stratum
-# loop through the group step is slower.
+# loop through the group step is slower. `blocks` always gives positive
+# integers, so the shape needs no check here.
 _blocks(m::_Pointwise) = nothing
 _blocks(m::Depletion) = Val(blocks(m))
 
@@ -1287,6 +1288,8 @@ end
 
 # == Trace ==
 
+# With a draw: pools after the step, the value passed on and what the draws
+# leave of the demand; without, the amount each flow moves, per group.
 function ntrace(m::Depletion, S)
     B = _blocks(m)
     B === nothing && return 3S
