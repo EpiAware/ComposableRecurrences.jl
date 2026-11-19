@@ -118,13 +118,15 @@ end
     end
 end
 
-@testitem "Standards: README code is from the getting started page" tags = [
+@testitem "Standards: README code is from the three-town page" tags = [
     :quality,
 ] begin
     include(joinpath(@__DIR__, "standards_helpers.jl"))
     readme = read(joinpath(STANDARDS_ROOT, "README.md"), String)
     page = read(
-        joinpath(STANDARDS_ROOT, "docs", "src", "getting-started", "index.md"),
+        joinpath(
+            STANDARDS_ROOT, "docs", "src", "getting-started", "three-towns.md"
+        ),
         String
     )
     lines = Set(strip.(split(page, '\n')))

@@ -187,6 +187,14 @@ _on_gpu(x) = false
 # Whether operator `op`'s reverse pass runs on a device; each operator file
 # says so for the operators it can.
 _device_ready(op) = false
+# The kernels whose reverse pass runs on a device: fixed ones and dense
+# time-varying ones. Excluded: `TimeVarying` over change points
+# (`_Piecewise`) or ragged columns (`_AnyRagged`), whose pullbacks read
+# their columns on the host.
+const _DeviceKernel = Union{
+    AbstractVector, PerStratum,
+    TimeVarying{<:Any, <:Union{AbstractMatrix, PerStratum}},
+}
 _type_adjoint(op) = uses_adjoint(op, Run())
 _route(::Val{:plain}, op, args::Vararg{Any, N}) where {N} = _hooked_plain(op, args...)
 function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}

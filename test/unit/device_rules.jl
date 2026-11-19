@@ -37,6 +37,16 @@
         return op, (args..., nothing)
     end
 
+    # Time-varying kernels, one for every stratum or one per stratum.
+    tv_kernel() = TimeVarying(pmf .* (1 .+ 0.1 .* sin.((1:L) .+ (1:T)')))
+    by_output(k::TimeVarying) = TimeVarying(k.x, CR.Primary())
+    function tv_per_stratum(S)
+        G = [
+            pmf[i] * (1 + 0.1 * sin(a + i + t)) for a in 1:S, i in 1:L, t in 1:T
+        ]
+        return TimeVarying(PerStratum(G))
+    end
+
     # A recurrence with modifiers `ms`, as `recurrence_case` builds one.
     function modified_case(ms, S, dev)
         r = Recurrence(pmf; modifiers = ms)
@@ -156,6 +166,58 @@ end
             @test x̄1 ≈ x̄0
             @test agree(p̄1, p̄0)
         end
+    end
+end
+
+@testitem "JLArrays: the rule passes of time-varying kernels match the CPU" setup = [DeviceRules] begin
+    # More strata than blocks, so the blocks' copies of a shared kernel's
+    # cotangent are summed.
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        cases = [
+            "recurrence, one kernel" =>
+                dev -> recurrence_case(I, S, dev; kernel = tv_kernel()),
+            "recurrence, a kernel per stratum" =>
+                dev -> recurrence_case(I, S, dev; kernel = tv_per_stratum(S)),
+            "convolution, one kernel" =>
+                dev -> convolution_case(tv_kernel(), S, dev),
+            "convolution, a kernel per stratum" =>
+                dev -> convolution_case(tv_per_stratum(S), S, dev),
+            "convolution, a kernel per stratum, by output" =>
+                dev -> convolution_case(by_output(tv_per_stratum(S)), S, dev),
+        ]
+        @testset "$name, $S strata" for (name, case) in cases
+            op0, args0 = case(false)
+            op1, args1 = case(true)
+            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
+            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
+            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test agree(p̄1, p̄0)
+        end
+    end
+    # The values above cannot show memory: blocks share a per-stratum
+    # kernel's cotangent rather than each copying it (S × L × T). The
+    # pullback allocates about 100 times that cotangent's size when shared
+    # and over 16000 times when copied, so the bound sits between.
+    S = CR._KERNEL_BLOCKS + 1
+    bound = 1000 * sizeof(Float64) * S * L * T
+    function pullback_bytes(op, args)
+        y, cache = CR._run_forward(op, args...)
+        rest = map(_ -> nothing, Base.tail(args))
+        x̄, Ȳ = zero(args[1]), JLArray(weights(S))
+        grads = (; piece = CR._zero_mirror(op), y = Ȳ, args = (x̄, rest...))
+        return @allocated CR._run_pullback!(grads, op, cache)
+    end
+    k = tv_per_stratum(S)
+    cases = [
+        "recurrence" => recurrence_case(I, S, true; kernel = k),
+        "convolution" => convolution_case(k, S, true),
+        "convolution by output" => convolution_case(by_output(k), S, true),
+    ]
+    @testset "$name shares its cotangent" for (name, case) in cases
+        pullback_bytes(case...)
+        @test pullback_bytes(case...) < bound
     end
 end
 
@@ -285,6 +347,13 @@ end
         @test CR._has_vector_pullback(m)
         @test CR._strata_loop(m)
     end
+    # So do time-varying kernels, but not one given by change points.
+    op, args = recurrence_case(I, S, true; kernel = tv_kernel())
+    @test (@inferred route(op, args)) === Val(:rule)
+    op, args = convolution_case(tv_per_stratum(S), S, true)
+    @test (@inferred route(op, args)) === Val(:rule)
+    steps = TimeVarying([1 => pmf, 15 => reverse(pmf)])
+    @test !CR._device_ready(Convolution(steps))
     # Numbers other than IEEE floats keep plain AD.
     xq, cq = JLArray(fill(1 // 2, S, T)), Convolution(JLArray(fill(1 // 5, L)))
     @test route(cq, (xq, true, nothing, nothing, 1, nothing)) === Val(:plain)

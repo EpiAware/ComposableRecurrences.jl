@@ -28,9 +28,9 @@ The forward run and ForwardDiff are near the hand loop's speed and slower than i
 
 ## By example
 
-### Getting started
+### Three towns
 
-The model of [Getting started](@ref getting-started).
+The model of [Three towns, step by step](@ref tutorial-three-towns).
 
 ```@example summary
 performance_summary("naive vs package") # hide

@@ -16,7 +16,7 @@ CairoMakie.activate!(type = "png", px_per_unit = 2)
 
 # ## The instantaneous reproduction number
 #
-# The one-town renewal of [Getting started](@ref overview-build) is
+# The one-town renewal of [Three towns](@ref overview-build) is
 #
 # ```math
 # I_t = R_t \, q_t, \qquad
@@ -101,7 +101,7 @@ end
 
 # ## Performance
 #
-# Each bar times the effective reproduction number of the three towns of [Getting started](@ref overview-build), with depletion, over 200 days with a 20-day generation interval, against a preallocated hand-written loop.
+# Each bar times the effective reproduction number of the [three towns](@ref overview-build), with depletion, over 200 days with a 20-day generation interval, against a preallocated hand-written loop.
 
 include(joinpath(pkgdir(ComposableRecurrences), "docs", "performance.jl")) #hide
 performance_plot("reproduction number")
