@@ -214,6 +214,10 @@ end
             "a function of its own" => (
                 CR.Transform((v, a) -> v * exp(-a), 0.1),
             ),
+            # A scale read from the last three outputs, each stratum its own.
+            "feedback from recent outputs" => (
+                CR.Transform(*, CR.Derived(exp, -0.05 * CR.Recent(pmf[1:3]))),
+            ),
         ]
         @testset "$name, $S strata" for (name, ms) in cases
             op0, args0 = modified_case(ms, S, false)

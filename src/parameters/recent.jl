@@ -194,7 +194,7 @@ Base.:-(a::Recent) = Derived(-, a)
 # `_flush!` sends on once per step, the weights' share into the mirror kept
 # in `w̄` (with no `H̄`, only into the weights). Without a coupling these are
 # `nothing`.
-struct _BoundRecent{R <: Recent, B, G, U, I, Z, M}
+struct _BoundRecent{R <: Recent, B, G, U, I, Z, M, K}
     x::R
     H::B
     H̄::G
@@ -203,15 +203,20 @@ struct _BoundRecent{R <: Recent, B, G, U, I, Z, M}
     row::I
     z::Z
     w̄::M
+    "`_InKernel()` once adapted for a device kernel, else `nothing`."
+    site::K
     function _BoundRecent(
-            x::R, H::B, H̄::G, o, u::U, row::I, z::Z, w̄::M
-        ) where {R <: Recent, B, G, U, I, Z, M}
-        return new{R, B, G, U, I, Z, M}(x, H, H̄, o, u, row, z, w̄)
+            x::R, H::B, H̄::G, o, u::U, row::I, z::Z, w̄::M, site::K = nothing
+        ) where {R <: Recent, B, G, U, I, Z, M, K}
+        return new{R, B, G, U, I, Z, M, K}(x, H, H̄, o, u, row, z, w̄, site)
     end
 end
+# Marks a value adapted for a device kernel.
+struct _InKernel end
 function _BoundRecent(x::Recent, H, H̄, o, shared)
     C = x.coupling
     _check_recent_strata(C, size(H, 2))
+    _check_recent_device(C, H)
     u, row, z = _windows(shared, C, x.w, H)
     return _BoundRecent(x, H, H̄, o, u, row, z, _mirror_slot(C, x.w))
 end
@@ -261,6 +266,15 @@ _keep_mirror!(slot, w̄) = (slot[] = w̄; nothing)
 _kept_mirror(::Nothing) = nothing
 _kept_mirror(slot) = slot[]
 _check_recent_strata(::Nothing, S) = nothing
+# A coupled read fills each stratum's window on the host once a step, so it
+# runs on the host only.
+_check_recent_device(::Nothing, H) = nothing
+function _check_recent_device(C, H)
+    _on_gpu(H) && throw(ArgumentError(_COUPLED_RECENT_DEVICE))
+    return nothing
+end
+const _COUPLED_RECENT_DEVICE = "a Recent with a coupling runs on the host; " *
+    "on a device, use a Recent without one"
 function _check_recent_strata(C, S)
     size(C) == (S, S) || throw(
         DimensionMismatch(
@@ -394,7 +408,8 @@ function _recent_row(b::_BoundRecent, k, t)
     checkbounds(b.H, i - 1, k)
     return i
 end
-@noinline function _before_window(b::_BoundRecent, t)
+_before_window(b::_BoundRecent, t) = _before_window(b.site, b, t)
+@noinline function _before_window(::Nothing, b, t)
     W = length(b.x.w)
     t0 = W + 1 - b.o
     throw(
@@ -405,6 +420,13 @@ end
         )
     )
 end
+# Inside a device kernel the message is a constant, as a kernel cannot
+# build one.
+@noinline _before_window(::_InKernel, b, t) =
+    throw(ArgumentError(_RECENT_BEFORE_WINDOW))
+const _RECENT_BEFORE_WINDOW = "Recent was read at a time before the outputs " *
+    "this call keeps for its weights; a modifier's Init reads its " *
+    "parameters at time 1, so start the run at 1"
 
 Base.@propagate_inbounds _add_buffer!(H̄, v, i, k) = (H̄[i, k] += v; nothing)
 _add_buffer!(::Nothing, v, i, k) = nothing
