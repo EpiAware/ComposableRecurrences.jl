@@ -141,11 +141,9 @@ struct Flow{D, F <: _FlowForm, E, P}
         E = Union{typeof(from), typeof(to)}
         return new{typeof(d), F, E, (from, to)}(from, to, d, form)
     end
-    # A flow with ends `P` already checked, such as one placed among its
-    # `Depletion`'s pools or rebuilt from its fields. A kernel launch
-    # adapts the demand to device arrays, which the host cannot read entry
-    # by entry, so this checks everything but those entries: a number's
-    # share is still checked.
+    # A flow with ends already checked. A kernel launch adapts the demand to
+    # device arrays the host cannot read entry by entry, so those entries are
+    # not checked; a number's share still is.
     function Flow(
             ::_Placed, ::Type{E}, ::Val{P}, demand, form::F
         ) where {E, P, F}
@@ -264,9 +262,7 @@ end
 
 # == Placing a flow among its pools ==
 
-# The flow with its ends as positions among the pools `names`, found from
-# the types, so the placed flow's type infers whether or not the flow was
-# built where its ends are literals.
+# Found from the types, so the placed flow's type infers.
 function _placed(f::Flow{<:Any, <:Any, <:Any, P}, ::Val{names}) where {P, names}
     from, to = _positions(Val(P), Val(names))
     from === nothing && _unknown_pool(P[1], names, f)
@@ -311,10 +307,9 @@ _share(f::Flow, g, t) = false
     return _tuple_fold(add, z, fs)
 end
 
-# `exp(-H)` and the share that leaves per unit hazard,
-# `g(H) = (1 - exp(-H)) / H`. Near zero `g` is 0/0, so it takes its series;
-# the arm follows the primal value, and the guarded division keeps the
-# unused arm finite.
+# Near zero `g(H) = (1 - exp(-H)) / H` is 0/0, so it takes its series; the
+# arm follows the primal value, and the guarded division keeps the other
+# arm finite.
 function _leave(H)
     small = abs(_primal_value(H)) < _series_cut(H)
     Hd = ifelse(small, one(H), H)
@@ -342,9 +337,7 @@ function _series_cut(H)
     return (11520 * eps(T))^(one(T) / 7)
 end
 
-# Tuple entry `i` of `x` replaced by `v`, in the tuple's eltype.
-# Built with `ntuple`, which infers where `Base.setindex` with a runtime
-# index does not.
+# `ntuple` infers where `Base.setindex` with a runtime index does not.
 function _set(x::Tuple, i, v)
     w = convert(eltype(x), v)
     return ntuple(j -> ifelse(j == i, w, x[j]), Val(length(x)))
@@ -368,17 +361,13 @@ end
     E, gH = _leave(_out(_rate, fs, i, g, t, z))
     return E, gH, _out(_share, fs, i, g, t, z)
 end
-# Without a hazard flow nothing leaves at a rate, so `e^{-0}` and `g(0)` are
-# one, exactly as `_leave` gives them, without the exponentials. The shares
-# are summed in their own type, not the pools': under a dual number that
-# would make each share's product with a pool one of two duals.
+# The shares are summed in their own type, not the pools': under a dual
+# number that would make each share's product with a pool one of two duals.
 const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _FlowCount}}}}
 _leaves(fs::_NoHazard, i, g, t, z) = _no_hazard_leaves(fs, i, g, t)
 _no_hazard_leaves(fs, i, g, t) = true, true, _out(_share, fs, i, g, t, false)
 
-# The same for a step, which reads `g(H)` only where a hazard flow out of
-# pool `i` enters a pool: elsewhere it is one, without its expm1 and
-# divisions.
+# `g(H)` is read only where a hazard flow out of pool `i` enters a pool.
 @inline function _step_leaves(fs, i, g, t, z)
     H = _out(_rate, fs, i, g, t, z)
     E, gH = _rated_into(fs, i) ? _leave(H) : (exp(-H), one(H))
@@ -408,10 +397,8 @@ struct _Moved{T}
     F::T
 end
 
-# What a flow moves per unit held at its rate: `r g(H)`, or the share its
-# pool's one hazard flow moves. The `_Moved` is that of the flow's own pool,
-# which has one hazard flow, so it is this flow's. Other forms have rate
-# zero, as `_rate` gives them.
+# The `_Moved` is that of the flow's own pool, which has one hazard flow, so
+# it is this flow's.
 _by_rate(f, g, t, gH) = _rate(f, g, t) * gH
 _by_rate(f::Flow{<:Any, _FlowHazard}, g, t, w::_Moved) = w.F
 _by_rate(f::Flow, g, t, w::_Moved) = _rate(f, g, t)
@@ -424,11 +411,8 @@ function _leave_kind(fs, i)
     _hazards_out(fs, i) == 0 && return :none
     return _one_rated_into(fs, i) ? :moved : :step
 end
-# `_group_leaves` for each of `N` pools, with the pool and its `_leave_kind`
-# written in as constants, read from the flows' types, which hold their
-# ends. Past 32 flows `_leave_kind` is not folded to a constant for each
-# pool, and under dual numbers an index into a tuple of the answers is not
-# either, so the pools' leave terms would be held boxed.
+# The pool and its `_leave_kind` are written in as constants: past 32 flows
+# neither folds, and the pools' leave terms would be held boxed.
 @generated function _group_leaves_each(fs::Tuple, g, t, z, ::Val{N}) where {N}
     ok = N isa Int && all(f -> f <: Flow && isconcretetype(f), fs.parameters)
     ok || return :(ntuple(i -> _group_leaves(fs, i, g, t, z), Val(N)))
@@ -475,13 +459,9 @@ _spread_one(f::_Count, x, L, y, a, g, t) = (y, a)
     return _add(y, _to(f), m), _add(a, _to(f), m)
 end
 
-# A count `r` out of a pool holding `s`, `min(r, max(s, 0))`; it is
-# also a depletion's removal from what remains after the draw. The arms
-# follow primal values, as in the pullback: a dual with value zero is
-# ordered by its partials, so `min` and `max` on duals could take the other
-# arm at an empty pool. `s + z` turns `-0.0` into `0.0` as `max` does; a NaN
-# in either input is returned, as `min` does; `ifelse` keeps a traced step
-# branch-free.
+# The arms follow primal values: a dual with value zero is ordered by its
+# partials, so `min` and `max` could take the other arm at an empty pool.
+# `s + z` turns `-0.0` into `0.0`; `ifelse` keeps a traced step branch-free.
 function _removal(r, s)
     r, s = promote(r, s)
     z = zero(s)
@@ -574,9 +554,6 @@ _flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
 
 # == Each flow's amount, for a trace without a draw ==
 
-# The amount each flow moves at one step, in the order given, from the
-# pools `x`: a hazard or share flow's from `x`, as the step spreads it,
-# and a count's from what remains when it acts.
 function _amounts(fs, x, g, t)
     L, y = _amount_start(fs, x, g, t)
     return _amounts_each(fs, x, L, y, g, t)
@@ -601,11 +578,8 @@ function _amount(f::_Count, x, L, y, g, t)
     return m, first(_count(f, y, nothing, g, t))
 end
 
-# The cotangent of one group's pools `x` from those of the amounts, `r̄`,
-# one per flow; the flows' parameter cotangents are added into `f̄s`. As in
-# `_flows_pullback`, with a hazard or share flow's amount `m_f` taking its
-# own cotangent and that of the pool it enters, `q_f = r̄_f + ȳ_to`, where
-# the step's pullback takes the second only, and each count adding its own.
+# A hazard or share flow's amount takes its own cotangent and that of the pool
+# it enters, `q_f = r̄_f + ȳ_to`, as in `_flows_pullback`.
 function _amounts_pullback(fs, f̄s, r̄, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L, y = _amount_start(fs, x, g, t)
@@ -688,11 +662,8 @@ end
 
 # == The step's pullback ==
 
-# Reverse of the count flows: recurse forward, keeping each flow's input,
-# then pull back last first. `ȳ` and `ā` are the cotangents after the
-# flows; returns those before them. A demand that reads the outputs or has
-# a map costs more to read than the rest of a count, so each count's
-# demand `d`, its value and partials, is read once and serves both passes.
+# A demand that reads the outputs or has a map costs more to read than the
+# rest of a count, so each demand is read once and serves both passes.
 function _counts_back(fs::Tuple, f̄s, y, a, ȳ, ā, g, t)
     function fwd((y, a), (f, f̄), _)
         d = _demand(f, f̄, g, t)
@@ -741,9 +712,6 @@ function _arrivals_back(fs::Tuple, ā, i, g, t, B)
     end
 end
 
-# The cotangent of one group's pools `x` before the flows, from
-# those of the pools `ȳ` and arrivals `ā` after them; the flows'
-# parameter cotangents are added into their mirrors `f̄s`.
 function _flows_pullback(
         fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t
     ) where {N}
@@ -835,9 +803,7 @@ function _check_flow_groups(fs::Tuple, G)
     return _check_flow_groups(Base.tail(fs), G)
 end
 
-# A flow parameter's name in errors, such as `demand of Flow(1 => 2)`.
-# Printed only when an error is thrown, so a check that passes builds no
-# string.
+# Printed only on error, so a passing check builds no string.
 struct _Named
     name::Symbol
     from::Int

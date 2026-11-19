@@ -1,7 +1,3 @@
-# The role interface. An operator implements `forward` for `Run()`; every
-# coupling, modifier or depletion form implements `forward!`, and optionally
-# `pullback!`, for its role.
-
 # == Roles ==
 
 @doc raw"""
@@ -623,10 +619,8 @@ end
 
 # == Step shapes ==
 
-# How the operator runs a modifier's step, fixed by the type so it folds:
-# `Val((nv, ns))` runs a group kernel per group, `nothing` a step per stratum
-# or on the whole vectors. A `Depletion` of a one-pool kind without a step of
-# its own runs a pointwise shape on its group kernel.
+# Fixed by the type so it folds. A one-pool `Depletion` without a step of its
+# own runs a pointwise shape on its group kernel.
 _blocks(m) = _static_blocks(blocks(m))
 _static_blocks(::Nothing) = nothing
 _static_blocks(b::Tuple) = _group_shape(Val(b))
@@ -640,10 +634,8 @@ end
 _group_shape(::Val{(1, 1)}) = nothing
 _group_shape(b::Val) = b
 
-# Whether the operator runs a modifier's step per stratum, on one-entry
-# views: an execution choice, not a property of the maths, which is
-# `ispointwise`. A pointwise modifier that runs a group kernel, such as a
-# `Depletion` filling one pool, is pointwise but not looped per stratum.
+# An execution choice, not `ispointwise`: a `Depletion` filling one pool is
+# pointwise but runs a group kernel.
 _strata_loop(m) = blocks(m) === (1, 1) && _blocks(m) === nothing
 
 # The number of groups of a blockwise modifier over `S` strata.
@@ -687,9 +679,7 @@ end
 
 forward!(m, ::Step, v, s, t) = _vector_step!(_blocks(m), m, v, s, t)
 
-# The step of a pointwise modifier on stratum `k`'s value and state, as new
-# scalars: its `forward!` on one-entry views of local slots, which a fully
-# inlined step keeps in registers.
+# On one-entry views of local slots, kept in registers when fully inlined.
 @inline function _step(m, v, s, t, k)
     vr, sr = _slot(m, v), _slot(m, s)
     _written(m, @inline forward!(m, Step(), _At(vr, k), _At(sr, k), t))
@@ -736,9 +726,6 @@ end
     return Expr(:block, body..., :(return x))
 end
 
-# The step of a blockwise modifier on group `g`'s values and state, as new
-# tuples: a built-in's kernel, or the modifier's `forward!` on tuples of
-# one-entry views of local slots. Its pullback likewise.
 @inline function _block_step(m, v::Tuple, s::Tuple, t, g)
     vr, sr = map(x -> _slot(m, x), v), map(x -> _slot(m, x), s)
     at = r -> _At(r, g)
@@ -800,11 +787,9 @@ function _pointwise_body!(k, v, s, m, t)
     return nothing
 end
 
-# The vector step's pullback: the modifier's own, or per stratum or group
-# for a pointwise or a blockwise modifier without one. Not a `pullback!`
-# method, which would count as every modifier's own.
-# On device arrays a pointwise modifier reverses per stratum instead, as its
-# own vector pullback is a host loop.
+# Not a `pullback!` method, which would count as every modifier's own. On
+# device arrays a pointwise modifier reverses per stratum, as its own vector
+# pullback is a host loop.
 function _vector_pullback!(grads, m, v, s, t)
     _has_vector_pullback(m) && !(_on_gpu(v) && _strata_loop(m)) &&
         return pullback!(grads, m, Step(), v, s, t)
@@ -840,9 +825,7 @@ function _group_back!(gs, acc, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
     end
     return nothing
 end
-# Per stratum, or per group in the method above: in order on the host, and
-# as one kernel on device arrays, with a cotangent the strata share copied
-# per block and summed by `_reduce!`.
+# A cotangent the strata share is copied per block and summed by `_reduce!`.
 function _strata_pullback!(grads, m, v, s, t)
     v̄, s̄ = grads.v, grads.s
     n = length(eachindex(v, s, v̄, s̄))
@@ -870,10 +853,8 @@ function _stages!(ms::Tuple, states::Tuple, v, t)
     return _stages!(Base.tail(ms), Base.tail(states), v, t)
 end
 
-# One modifier's step on the step's values. A pointwise modifier runs per
-# stratum, as in the loops that thread one stratum's value, so the strata
-# loop runs where the executor puts it, on a device too; any other on the
-# whole vectors.
+# A pointwise modifier runs per stratum, so the strata loop runs where the
+# executor puts it, on a device too.
 _stage!(m, v, s, t) = _stage!(Val(_strata_loop(m)), m, v, s, t)
 _stage!(::Val{false}, m, v, s, t) = forward!(m, Step(), v, s, t)
 function _stage!(::Val{true}, m, v, s, t)
