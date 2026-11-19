@@ -168,14 +168,6 @@ _own(x̄::_Owned) = x̄.x
 function _series_back!(
         ks, acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms, H, τ0, L, D, T
     )
-    # A block of one stratum runs with the stratum fixed, as in
-    # `_series_body!`.
-    if ks isa AbstractUnitRange && length(ks) == 1
-        return _series_back!(
-            (first(ks),), acc, H̄, kbuf, s̄s, rec, pr, gain, coupling, kernel, ms,
-            H, τ0, L, D, T
-        )
-    end
     for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
         kb = _run_buffer(kbuf, kernel, j)
         c = _chain(g, ms, eltype(H))
