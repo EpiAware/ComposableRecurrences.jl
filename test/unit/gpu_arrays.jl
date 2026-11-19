@@ -6,8 +6,8 @@
     using ComposableRecurrences
     using ComposableRecurrences: Derived
     using ComposableRecurrences: Allocate, Depletion,
-        Flow, Floor, Hazard, Primary, Recent, Redistribute, Share, Truncate,
-        Transform, contributions
+        Flow, Floor, Hazard, Primary, Recent, Redistribute, Share, Survival,
+        Truncate, Transform, contributions
     using JLArrays: JLSparseMatrixCSR
     using LinearAlgebra: Diagonal, I
     using SparseArrays: sparse
@@ -30,6 +30,9 @@
     const KR = [g0[1:mod1(t, L)] .* (1 + 0.01 * t) for t in 1:T]
     const NS = [60.0, 50.0, 40.0]
     const TOT = [4.0 + 0.2 * t + p for p in 1:2, t in 1:T]
+    # Hazards over time, shared by the strata or one per stratum.
+    const HZ1 = 0.1 .+ 0.05 .* sin.(1:T)
+    const HZS = [0.1 + 0.05 * sin(k + t) for k in 1:S, t in 1:T]
 
     # A sparse coupling on the host, or in CSR form on the device.
     _sparse(d, K) = d(zeros(1)) isa Array ? sparse(K) : JLSparseMatrixCSR(sparse(K))
@@ -286,6 +289,20 @@
             d -> transpose(Convolution(TimeVarying(d(TVK), Primary())))(
             d(RS); tail = d(HS[:, 1:(L - 1)]), start = 2
         ),
+        "Convolution, kernel from a hazard and a survival" =>
+            (d, F = Float64) -> Convolution(
+            TimeVarying(
+                d(g0) * (F(1) - Survival(TimeVarying(d(HZ1)); from = 1)),
+                Primary()
+            )
+        )(d(RS)),
+        "Recurrence, kernel shortened by a survival per stratum" =>
+            d -> Recurrence(
+            TimeVarying(
+                d(g0) * Survival(TimeVarying(PerStratum(d(HZS)))), Primary()
+            );
+            coupling = d(K0)
+        )(d(RS); history = d(HS), start = L + 1),
         "Recurrence, feedback from recent outputs" =>
             (d, F = Float64) -> Recurrence(
             d(g0); coupling = d(K0),
@@ -585,6 +602,10 @@ end
             Transform(*, Derived(exp, -0.1 * ComposableRecurrences.Recent(v))),
             Recurrence(Pairwise(m => v, 0.5 .* m => v[1:2])).kernel,
             transpose(Convolution(TimeVarying(m, Primary()))),
+            ComposableRecurrences.Survival(tv; from = 1),
+            ComposableRecurrences._KernelWeights(
+                TimeVarying(v * ComposableRecurrences.Survival(tv), Primary())
+            ),
         )
         @test holds_host(x)
         y = adapt(JLArrays.Adaptor(), x)
@@ -594,6 +615,9 @@ end
     # The rebuild keeps a Transform's map and the order of its bounds.
     y = adapt(JLArrays.Adaptor(), Transform(clamp, PerStratum(v), tv))
     @test y.f === clamp && y.θ[1] isa PerStratum && y.θ[2] isa TimeVarying
+    # A survival keeps the first lag its hazard acts at.
+    y = adapt(JLArrays.Adaptor(), ComposableRecurrences.Survival(tv; from = 2))
+    @test y.from == 2
 end
 
 @testitem "JLArrays: adapting an operator moves its parameters to the device" begin

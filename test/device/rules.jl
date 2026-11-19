@@ -31,6 +31,10 @@ function _rule_passes(op0, args0, Ȳ0, A)
     move(x) = x isa AbstractArray ? A(x) : x
     args = map(move, args0)
     y, cache = CR._run_forward(op, args...)
+    # A run from a later start is shorter, so its cotangent takes its shape.
+    if size(y) != size(Ȳ0)
+        Ȳ0 = cos.(0.37 .* reshape(1:length(y), size(y)))
+    end
     x̄ = zero(args[1])
     rest = map(a -> op isa Convolution ? _mirror(a) : nothing, Base.tail(args))
     piece = CR._zero_mirror(op)
@@ -60,7 +64,9 @@ function _rule_cases(S)
     # A gain or add input per stratum and time, per time or shared.
     gain, add = 0.5 .* x, collect(range(0.1, 1.0; length = T))
     scaled(g, a) = (Convolution(pmf), (x, g, a, fill(1.0, S, 2), 1, nothing))
-    rec(r) = (r, (CR._run_args(r, x, h, nothing, nothing, 1)..., nothing))
+    function rec(r; start = 1)
+        return (r, (CR._run_args(r, x, h, nothing, nothing, start)..., nothing))
+    end
     # Modifiers with a vector step: two pools, two draws on one pool, a
     # queue and grouped totals.
     hazard = CR.Hazard(; weights = (S = 1, V = 0.5))
@@ -77,6 +83,15 @@ function _rule_cases(S)
     )
     totals = CR.Allocate([1:(S ÷ 2), (S ÷ 2 + 1):S], PerStratum(fill(1.0, 2)))
     stepped(m) = rec(Recurrence(pmf; modifiers = (m,)))
+    # Kernels computed from a hazard over time: shared by the strata and
+    # confirmed from the lag after entry, one per stratum, and one through a
+    # map, whose partials come from a local forward-mode derivative.
+    hz = 0.1 .+ 0.05 .* sin.(1:T)
+    HZ = [0.1 + 0.05 * sin(k + t) for k in 1:S, t in 1:T]
+    computed(w) = TimeVarying(w, CR.Primary())
+    confirmed = pmf * (1 - CR.Survival(TimeVarying(hz); from = 1))
+    stratified = pmf * CR.Survival(TimeVarying(PerStratum(HZ)))
+    mapped = pmf * CR.Survival(CR.Derived(exp, TimeVarying(log.(hz))))
     cases = [
         "Convolution, vector kernel" => conv(pmf),
         "Convolution, per-stratum kernel" => conv(PerStratum(repeat(pmf', S))),
@@ -106,6 +121,11 @@ function _rule_cases(S)
         "Recurrence, two draws on one pool" => stepped(two_draws),
         "Recurrence, a queue" => stepped(queued),
         "Recurrence, grouped totals" => stepped(totals),
+        "Convolution, kernel from a hazard and a survival" =>
+            conv(computed(confirmed)),
+        "Convolution, survival per stratum" => conv(computed(stratified)),
+        "Recurrence, kernel shortened by a mapped hazard" =>
+            rec(Recurrence(computed(mapped); coupling = C); start = L + 1),
     ]
     return cases, x
 end
