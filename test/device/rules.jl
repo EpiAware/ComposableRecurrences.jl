@@ -50,6 +50,22 @@ function _rule_cases(S)
     )
     conv(k) = (Convolution(k), (x, true, nothing, nothing, 1, nothing))
     rec(r) = (r, (CR._run_args(r, x, h, nothing, nothing, 1)..., nothing))
+    # Modifiers with a vector step: two pools, two draws on one pool, a
+    # queue and grouped totals.
+    hazard = CR.Hazard(; weights = (S = 1, V = 0.5))
+    doses = CR.Flow(:S => :V, PerStratum(fill(0.5, S)); form = CR.Truncate())
+    two_pools = CR.Depletion(
+        PerStratum(fill(60.0, S)), hazard, doses; pools = (:S, :V)
+    )
+    two_draws = CR.Depletion(
+        60.0, CR.Hazard(), flow, CR.Floor(); pools = (S = 50.0,)
+    )
+    queued = CR.Depletion(
+        CR.Flow(0 => :B, 2.0; form = CR.Truncate()),
+        CR.Truncate(; overflow = :queue); pools = (B = 50.0,)
+    )
+    totals = CR.Allocate([1:(S ÷ 2), (S ÷ 2 + 1):S], PerStratum(fill(1.0, 2)))
+    stepped(m) = rec(Recurrence(pmf; modifiers = (m,)))
     cases = [
         "Convolution, vector kernel" => conv(pmf),
         "Convolution, per-stratum kernel" => conv(PerStratum(repeat(pmf', S))),
@@ -68,6 +84,10 @@ function _rule_cases(S)
         "Recurrence, time-varying kernel" => rec(Recurrence(TimeVarying(G))),
         "Recurrence, per-stratum time-varying kernel" =>
             rec(Recurrence(TimeVarying(PerStratum(GS)))),
+        "Recurrence, two pools" => stepped(two_pools),
+        "Recurrence, two draws on one pool" => stepped(two_draws),
+        "Recurrence, a queue" => stepped(queued),
+        "Recurrence, grouped totals" => stepped(totals),
     ]
     return cases, x
 end
