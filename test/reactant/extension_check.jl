@@ -37,6 +37,23 @@ end
     @test_throws ArgumentError ComposableRecurrences.Recent(Any[0.5])
 end
 
+# A record written at a traced step, whether the history it is shaped on is
+# a host array or not, takes each step's column at that step.
+@testset "Reactant step records at a traced step" begin
+    CR = ComposableRecurrences
+    function record(x, t)
+        R = CR._unset(zeros(1), eltype(x), 2, 3)
+        fill!(R, zero(eltype(x)))
+        CR._copy_column!(R, x, t)
+        return R
+    end
+    x = Reactant.to_rarray([1.0, 2.0])
+    t = Reactant.ConcreteRNumber(2)
+    R = Array(Reactant.@compile(record(x, t))(x, t))
+    @test R == [0.0 1.0 0.0; 0.0 2.0 0.0]
+    @test CR._unset(zeros(1), Float64, 2, 3) isa Matrix{Float64}
+end
+
 # Reactant compiles the kernels through CUDA.jl, so a traced call without it
 # says to load it.
 @testset "Reactant traced call needs CUDA.jl" begin

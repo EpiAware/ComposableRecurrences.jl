@@ -66,14 +66,14 @@ Total run time 26.3 min, timeout 600 s a case.
 | Recurrence capacity, beds with overflow | works (3.7 s / 7.0 µs) | works (1.3 s / 12.5 µs) |
 | Recurrence bed cap with a stay that is not geometric | error: MethodError in `_load_history!` | error: MethodError in `_load_history!` |
 | Recurrence capacity, weekly budget with a queue | works (3.6 s / 12.5 µs) | works (1.3 s / 127.0 µs) |
-| Recurrence trace of the importation (Redistribute) | error: MethodError in `_copy_column!` | error: MethodError in `_copy_column!` |
+| Recurrence trace of the importation (Redistribute) | works (47.4 s / 14.5 µs) | works (3.0 s / 11.7 µs) |
 | Recurrence trace through a sparse coupling | error: MethodError | error: MethodError |
-| Recurrence trace of a protected pool | error: MethodError in `_copy_column!` | error: MethodError in `_copy_column!` |
+| Recurrence trace of a protected pool | works (6.8 s / 11.3 µs) | works (1.5 s / 120.7 µs) |
 | Recurrence trace of pointwise modifiers | works (4.4 s / 19.7 µs) | works (1.9 s / 13.6 µs) |
-| Recurrence default traces of user modifiers | error: MethodError in `_copy_column!` | error: MethodError in `_copy_column!` |
-| Recurrence user traces on groups and over the whole step | error: MethodError in `_copy_column!` | error: MethodError in `_copy_column!` |
-| Recurrence trace of a ward's flows | error: ErrorException in `_coupled_step!` | error: ErrorException in `_coupled_step!` |
-| Recurrence trace of a weekly budget with a queue | error: MethodError in `_copy_column!` | error: MethodError in `_copy_column!` |
+| Recurrence default traces of user modifiers | works (5.3 s / 15.0 µs) | works (1.7 s / 70.6 µs) |
+| Recurrence user traces on groups and over the whole step | works (4.7 s / 54.9 µs) | works (1.7 s / 65.5 µs) |
+| Recurrence trace of a ward's flows | works (8.3 s / 95.0 µs) | works (1.9 s / 129.7 µs) |
+| Recurrence trace of a weekly budget with a queue | works (5.4 s / 58.4 µs) | works (1.8 s / 104.1 µs) |
 | Recurrence effective reproduction number from its pressure | works (3.5 s / 16.0 µs) | works (2.7 s / 102.7 µs) |
 | Recurrence effective reproduction number from its trace | works (2.4 s / 13.2 µs) | works (1.3 s / 13.1 µs) |
 | Recurrence pressure from its trace, by coupling and with no input | works (11.8 s / 106.6 µs) | works (2.3 s / 148.8 µs) |
@@ -249,22 +249,22 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence bed cap with a stay that is not geometric | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _load_history! | MethodError: no method matching Float64(::Reactant.TracedRArray{Float64, 1}) The type `Float64` exists, but no method is defined for this combination of argumen |
 | registry | Recurrence capacity, weekly budget with a queue | forward | cpu | 12 | works | 0.0e+00 | 3.6 | 12.5 | 2.3 |  |  |
 | registry | Recurrence capacity, weekly budget with a queue | reverse | cpu | 12 | works | 1.4e-14 | 1.3 | 127.0 | 81.6 |  |  |
-| registry | Recurrence trace of the importation (Redistribute) | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
-| registry | Recurrence trace of the importation (Redistribute) | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
+| registry | Recurrence trace of the importation (Redistribute) | forward | cpu | 12 | works | 6.8e-16 | 47.4 | 14.5 | 3.0 |  |  |
+| registry | Recurrence trace of the importation (Redistribute) | reverse | cpu | 12 | works | 1.4e-14 | 3.0 | 11.7 | 60.0 |  |  |
 | registry | Recurrence trace through a sparse coupling | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching SparseArrays.SparseMatrixCSC(::Int64, ::Int64, ::Vector{Int64}, ::Vector{Int64}, ::Reactant.TracedRArray{Float64, 1}) The type ` |
 | registry | Recurrence trace through a sparse coupling | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching SparseArrays.SparseMatrixCSC(::Int64, ::Int64, ::Vector{Int64}, ::Vector{Int64}, ::Reactant.TracedRArray{Float64, 1}) The type ` |
-| registry | Recurrence trace of a protected pool | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
-| registry | Recurrence trace of a protected pool | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
+| registry | Recurrence trace of a protected pool | forward | cpu | 12 | works | 2.1e-16 | 6.8 | 11.3 | 2.4 |  |  |
+| registry | Recurrence trace of a protected pool | reverse | cpu | 12 | works | 5.0e-15 | 1.5 | 120.7 | 107.1 |  |  |
 | registry | Recurrence trace of pointwise modifiers | forward | cpu | 12 | works | 1.1e-16 | 4.4 | 19.7 | 4.7 |  |  |
 | registry | Recurrence trace of pointwise modifiers | reverse | cpu | 12 | works | 1.1e-14 | 1.9 | 13.6 | 48.9 |  |  |
-| registry | Recurrence default traces of user modifiers | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
-| registry | Recurrence default traces of user modifiers | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
-| registry | Recurrence user traces on groups and over the whole step | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
-| registry | Recurrence user traces on groups and over the whole step | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
-| registry | Recurrence trace of a ward's flows | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _coupled_step! | setindex! for Matrix{Reactant.TracedRNumber{Float64}} with types Tuple{Int64, Reactant.TracedRNumber{Int64}} is not supported |
-| registry | Recurrence trace of a ward's flows | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _coupled_step! | setindex! for Matrix{Reactant.TracedRNumber{Float64}} with types Tuple{Int64, Reactant.TracedRNumber{Int64}} is not supported |
-| registry | Recurrence trace of a weekly budget with a queue | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
-| registry | Recurrence trace of a weekly budget with a queue | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |
+| registry | Recurrence default traces of user modifiers | forward | cpu | 12 | works | 4.2e-16 | 5.3 | 15.0 | 7.9 |  |  |
+| registry | Recurrence default traces of user modifiers | reverse | cpu | 12 | works | 1.9e-13 | 1.7 | 70.6 | 145.1 |  |  |
+| registry | Recurrence user traces on groups and over the whole step | forward | cpu | 12 | works | 2.2e-16 | 4.7 | 54.9 | 2.3 |  |  |
+| registry | Recurrence user traces on groups and over the whole step | reverse | cpu | 12 | works | 1.9e-14 | 1.7 | 65.5 | 52.8 |  |  |
+| registry | Recurrence trace of a ward's flows | forward | cpu | 12 | works | 5.9e-16 | 8.3 | 95.0 | 6.4 |  |  |
+| registry | Recurrence trace of a ward's flows | reverse | cpu | 12 | works | 1.3e-14 | 1.9 | 129.7 | 231.9 |  |  |
+| registry | Recurrence trace of a weekly budget with a queue | forward | cpu | 12 | works | 4.2e-16 | 5.4 | 58.4 | 3.2 |  |  |
+| registry | Recurrence trace of a weekly budget with a queue | reverse | cpu | 12 | works | 5.8e-15 | 1.8 | 104.1 | 113.1 |  |  |
 | registry | Recurrence effective reproduction number from its pressure | forward | cpu | 12 | works | 8.0e-16 | 3.5 | 16.0 | 2.9 |  |  |
 | registry | Recurrence effective reproduction number from its pressure | reverse | cpu | 12 | works | 1.2e-14 | 2.7 | 102.7 | 26.5 |  |  |
 | registry | Recurrence effective reproduction number from its trace | forward | cpu | 12 | works | 0.0e+00 | 2.4 | 13.2 | 3.3 |  |  |
