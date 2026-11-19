@@ -762,7 +762,7 @@ end
     end
 end
 
-@testitem "JLArrays: views and reshapes of device arrays run on the device" begin
+@testitem "JLArrays: views and reshapes of device arrays run on the device" tags = [:threads] begin
     using ComposableRecurrences
     using ComposableRecurrences: Primary, Survival
     using JLArrays, KernelAbstractions
