@@ -71,44 +71,82 @@ A call sent to plain AD by its number of strata, or by its float or array types,
 
 ### [What the local step needs](@id adjoint-local-step)
 
-The local step needs ForwardDiff loaded, as `using ForwardDiff`, which the package loads only as an [extension](@ref extension-forwarddiff).
-Without it the forward pass runs, and a gradient through the local step throws an `ArgumentError` that names the part and says to load ForwardDiff.
+#### ForwardDiff
+
+The local step needs `using ForwardDiff`, which the package loads only as an [extension](@ref extension-forwarddiff).
+Without it:
+
+- the forward pass runs, and a gradient through the local step throws an `ArgumentError` that names the part and says to load ForwardDiff;
+- a part that the local step cannot rebuild also throws, rather than taking plain AD, as the check itself needs ForwardDiff.
+
 A `Recurrence` built before ForwardDiff loads checks its parts at each call rather than once at construction.
-The check itself needs ForwardDiff, so without it a part that the local step cannot rebuild also throws, rather than taking plain AD.
 
-Give each float field a type parameter, as `struct Smooth{A}; a::A; end`, since an abstractly typed field takes plain AD.
+#### Types it can rebuild
 
-The local step rebuilds the type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
-Its type parameters must let a float field hold a dual number, and the constructor must keep its arguments as given.
-So these send the operator to plain AD: a closure that captures a float, a keyword-only constructor, a float field typed `Float64`, or a constructor that changes its arguments.
+The local step rebuilds a type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
+For that:
+
+- give each float field a type parameter, as `struct Smooth{A}; a::A; end`, so that it can hold a dual number;
+- let the constructor keep its arguments as given.
+
+These send the operator to plain AD:
+
+- a float field typed abstractly or as `Float64`;
+- a closure that captures a float;
+- a keyword-only constructor;
+- a constructor that changes its arguments.
+
 Integer fields, index ranges and integer arrays are structure, not parameters.
 Add a `ConstructionBase.constructorof` method for a type whose positional constructor differs.
 
-The local step of a pointwise modifier passes a `PerStratum` or `TimeVarying` parameter as the one entry the step reads at its stratum and time.
-So the step must read it through `param` at its own `k` and `t`, as `param(m.κ, k, t)`.
-A step that indexes the array sends the operator to plain AD, and one that reads another stratum or time gets the wrong entry, so such a step needs a `pullback!`.
-A blockwise modifier's local step does the same for each group: it seeds the group's values, its state and the entries its parameters read at group `g`, as `param(m.a, g, t)`.
-So its dual numbers are as wide as one group, whatever the number of strata.
-A coupling over more strata than the route table allows needs a `pullback!` to take the rule.
+#### Parameters read with `param`
 
-The local step of a pointwise modifier seeds the entries of its other float arrays that a step reads, as `m.a[t]`, and records which they are.
-Up to four reads take one pass of dual numbers.
-A step that reads more runs once more with room for 8 or 12, and past 12 in passes of 12.
-The `Recurrence` constructor runs one step at the first stratum and time and counts its reads.
-Above 24 the local step is slower than plain AD, so such a modifier takes plain AD, and the constructor says so.
-A step that reads more at a later time than at the first still gets the right gradient, in passes of 12.
-The local step of a coupling seeds every entry of its float arrays, so they count towards its limit.
-The local step of a whole-step modifier runs its `forward!` on the step's values and state as dual numbers, with every scalar and array entry of its parameters, so all of them count towards its limit.
-A whole-step modifier whose step reads fewer entries of its float arrays than they hold, as `m.total[t]`, seeds only the entries it reads, as a pointwise modifier does, so only those count.
-Each call runs one step at each of the first two times to count them.
-A step that reads a different number at each, as one that sums every entry up to `t` does, seeds every entry instead, so past the limit it takes plain AD.
-A step that reads more only at a later time still gets the right gradient, in more passes.
-This holds for strided float arrays outside `PerStratum` and `TimeVarying`.
-With a second pass it takes the rule on Mooncake and plain AD on Enzyme, where the rule is slower than plain AD.
-Past two passes it takes plain AD on every backend, as a coupling does.
-A `Diagonal` or sparse matrix is not seeded, as a step may read its fields rather than its entries.
+A pointwise modifier's local step passes a `PerStratum` or `TimeVarying` parameter as the one entry the step reads at its stratum and time.
+So the step must read it at its own `k` and `t`, as `param(m.κ, k, t)`:
+
+- a step that indexes the array sends the operator to plain AD;
+- a step that reads another stratum or time gets the wrong entry, so it needs a `pullback!`.
+
+A blockwise modifier's local step does the same for each group.
+It seeds the group's values, its state and the entries its parameters read at group `g`, as `param(m.a, g, t)`.
+So its dual numbers are as wide as one group, whatever the number of strata.
+
+#### Other float arrays
+
+What the local step seeds:
+
+- a pointwise modifier: the entries of its other float arrays that a step reads, as `m.a[t]`;
+- a whole-step modifier: the step's values and state, and every scalar and array entry of its parameters;
+- a whole-step modifier whose step reads fewer entries of a strided float array outside `PerStratum` and `TimeVarying` than it holds, as `m.total[t]`: only the entries read, as for a pointwise modifier;
+- a coupling: every entry of its float arrays;
+- a `Diagonal` or sparse matrix: nothing, as a step may read its fields rather than its entries.
+
+How the reads are counted:
+
+- for a pointwise modifier, the `Recurrence` constructor runs one step at the first stratum and time;
+- for a whole-step modifier, each call runs one step at each of the first two times;
+- a whole-step modifier that reads a different number of entries at each, as a step that sums every entry up to `t`, seeds every entry instead.
+
+The seeded entries set the passes of dual numbers:
+
+- up to four reads take one pass;
+- more run once more with room for 8 or 12;
+- past 12, the step runs in passes of 12.
+
+A step that reads more at a later time than when counted still gets the right gradient, in more passes.
+
+The limits:
+
+- a pointwise modifier with more than 24 reads takes plain AD, which is then faster, and the constructor says so;
+- a coupling or whole-step modifier whose entries need a second pass takes the rule on Mooncake and plain AD on Enzyme, where the rule is slower than plain AD;
+- past two passes it takes plain AD on every backend;
+- a coupling over more strata than the route table allows needs a `pullback!` to take the rule.
+
+#### Ties and kinks
+
 The local step's dual numbers, and those of a `Transform` without a `derivative`, compare by value only, as plain floats do.
 So at a tie, such as `x > 0 ? y / x : zero(x)` at `x = 0`, the local step takes the branch the step takes.
+
 ForwardDiff and the backends have derivative rules of their own for some functions, and such a rule picks the side of the function's kink.
 So the local step and plain AD can differ there, as for `abs` at zero and, on Mooncake, `clamp` at a bound.
 
@@ -133,7 +171,7 @@ DifferentiationInterface has no Reactant extension, so Reactant is not one of th
 Its own suite, `test/reactant/`, compiles every scenario of the AD registry forward and in reverse and checks each against ForwardDiff, entry by entry.
 The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) gives each scenario's result.
 The scenarios that do not run are listed in the registry under the `Reactant` backend, grouped by cause.
-Most are parts built from traced values, such as `Recent`, sparse couplings, ragged kernels and delay masses, or traces recorded into a traced buffer.
+Most are parts built from traced values, such as sparse couplings, ragged kernels and delay masses, or traces recorded into a traced buffer.
 A model that does not run under Reactant runs as it is on the other backends, so Enzyme reverse is the fallback for its gradient.
 
 ## [Which rules are kept](@id rule-policy)
@@ -161,9 +199,11 @@ An executor sets how an operator's loops over strata or output times run.
 [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) holds the one in use, [`Serial`](@ref ComposableRecurrences.Serial) by default.
 [`Threaded`](@ref ComposableRecurrences.Threaded) splits a loop across CPU threads, and [`Parallel`](@ref ComposableRecurrences.Parallel) runs it as a kernel on a KernelAbstractions backend, such as a GPU.
 The older name [`Device(backend)`](@ref ComposableRecurrences.Device) makes the same executor as `Parallel(backend)`.
-The threaded executor runs its chunks as Julia tasks rather than on the KernelAbstractions CPU backend, which compiles kernels through OpenCL.
-On that backend a loop body follows the rules of a GPU kernel, and an error inside it loses its type.
-It was also slower: at 10 000 independent strata it ran 1.36 times faster than `Serial` forward and 1.05 times in reverse, against 1.63 and 1.60 for `Threaded`.
+
+The threaded executor runs its chunks as Julia tasks rather than on the KernelAbstractions CPU backend, which compiles kernels through OpenCL:
+
+- on that backend a loop body follows the rules of a GPU kernel, and an error inside it loses its type;
+- it was also slower: at 10 000 independent strata it ran 1.36 times faster than `Serial` forward and 1.05 times in reverse, against 1.63 and 1.60 for `Threaded`.
 
 | Executor | Forward | ForwardDiff | ReverseDiff | Mooncake, Enzyme forward | Mooncake, Enzyme reverse |
 |---|---|---|---|---|---|
@@ -172,27 +212,43 @@ It was also slower: at 10 000 independent strata it ran 1.36 times faster than `
 | `Parallel(backend)` | all operators, couplings and built-in modifiers | dual-number inputs only | not tested | not tested | the rules of a fixed convolution and of independent strata; not tested on a GPU |
 
 Mooncake and Enzyme do not differentiate tasks, so code they trace runs serially whatever executor is set.
-A rule's forward pass is not traced, so it uses the set executor.
-Its reverse pass splits strata with the executor set when it runs.
-Each chunk of strata adds the cotangents of parameters it shares with other chunks, such as a scalar modifier parameter, into its own copy.
-The copies are summed after the loop, so these cotangents agree with `Serial()` up to rounding.
-The cotangents of the inputs, the history and an `S × T` gain or add input match exactly.
-A coupling that mixes strata, a pairwise kernel, routes, modifiers with a vector step and parameters that read across strata run their reverse steps on the calling task.
+A rule is different:
+
+- its forward pass is not traced, so it uses the set executor;
+- its reverse pass splits strata with the executor set when it runs.
+
+In the reverse pass:
+
+- each chunk of strata adds the cotangents of parameters it shares with other chunks, such as a scalar modifier parameter, into its own copy;
+- the copies are summed after the loop, so these cotangents agree with `Serial()` up to rounding;
+- the cotangents of the inputs, the history and an `S × T` gain or add input match exactly;
+- these run their reverse steps on the calling task:
+  - a coupling that mixes strata;
+  - a pairwise kernel;
+  - routes;
+  - modifiers with a vector step;
+  - parameters that read across strata.
+
 The `Parallel(backend)` row was checked on JLArrays only, which run kernels on the CPU.
 
 ### [GPU arrays](@id gpu-arrays)
 
-A call on arrays that live on a GPU runs each loop over strata or output times as one kernel.
-Independent strata are one kernel per call, each thread stepping its stratum through time.
-Strata that mix are one kernel per step, with the time loop on the host, so such a recurrence pays a kernel launch per step and a GPU pays off only with many strata.
+A call on arrays that live on a GPU runs each loop over strata or output times as one kernel:
+
+- independent strata are one kernel per call, each thread stepping its stratum through time;
+- strata that mix are one kernel per step, with the time loop on the host, so such a recurrence pays a kernel launch per step and a GPU pays off only with many strata.
+
 Every array the call reads must live on the same device: the inputs, the gain and add inputs, the history, a resumed state, the kernel, the coupling and the modifiers' parameters.
-A call with device inputs and a host float array among these is an error.
-`Adapt.adapt(CuArray, r)` moves every parameter of an operator `r` to the device.
-A GPU runs `Float32` much faster than `Float64`.
-An output takes its float type from every array and number a call holds.
-So a `Float64` scalar parameter, such as a population, promotes the run to `Float64`.
-[`convert_floats(Float32, r)`](@ref ComposableRecurrences.convert_floats) converts every float of `r`, scalars included, so `Adapt.adapt(CuArray, convert_floats(Float32, r))` runs on the device in `Float32`.
-Buffers, states and outputs are allocated from the inputs, so they live there too.
+
+- A call with device inputs and a host float array among these is an error.
+- `Adapt.adapt(CuArray, r)` moves every parameter of an operator `r` to the device.
+- Buffers, states and outputs are allocated from the inputs, so they live there too.
+
+Float types:
+
+- a GPU runs `Float32` much faster than `Float64`;
+- an output takes its float type from every array and number a call holds, so a `Float64` scalar parameter, such as a population, promotes the run to `Float64`;
+- [`convert_floats(Float32, r)`](@ref ComposableRecurrences.convert_floats) converts every float of `r`, scalars included, so `Adapt.adapt(CuArray, convert_floats(Float32, r))` runs on the device in `Float32`.
 
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
 - A sparse coupling is a device sparse matrix: in CSR form each stratum's row is one index of a kernel.
@@ -216,12 +272,27 @@ Array(y) ≈ Recurrence([0.4, 0.3, 0.2, 0.1]; coupling = [0.9 0.1; 0.2 0.8])(
 )
 ```
 
-The package's own rules run on device arrays for a convolution with a fixed kernel (a vector or `PerStratum`) and for a recurrence with a fixed kernel.
-The recurrence's coupling is an identity, scalar or `Diagonal` coupling, or a dense matrix on the device.
-Its modifiers are `Transform`s and `Depletion`s whose steps run per stratum, including a `Depletion` with flows or a floor.
+The package's own rules run on device arrays for:
+
+- a convolution with a fixed kernel (a vector or `PerStratum`);
+- a recurrence with:
+  - a fixed kernel;
+  - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
+  - modifiers that are `Transform`s and `Depletion`s whose steps run per stratum, including a `Depletion` with flows or a floor.
+
 Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
-Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host: a time-varying coupling, a modifier with a vector step such as `Allocate`, and a modifier type the package does not define.
-These rule passes are checked on JLArrays, whose kernels compile through OpenCL; the reverse-mode backends themselves are not.
-On JLArrays no reverse-mode backend gets that far: Enzyme's KernelAbstractions rules have no JLArrays backend, and Mooncake does not differentiate the JLArray allocator.
-Dual-number inputs on device arrays give forward-mode derivatives through the device forward pass; `ForwardDiff.gradient` seeds its inputs by scalar indexing, so build the duals directly.
+
+Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
+
+- a time-varying coupling;
+- a modifier with a vector step, such as `Allocate`;
+- a modifier type the package does not define.
+
+What is checked:
+
+- these rule passes run on JLArrays, whose kernels compile through OpenCL;
+- the reverse-mode backends are not checked on JLArrays, as none gets that far: Enzyme's KernelAbstractions rules have no JLArrays backend, and Mooncake does not differentiate the JLArray allocator.
+
+Dual-number inputs on device arrays give forward-mode derivatives through the device forward pass.
+`ForwardDiff.gradient` seeds its inputs by scalar indexing, so build the duals directly.

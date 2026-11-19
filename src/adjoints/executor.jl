@@ -6,8 +6,8 @@
 # == Executor ==
 
 @doc raw"""
-How [`ComposableRecurrences.each!`](@ref) runs a loop over independent
-indices.
+A strategy for how [`ComposableRecurrences.each!`](@ref) runs a loop over
+independent indices.
 Every executor `e` calls the same bodies, so the result does not depend on
 it:
 
@@ -29,7 +29,7 @@ true
 abstract type Executor end
 
 @doc raw"""
-Runs every index in order on the calling task:
+An executor that runs every index in order on the calling task:
 
 ```math
 \operatorname{body}(1), \operatorname{body}(2), \ldots, \operatorname{body}(n).
@@ -108,8 +108,8 @@ end
 # == Threaded ==
 
 @doc raw"""
-Runs the indices of a loop in contiguous chunks, one task per chunk, the
-first on the calling task.
+An executor that runs the indices of a loop in contiguous chunks, one task
+per chunk, the first on the calling task.
 With `m` chunks, chunk `c` covers
 
 ```math
@@ -388,7 +388,7 @@ const TRACED_MIN_STRATA = ScopedValue{Int}(32)
 # == Parallel ==
 
 @doc raw"""
-Runs every index of a loop as one thread of a kernel on a
+An executor that runs every index of a loop as one thread of a kernel on a
 KernelAbstractions backend, such as a GPU's: thread `k` computes
 
 ```math

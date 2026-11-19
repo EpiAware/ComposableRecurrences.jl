@@ -3002,15 +3002,6 @@ end
 # `test/reactant/` runs the scenarios without their twins, so only the
 # scenario names are listed.
 const REACTANT_BROKEN = Dict(
-    # `Recent` and `Derived` have no arithmetic with, or constructor from,
-    # traced values.
-    "Recent or Derived built from traced values" => [
-        "Recurrence Redistribute of a movement read from recent outputs",
-        "Recurrence removals from recent outputs",
-        "Recurrence feedback from recent outputs",
-        "Recurrence feedback from recent outputs across strata",
-        "Recurrence bed cap with a stay that is not geometric",
-    ],
     # A modifier field read at the traced step indexes a view with a traced
     # integer.
     "modifier field read at a traced step" => [
@@ -3044,9 +3035,6 @@ const REACTANT_BROKEN = Dict(
     ],
     "lag contributions read a traced number (`_at`)" => [
         "Convolution lag contributions",
-    ],
-    "a history given as a view, loaded into a Float64 buffer" => [
-        "Recurrence random walk and strata prepending a view history",
     ],
 )
 
