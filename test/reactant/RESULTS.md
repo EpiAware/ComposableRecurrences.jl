@@ -57,7 +57,7 @@ Total run time 26.3 min, timeout 600 s a case.
 | Convolution of a short series with gain, add and history | works (1.3 s / 5.8 µs) | works (1.1 s / 12.9 µs) |
 | Convolution lag contributions | works (30.0 s / 64.5 µs) | works (3.4 s / 97.9 µs) |
 | Convolution transpose of a Primary kernel with a tail | works (3.3 s / 6.4 µs) | works (1.3 s / 62.6 µs) |
-| Recurrence ragged Primary kernel | error: ErrorException in `_ragged` | error: ErrorException in `_ragged` |
+| Recurrence ragged Primary kernel | works (31.3 s / 6.8 µs) | works (2.6 s / 66.8 µs) |
 | Recurrence Transform with per-stratum parameters | works (2.6 s / 9.5 µs) | works (1.0 s / 10.9 µs) |
 | Recurrence population varying over time with births | works (4.0 s / 9.4 µs) | works (1.5 s / 123.9 µs) |
 | Recurrence empty pool with a differentiated heterogeneity | works (3.9 s / 14.4 µs) | works (1.1 s / 12.8 µs) |
@@ -231,8 +231,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Convolution lag contributions | reverse | cpu | 12 | works | 1.3e-14 | 3.4 | 97.9 | 60.9 |  |  |
 | registry | Convolution transpose of a Primary kernel with a tail | forward | cpu | 12 | works | 7.8e-16 | 3.3 | 6.4 | 0.6 |  |  |
 | registry | Convolution transpose of a Primary kernel with a tail | reverse | cpu | 12 | works | 7.0e-15 | 1.3 | 62.6 | 44.6 |  |  |
-| registry | Recurrence ragged Primary kernel | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _ragged | Create Operation 'stablehlo.gather' failed |
-| registry | Recurrence ragged Primary kernel | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _ragged | Create Operation 'stablehlo.gather' failed |
+| registry | Recurrence ragged Primary kernel | forward | cpu | 12 | works | 2.4e-14 | 31.3 | 6.8 | 1.6 |  |  |
+| registry | Recurrence ragged Primary kernel | reverse | cpu | 12 | works | 1.6e-15 | 2.6 | 66.8 | 22.9 |  |  |
 | registry | Recurrence Transform with per-stratum parameters | forward | cpu | 12 | works | 7.9e-16 | 2.6 | 9.5 | 2.4 |  |  |
 | registry | Recurrence Transform with per-stratum parameters | reverse | cpu | 12 | works | 5.8e-16 | 1.0 | 10.9 | 8.9 |  |  |
 | registry | Recurrence population varying over time with births | forward | cpu | 12 | works | 5.9e-16 | 4.0 | 9.4 | 2.8 |  |  |

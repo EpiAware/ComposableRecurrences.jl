@@ -402,6 +402,9 @@ function _Ragged(ks::AbstractVector{<:AbstractVector})
     n = last(offsets)
     values = _like(ks, Vector{T}(undef, n))
     for (τ, k) in enumerate(ks)
+        # An empty column copies nothing, so it is skipped: some traced
+        # arrays cannot build even an empty copy from an empty source.
+        isempty(k) && continue
         copyto!(values, offsets[τ] + 1, k, firstindex(k), length(k))
     end
     return _Ragged(values, offsets)

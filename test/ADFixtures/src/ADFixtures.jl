@@ -3015,9 +3015,6 @@ const REACTANT_BROKEN = Dict(
         "Recurrence trace through a sparse coupling",
         "Recurrence sparse user coupling declared linear",
     ],
-    "ragged kernel" => [
-        "Recurrence ragged Primary kernel",
-    ],
     # A distribution's constructor takes only real parameters.
     "Distributions from traced parameters" => [
         "Convolution Poisson delay distribution",
