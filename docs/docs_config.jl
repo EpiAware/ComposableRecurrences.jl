@@ -242,6 +242,8 @@ const PACKAGE_TUTORIALS = [
     "Three towns, step by step" => "getting-started/three-towns.md",
     "API overview" => "getting-started/api-overview.md",
     "Time units" => "getting-started/time-units.md",
+    "Infectious disease models" =>
+        "domain-guides/infectious-disease-models.md",
     "Renewal then delay" =>
         "getting-started/tutorials/renewal-then-delay.md",
     "Vaccination" => "getting-started/tutorials/vaccination.md",
@@ -277,10 +279,6 @@ const PACKAGE_SECTIONS = Pair{String, Any}[
         "Modifiers" => "explanation/modifiers.md",
         "Adjoints and backends" =>
             "explanation/adjoints-and-backends.md",
-    ],
-    "Domain guides" => [
-        "Infectious disease models" =>
-            "domain-guides/infectious-disease-models.md",
     ],
 ]
 
