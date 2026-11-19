@@ -364,9 +364,7 @@ end
 
 # Per group, with `a = Σ ȳ_k v_k / s_p`: the total's cotangent is `a` and
 # `v̄_k = (T_p / s_p)(ȳ_k − a)`; on the floor the sum term drops.
-# The groups run as in the forward step: in order on the host, and as one
-# kernel on device arrays, where groups that share a total add into stacked
-# copies of its cotangent.
+# Groups that share a total add into stacked copies of its cotangent.
 function pullback!(grads, m::Allocate{<:Any, Nothing}, ::Step, v, s, t)
     strata, offsets = _like(v, m.strata), _like(v, m.offsets)
     G = _ngroups(m)

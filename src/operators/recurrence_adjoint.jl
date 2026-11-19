@@ -106,7 +106,8 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
         )
     else
         m̄v = _all_pointwise(modifiers) ? m̄s : _Owned(m̄s)
-        acc = (; ādd, ḡain, C̄ = _Owned(C̄), ḡ = kslots, m̄s = m̄v)
+        C̄s = _coupling_slots(C̄, coupling)
+        acc = (; ādd, ḡain, C̄ = C̄s, ḡ = kslots, m̄s = m̄v)
         accs = _accumulators(ex, H, S, _work(_StepLoop(), H, work), acc)
         # The per-pass buffers of vector modifiers that ask for one, which
         # their step pullbacks fill a column of and `_finish_pass!` reads.
@@ -163,7 +164,13 @@ _kernel_slots(ḡ, kernel::TimeVarying{<:Any, <:Pairwise}) = _Owned(ḡ)
 # The pairwise kernels as the reverse pass reads them, fixed ones oldest first.
 const _ReversedPairwise = Union{_OldestFirstPairwise, TimeVarying{<:Any, <:Pairwise}}
 # A mirror as the calling task writes it.
+_own(x̄) = x̄
 _own(x̄::_Owned) = x̄.x
+# A scale every stratum shares is copied once per block for the whole pass;
+# a `Diagonal`'s entries are each written by one stratum, and other
+# couplings reverse on the calling task.
+_coupling_slots(C̄, C) = _Owned(C̄)
+_coupling_slots(C̄, C::UniformScaling) = C̄
 
 # The reverse run of the independent strata `ks`, time outermost as in
 # `_series_body!`: each stratum's step reads and writes only its own slots
@@ -350,7 +357,7 @@ function _steps_back!(
                     _gain_adds_back!, accs, S, q̄, v̄, pr, gain, coupling, t, τ
                 )
             end
-            _coupling_back!(p̄, _own(acc.C̄), coupling, q̄, pr, t, τ, pbufs)
+            _step_coupling_back!(accs, p̄, coupling, q̄, pr, t, τ, pbufs)
             _kernels_back!(accs, kb, g, p̄, H, H̄, t + D - L, τ, L)
             _flush!(ms)
         end
@@ -528,13 +535,8 @@ _finish_pass!(m̄, m, R, ::Nothing, τ0) = nothing
 
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
 # the kernel convolutions and add the coupling's own cotangent into `C̄`.
-# A pointwise coupling runs per stratum: in order on the host, and as one
-# kernel on device arrays, with a shared scale's cotangent stacked.
 function _coupling_back!(p̄, C̄, C::_PointwiseCoupling, q̄, pr, t, τ, pbufs)
-    n = length(p̄)
-    accs = _accumulators(Serial(), p̄, n, n, C̄)
-    _reduce_blocks!(_couplings_back!, accs, n, p̄, C, q̄, pr, t)
-    _reduce!(accs)
+    _couplings_back!(eachindex(p̄), C̄, p̄, C, q̄, pr, t)
     return p̄
 end
 function _couplings_back!(ks, C̄, p̄, C, q̄, pr, t)
@@ -542,6 +544,22 @@ function _couplings_back!(ks, C̄, p̄, C, q̄, pr, t)
         @inbounds p̄[k] = _coupling_back_at(C̄, C, q̄[k], pr, t, k)
     end
     return nothing
+end
+# The same within a reverse pass: a pointwise coupling runs per stratum in
+# the pass's blocks (`accs`), one kernel on device arrays.
+function _step_coupling_back!(
+        accs, p̄, C::_PointwiseCoupling, q̄, pr, t, τ, pbufs
+    )
+    n = length(p̄)
+    _reduce_blocks!(_step_couplings_back!, accs, n, p̄, C, q̄, pr, t)
+    return p̄
+end
+function _step_coupling_back!(accs, p̄, C, q̄, pr, t, τ, pbufs)
+    C̄ = _own(first(accs).C̄)
+    return _coupling_back!(p̄, C̄, C, q̄, pr, t, τ, pbufs)
+end
+function _step_couplings_back!(ks, acc, p̄, C, q̄, pr, t)
+    return _couplings_back!(ks, _own(acc.C̄), p̄, C, q̄, pr, t)
 end
 function _coupling_back!(p̄, C̄, C, q̄, pr, t, τ, pbufs)
     fill!(p̄, zero(eltype(p̄)))

@@ -184,6 +184,12 @@ end
             "two draws on one pool" => (two_draws(),),
             "an overflow that joins a queue" => (queued(),),
             "grouped totals" => (totals(S),),
+            # Per-stratum modifiers with their own vector pullbacks beside
+            # a vector step, which on a device reverse per stratum instead.
+            "a pool per stratum and a scale beside two draws" => (
+                two_draws(), last(pools(S)),
+                CR.Transform(*, PerStratum(fill(0.9, S))),
+            ),
         ]
         @testset "$name, $S strata" for (name, ms) in cases
             op0, args0 = modified_case(ms, S, false)
@@ -259,6 +265,11 @@ end
     @test CR._device_modifiers(())
     @test !CR._device_modifier(moves)
     @test CR._device_modifier(totals(S))
+    # These have their own vector pullbacks, which a device skips.
+    for m in (last(pools(S)), CR.Transform(*, PerStratum(fill(0.9, S))))
+        @test CR._has_vector_pullback(m)
+        @test CR._strata_loop(m)
+    end
     # Numbers other than IEEE floats keep plain AD.
     xq, cq = JLArray(fill(1 // 2, S, T)), Convolution(JLArray(fill(1 // 5, L)))
     @test route(cq, (xq, true, nothing, nothing, 1, nothing)) === Val(:plain)

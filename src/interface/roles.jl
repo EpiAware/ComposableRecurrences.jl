@@ -803,8 +803,8 @@ end
 # The vector step's pullback: the modifier's own, or per stratum or group
 # for a pointwise or a blockwise modifier without one. Not a `pullback!`
 # method, which would count as every modifier's own.
-# On device arrays a pointwise modifier reverses per stratum in a kernel:
-# its own vector pullback is a loop the host runs over the strata.
+# On device arrays a pointwise modifier reverses per stratum instead, as its
+# own vector pullback is a host loop.
 function _vector_pullback!(grads, m, v, s, t)
     _has_vector_pullback(m) && !(_on_gpu(v) && _strata_loop(m)) &&
         return pullback!(grads, m, Step(), v, s, t)
@@ -815,9 +815,7 @@ function _split_pullback!(::Nothing, grads, m, v, s, t)
     uses_adjoint(m, Step()) && return pullback!(grads, m, Step(), v, s, t)
     return _local_step_back!(grads, m, v, s, t)
 end
-# The groups run as the forward step's do: in order on the host, and as one
-# kernel on device arrays, where groups that share a parameter add into
-# stacked copies of its cotangent.
+# Groups that share a parameter add into stacked copies of its cotangent.
 function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
     G = _ngroups(Val(B), length(v))
     accs = _accumulators(Serial(), v, G, G, grads.piece)
@@ -841,8 +839,9 @@ function _group_back!(gs, m̄, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
     end
     return nothing
 end
-# Per stratum: in order on the host, and as one kernel on device arrays,
-# with a shared parameter's cotangent stacked.
+# Per stratum, or per group in the method above: in order on the host, and
+# as one kernel on device arrays, with a cotangent the strata share copied
+# per block and summed by `_reduce!`.
 function _strata_pullback!(grads, m, v, s, t)
     v̄, s̄ = grads.v, grads.s
     n = length(eachindex(v, s, v̄, s̄))
