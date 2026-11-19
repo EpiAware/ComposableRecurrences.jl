@@ -7,9 +7,10 @@
 # Each `Survival`'s survival `S`, hazard `H` and added cotangent `P` at each
 # lag of the cohort walked, or for `S` and `H` a column per kept cohort, read
 # through `_walk_column`. `P` is cleared as it is read, so one serves every
-# cohort. `D` keeps the partials of a costly hazard map when every walk is
-# kept.
-struct _WalkScratch{C, A <: AbstractArray, V <: AbstractVector, D}
+# cohort a walk takes in turn; on a device each block of walks has a column
+# of its own. `D` keeps the partials of a costly hazard map when every walk
+# is kept.
+struct _WalkScratch{C, A <: AbstractArray, V <: AbstractArray, D}
     hazard::C
     S::A
     H::A
@@ -56,10 +57,12 @@ _walk_column(sc, j) = sc
 _walk_column(sc::Tuple, j) = map(s -> _walk_column(s, j), sc)
 function _walk_column(sc::_WalkScratch{<:Any, <:AbstractMatrix}, j)
     return _WalkScratch(
-        _walk_column(sc.hazard, j), view(sc.S, :, j), view(sc.H, :, j), sc.P,
-        _partials_column(sc.D, j)
+        _walk_column(sc.hazard, j), view(sc.S, :, j), view(sc.H, :, j),
+        _cotangent_column(sc.P, j), _partials_column(sc.D, j)
     )
 end
+_cotangent_column(P::AbstractVector, j) = P
+_cotangent_column(P::AbstractMatrix, j) = view(P, :, j)
 _partials_column(::Nothing, j) = nothing
 _partials_column(D::AbstractMatrix, j) = view(D, :, j)
 
@@ -311,6 +314,7 @@ _walk_kept(sc::_WalkScratch) = size(sc.S, 2) > 1 || _walk_kept(sc.hazard)
 # `x̄`, walking each cohort again unless `sc` kept its walk.
 function _walk_weights_back!(x̄, kernel::_ComputedKernel, K̄, o, last, sc)
     x = kernel.x
+    _on_gpu(K̄) && return _device_weights_back!(x̄, x, K̄, o, last)
     L = _coef_lags(x)
     T = eltype(K̄)
     ks = _weights_strata(K̄)
@@ -342,5 +346,104 @@ Base.@propagate_inbounds function _set_weight!(
         K::AbstractArray{<:Any, 3}, v, k, i, τ
     )
     K[k, i, τ] = v
+    return nothing
+end
+
+# == On a device ==
+
+# One kernel thread per cohort, and per stratum when the weights have
+# strata, walks the cohort's lags, so the weights fill as one launch. When
+# the weights have strata and a `Survival` in them does not, each stratum's
+# thread walks that survival again, as a thread holds one walk.
+function _device_fill(x, like, ::Type{Tp}, ns, L, n, o, last) where {Tp}
+    K = _stratified(x) ? similar(like, Tp, ns, L, n) : similar(like, Tp, L, n)
+    fill!(K, zero(Tp))
+    nk = _stratified(x) ? ns : 1
+    ex = _resolve(Serial(), like)
+    each!(_fill_cohort!, ex, nk * n, typemax(Int), K, x, o, last, nk)
+    return K, nothing
+end
+function _fill_cohort!(j, K, x, o, last, nk)
+    k, τ = _cohort_item(j, nk)
+    T = eltype(K)
+    imax = _imax(τ, size(K, ndims(K) - 1), o, last)
+    sc = _no_walk(x)
+    st = _walk_state(x, T)
+    for i in 1:imax
+        l = i - 1 + o
+        st = _walk(x, sc, st, k, i, τ, l)
+        @inbounds _set_weight!(K, _walk_value(x, st, k, i, τ, l), k, i, τ)
+    end
+    return nothing
+end
+# Item `j` is stratum `k` of cohort `τ`.
+_cohort_item(j, nk) = ((j - 1) % nk + 1, (j - 1) ÷ nk + 1)
+# The scratch of a walk that records nothing, built inside a kernel.
+_no_walk(x) = nothing
+_no_walk(x::Derived) = map(_no_walk, x.args)
+_no_walk(x::Survival) = _NoRecord(_no_walk(x.hazard))
+
+# The reverse pass runs the walks in blocks, one kernel index each: a block
+# walks each of its cohorts again into its own column of the scratch, adds
+# the weights' cotangents and walks back. With strata the blocks are blocks
+# of strata, each walking every cohort of its strata, so a per-stratum
+# coefficient's cotangent, which each stratum writes only at its own rows,
+# is shared by the blocks (`_param_slots`); without, the blocks are blocks
+# of cohorts. Cotangents the blocks share otherwise are copied per block
+# and summed after the loop.
+function _device_weights_back!(x̄, x, K̄, o, last)
+    n = size(K̄, ndims(K̄))
+    strata = ndims(K̄) == 3
+    N = strata ? size(K̄, 1) : n
+    slots = strata ? _param_slots(x̄, x) : x̄
+    accs = _accumulators(Serial(), K̄, N, N, slots)
+    st = accs[2]
+    L = size(K̄, ndims(K̄) - 1)
+    sc = _device_walk_scratch(x, eltype(K̄), L, st.m, K̄)
+    block = _WalkBack(N, st.m)
+    each!(block, st.ex, st.m, typemax(Int), st.copies, sc, x, K̄, o, last)
+    _reduce!(accs)
+    return nothing
+end
+_device_walk_scratch(x, ::Type, L, m, like) = nothing
+function _device_walk_scratch(x::Derived, ::Type{T}, L, m, like) where {T}
+    return map(a -> _device_walk_scratch(a, T, L, m, like), x.args)
+end
+function _device_walk_scratch(x::Survival, ::Type{T}, L, m, like) where {T}
+    return _WalkScratch(
+        _device_walk_scratch(x.hazard, T, L, m, like), similar(like, T, L, m),
+        similar(like, T, L, m), fill!(similar(like, T, L, m), zero(T)), nothing
+    )
+end
+struct _WalkBack
+    n::Int
+    m::Int
+end
+function (w::_WalkBack)(b, copies, sc, x, K̄, o, last)
+    x̄ = _unown(_block(copies, b))
+    scb = _walk_column(sc, b)
+    js = _chunk(b, w.n, w.m)
+    if ndims(K̄) == 3
+        for k in js, τ in axes(K̄, 3)
+            _walk_back_one!(x̄, x, scb, K̄, k, τ, o, last)
+        end
+    else
+        for τ in js
+            _walk_back_one!(x̄, x, scb, K̄, 1, τ, o, last)
+        end
+    end
+    return nothing
+end
+# Cohort `τ` of stratum `k`: walked again, its weights' cotangents added,
+# and walked back.
+function _walk_back_one!(x̄, x, sc, K̄, k, τ, o, last)
+    T = eltype(K̄)
+    imax = _imax(τ, size(K̄, ndims(K̄) - 1), o, last)
+    _walk_cohort!(x, sc, k, τ, o, imax, T)
+    for i in 1:imax
+        v = @inbounds _weight(K̄, k, i, τ)
+        @inbounds _add_value!(x̄, x, sc, v, k, i, τ, i - 1 + o, 1)
+    end
+    _walk_cohort_back!(x̄, x, sc, k, τ, o, imax, T)
     return nothing
 end

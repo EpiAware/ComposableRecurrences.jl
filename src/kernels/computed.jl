@@ -6,6 +6,9 @@
 
 const _ComputedConvolution = Convolution{<:_ComputedKernel}
 uses_adjoint(c::_ComputedConvolution, ::Run) = _derived_local(c.kernel)
+# Its weights fill and pull back on a device (see `walk.jl`), and the dense
+# kernel of them convolves there, so a call on device arrays takes the rule.
+_device_ready(::Convolution{<:_ComputedKernel, <:Union{Direct, Auto}}) = true
 
 # Each input spreads forward through its cohort's weights, as a `Primary()`
 # kernel's does: serially from each cohort's walk, shared by the strata
@@ -20,6 +23,7 @@ function _convolve_dense!(ex, Y, c::_ComputedKernel, X, m, start)
     return _convolve!(ex, Y, _dense_kernel(K), X, m, start)
 end
 function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
+    _on_gpu(Y) && return _convolve_dense!(ex, Y, c, X, m, start)
     x = c.x
     L = _nlags(c)
     T = eltype(Y)
@@ -88,6 +92,11 @@ end
 # the weights', and takes the weights' back to the coefficients along the
 # same walk; another executor takes the dense kernel's reverse pass.
 function _convolve_back!(ex, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start)
+    return _convolve_back_dense!(ex, X̄, c̄, c, X, Ȳ, m, start)
+end
+function _convolve_back_dense!(
+        ex, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start
+    )
     stop = start + size(Ȳ, 1) - 1
     K, sc = _fill_kernel(c, 0, stop, stop)
     x̄ = cotangent(c̄, :x)
@@ -108,6 +117,8 @@ end
 function _convolve_back!(
         ex::Serial, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start
     )
+    _on_gpu(Ȳ) &&
+        return _convolve_back_dense!(ex, X̄, c̄, c, X, Ȳ, m, start)
     x = c.x
     x̄ = cotangent(c̄, :x)
     L = _nlags(c)
@@ -151,6 +162,11 @@ end
 # == Recurrence ==
 
 _pressure_rule(::_ComputedKernel) = false
+# The dense kernel of its weights runs on a device, as a dense time-varying
+# kernel does.
+function _device_ready(r::Recurrence{<:_ComputedKernel})
+    return _device_coupling(r.coupling) && _device_modifiers(r.modifiers)
+end
 function _pressure_kernel(r::Recurrence{<:_ComputedKernel}, stop)
     K, _ = _fill_kernel(r.kernel, 1, stop, stop, Val(false))
     return _with_kernel(r, K)
@@ -263,6 +279,13 @@ struct _KernelWeights{K <: _ComputedKernel} <: AbstractOperator
     kernel::K
 end
 uses_adjoint(op::_KernelWeights, ::Run) = _derived_local(op.kernel)
+# Its only argument is the number of cohorts, so whether it runs on a device
+# follows its coefficients.
+_device_ready(::_KernelWeights) = true
+function _device_gate(op::_KernelWeights, n)
+    return _on_gpu(_coef_array(op.kernel.x)) &&
+        param_eltype(op) <: _IEEEFloat
+end
 # Every weight of the cohorts `1:n` lands by this time.
 _last_time(op::_KernelWeights, n) = n + _nlags(op.kernel) - 1
 function _run_forward(op::_KernelWeights, n)
@@ -277,6 +300,11 @@ function _weights_walk(op::_KernelWeights, n, keep)
     _check_coef_times(x, n, last)
     Tp = float(param_eltype(x))
     L = _coef_lags(x)
+    like = _coef_array(x)
+    if _on_gpu(like)
+        ns = max(_coef_strata(x), 1)
+        return _device_fill(x, like, Tp, ns, L, n, 0, last)
+    end
     # Every weight of cohorts `1:n` lands by `last`, so the walk writes each.
     K = _stratified(x) ? _alloc(Tp, _coef_strata(x), L, n) : _alloc(Tp, L, n)
     return _walk_fill!(K, op.kernel, 0, last, keep)

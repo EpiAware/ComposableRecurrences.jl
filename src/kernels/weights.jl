@@ -218,6 +218,17 @@ function _no_adjoint_kernel(k::_ComputedKernel)
     return ("the kernel has a Derived map that holds floats",)
 end
 
+# The first array a coefficient reads, or `nothing`: on a device, the
+# weights and the walks' scratch are allocated like it.
+_coef_array(x) = nothing
+_coef_array(x::AbstractArray) = x
+_coef_array(x::Union{PerStratum, TimeVarying}) = _coef_array(x.x)
+_coef_array(x::Survival) = _coef_array(x.hazard)
+_coef_array(x::Derived) = _first_array(map(_coef_array, x.args))
+_first_array(::Tuple{}) = nothing
+_first_array(a::Tuple{Nothing, Vararg}) = _first_array(Base.tail(a))
+_first_array(a::Tuple) = first(a)
+
 # == The weights, a block of cohorts at a time ==
 
 # A computed kernel is filled `_BLOCK` cohorts at a time, lag outermost and
@@ -535,6 +546,8 @@ function _fill_kernel(
     Tp = float(param_eltype(x))
     L = _coef_lags(x)
     ns = max(_coef_strata(x), 1)
+    like = _coef_array(x)
+    _on_gpu(like) && return _device_fill(x, like, Tp, ns, L, n, o, last)
     B = _block_size(x, n, keep)
     sc = _scratch(x, Tp, L, B)
     K = _weights_array(Val(_stratified(x)), Tp, ns, L, n)
@@ -605,6 +618,7 @@ _keeps_fill_type(::Type{<:Survival{H}}) where {H} = _keeps_fill_type(H)
 _weights_back!(::Nothing, kernel::_ComputedKernel, K̄, o, last, sc) = nothing
 function _weights_back!(x̄, kernel::_ComputedKernel, K̄, o, last, sc)
     x = kernel.x
+    _on_gpu(K̄) && return _device_weights_back!(x̄, x, K̄, o, last)
     n = size(K̄, ndims(K̄))
     B = _block_size(x, n, Val(true))
     sc = _back_scratch(sc)

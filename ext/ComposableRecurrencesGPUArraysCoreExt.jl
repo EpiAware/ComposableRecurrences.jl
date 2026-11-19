@@ -8,14 +8,14 @@ using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
 using SparseArrays: SparseMatrixCSC
 
-# Device arrays run on their own backend under the CPU executors: host
-# threads cannot index them.
+# Device arrays, and views and reshapes of them, run on their own backend
+# under the CPU executors: host threads cannot index them.
 function ComposableRecurrences._resolve(
-        ::Union{Serial, Threaded}, x::AbstractGPUArray
+        ::Union{Serial, Threaded}, x::AnyGPUArray
     )
     return Parallel(get_backend(x))
 end
-ComposableRecurrences._on_gpu(::AbstractGPUArray) = true
+ComposableRecurrences._on_gpu(::AnyGPUArray) = true
 
 # Device arrays reverse by indexing with a reversed range, one gather,
 # where `reverse` would index each entry from the host.
