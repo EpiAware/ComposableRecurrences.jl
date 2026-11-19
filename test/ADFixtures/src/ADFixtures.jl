@@ -3002,33 +3002,11 @@ end
 # `test/reactant/` runs the scenarios without their twins, so only the
 # scenario names are listed.
 const REACTANT_BROKEN = Dict(
-    # A traced number is not a `Real`, so the checks on a scalar parameter,
-    # a heterogeneity exponent or a softness refuse it.
-    "traced scalar refused by a parameter check" => [
-        "Recurrence depletion with a differentiated heterogeneity",
-        "Recurrence floored depletion with a differentiated heterogeneity",
-        "Recurrence array-field and scalar-field modifiers",
-        "Recurrence vaccination into a protected pool",
-        "Recurrence waning protection (Depletion flows)",
-        "Recurrence pool with twelve flows (over 32 leaves)",
-        "Recurrence two draws on one pool with a flow between",
-        "Recurrence ward with competing flows (Depletion without a draw)",
-        "Recurrence ward with competing flows, from the parameters as given",
-        "Recurrence protected pool in Float32",
-        "Recurrence grouped totals with time-varying imports (Allocate)",
-        "Recurrence empty pool with a differentiated heterogeneity",
-        "Recurrence capacity, beds with overflow",
-        "Recurrence trace of a protected pool",
-        "Recurrence trace of a ward's flows",
-        "Recurrence capacity, dropped overflow after a truncated draw",
-        "Recurrence depletion with smoothly truncated draws",
-    ],
     # `Recent` and `Derived` have no arithmetic with, or constructor from,
     # traced values.
     "Recent or Derived built from traced values" => [
         "Recurrence Redistribute of a movement read from recent outputs",
         "Recurrence removals from recent outputs",
-        "Recurrence Derived modifier parameters",
         "Recurrence feedback from recent outputs",
         "Recurrence feedback from recent outputs across strata",
         "Recurrence bed cap with a stay that is not geometric",
@@ -3057,13 +3035,12 @@ const REACTANT_BROKEN = Dict(
         "Recurrence negative binomial generation interval per pair of strata",
     ],
     "trace recorded into a traced buffer" => [
+        "Recurrence trace of a protected pool",
+        "Recurrence trace of a ward's flows",
         "Recurrence trace of the importation (Redistribute)",
         "Recurrence trace of a weekly budget with a queue",
         "Recurrence default traces of user modifiers",
         "Recurrence user traces on groups and over the whole step",
-    ],
-    "kernel from change points with traced values" => [
-        "Recurrence kernel from change points",
     ],
     "lag contributions read a traced number (`_at`)" => [
         "Convolution lag contributions",

@@ -85,8 +85,6 @@ deaths_direct = onset_to_death(onsets; gain = 0.1 * 0.25)
     draw(_; axis = (xlabel = "Day", ylabel = "Deaths"))
 end
 
-# The two lines overlap: the chained delay gives the same deaths, to rounding error.
-
 # ## Performance
 #
 # Each bar times onsets, admissions and deaths as a chain of three delays over 200 days with 20-day delays, against a preallocated hand-written loop.
