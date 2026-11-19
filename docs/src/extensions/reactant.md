@@ -38,12 +38,17 @@ y = (Reactant.@compile joined(R, h))(R, h)
 
 A traced call runs its own executor whatever [executor](@ref executors) is set, and Enzyme differentiates the traced program rather than using the hand-written gradients.
 The time loop compiles to one loop whose body is a step, so the program does not grow with the number of steps.
-From [`TRACED_MIN_STRATA`](@ref ComposableRecurrences.TRACED_MIN_STRATA) strata, each step runs its [strata](@ref overview-step) as one kernel, the [`Parallel`](@ref ComposableRecurrences.Parallel) executor's, so the program does not grow with the number of strata either.
-Fewer strata are written out, one block a stratum: the program grows with the strata, but on the CPU its forward pass runs faster than a kernel launch each step.
-The default threshold, 32, is measured on the CPU.
-From there a kernel runs and compiles gradients faster, while a written-out loop still runs the forward pass faster.
-A model that mostly runs forward can raise it.
-On a GPU, where a launch costs less, a lower one may run faster:
+
+How a step runs its [strata](@ref overview-step) depends on their number:
+
+- from [`TRACED_MIN_STRATA`](@ref ComposableRecurrences.TRACED_MIN_STRATA) strata, each step runs them as one kernel, the [`Parallel`](@ref ComposableRecurrences.Parallel) executor's, so the program does not grow with the number of strata either;
+- fewer strata are written out, one block a stratum: the program grows with the strata, but on the CPU its forward pass runs faster than a kernel launch each step.
+
+The default threshold, 32, is measured on the CPU:
+
+- from there a kernel runs and compiles gradients faster, while a written-out loop still runs the forward pass faster;
+- a model that mostly runs forward can raise it;
+- on a GPU, where a launch costs less, a lower one may run faster:
 
 ```julia
 using Base.ScopedValues: with
