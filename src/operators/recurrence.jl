@@ -1209,10 +1209,10 @@ _with_times(Y::AbstractMatrix, n) = (size(Y, 1), n)
 _tape(x::AbstractArray) = copy(x)
 _tape(x) = x
 
-# A resumed state must have each modifier's `nstate` entries, as an
-# `Init` would have written, and the modifiers must fit the strata, as
-# their `Init` checks.
+# A resumed call skips `Init`, so it runs the checks `Init` would: each
+# modifier's `nstate` entries, and its fields and parts against the strata.
 _check_states(modifiers, s0, S) = foreach(eachindex(modifiers), modifiers, s0) do i, m, s
+    _check_modifier_params(m, S)
     _check_modifier_strata(m, S)
     n = nstate(m, S)
     length(s) == n || throw(

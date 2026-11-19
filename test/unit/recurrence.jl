@@ -439,6 +439,41 @@ end
     @test_throws ArgumentError r(R; state = bad)
 end
 
+@testitem "Recurrence: a resumed call checks its modifiers' parameters against the strata" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # A resumed call skips `Init`, so the parameter check runs where the
+    # state is checked; a parameter with the wrong strata names the field.
+    struct Scale{T}
+        b::T
+    end
+    CR.blocks(::Scale) = (1, 1)
+    function CR.forward!(m::Scale, ::CR.Step, v, s, t)
+        for k in eachindex(v)
+            v[k] *= CR.param(m.b, k, t)
+        end
+        return nothing
+    end
+    R, h = fill(1.1, 2, 6), ones(2, 2)
+    for (good, bad, name) in (
+            (Scale(PerStratum([1.0, 0.9])), Scale(PerStratum([1.0, 0.9, 0.8])), "b"),
+            (
+                CR.Transform(*, PerStratum([1.0, 0.9])),
+                CR.Transform(*, PerStratum([1.0, 0.9, 0.8])), "θ",
+            ),
+        )
+        _, state = Recurrence([0.5, 0.5]; modifiers = (good,))(
+            R; history = h, stop = 3, record = (:state,)
+        )
+        @test_throws "$name has 3 strata, expected 2" Recurrence(
+            [0.5, 0.5]; modifiers = (bad,)
+        )(R; state)
+        @test_throws "$name has 3 strata, expected 2" Recurrence(
+            [0.5, 0.5]; modifiers = (bad,)
+        )(R; history = h)
+    end
+end
+
 @testitem "Recurrence: absolute time and start" setup = [Reference, TestModifiers] begin
     using ComposableRecurrences, Random
     rng = Xoshiro(12)
