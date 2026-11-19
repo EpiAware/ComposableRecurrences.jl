@@ -29,6 +29,7 @@ pages = [
     # docs_config.jl.
     "Getting started" => [
         "Overview" => "getting-started/index.md",
+        "Three towns, step by step" => "getting-started/three-towns.md",
         "API overview" => "getting-started/api-overview.md",
         "Time units" => "getting-started/time-units.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
@@ -51,14 +52,15 @@ pages = [
         "ADTypes + Enzyme + EnzymeTestUtils" => "extensions/enzyme-test-utils.md",
         "ADTypes + Mooncake + Random" => "extensions/mooncake.md",
         "Adapt + KernelAbstractions" => "extensions/kernel-abstractions.md",
+        "Adapt + KernelAbstractions + Reactant" => "extensions/reactant.md",
         "CensoredDistributions + Distributions" => "extensions/censored-distributions.md",
         "Distributions" => "extensions/distributions.md",
         "Enzyme" => "extensions/enzyme.md",
         "FFTW" => "extensions/fftw.md",
         "ForwardDiff" => "extensions/forward-diff.md",
+        "Functors" => "extensions/functors.md",
         "GPUArrays + GPUArraysCore + KernelAbstractions" => "extensions/gpuarrays.md",
         "GPUArraysCore + KernelAbstractions" => "extensions/gpuarrays-core.md",
-        "Reactant" => "extensions/reactant.md",
     ],
     "Benchmarks" => [
         "Performance over time" => "benchmarks/over-time.md",
