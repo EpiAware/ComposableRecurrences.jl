@@ -1,13 +1,18 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
 using ComposableRecurrences: ComposableRecurrences, Parallel, Pressure,
-    Secondary, Serial, TimeVarying, _Ragged, _Piecewise, _PIECEWISE_DEVICE
+    Secondary, Serial, Threaded, TimeVarying, _Ragged, _Piecewise,
+    _PIECEWISE_DEVICE
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
 using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
 using SparseArrays: SparseMatrixCSC
 
-function ComposableRecurrences._resolve(::Serial, x::AbstractGPUArray)
+# Device arrays run on their own backend under the CPU executors: host
+# threads cannot index them.
+function ComposableRecurrences._resolve(
+        ::Union{Serial, Threaded}, x::AbstractGPUArray
+    )
     return Parallel(get_backend(x))
 end
 ComposableRecurrences._on_gpu(::AbstractGPUArray) = true

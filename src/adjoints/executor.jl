@@ -159,8 +159,9 @@ Errors inside a split loop arrive wrapped in a `CompositeException`: an
 error in a chunk on a new task as a `TaskFailedException`, and one in the
 chunk the calling task runs as an exception that shows it with its
 backtrace.
-On arrays that live on a GPU, `Threaded` spawns CPU tasks that index the
-arrays from the host; use [`Parallel`](@ref) there.
+On arrays that live on a GPU, `Threaded` runs a call as [`Parallel`](@ref)
+on the arrays' own backend, as [`Serial`](@ref) does: host threads cannot
+index them.
 
 # Examples
 ```jldoctest
@@ -406,9 +407,9 @@ KernelAbstractions CPU backend: on a GPU that loop would read the device
 arrays one entry at a time from the host.
 The default `0` launches every loop.
 Needs `KernelAbstractions` to be loaded.
-Under the default [`Serial`](@ref) executor, operator calls on arrays that
-live on a GPU (with `GPUArraysCore` loaded) run their strata loops with it
-without being asked.
+Under the default [`Serial`](@ref) executor, or [`Threaded`](@ref),
+operator calls on arrays that live on a GPU (with `GPUArraysCore` loaded)
+run their strata loops with it without being asked.
 Every array a call reads must live on the device.
 Independent strata run as [one kernel per call](@ref gpu-arrays), and
 strata that mix as one kernel per step with the time loop on the host.
@@ -514,7 +515,7 @@ _kernel_arg(x) = x
         body::F, c::_Current, x, n, work, args::Vararg{Any, N}
     ) where {F, N}
     ex = c.ex
-    if ex isa Threaded && !_splits(ex, n, work)
+    if ex isa Threaded && !_splits(ex, n, work) && !_on_gpu(x)
         each!(body, Serial(), n, work, args...)
     else
         _dynamic!(each!, body, c, x, n, work, args...)
@@ -567,7 +568,7 @@ end
     ) where {F, N}
     ex = c.ex
     if (ex isa Serial && _resolve(ex, x) isa Serial) ||
-            (ex isa Threaded && !_splits(ex, n, work))
+            (ex isa Threaded && !_splits(ex, n, work) && !_on_gpu(x))
         n == 0 || @inline body(1:n, args...)
     else
         _dynamic!(_blocks_on!, body, c, x, n, work, args...)

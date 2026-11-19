@@ -81,7 +81,8 @@ end
     @test CR._resolve(CR.Serial(), x) == CR.Device(KernelAbstractions.get_backend(x))
     @test CR._resolve(CR.Serial(), rand(3)) === CR.Serial()
     ex = CR.Threaded()
-    @test CR._resolve(ex, x) === ex
+    @test CR._resolve(ex, x) == CR.Device(KernelAbstractions.get_backend(x))
+    @test CR._resolve(ex, rand(3)) === ex
 end
 
 @testitem "Parallel: its fields, Device as the same type, and loops below min_work" setup = [ExecutorBodies] begin
