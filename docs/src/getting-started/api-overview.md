@@ -46,19 +46,17 @@ It lists the names for this in its [extension API](@ref overview-extending).
 ## [A step](@id overview-step)
 
 `Recurrence` and [`Convolution`](@ref), the two operators, compute their outputs one step at a time.
-A recurrence computes each value from its own past values, and a convolution from the past values of another series.
 Time is the integer step ``t``, counted from 1, and the model sets its [time unit](@ref time-units).
-In the three-town model one step is one day.
 A model can run several series side by side, such as one per town.
-Each of these series is a stratum, and together they are the strata.
+Each series is a stratum, and together they are the strata.
 
-At each step, a recurrence takes a weighted sum of each stratum's recent outputs.
-The weights on each lag are its kernel.
-A coupling, a matrix of weights between strata, then mixes these sums between strata.
-The gain, such as the reproduction number, scales the result.
-The values given as `add` are then added.
-Modifiers then change the value in turn, such as drawing it from a finite pool.
-A modifier can keep a state from step to step, such as the people left to infect.
+At each step, a recurrence:
+
+- takes a weighted sum of each stratum's recent outputs, with weights on each lag from its kernel;
+- mixes these sums between strata with the coupling, a matrix of weights between strata;
+- scales the result by the gain, such as the reproduction number, and adds `add`;
+- passes the value through its modifiers in turn, such as a draw from a finite pool, each keeping its own state.
+
 A convolution takes a weighted sum of an input series, from the current step back, scales it by the gain and adds `add`.
 It has no coupling and no modifiers.
 
@@ -153,10 +151,9 @@ The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [join
 
 ## [Shapes](@id overview-shapes)
 
-A [slot](@ref explanation-slots) is a place an operator reads a coefficient from: a kernel, a coupling or a modifier parameter.
-A shape is how that coefficient varies across strata and time.
-A plain array gives one set of numbers for every stratum and time.
-A wrapper, such as [`PerStratum`](@ref PerStratum), gives one set per stratum, per pair of strata or per step.
+A shape is how a coefficient varies across strata and time.
+A plain array gives one set of numbers for every stratum and time, and a wrapper adds strata or time.
+[Slots and shapes](@ref explanation-slots) says which wrappers each slot takes, and [Nesting](@ref explanation-nesting) how they combine.
 In the three-town model, `PerStratum(pop)` gives each town its own population.
 
 ```@example api-overview
@@ -164,8 +161,7 @@ Depletion(PerStratum(pop))
 nothing # hide
 ```
 
-A route is one way values pass between strata, such as infection through contact in the community or at funerals.
-Each route has its own kernel and its own coupling.
+A route is one way values pass between strata, such as contact in the community or at funerals, with its own kernel and coupling.
 
 | Name | What it means |
 |:--|:--|
@@ -179,23 +175,30 @@ Each route has its own kernel and its own coupling.
 | [`Survival(h)`](@ref ComposableRecurrences.Survival) | each cohort's survival through a computed kernel's lags against a hazard `h`, as in `TimeVarying(S * (1 - Survival(TimeVarying(h))), Primary())` |
 | [`Recent(n)`](@ref ComposableRecurrences.Recent) | a parameter that sums the recurrence's own last `n` outputs, for each stratum and time |
 
-A `Pairwise` kernel, as an array or as routes, mixes the strata itself, so the coupling is left as the identity matrix, `LinearAlgebra.I`.
-A `TimeVarying` kernel can be given as a vector with one kernel per step, each of any length.
-It can also be given as change points: `start => value` pairs, each value holding from its start time.
-By default, column ``\tau`` of a time-varying kernel belongs to output time ``\tau``, [`ComposableRecurrences.Secondary()`](@ref ComposableRecurrences.Secondary).
-It holds the weights the output at time ``\tau`` puts on earlier times, such as the delays of the reports at time ``\tau``.
-With [`Primary()`](@ref ComposableRecurrences.Primary), column ``\tau`` belongs to input time ``\tau``.
-It holds how the value at time ``\tau`` spreads over later times, such as the delays of the infections at time ``\tau``.
-For a recurrence, the value at time ``\tau`` is its own output.
-The parameter `Derived(exp, TimeVarying(x))` is the exponential of a parameter that changes over time.
-The parameter `Recent(7)` sums the last seven outputs, and `β * Recent(7)` is that sum times a number `β`.
-The parameter `Recent(7; coupling = K)` mixes the recent outputs between strata.
-Wrappers combine: `TimeVarying(PerStratum(G))` is a strata × lags × time kernel.
-Most wrappers hold the stored array without copying it.
-A bare vector where a single value is expected is an error that names the wrapper to use.
-Inputs and outputs are strata × time arrays, or a vector for a single series, and histories are the same before the run.
-None of them is wrapped.
-The call's `gain` and `add` are data too, and take three shapes:
+Kernels:
+
+- A `Pairwise` kernel, as an array or as routes, mixes the strata itself, so the coupling stays `LinearAlgebra.I`.
+- A `TimeVarying` kernel can be a vector with one kernel per step, each of any length.
+  It can also be change points: `start => value` pairs, each value holding from its start time.
+- By default, column ``\tau`` of a time-varying kernel belongs to output time ``\tau``, [`ComposableRecurrences.Secondary()`](@ref ComposableRecurrences.Secondary).
+  It holds the weights the output at ``\tau`` puts on earlier times, such as the delays of the reports at ``\tau``.
+- With [`Primary()`](@ref ComposableRecurrences.Primary), column ``\tau`` belongs to input time ``\tau``.
+  It holds how the value at ``\tau`` spreads over later times, such as the delays of the infections at ``\tau``.
+  For a recurrence, the value at ``\tau`` is its own output.
+
+Parameters:
+
+- `Derived(exp, TimeVarying(x))` is the exponential of a parameter that changes over time.
+- `Recent(7)` sums the last seven outputs, `β * Recent(7)` scales that sum, and `Recent(7; coupling = K)` mixes it between strata.
+
+All wrappers:
+
+- Most wrappers hold the stored array without copying it.
+- A bare vector where a single value is expected is an error that names the wrapper to use.
+
+Inputs, outputs and histories are data, not slots, so they are never wrapped.
+They are strata × time arrays, or a vector for a single series.
+The call's `gain` and `add` take three shapes:
 
 | Shape | What it means |
 |:--|:--|
@@ -203,9 +206,10 @@ The call's `gain` and `add` are data too, and take three shapes:
 | length-`T` vector | one value per time, shared by every stratum |
 | `S × T` matrix | one value per stratum and time |
 
-A bare vector is always read as time, so a value per stratum that is constant over time is written `repeat(ρ, 1, T)`, with `ρ` a vector of `S` values.
-For a convolution without `add` the same is `ρ .* c(x)`, which scales row `i` of the `S × T` output by `ρ[i]`.
-In a recurrence a receiving stratum's susceptibility can instead go in the rows of the coupling, as [Where the coupling acts](@ref explanation-coupling) shows.
+- A bare vector is always read as time.
+  So a value per stratum that is constant over time is `repeat(ρ, 1, T)`, with `ρ` a vector of `S` values.
+- For a convolution without `add`, the same is `ρ .* c(x)`, which scales row `i` of the output by `ρ[i]`.
+- In a recurrence, a receiving stratum's susceptibility can instead go in the rows of the coupling, as [Where the coupling acts](@ref explanation-coupling) shows.
 
 ```jldoctest
 using ComposableRecurrences
@@ -286,20 +290,14 @@ The matrix can be dense, `Diagonal` or sparse.
 ## [Modifiers](@id overview-modifiers)
 
 A modifier changes the value of each step after the gain and `add`.
+Modifiers act in [tuple order](@ref explanation-modifier-order), each keeps its own [state](@ref explanation-modifier-state), and [Scope](@ref explanation-modifier-scope) says which strata each reads.
+The `add` input enters before every modifier, and a [`Transform(+, b)`](@ref ComposableRecurrences.Transform) enters where it sits in the tuple.
 In the three-town model, a [`Depletion`](@ref ComposableRecurrences.Depletion) of `PerStratum(pop)` draws each town's infections from the people left to infect.
 
 ```@example api-overview
 depleted = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
 round.(Int, vec(sum(depleted(R; history = seed); dims = 2)))
 ```
-
-Modifiers act in [tuple order](@ref explanation-modifier-order), and each keeps its own [state](@ref explanation-modifier-state).
-The `add` input enters before every modifier, and a [`Transform(+, b)`](@ref ComposableRecurrences.Transform) enters where it sits in the tuple.
-A [`Convolution`](@ref) has no modifiers.
-
-A `Depletion` holds pools, such as the people left to infect.
-Each pool has a name and a starting size, given as `pools`, such as `(S = N, V = 0.0)`.
-The value a step asks for is drawn from the pools.
 
 | Name | What it does | Parameters |
 |:--|:--|:--|
@@ -312,21 +310,27 @@ The value a step asks for is drawn from the pools.
 | [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of strata to a known total | `total` |
 | [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | `θ` |
 
-The parts of a `Depletion` are draws and flows, and they act in the order given.
-A draw is a [depletion form](@ref overview-variants), and `Depletion(N)` alone draws with [`Hazard()`](@ref ComposableRecurrences.Hazard).
-A `Flow` names pools by their names in `pools`, and `0` stands for outside the model.
-A draw takes each pool's share of the draw as a keyword of its form, such as `Hazard(; weights = (S = 1, V = σ))`.
-A small pool cannot give all a step asks for.
-A draw's `overflow` keyword sends what it leaves to a second stratum (`:stratum`), to a queue that joins the next step's demand (`:queue`), or nowhere (the default).
-A `Depletion` with flows and no draw only moves values between pools, as for patients moving between wards.
-A `Redistribute` moves whatever it receives, including values from `add`.
-Its matrix `M` has columns that sum to one, so the total is kept.
-With `leak = true` a column can sum to less than one, for a share lost on the way.
-[`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) builds `M` from a kernel `K` and an intensity `ε`, moving a share `ε[q] * K[p, q]` of stratum `q`'s value to stratum `p`.
-An `Allocate` keeps each stratum's share of its group.
-With `imports = (fraction, pattern)`, a fraction of each total is shared out by a second pattern instead.
-Every parameter is a number, `PerStratum(x)`, `TimeVarying(x)`, `TimeVarying(PerStratum(x))`, a `Recent` or a `Derived` of these.
-`Transform`, and a `Depletion` with one pool whose draws leave nothing over, are [pointwise](@ref explanation-modifier-scope): they act on each stratum on its own, while `Redistribute` and `Allocate` act on several strata.
+A `Depletion` holds named pools, such as the people left to infect.
+
+- Pools: `pools` gives each pool's name and starting size, such as `(S = N, V = 0.0)`, and a step draws its value from them.
+- Parts: draws and flows, acting in the order given.
+- Draws:
+  - A draw is a [depletion form](@ref overview-variants), and `Depletion(N)` alone draws with [`Hazard()`](@ref ComposableRecurrences.Hazard).
+  - It takes each pool's share as a keyword of its form, such as `Hazard(; weights = (S = 1, V = σ))`.
+  - A small pool cannot give all a step asks for.
+    The draw's `overflow` keyword sends the rest to a second stratum (`:stratum`), to a queue that joins the next step's demand (`:queue`), or nowhere (the default).
+- Flows:
+  - A `Flow` names pools by their names in `pools`, and `0` stands for outside the model.
+  - With flows and no draw, a `Depletion` only moves values between pools, as for patients moving between wards.
+
+`Redistribute` and `Allocate` act on several strata.
+
+- A `Redistribute` moves whatever it receives, including values from `add`.
+  The columns of its matrix `M` sum to one, so the total is kept; with `leak = true` a column can sum to less, for a share lost on the way.
+- [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) builds `M`, moving a share `ε[q] * K[p, q]` of stratum `q`'s value to stratum `p`.
+- An `Allocate` keeps each stratum's share of its group.
+  With `imports = (fraction, pattern)`, a fraction of each total is shared out by a second pattern instead.
+
 Each modifier here has its own [hand-written gradient](@ref adjoint-routing).
 A `Transform` has one when it is given a `derivative`, or when `f` holds no numbers of its own.
 
@@ -350,10 +354,11 @@ round(Int, sum(floored(fill(1.8, T); history = fill(10.0, 6))))
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool at each step | `Flow(:S => :V, p; form = Share())` moves a share `p` of `:S` to `:V` |
 | a type you write | a new depletion form | `Depletion(N, MyForm())` |
 
-The heterogeneity exponent `α` of `Hazard(α)` and `Floor(α)` is one by default; above one, infections slow sooner as the pool shrinks, as when the most susceptible are infected first.
-A flow's form is `Hazard()` by default: a rate that competes with the pool's other flows.
-With `Truncate()` or `Truncate(κ)` a flow is a count, capped by what remains.
-A new depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for one step, [`Step()`](@ref ComposableRecurrences.Step).
+- `α` in `Hazard(α)` and `Floor(α)` is the heterogeneity exponent, one by default.
+  Above one, infections slow sooner as the pool shrinks, as when the most susceptible are infected first.
+- A flow's form is `Hazard()` by default, a rate that competes with the pool's other flows.
+  With `Truncate()` or `Truncate(κ)` a flow is a count, capped by what remains.
+- A new form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for one step, [`Step()`](@ref ComposableRecurrences.Step); see [A depletion form](@ref extending-form).
 
 ## [Time-series processes](@id overview-time-series)
 
