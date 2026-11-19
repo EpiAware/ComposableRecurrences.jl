@@ -391,6 +391,12 @@ _oldest_first(g) = g
 
 # The kernel as a run reads it, with any work vectors at buffer eltype `Tp`.
 _run_kernel(::Type{Tp}, g, h, S) where {Tp} = _oldest_first(g)
+# A single series reads a host `Vector` kernel through a reversed view: the
+# copy cost a short call about a sixth. Strata keep the copy, which their
+# interleaved loop reads faster.
+function _run_kernel(::Type{Tp}, g::Vector, ::AbstractVector, S) where {Tp}
+    return view(g, lastindex(g):-1:firstindex(g))
+end
 
 # Kernels that do not mix strata read only `b = a`. The call checks the
 # kernel's strata and times, so loops reading weights skip bounds checks.

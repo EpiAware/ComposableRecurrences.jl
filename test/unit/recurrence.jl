@@ -1123,3 +1123,16 @@ end
         @allocated(general(r1, args...))
     @test @allocated(CR._primal(r1, args...)) <= sizeof(Float64) * 11 * 32 + 512
 end
+
+@testitem "Recurrence: a single series reads a host kernel oldest first without copying it" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    g = [0.5, 0.3, 0.2]
+    k = CR._run_kernel(Float64, g, [1.0, 2.0], 1)
+    @test k == [0.2, 0.3, 0.5]
+    @test parent(k) === g
+    # Strata keep the reversed copy, which their interleaved loop reads.
+    ks = CR._run_kernel(Float64, g, ones(2, 2), 2)
+    @test ks == [0.2, 0.3, 0.5]
+    @test ks isa Vector{Float64}
+end
