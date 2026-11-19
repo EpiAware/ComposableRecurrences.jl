@@ -99,8 +99,11 @@ end
 end
 
 # The exact and the smooth form, told apart by the type of the softness.
+# The constructor lets through a real softness in [0, 1), or a number that
+# an extension's `_check_softness` method accepts, such as a traced one
+# that is not a `Real` subtype.
 const _HardTruncate = Truncate{Nothing}
-const _SoftTruncate = Truncate{<:Real}
+const _SoftTruncate = Truncate{<:Number}
 
 # The built-in draw forms, known without a method lookup at run time.
 # `_ExponentForm` comes from `modifiers/builtin.jl`, included before this
