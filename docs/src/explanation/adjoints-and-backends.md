@@ -286,9 +286,9 @@ The package's own rules run on device arrays for:
 - a recurrence with:
   - a kernel that is fixed, time-varying as a dense array, or computed;
   - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
-  - modifiers that are `Transform`s, `Depletion`s, `Allocate`s without imports and `Redistribute`s;
-    a `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue;
-    a `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time.
+  - modifiers that are `Transform`s, `Depletion`s, `Allocate`s without imports and `Redistribute`s.
+    A `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
+    A `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time.
 
 Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
