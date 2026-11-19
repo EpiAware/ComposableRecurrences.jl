@@ -392,8 +392,8 @@ _oldest_first(g) = g
 # The kernel as a run reads it, with any work vectors at buffer eltype `Tp`.
 _run_kernel(::Type{Tp}, g, h, S) where {Tp} = _oldest_first(g)
 
-# The call checks the kernel's strata and times, so loops reading weights skip
-# bounds checks.
+# Kernels that do not mix strata read only `b = a`. The call checks the
+# kernel's strata and times, so loops reading weights skip bounds checks.
 Base.@propagate_inbounds _weight(g::TimeVarying{<:Any, <:AbstractMatrix}, a, b, i, τ) = g.x[i, τ]
 Base.@propagate_inbounds function _weight(
         g::TimeVarying{<:Any, <:PerStratum}, a, b, i, τ
@@ -886,8 +886,8 @@ _whole_step(m) = !_strata_loop(m) && _blocks(m) === nothing
 # A whole-step modifier the rule differentiates with its local derivative.
 _whole_local(m) = _whole_step(m) && _modifier_adjoint(m) === :local
 
-# The same for the coupling's `Pressure()` step: `:local` when its float
-# parameters are all scalars.
+# How the rule differentiates the coupling's `Pressure()` step: as for a
+# modifier, with `:local` when its float parameters are all scalars.
 function _coupling_adjoint(C)
     uses_adjoint(C, Pressure()) && return :pullback
     _derived_local(C) && _array_params(C) && return :local
@@ -897,8 +897,8 @@ end
 _primary_adjoint(C) = _linear_coupling(C) ? :linear : _coupling_adjoint(C)
 
 # `Val(true)` when the types send no part to the local step, so the route
-# folds; `nothing` when the dual-number extension is not loaded, so `_fit`
-# checks at call time. An operator the rule does not cover says why once.
+# folds; else whether each rebuilt part gives its scalars back, or `nothing`
+# without the dual-number extension, so `_fit` checks at call time.
 function _check_parts(kernel, C, ms::Tuple)
     if !_parts_adjoint(kernel, C, ms)
         C_why = _primary_adjoint(C) === :none ? (_part_why(C),) : ()
@@ -1317,7 +1317,8 @@ end
 # Records write no trace in the step: the rule builds it from them.
 @inline _trace_step!(::NamedTuple, m, v, s, v′, s′, τ, t, k) = nothing
 
-# A modifier whose state never changes keeps only its starting state. Every
+# A modifier whose state never changes keeps only its starting state; one
+# that asks with `_keeps_after` also keeps its states after each step. Every
 # step writes its column of each record, so they start unset.
 function _records(h, ::Type{Tp}, m, s, S, T) where {Tp}
     A = _keeps_after(m) ? _unset(h, Tp, length(s), T) : nothing

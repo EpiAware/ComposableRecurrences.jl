@@ -665,8 +665,9 @@ function _fft_buffers(
     return Y, X, o
 end
 
-# `Auto()` takes the direct method unless the FFT extension adds a method for
-# the kernel, eltype and arrays; without it `FFTMethod()` is refused.
+# Never for `Direct()`. `Auto()` is direct unless the FFT extension adds a
+# method for the kernel, eltype and arrays; without it `FFTMethod()` is
+# refused.
 function _fft_path(method, kernel, ::Type{Tp}, x, T) where {Tp}
     return !(method isa Auto) && _fft_path(method, kernel, Tp, x)
 end
@@ -687,9 +688,9 @@ _fft_convolve!(Y, kernel, X, m, start, gain = true, add = nothing) = _no_fftw()
 _fft_convolve_terms!(Y, terms, m, start) = _no_fftw()
 _fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
 
-# `false` under AD whose extensions say so, `true` in a native rule's forward
-# pass. Inference must not see the constant, or it folds the branch away
-# before the AD rules replace it.
+# Traced code reaches `_fft_path` with the same arrays as primal code, so
+# dispatch cannot tell them apart; AD extensions replace this with `false`.
+# Inference must not see the constant, or it folds the branch away.
 _untraced() = Base.inferencebarrier(true)::Bool
 
 # The checks a convolution call shares with `contributions`; returns the

@@ -81,7 +81,9 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     s̄s = map(m -> _zeros(H, eltype(H), nstate(m, S)), modifiers)
     _seed_states!(s̄s, cotangent(st̄, :states))
     kbuf = _kernel_buffer(ḡ, kernel, H, S, L)
-    # Steps that run on the calling task (`_steps_back!`) are not copied.
+    # Matrix gain and add inputs have a slot per stratum and step, a fixed
+    # kernel's goes through `kbuf`, and steps on the calling task
+    # (`_steps_back!`) are not copied.
     ādd, ḡain = _slots(ādd), _slots(ḡain)
     kslots = _kernel_slots(ḡ, kernel)
     work = S * _kwork(kernel, S, L)
@@ -268,8 +270,8 @@ end
     β = @inbounds _at(gain, k, τ) * _coef(C, k) * newest
     return muladd(β, carry, β * h̄)
 end
-# The same for a run through pointwise modifiers: the cotangent each step
-# sends to its last value is its pressure's times the newest weight.
+# A one-stratum run through pointwise modifiers carries its cotangent too:
+# each step sends its last value its pressure's times the newest weight.
 function _carried_back!(
         g, steps, k, acc, kb, s̄s, rec, pr, gain, coupling, ms, H, H̄, τ0, L, D
     )
@@ -418,9 +420,9 @@ function _kernels_body!(ks, acc, kbuf, kernel, p̄, H, H̄, t, τ, L)
     return nothing
 end
 
-# A method, not an early return in `_reverse!`: where `Ȳ` may be `nothing` by
-# type (`Enzyme` under runtime activity), that branch slowed the reverse pass
-# by about 8%.
+# Only an integer output has no cotangent, and then nothing else does. A
+# method, not an early return: where `Ȳ` may be `nothing` by type (`Enzyme`
+# under runtime activity), that branch slowed the reverse pass by about 8%.
 _seeded(H, ::Nothing, D) = _zeros(H, eltype(H), size(H)...)
 # A cotangent `Ȳ` that `_shared_shadow` gave the rule already sits in the
 # buffer's cotangent, below zero rows.
@@ -519,8 +521,8 @@ _column(b::NamedTuple, t) = map(B -> _column(B, t), b)
 _column(x::AbstractVector, t) = x
 
 # `grads` carries `after` (`_keeps_after`) and `pass` only when a modifier
-# asks; a blockwise modifier split into groups gets neither, so one that asks
-# needs its own vector pullback. `_finish_pass!` reads `pass` after the run.
+# asks; without them its per-step pullback must give the same cotangents. A
+# blockwise modifier split into groups gets neither, so needs its own.
 _pass_buffer(H, ::Type, m, m̄, S, T) = _local_step_duals(Val(_whole_local(m)), m̄, m, H, S)
 _local_step_duals(::Val{false}, m̄, m, H, S) = nothing
 _local_step_duals(::Val{true}, m̄, m, H, S) = _step_duals(m̄, m, eltype(H), S)
@@ -734,8 +736,8 @@ function _scatter_history!(h̄::AbstractMatrix, H̄, h, D)
     return nothing
 end
 
-# A single series' output cotangent can be rows of the buffer's cotangent,
-# which `_seeded` then need not fill; the cache keeps both.
+# `nothing` where the rule makes its own. A single series' output cotangent
+# can be rows of the buffer's cotangent, which `_seeded` then need not fill.
 _shared_shadow(op, y, c) = (nothing, c)
 _shared_shadow(op::Recurrence, y, c) = _shared_shadow(y, c, c.H, c.D)
 _shared_shadow(y, c, H, D) = (nothing, c)
