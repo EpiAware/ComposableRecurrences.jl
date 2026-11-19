@@ -186,9 +186,9 @@ Base.:-(a::Recent) = Derived(-, a)
 
 # == _BoundRecent ==
 
-# Row `t + o` of `H` holds time `t`. With a coupling every stratum mixes the
-# same `S` windows, filled once per step by `_refresh!` before strata read
-# them; their cotangents gather in `z`, which `_flush!` sends on per step.
+# Row `t + o` of `H` holds time `t`. With a coupling, strata share `S` windows
+# filled once per step by `_refresh!`, cotangents gathering in `z` for
+# `_flush!`; without one these fields are `nothing`.
 struct _BoundRecent{R <: Recent, B, G, U, I, Z, M, K}
     x::R
     H::B

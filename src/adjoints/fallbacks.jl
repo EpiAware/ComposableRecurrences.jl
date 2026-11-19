@@ -39,7 +39,7 @@ _fold_scalar(f, x, s) = s
 _fold_array(f, x, s) = s
 _fold_entry(f, x, s) = _lfold_all(f, _fields(x), s)
 
-# The same beside a mirror `x̄`: an element's mirror is the mirror's element,
+# The walks beside a mirror `x̄`: an element's mirror is the mirror's element,
 # or `nothing`, and a field's is `_field_mirror`.
 _mfold(f, x̄, x::AbstractFloat, s) = _mfold_scalar(f, x̄, x, s)
 _mfold(f, x̄, x::_FloatArray, s) = _mfold_array(f, x̄, x, s)
@@ -334,7 +334,9 @@ _pressure_scalars(C̄, C) = C̄ === nothing ? () : _param_tuple(C)
 # scalars: only when the coupling is differentiated and holds any.
 _array_seeds(C̄, C) = C̄ !== nothing && !_scalar_params(C)
 
-# Made once per reverse pass so a step allocates nothing.
+# Made once per reverse pass so a step allocates nothing; `nothing` for a
+# coupling with its own pullback. A step whose dual type is not among them
+# allocates its own.
 function _pressure_buffers(C̄, C, Tp)
     return _pressure_buffers(Val(uses_adjoint(C, Pressure())), C̄, C, Tp)
 end
@@ -455,9 +457,9 @@ _map_entry(::_CopyScalars, x, θ) = (first(θ), Base.tail(θ))
 
 # == Rebuild checks ==
 
-# A keyword-only constructor, a `Float64` field or a constructor that
-# transforms its arguments fails; the last would give a wrong gradient. A
-# step on `_EntryParam` scalars must also run. Checked once, at construction.
+# Seeded scalars must come back unchanged from `constructorof`: a keyword-only
+# constructor, a `Float64` field or one that transforms its arguments fails
+# (the last silently). A step on `_EntryParam` scalars must also run.
 function _check_rebuild(x)
     _scalar_params(x) || (_entry_step(x) && _local_params(x)) ||
         return _strata_loop(x) ? _check_reads(x) :

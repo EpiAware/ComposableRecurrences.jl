@@ -598,9 +598,9 @@ end
 
 # == Shared cotangents ==
 
-# Each block allocates its copy on its own task, so copies do not share cache
-# lines; `_reduce!` adds them in block order, matching serial runs up to
-# rounding. A mirror `_private` cannot copy runs as one block.
+# The first block writes `acc`; others allocate copies on their own tasks, so
+# copies do not share cache lines, and `_reduce!` adds them in block order. A
+# mirror `_private` cannot copy runs as one block.
 function _accumulators(ex::Serial, x, n, work, acc)
     r = _resolve(ex, x)
     r isa Parallel && return _stacked_accumulators(r, x, n, acc)

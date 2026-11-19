@@ -554,7 +554,8 @@ function _weights_array(::Val{true}, ::Type{Tp}, ns, L, n) where {Tp}
     return zeros(Tp, ns, L, n)
 end
 
-# Entry `[b, i, k]` is stratum `k`'s weight on lag `i` of cohort `τ0 + b - 1`.
+# Entry `[b, i, k]` is stratum `k`'s weight on lag `i` of cohort `τ0 + b - 1`,
+# so a block is filled, or its cotangent read, in place.
 struct _KernelBlock{A <: AbstractArray}
     K::A
     τ0::Int

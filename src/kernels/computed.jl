@@ -66,7 +66,8 @@ end
     return nothing
 end
 
-# Contiguous lags let a loop over one stratum's lags vectorise.
+# Contiguous lags let a loop over one stratum's lags vectorise; decided from
+# the type, so other coefficients cost nothing.
 _lags_contiguous(x) = x
 function _lags_contiguous(x::PerStratum{<:Matrix})
     return PerStratum(transpose(permutedims(x.x)))
