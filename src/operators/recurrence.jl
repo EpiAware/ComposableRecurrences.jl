@@ -267,7 +267,7 @@ struct State{H, M, T}
 end
 
 # A Primary() kernel reads the column of each value's own time, so a seed of
-# length `m` needs `start > m`.
+# length `m` needs `start > m`. Checked once per call, so out of line.
 _check_primary_seed(kernel, history, start) = nothing
 _check_primary_seed(::TimeVarying{Primary}, ::Nothing, start) = nothing
 @noinline function _check_primary_seed(::TimeVarying{Primary}, history, start)
@@ -439,7 +439,7 @@ _kdot(g::AbstractVector, H, t, τ, L, a) = _window_sum(g, H, t, L, a)
 _kdot(g::PerStratum, H, t, τ, L, a) = _window_sum(view(g.x, a, :), H, t, L, a)
 # A run of independent strata with no modifiers. One stratum carries its last
 # value in a register; more interleave. Other number types keep one
-# out-of-line loop, where the split gains nothing and costs reverse AD more.
+# out-of-line loop, where the split gains nothing and costs `Enzyme` more.
 struct _Chained{G}
     g::G
 end
@@ -1590,9 +1590,9 @@ function _sink_trace(rec, pr, h)
     return (; modifiers = _sink_traces(rec), pressure = _output_layout(pr.X, h))
 end
 
-# Row `D + t` of the buffer holds time `τ0 + t - 1`, with `D >= L`.
-# Independent strata run in blocks over the whole series, so a threaded run
-# splits once per call; vector and blockwise Steps run on the calling task.
+# `cache`: `Val(true)` the reverse cache, `Val(:traced)` plus pressures,
+# `Val(:trace)` traces only, `Val(false)` nothing. Row `D + t` holds time
+# `τ0 + t - 1`; a threaded run splits independent strata once per call.
 function _run(
         ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, cache::Val
     ) where {Tp}

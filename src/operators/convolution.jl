@@ -360,7 +360,8 @@ end
 
 # Without a rule: `_Buffered()` copies into a time-first buffer, whose per-lag
 # `axpy` vectorises for IEEE floats and suits device arrays. `_Gathered()`
-# reads in place, for wide numbers on CPU arrays where each copy costs more.
+# reads in place, for wide numbers on CPU arrays where each copy costs more;
+# a tracked array input is not a CPU array here and keeps the buffer.
 struct _Buffered end
 struct _Gathered end
 const _FixedKernel = Union{AbstractVector, PerStratum}
@@ -686,9 +687,9 @@ _fft_convolve!(Y, kernel, X, m, start, gain = true, add = nothing) = _no_fftw()
 _fft_convolve_terms!(Y, terms, m, start) = _no_fftw()
 _fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
 
-# `false` under AD whose extensions say so. Inference must not see the
-# constant, or it folds the branch away before the AD rules replace it; a
-# traced call reaches `_fft_path` with the same arrays as a primal one.
+# `false` under AD whose extensions say so, `true` in a native rule's forward
+# pass. Inference must not see the constant, or it folds the branch away
+# before the AD rules replace it.
 _untraced() = Base.inferencebarrier(true)::Bool
 
 # The checks a convolution call shares with `contributions`; returns the
@@ -941,7 +942,7 @@ end
 end
 
 # Native loops: at these lengths they are faster than BLAS calls. Under plain
-# reverse AD an extension swaps in BLAS `axpy!`, differentiated by one rule.
+# `Mooncake` AD the extension swaps in BLAS `axpy!`, differentiated by one rule.
 @inline function _axpy!(α, x, y)
     _same_length(y, x)
     @inbounds @simd ivdep for i in eachindex(y)

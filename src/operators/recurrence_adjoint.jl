@@ -174,8 +174,9 @@ _param_slots(m̄, ::Union{PerStratum, TimeVarying{<:Any, <:PerStratum}}) =
     _own_leaf(m̄)
 _own_leaf(::Nothing) = nothing
 _own_leaf(m̄) = _Owned(m̄)
-# Unrolled field by field: a loop, recursion or `map` leaves the field types
-# to inference, which widens them, and `map` over more than 32 allocates.
+# Unrolled field by field: a loop, recursion or `map` widens the field types,
+# and `map` over more than 32 allocates. A mirror not shaped like its object,
+# such as a bound wrapper's, keeps its leaves shared.
 _param_leaves(m̄, x) = m̄
 @generated function _param_leaves(m̄::Tuple, x::Tuple)
     n = fieldcount(m̄)
@@ -417,9 +418,9 @@ function _kernels_body!(ks, acc, kbuf, kernel, p̄, H, H̄, t, τ, L)
     return nothing
 end
 
-# Only an integer output has no cotangent, and then nothing else does. A
-# method, not an early return in `_reverse!`: where `Ȳ` may be `nothing` by
-# type under runtime activity, that branch slowed the reverse pass by ~8%.
+# A method, not an early return in `_reverse!`: where `Ȳ` may be `nothing` by
+# type (`Enzyme` under runtime activity), that branch slowed the reverse pass
+# by about 8%.
 _seeded(H, ::Nothing, D) = _zeros(H, eltype(H), size(H)...)
 # A cotangent `Ȳ` that `_shared_shadow` gave the rule already sits in the
 # buffer's cotangent, below zero rows.
@@ -517,9 +518,9 @@ _column(A::AbstractMatrix, t) = view(A, :, t)
 _column(b::NamedTuple, t) = map(B -> _column(B, t), b)
 _column(x::AbstractVector, t) = x
 
-# A vector modifier may ask for its after-step states (`_keeps_after`) or a
-# pass buffer (`_finish_pass!` reads it); without them its per-step pullback
-# must give the same cotangents. Blockwise groups get neither.
+# `grads` carries `after` (`_keeps_after`) and `pass` only when a modifier
+# asks; a blockwise modifier split into groups gets neither, so one that asks
+# needs its own vector pullback. `_finish_pass!` reads `pass` after the run.
 _pass_buffer(H, ::Type, m, m̄, S, T) = _local_step_duals(Val(_whole_local(m)), m̄, m, H, S)
 _local_step_duals(::Val{false}, m̄, m, H, S) = nothing
 _local_step_duals(::Val{true}, m̄, m, H, S) = _step_duals(m̄, m, eltype(H), S)
