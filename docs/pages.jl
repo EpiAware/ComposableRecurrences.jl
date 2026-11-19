@@ -32,7 +32,6 @@ pages = [
         "Three towns, step by step" => "getting-started/three-towns.md",
         "API overview" => "getting-started/api-overview.md",
         "Time units" => "getting-started/time-units.md",
-        "Infectious disease models" => "domain-guides/infectious-disease-models.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
         "Vaccination" => "getting-started/tutorials/vaccination.md",
         "Imported cases" => "getting-started/tutorials/imported-cases.md",
@@ -74,6 +73,9 @@ pages = [
         "Shapes and couplings" => "explanation/shapes-and-couplings.md",
         "Modifiers" => "explanation/modifiers.md",
         "Adjoints and backends" => "explanation/adjoints-and-backends.md",
+    ],
+    "Domain guides" => [
+        "Infectious disease models" => "domain-guides/infectious-disease-models.md",
     ],
     "Development" => [
         "Overview" => "developer/index.md",
