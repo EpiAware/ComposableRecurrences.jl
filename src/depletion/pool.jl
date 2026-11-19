@@ -392,7 +392,8 @@ function _kind_of(ps::Tuple, K)
 end
 
 # Inlined, so that a differentiated function that builds a `Depletion` holds
-# no call returning it.
+# no call returning it. A first argument that is a parameter, or an array
+# given where one was meant, is the population.
 const _Population = Union{
     Real, PerStratum, TimeVarying, Derived, Recent, AbstractArray,
 }

@@ -726,6 +726,8 @@ end
     return Expr(:block, body..., :(return x))
 end
 
+# A built-in's kernel, or the modifier's `forward!` on tuples of one-entry
+# views of local slots.
 @inline function _block_step(m, v::Tuple, s::Tuple, t, g)
     vr, sr = map(x -> _slot(m, x), v), map(x -> _slot(m, x), s)
     at = r -> _At(r, g)

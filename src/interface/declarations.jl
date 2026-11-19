@@ -355,6 +355,8 @@ end
 # A fixed, non-degenerate seed: entries of both signs and none zero.
 _probe_cotangent(n) = [cospi(0.37 * i + 0.105) for i in 1:n]
 
+# A `Ref` for a float scalar, an array for a float array, `(; nzval)` or
+# `(; diag)` for a sparse or `Diagonal` matrix, a NamedTuple for a struct.
 _zero_mirror(x::AbstractFloat) = Ref(zero(x))
 _zero_mirror(x::AbstractArray{<:AbstractFloat}) = zero(x)
 function _zero_mirror(x::SparseMatrixCSC{<:AbstractFloat})
