@@ -74,5 +74,6 @@ A ratio guarded by a test needs a safe denominator in the arm not taken:
 ```julia
 share = ifelse(n > 0, k / ifelse(n > 0, n, one(n)), zero(n))
 ```
+
 The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) records, for every scenario of the AD test registry and a few cases at 20 and 400 steps on the CPU, whether the compiled call matches plain Julia and its gradient matches ForwardDiff.
 How Reactant compares with the other AD backends, and what it falls back to, is in [Backends](@ref adjoint-backends).
