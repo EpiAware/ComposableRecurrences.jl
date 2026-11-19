@@ -171,7 +171,7 @@ DifferentiationInterface has no Reactant extension, so Reactant is not one of th
 Its own suite, `test/reactant/`, compiles every scenario of the AD registry forward and in reverse and checks each against ForwardDiff, entry by entry.
 The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) gives each scenario's result.
 The scenarios that do not run are listed in the registry under the `Reactant` backend, grouped by cause.
-Most are parts built from traced values, such as sparse couplings, ragged kernels and delay masses.
+Most are parts built from traced values, such as sparse couplings and delay distributions, or user modifiers that branch with `if` on traced values.
 A model that does not run under Reactant runs as it is on the other backends, so Enzyme reverse is the fallback for its gradient.
 
 ## [Which rules are kept](@id rule-policy)
@@ -198,6 +198,7 @@ With Mooncake, or Enzyme and EnzymeTestUtils, loaded, [`ComposableRecurrences.te
 An executor sets how an operator's loops over strata or output times run.
 [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) holds the one in use, [`Serial`](@ref ComposableRecurrences.Serial) by default.
 [`Threaded`](@ref ComposableRecurrences.Threaded) splits a loop across CPU threads, and [`Parallel`](@ref ComposableRecurrences.Parallel) runs it as a kernel on a KernelAbstractions backend, such as a GPU.
+On arrays that live on a GPU, `Serial` and `Threaded` both run as `Parallel` on the arrays' own backend, as host threads cannot index them.
 The older name [`Device(backend)`](@ref ComposableRecurrences.Device) makes the same executor as `Parallel(backend)`.
 
 The threaded executor runs its chunks as Julia tasks rather than on the KernelAbstractions CPU backend, which compiles kernels through OpenCL:

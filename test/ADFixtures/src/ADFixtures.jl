@@ -3002,9 +3002,9 @@ end
 # `test/reactant/` runs the scenarios without their twins, so only the
 # scenario names are listed.
 const REACTANT_BROKEN = Dict(
-    # A modifier field read at the traced step indexes a view with a traced
-    # integer.
-    "modifier field read at a traced step" => [
+    # The modifier is a user's, written with `if` on its values, which a
+    # traced comparison cannot drive; written with `ifelse` it would trace.
+    "a user modifier branches with `if` on a traced value" => [
         "Recurrence whole-step modifier branching at a tie (occupancy)",
         "Recurrence whole-step modifier branching at a tie over five steps (occupancy)",
     ],
@@ -3015,18 +3015,12 @@ const REACTANT_BROKEN = Dict(
         "Recurrence trace through a sparse coupling",
         "Recurrence sparse user coupling declared linear",
     ],
-    "ragged kernel" => [
-        "Recurrence ragged Primary kernel",
-    ],
-    "Distributions or delay masses from traced parameters" => [
+    # A distribution's constructor takes only real parameters.
+    "Distributions from traced parameters" => [
         "Convolution Poisson delay distribution",
         "Convolution Poisson delay distribution on a step of two units",
-        "Convolution chain of two delays as masses",
         "Recurrence negative binomial generation interval per stratum",
         "Recurrence negative binomial generation interval per pair of strata",
-    ],
-    "lag contributions read a traced number (`_at`)" => [
-        "Convolution lag contributions",
     ],
 )
 

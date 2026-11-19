@@ -427,3 +427,27 @@ end
     # A cotangent that cannot be stacked is an error, not a wrong result.
     @test_throws ArgumentError CR._stack(:x, 2, x)
 end
+
+@testitem "JLArrays: Threaded runs device arrays on their own backend" tags = [:threads] setup = [DeviceRules] begin
+    using Base.ScopedValues: with
+    # The default `min_work` runs small loops without splitting them, and
+    # `min_work = 0` splits every loop.
+    S = 6
+    cases = [
+        "independent strata" => recurrence_case(I, S, true),
+        "dense coupling" => recurrence_case(dense(S), S, true),
+        "a vector step" => modified_case((totals(S),), S, true),
+        "a convolution" => convolution_case(pmf, S, true),
+    ]
+    @testset "$name" for (name, (op, args)) in cases
+        y0, x̄0, p̄0 = rule_cotangents(op, args, CR._zero_mirror(op), S, true)
+        for ex in (CR.Threaded(), CR.Threaded(; min_work = 0))
+            y, x̄, p̄ = with(CR.EXECUTOR => ex) do
+                rule_cotangents(op, args, CR._zero_mirror(op), S, true)
+            end
+            @test y ≈ y0
+            @test x̄ ≈ x̄0
+            @test agree(p̄, p̄0)
+        end
+    end
+end

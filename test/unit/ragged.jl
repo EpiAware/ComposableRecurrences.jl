@@ -172,3 +172,25 @@ end
     @test_throws ArgumentError CR.Transform(+, TimeVarying(KS))
     @test_throws ArgumentError Recurrence([0.5]; coupling = TimeVarying(KS))
 end
+
+@testitem "Ragged kernel: columns of mixed types, one empty, stack as given" setup = [RaggedChecks] begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    (; pad, KS, X) = RaggedChecks
+    # Views mixed with vectors make the column type abstract, so the
+    # columns stack into one values vector, past the empty one too. This
+    # covers the stacking only: an empty copy from a plain array is a no-op
+    # either way, so the skip of an empty column is tested under tracing.
+    mixed = AbstractVector{Float64}[
+        isodd(c) ? view(k, :) : k for (c, k) in enumerate(KS)
+    ]
+    @test isempty(mixed[2])
+    g = CR._ragged(mixed)
+    @test g isa CR._Ragged
+    @test g.values == reduce(vcat, KS)
+    @test g.offsets == [0; cumsum(length.(KS))]
+    for I in (CR.Secondary(), CR.Primary())
+        @test Convolution(TimeVarying(mixed, I))(X) ≈
+            Convolution(TimeVarying(pad(KS), I))(X)
+    end
+end

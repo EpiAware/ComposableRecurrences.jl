@@ -233,9 +233,11 @@ end
 _links(::Type{Tuple{}}) = true
 function _links(::Type{T}) where {T <: Tuple}
     H = Base.tuple_type_head(T)
-    return (H <: AbstractVector{<:Real} || _isdelay(H)) &&
-        _links(Base.tuple_type_tail(T))
+    return (_is_masses(H) || _isdelay(H)) && _links(Base.tuple_type_tail(T))
 end
+# Whether a link of type `H` is a vector of masses: a vector of real
+# numbers, or of a number type that stands for one and adds a method.
+_is_masses(::Type{H}) where {H} = H <: AbstractVector{<:Real}
 
 # Whether a kernel holds delays, from its type.
 _has_delays(::Type{T}) where {T} = _isdelay(T)
