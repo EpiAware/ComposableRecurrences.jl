@@ -619,8 +619,9 @@ end
 
 # == Step shapes ==
 
-# Fixed by the type so it folds. A one-pool `Depletion` without a step of its
-# own runs a pointwise shape on its group kernel.
+# `Val((nv, ns))` runs a group kernel per group, `nothing` a step per stratum
+# or on the whole vectors; fixed by the type so it folds. A one-pool
+# `Depletion` without a step of its own runs a pointwise shape on its kernel.
 _blocks(m) = _static_blocks(blocks(m))
 _static_blocks(::Nothing) = nothing
 _static_blocks(b::Tuple) = _group_shape(Val(b))
@@ -679,7 +680,8 @@ end
 
 forward!(m, ::Step, v, s, t) = _vector_step!(_blocks(m), m, v, s, t)
 
-# On one-entry views of local slots, kept in registers when fully inlined.
+# A pointwise modifier's step on stratum `k`, as new scalars: on one-entry
+# views of local slots, kept in registers when fully inlined.
 @inline function _step(m, v, s, t, k)
     vr, sr = _slot(m, v), _slot(m, s)
     _written(m, @inline forward!(m, Step(), _At(vr, k), _At(sr, k), t))
@@ -789,9 +791,9 @@ function _pointwise_body!(k, v, s, m, t)
     return nothing
 end
 
-# Not a `pullback!` method, which would count as every modifier's own. On
-# device arrays a pointwise modifier reverses per stratum, as its own vector
-# pullback is a host loop.
+# The modifier's own, or per stratum or group for a pointwise or blockwise one
+# without; not a `pullback!` method, which would count as every modifier's
+# own. On device arrays a pointwise modifier reverses per stratum.
 function _vector_pullback!(grads, m, v, s, t)
     _has_vector_pullback(m) && !(_on_gpu(v) && _strata_loop(m)) &&
         return pullback!(grads, m, Step(), v, s, t)
@@ -856,7 +858,7 @@ function _stages!(ms::Tuple, states::Tuple, v, t)
 end
 
 # A pointwise modifier runs per stratum, so the strata loop runs where the
-# executor puts it, on a device too.
+# executor puts it, on a device too; any other on the whole vectors.
 _stage!(m, v, s, t) = _stage!(Val(_strata_loop(m)), m, v, s, t)
 _stage!(::Val{false}, m, v, s, t) = forward!(m, Step(), v, s, t)
 function _stage!(::Val{true}, m, v, s, t)

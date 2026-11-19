@@ -361,14 +361,15 @@ end
     E, gH = _leave(_out(_rate, fs, i, g, t, z))
     return E, gH, _out(_share, fs, i, g, t, z)
 end
-# Without a hazard flow `e^{-0}` and `g(0)` are exactly one. The shares are
-# summed in their own type, not the pools': under a dual number that would
-# make each share's product with a pool one of two duals.
+# Without a hazard flow `e^{-0}` and `g(0)` are exactly one, as `_leave` gives
+# them. Shares sum in their own type: in the pools' dual type each share's
+# product with a pool would be one of two duals.
 const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _FlowCount}}}}
 _leaves(fs::_NoHazard, i, g, t, z) = _no_hazard_leaves(fs, i, g, t)
 _no_hazard_leaves(fs, i, g, t) = true, true, _out(_share, fs, i, g, t, false)
 
-# `g(H)` is read only where a hazard flow out of pool `i` enters a pool.
+# A step reads `g(H)` only where a hazard flow out of pool `i` enters a pool:
+# elsewhere it is one, without its expm1 and divisions.
 @inline function _step_leaves(fs, i, g, t, z)
     H = _out(_rate, fs, i, g, t, z)
     E, gH = _rated_into(fs, i) ? _leave(H) : (exp(-H), one(H))
@@ -399,7 +400,7 @@ struct _Moved{T}
 end
 
 # The `_Moved` is that of the flow's own pool, which has one hazard flow, so
-# it is this flow's.
+# it is this flow's. Other forms have rate zero, as `_rate` gives them.
 _by_rate(f, g, t, gH) = _rate(f, g, t) * gH
 _by_rate(f::Flow{<:Any, _FlowHazard}, g, t, w::_Moved) = w.F
 _by_rate(f::Flow, g, t, w::_Moved) = _rate(f, g, t)
@@ -580,7 +581,8 @@ function _amount(f::_Count, x, L, y, g, t)
 end
 
 # A hazard or share flow's amount takes its own cotangent and that of the pool
-# it enters, `q_f = r̄_f + ȳ_to`, as in `_flows_pullback`.
+# it enters, `q_f = r̄_f + ȳ_to`, where the step's pullback takes the second
+# only; each count adds its own.
 function _amounts_pullback(fs, f̄s, r̄, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L, y = _amount_start(fs, x, g, t)

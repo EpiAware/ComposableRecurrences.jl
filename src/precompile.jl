@@ -1,5 +1,5 @@
-# The README model's shapes, so their first call in a session does not
-# compile. Runs only at precompile time, so it is left out of coverage.
+# The README model's shapes, so their first call does not compile; the AD
+# extensions get no workload. Left out of coverage: precompile time only.
 # COV_EXCL_START
 @setup_workload begin
     g = [0.5, 0.3, 0.2]

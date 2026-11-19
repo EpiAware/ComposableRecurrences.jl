@@ -324,6 +324,7 @@ function _Depletion(pools::I, pieces::C) where {I, C}
 end
 ConstructionBase.constructorof(::Type{<:Depletion}) = _Depletion
 
+# `first` is the pool a draw takes from when the weighted pools are empty.
 struct _DrawFrom{F, P, W, O}
     form::F
     N::P
@@ -647,14 +648,16 @@ _npools(m::Depletion) = length(m.pools)
 _queue_of(m::Depletion) = _kind_of(m.pieces, _Queue)
 _stratum_of(m::Depletion) = _kind_of(m.pieces, _ToStratum)
 
+# With a draw, one value (two with an overflow into a stratum) and one entry
+# per pool (and the queue); without, the pools are both.
 function blocks(m::Depletion)
     n = _npools(m)
     _draws(m) || return (n, n)
     return (1 + (_stratum_of(m) isa _ToStratum), n + (_queue_of(m) isa _Queue))
 end
-# Any other runs the group kernel, a group of one included, as a per-stratum
-# loop through the group step is slower. `blocks` always gives positive
-# integers, so the shape needs no check here.
+# One pool drawn from once, then flows or none, with nothing left over, steps
+# per stratum; any other runs the group kernel, as a per-stratum loop through
+# the group step is slower. `blocks` always gives positive integers.
 _blocks(m::_Pointwise) = nothing
 _blocks(m::Depletion) = Val(blocks(m))
 
@@ -695,6 +698,8 @@ function _first_from(ps::Tuple, j)
     return first(ps) isa _DrawFrom ? j : _first_from(Base.tail(ps), j + 1)
 end
 
+# By default the first draw's `N` at time 1 for the pool it takes from first,
+# else zero.
 _initial(x, m, i, k) = param(x, k, 1)
 function _initial(::Nothing, m, i, k)
     j = _first_from(m.pieces)
@@ -717,6 +722,7 @@ end
 _nth(::Nothing, j) = nothing
 _nth(x̄::Tuple, j) = x̄[j]
 
+# Mapped over the pools so each reads its own starting value.
 _places(xs::Tuple) = ntuple(identity, Val(length(xs)))
 function _initials(m::Depletion, k)
     xs = values(m.pools)
@@ -835,6 +841,7 @@ _block_step(m::Depletion, v::Tuple, s::Tuple, t, g) = _group_step(m, v, s, t, g)
     return _flow_group(only(m.pieces), v, g, t)
 end
 
+# The parts fold over `(a, b, x, Q)`, with `nothing` for an overflow it lacks.
 # The parts' modifier-role steps reshape views into this tuple and call the
 # same `_piece_step`, which is faster than folding on views.
 @inline function _group_step(m, v, s, t, g)
@@ -887,7 +894,8 @@ _to_stratum(::_ToStratum, b, u) = b + u
 _to_queue(o, Q, u) = Q
 _to_queue(::_Queue, Q, u) = u
 
-# Promoted to one type so `_take_back` indexes them without a union.
+# Promoted to one type so `_take_back` indexes them without a union; a fixed
+# weight of one promotes to an exact one.
 function _weights_at(p, ::Val{n}, g, t) where {n}
     return promote(ntuple(i -> param(p.weights[i], g, t), Val(n))...)
 end
@@ -1112,8 +1120,9 @@ end
 
 # == The parts as modifiers ==
 
-# Each part's group step takes tuples of one-entry views; the `Depletion`
-# folds the same steps over the group's scalars.
+# Each part's group step takes tuples of one-entry views, the pools with the
+# queue last; a part on one pool takes vectors of one value and one pool per
+# stratum. The `Depletion` folds the same steps over the group's scalars.
 const _Piece = Union{_Drawing, Flow, _Flows}
 
 # A lone flow is a run of one.

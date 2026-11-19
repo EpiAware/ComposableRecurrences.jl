@@ -409,9 +409,9 @@ function _float_param(x::TimeVarying{I, <:PerStratum}) where {I}
     return TimeVarying{I}(_float_param(x.x))
 end
 
-# An integer takes the population's float type, so it has a cotangent. A dual
-# population gives its primal type: a dual exponent with zero partials gives
-# `log(0) * 0 = NaN` at an empty pool.
+# An integer takes the population's float type, so it has a cotangent and a
+# Float32 population stays Float32; a dual population gives its primal type,
+# avoiding `log(0) * 0 = NaN`. `nothing` and `false` stay fixed.
 _exponent_form(form, N) = form
 function _exponent_form(form::F, N) where {F <: _ExponentForm}
     return typeof(form).name.wrapper(_exponent(form.α, N))
@@ -420,8 +420,9 @@ _exponent(α::Integer, N) = convert(float(_primal_type(param_eltype(N))), α)
 _exponent(α::Bool, N) = α
 _exponent(α, N) = α
 
-# A float exponent with an `isone` branch would still take the exponent's
-# `log` term in the reverse passes, so the fixed form is faster.
+# `true` for `nothing`: an exponent of exactly one that the powers below
+# branch on, without a cotangent. A float exponent with an `isone` branch
+# would still take its `log` term in reverse, so this fixed form is faster.
 _alpha(form) = _alpha_value(form.α)
 _alpha_value(::Nothing) = true
 _alpha_value(α) = α
@@ -463,9 +464,9 @@ function _exp_neg_branch(x)
     return e, e - 1
 end
 
-# At an empty pool the pullback zeroes the exponent's cotangent, as the power
-# does; with `e = 0` an empty share is swapped for one, so no tangent sees
-# `log(0)`. Branch-free for traced inputs; a NaN share is kept.
+# At an empty pool the exponent's tangent is `log(0) * ė`; the pullback zeroes
+# its cotangent there, and so does the power. With `e = 0` an empty share is
+# swapped for one, which leaves the value unchanged; a NaN share is kept.
 _pool_power(r, e) = ifelse(r <= 0, ifelse(iszero(e), one(r), r), r)^e
 
 function pullback!(grads, form::Hazard, ::Step, v, s, N)

@@ -103,7 +103,9 @@ end
 const _HardTruncate = Truncate{Nothing}
 const _SoftTruncate = Truncate{<:Number}
 
-# Built-in draw forms, known without a run-time method lookup.
+# Built-in draw forms, known without a run-time method lookup. `_ExponentForm`
+# comes from `modifiers/builtin.jl`, included before this file; `Truncate` is
+# defined above, so the union lives here.
 const _BuiltinForm = Union{_ExponentForm, Truncate}
 _is_form(::Type{<:_BuiltinForm}) = true
 _draw_args(form::Truncate) = (form.weights, form.into, form.overflow)
