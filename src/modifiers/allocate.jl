@@ -364,12 +364,23 @@ end
 
 # Per group, with `a = Σ ȳ_k v_k / s_p`: the total's cotangent is `a` and
 # `v̄_k = (T_p / s_p)(ȳ_k − a)`; on the floor the sum term drops.
+# A total shared by the groups adds into stacked copies of its cotangent.
 function pullback!(grads, m::Allocate{<:Any, Nothing}, ::Step, v, s, t)
-    v̄ = grads.v
-    T̄ = cotangent(grads.piece, :total)
+    strata, offsets = _like(v, m.strata), _like(v, m.offsets)
+    G = _ngroups(m)
+    slots = _param_slots(grads.piece, m)
+    accs = _accumulators(Serial(), v, G, length(v), slots)
+    _reduce_blocks!(
+        _allocate_back!, accs, G, grads.v, v, strata, offsets, m.total, t
+    )
+    _reduce!(accs)
+    return nothing
+end
+function _allocate_back!(ps, acc, v̄, v, strata, offsets, total, t)
+    T̄ = cotangent(_unown(acc), :total)
     ε = eps(eltype(v))
-    for p in 1:_ngroups(m)
-        zs = _group(m, p)
+    for p in ps
+        zs = view(strata, (offsets[p] + 1):offsets[p + 1])
         tot = zero(eltype(v))
         a = zero(eltype(v̄))
         for k in zs
@@ -378,8 +389,8 @@ function pullback!(grads, m::Allocate{<:Any, Nothing}, ::Step, v, s, t)
         end
         sp = max(tot, ε)
         a /= sp
-        add_param!(T̄, m.total, a, p, t)
-        c = param(m.total, p, t) / sp
+        add_param!(T̄, total, a, p, t)
+        c = param(total, p, t) / sp
         on = tot >= ε
         for k in zs
             v̄[k] = c * (on ? v̄[k] - a : v̄[k])

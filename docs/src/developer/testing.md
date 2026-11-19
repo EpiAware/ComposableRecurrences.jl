@@ -108,12 +108,17 @@ task -t benchmark/Taskfile.yml matrix-report -- matrix-results
 
 The report lists the median time of every cell, and the gain of each hand-written gradient as the `NoAdjoint` median over the operator's median.
 A new case is a `Case` entry in `matrix_cases.jl` whose loss takes a `wrap` argument (`identity` or `NoAdjoint`), so the matrix times both arms.
-Cases in `LOCAL_CASES` also run a `local` arm, which replaces the `pullback!` of each pointwise modifier and user coupling with the local `ForwardDiff` step.
-The `bvd_renewal`, `bvd_patches` and `bvd_delay` cases run in the `realistic` and `docs` tiers; they time the model of the [patch model case study](@ref tutorial-backend-case-study).
-They add a `loop` arm, a hand loop in the style of the BVDOutbreakSize backend, and a `handrule` arm, the same loop with the hand-written Mooncake rules in `benchmark/bvd_handrule.jl`.
-The tutorial cases in `TUTORIAL_HANDRULE_CASES` add a `handrule` arm beside their `loop` arm in the same way, with the hand-written Mooncake rules in `benchmark/tutorial_handrule.jl`.
-A test item in `test/ad/handrules.jl` checks that each of these rules is a Mooncake primitive and that its gradient matches `ForwardDiff` on the case's hand loop.
+
+Some cases add arms:
+
+- Cases in `LOCAL_CASES` run a `local` arm, which replaces the `pullback!` of each pointwise modifier and user coupling with the local `ForwardDiff` step.
+- The `bvd_renewal`, `bvd_patches` and `bvd_delay` cases time the model of the [patch model case study](@ref tutorial-backend-case-study), in the `realistic` and `docs` tiers.
+  They add a `loop` arm, a hand loop in the style of the BVDOutbreakSize backend.
+  They also add a `handrule` arm, the same loop with the hand-written Mooncake rules in `benchmark/bvd_handrule.jl`.
+- The cases in `TUTORIAL_HANDRULE_CASES` add a `handrule` arm beside their `loop` arm, with the rules in `benchmark/tutorial_handrule.jl`.
+
 The `handrule` arm runs on Mooncake reverse only, since on any other target it is the `loop` arm.
+A test item in `test/ad/handrules.jl` checks that each of these rules is a Mooncake primitive and that its gradient matches `ForwardDiff` on the case's hand loop.
 
 `--executor` and `--threads` time the operators under an executor.
 `--threads=1,2,4` runs each target once per thread count, and `--executor=threaded` runs the `rule` arm under `Threaded()` (the default is `serial`).
@@ -134,13 +139,15 @@ Each row records the load average when its cell started, so a busy machine shows
 ## Gradient tests and use-case tests
 
 `test/ADFixtures` holds the scenarios the gradient tests run on every backend, each checked against a ForwardDiff reference.
-Each gradient entry must match its reference to a relative `1e-8`, or `1e-4` for a scenario with single-precision parameters, with an absolute floor of `1e-12` for entries that are zero in exact arithmetic.
-The plain call and the prepared, value-and-gradient and in-place calls are all checked this way.
-The ForwardDiff job also checks each reference against central differences to a relative `1e-5`, so a wrong reference cannot pass every backend.
-Each entry may also differ by the rounding of its central difference, `100 eps |f| / h` for a step `h`.
-Each entry is tried at a step relative to it and at a step of at least `cbrt(eps())`.
-A wrong reference misses by far more.
-The rule testers that `test_adjoint` runs use a relative and absolute `1e-8`, or `1e-3` in single precision, where their finite differences lose more.
+The tolerances are:
+
+- Each gradient entry matches its reference to a relative `1e-8`, or `1e-4` for a scenario with single-precision parameters.
+  Entries that are zero in exact arithmetic have an absolute floor of `1e-12`.
+  The plain call and the prepared, value-and-gradient and in-place calls are all checked this way.
+- The ForwardDiff job checks each reference against central differences to a relative `1e-5`, so a wrong reference cannot pass every backend.
+  Each entry may also differ by the rounding of its central difference, `100 eps |f| / h` for a step `h`.
+  Each entry is tried at a step relative to it and at a step of at least `cbrt(eps())`; a wrong reference misses by far more.
+- The rule testers that `test_adjoint` runs use a relative and absolute `1e-8`, or `1e-3` in single precision, where their finite differences lose more.
 A scenario is a name, a scalar loss of a flat parameter vector and its starting value, added to `_SCENARIOS`.
 
 ```julia

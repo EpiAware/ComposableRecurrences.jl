@@ -3022,14 +3022,6 @@ const REACTANT_BROKEN = Dict(
         "Recurrence negative binomial generation interval per stratum",
         "Recurrence negative binomial generation interval per pair of strata",
     ],
-    "trace recorded into a traced buffer" => [
-        "Recurrence trace of a protected pool",
-        "Recurrence trace of a ward's flows",
-        "Recurrence trace of the importation (Redistribute)",
-        "Recurrence trace of a weekly budget with a queue",
-        "Recurrence default traces of user modifiers",
-        "Recurrence user traces on groups and over the whole step",
-    ],
 )
 
 """

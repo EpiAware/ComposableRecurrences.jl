@@ -56,6 +56,24 @@ end
     end
 end
 
+# A record written at a traced step, whether the history it is shaped on is
+# a host array or not, takes each step's column at that step.
+@testset "Reactant step records at a traced step" begin
+    CR = ComposableRecurrences
+    # No fill: a traced record on a host array starts at zero, so the
+    # columns the step does not write read as zeros.
+    function record(x, t)
+        R = CR._unset(zeros(1), eltype(x), 2, 3)
+        CR._copy_column!(R, x, t)
+        return R
+    end
+    x = Reactant.to_rarray([1.0, 2.0])
+    t = Reactant.ConcreteRNumber(2)
+    R = Array(Reactant.@compile(record(x, t))(x, t))
+    @test R == [0.0 1.0 0.0; 0.0 2.0 0.0]
+    @test CR._unset(zeros(1), Float64, 2, 3) isa Matrix{Float64}
+end
+
 # A traced scalar input reads as the same value at every stratum and time.
 @testset "Reactant traced scalar input" begin
     at(x) = ComposableRecurrences._at(x, 2, 3)

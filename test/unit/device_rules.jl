@@ -65,6 +65,32 @@
         )
     end
 
+    # Modifiers whose steps run per group.
+    function two_pools(S)
+        hazard = CR.Hazard(; weights = (S = 1, V = 0.5))
+        rate = PerStratum(fill(0.5, S))
+        doses = CR.Flow(:S => :V, rate; form = CR.Truncate())
+        return CR.Depletion(
+            PerStratum(fill(60.0, S)), hazard, doses; pools = (:S, :V)
+        )
+    end
+    function two_draws()
+        flow = CR.Flow(:S => 0, 0.1; form = CR.Share())
+        return CR.Depletion(
+            60.0, CR.Hazard(), flow, CR.Floor(); pools = (S = 50.0,)
+        )
+    end
+    function queued()
+        flow = CR.Flow(0 => :B, 2.0; form = CR.Truncate())
+        return CR.Depletion(
+            flow, CR.Truncate(; overflow = :queue); pools = (B = 50.0,)
+        )
+    end
+    function totals(S)
+        h = S ÷ 2
+        return CR.Allocate([1:h, (h + 1):S], PerStratum(fill(1.0, 2)))
+    end
+
     # The input's cotangent and the parameter mirror after the rule's
     # forward pass and pullback with output cotangent `weights(S)`.
     function rule_cotangents(op, args, piece, S, dev)
@@ -143,6 +169,50 @@ end
     end
 end
 
+@testitem "JLArrays: the rule passes of a convolution with gain and add match the CPU" setup = [DeviceRules] begin
+    # The output, and the cotangents of the input, gain, add input and
+    # history, after the rule's passes with output cotangent `Ȳ`. A scalar
+    # gain's cotangent is a `Ref`.
+    function scaled_passes(x, gain, add, h, start, stop, Ȳ, dev)
+        move(a) = dev && a isa AbstractArray ? JLArray(a) : a
+        op = dev ? adapt(JLArray, Convolution(pmf)) : Convolution(pmf)
+        args = map(move, (x, gain, add, h))
+        y, cache = CR._run_forward(op, args..., start, stop)
+        mirror(a) = a isa Real ? Ref(zero(a)) : zero(a)
+        x̄, ḡ, ā, h̄ = map(mirror, args)
+        piece = (; kernel = move(zeros(L)))
+        grads = (; piece, y = move(Ȳ), args = (x̄, ḡ, ā, h̄, nothing, nothing))
+        CR._run_pullback!(grads, op, cache)
+        return Array(y), map(a -> a isa Ref ? a[] : Array(a), (x̄, ḡ, ā, h̄)),
+            Array(piece.kernel)
+    end
+    # More strata than blocks, so the blocks' copies of a gain or add
+    # input shared by the strata are summed.
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        x, h = inputs(S), fill(1.0, S, 2)
+        gain, add = 0.5 .* inputs(S), collect(range(0.1, 1.0; length = T))
+        short = x[:, 1:(T ÷ 2)]
+        cases = [
+            # The registry's gain and add cases: a gain per stratum and
+            # time, an add input per time, and a history.
+            "a gain per stratum and time and an add per time" =>
+                (x, gain, add, h, 1, T),
+            "a short series from the second time" =>
+                (short, gain, add, h, 2, T),
+            "a scalar gain and an add per stratum and time" =>
+                (x, 0.7, gain, h, 1, T),
+        ]
+        @testset "$name, $S strata" for (name, (xi, g, a, hi, t0, t1)) in cases
+            Ȳ = weights(S)[:, t0:t1]
+            y0, c0, k̄0 = scaled_passes(xi, g, a, hi, t0, t1, Ȳ, false)
+            y1, c1, k̄1 = scaled_passes(xi, g, a, hi, t0, t1, Ȳ, true)
+            @test y1 ≈ y0
+            @test all(map(≈, c1, c0))
+            @test k̄1 ≈ k̄0
+        end
+    end
+end
+
 @testitem "JLArrays: the rule passes of time-varying kernels match the CPU" setup = [DeviceRules] begin
     # More strata than blocks, so the blocks' copies of a shared kernel's
     # cotangent are summed.
@@ -214,6 +284,18 @@ end
             "a function of its own" => (
                 CR.Transform((v, a) -> v * exp(-a), 0.1),
             ),
+            # Group steps: several pools, two draws on one pool, a queue
+            # and grouped totals, which reverse group by group.
+            "two pools with a flow between them" => (two_pools(S),),
+            "two draws on one pool" => (two_draws(),),
+            "an overflow that joins a queue" => (queued(),),
+            "grouped totals" => (totals(S),),
+            # Per-stratum modifiers with their own vector pullbacks beside
+            # a vector step, which on a device reverse per stratum instead.
+            "a pool per stratum and a scale beside two draws" => (
+                two_draws(), last(pools(S)),
+                CR.Transform(*, PerStratum(fill(0.9, S))),
+            ),
         ]
         @testset "$name, $S strata" for (name, ms) in cases
             op0, args0 = modified_case(ms, S, false)
@@ -226,6 +308,21 @@ end
             @test agree(p̄1, p̄0)
         end
     end
+    # The values above cannot show memory: per-stratum parameters' cotangents
+    # are shared by a step's blocks, not copied per block at every step. The
+    # pullback of two pools allocates about 1600 times S × T floats on
+    # JLArrays when shared and over 27000 times when copied.
+    S = CR._KERNEL_BLOCKS + 1
+    op, args = modified_case((two_pools(S),), S, true)
+    function pullback_bytes()
+        y, cache = CR._run_forward(op, args...)
+        rest = map(_ -> nothing, Base.tail(args))
+        x̄, Ȳ = zero(args[1]), JLArray(weights(S))
+        grads = (; piece = CR._zero_mirror(op), y = Ȳ, args = (x̄, rest...))
+        return @allocated CR._run_pullback!(grads, op, cache)
+    end
+    pullback_bytes()
+    @test pullback_bytes() < 5000 * sizeof(Float64) * S * T
 end
 
 @testitem "JLArrays: a dense coupling's pullback with and without its own mirror" setup = [DeviceRules] begin
@@ -268,16 +365,14 @@ end
     # Built-in modifiers that reverse per stratum take the rule.
     op, args = modified_case((pools(S)...,), S, true)
     @test (@inferred route(op, args)) === Val(:rule)
-    # A modifier that reads a group of strata reverses on the host.
-    groups = CR.Allocate([1:2, 3:4], PerStratum(fill(1.0, 2)))
-    op, args = modified_case((groups,), S, true)
-    @test (@inferred route(op, args)) === Val(:plain)
-    # So does a pool whose overflow joins a queue.
-    flow = CR.Flow(0 => :B, 2.0; form = CR.Truncate())
-    queued = CR.Depletion(
-        flow, CR.Truncate(; overflow = :queue); pools = (B = 50.0,)
-    )
-    op, args = modified_case((queued,), S, true)
+    # So do built-in modifiers whose steps run per group.
+    for m in (two_pools(S), two_draws(), queued(), totals(S))
+        op, args = modified_case((m,), S, true)
+        @test (@inferred route(op, args)) === Val(:rule)
+    end
+    # A modifier that moves values between strata reverses on the host.
+    moves = CR.Redistribute(0.9 .* dense(S); leak = true)
+    op, args = modified_case((moves,), S, true)
     @test (@inferred route(op, args)) === Val(:plain)
     # The gate's defaults, called directly: inference folds them into the
     # routes above, so those calls never run them.
@@ -289,7 +384,13 @@ end
     @test CR._device_coupling(I) && CR._device_coupling(Diagonal(ones(S)))
     @test !CR._device_coupling(TimeVarying(X))
     @test CR._device_modifiers(())
-    @test !CR._device_modifier(groups)
+    @test !CR._device_modifier(moves)
+    @test CR._device_modifier(totals(S))
+    # These have their own vector pullbacks, which a device skips.
+    for m in (last(pools(S)), CR.Transform(*, PerStratum(fill(0.9, S))))
+        @test CR._has_vector_pullback(m)
+        @test CR._strata_loop(m)
+    end
     # So do time-varying kernels, but not one given by change points.
     op, args = recurrence_case(I, S, true; kernel = tv_kernel())
     @test (@inferred route(op, args)) === Val(:rule)

@@ -171,7 +171,7 @@ DifferentiationInterface has no Reactant extension, so Reactant is not one of th
 Its own suite, `test/reactant/`, compiles every scenario of the AD registry forward and in reverse and checks each against ForwardDiff, entry by entry.
 The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) gives each scenario's result.
 The scenarios that do not run are listed in the registry under the `Reactant` backend, grouped by cause.
-Most are parts built from traced values, such as sparse couplings, ragged kernels and delay masses, or traces recorded into a traced buffer.
+Most are parts built from traced values, such as sparse couplings and delay distributions, or user modifiers that branch with `if` on traced values.
 A model that does not run under Reactant runs as it is on the other backends, so Enzyme reverse is the fallback for its gradient.
 
 ## [Which rules are kept](@id rule-policy)
@@ -280,17 +280,19 @@ The package's own rules run on device arrays for:
 - a recurrence with:
   - a kernel that is fixed, or time-varying as a dense array;
   - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
-  - modifiers that are `Transform`s and `Depletion`s whose steps run per stratum, including a `Depletion` with flows or a floor.
+  - modifiers that are `Transform`s, `Depletion`s and `Allocate`s without imports;
+    a `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
 
 Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
 A per-stratum time-varying kernel's cotangent (S × L × T) is not copied, as each stratum writes only its own rows.
+Nor is a modifier's `PerStratum` parameter's in a vector step, as each stratum or group writes only its own entries.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 
 - a kernel given by change points or as ragged columns;
 - a time-varying coupling;
-- a modifier with a vector step, such as `Allocate`;
+- `Redistribute`, and an `Allocate` with imports;
 - a modifier type the package does not define.
 
 What is checked:
