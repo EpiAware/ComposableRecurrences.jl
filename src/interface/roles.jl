@@ -728,12 +728,20 @@ end
 # The group `g` entries of `x`, compartment by compartment, as a tuple, and
 # their write-back. Generated as straight-line indexing, which AD backends
 # differentiate more cheaply than a closure or a recursion over the tuple.
+# They take a caller's `@inbounds`, which a caller gives once it has checked
+# the lengths.
 @generated function _gather(x, ::Val{n}, G, g) where {n}
-    return Expr(:tuple, (:(x[$(i - 1) * G + g]) for i in 1:n)...)
+    return Expr(
+        :block, Expr(:meta, :inline, :propagate_inbounds),
+        Expr(:tuple, (:(x[$(i - 1) * G + g]) for i in 1:n)...)
+    )
 end
 @generated function _scatter!(x, xs::Tuple, G, g)
     body = (:(x[$(i - 1) * G + g] = xs[$i]) for i in 1:fieldcount(xs))
-    return Expr(:block, body..., :(return x))
+    return Expr(
+        :block, Expr(:meta, :inline, :propagate_inbounds), body...,
+        :(return x)
+    )
 end
 
 # The step of a blockwise modifier on group `g`'s values and state, as new
@@ -763,18 +771,26 @@ end
 # the rule's reverse pass slightly slower.
 function _vector_step!(::Val{B}, m, v, s, t) where {B}
     G = _ngroups(Val(B), length(v))
+    length(s) == B[2] * G || _state_mismatch(B[2] * G, length(s))
     _each!(_group_body!, Serial(), v, G, G, v, s, m, t, Val(B), G)
     return nothing
 end
+@noinline function _state_mismatch(n, got)
+    throw(
+        DimensionMismatch(
+            "a blockwise modifier's state has $n entries here, got $got"
+        )
+    )
+end
 
-# Group `g`'s step, gathered from and scattered back into `v` and `s`.
+# Group `g`'s step, gathered from and scattered back into `v` and `s`, whose
+# lengths `_vector_step!` has checked.
 function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
     nv, ns = B
-    v′, s′ = @inline _block_step(
-        m, _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
-    )
-    _scatter!(v, v′, G, g)
-    _scatter!(s, s′, G, g)
+    vg, sg = @inbounds _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
+    v′, s′ = @inline _block_step(m, vg, sg, t, g)
+    @inbounds _scatter!(v, v′, G, g)
+    @inbounds _scatter!(s, s′, G, g)
     return nothing
 end
 

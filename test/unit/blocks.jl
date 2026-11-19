@@ -88,6 +88,11 @@ end
     @test only(st.states) == [1.0]
     r = Recurrence(g; modifiers = (Move(0.1),))
     @test_throws "needs a multiple of 2 strata, got 3" r(ones(3, 4); history = ones(3, 3))
+    # A vector step checks its state's length, so a short one is an error.
+    @test CR.forward!(Move(0.1), CR.Step(), ones(6), zeros(3), 1) === nothing
+    @test_throws "state has 3 entries here, got 2" CR.forward!(
+        Move(0.1), CR.Step(), ones(6), zeros(2), 1
+    )
 end
 
 @testitem "Blocks: group pullbacks against a local Jacobian" setup = [BlockChecks, ModifierChecks] begin

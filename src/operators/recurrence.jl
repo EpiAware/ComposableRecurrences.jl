@@ -1648,8 +1648,9 @@ function _value_body!(k, v, pr, gain, add, coupling, kernel, p, q, H, t, τ, L, 
 end
 
 # Stratum `k`'s value after the modifiers' vector Step, into buffer row `row`.
+# The step loops over the buffer's strata, which `v` holds one each of.
 function _store_body!(k, H, v, row)
-    H[row, k] = v[k]
+    @inbounds H[row, k] = v[k]
     return nothing
 end
 
