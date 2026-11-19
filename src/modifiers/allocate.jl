@@ -364,19 +364,20 @@ end
 
 # Per group, with `a = Σ ȳ_k v_k / s_p`: the total's cotangent is `a` and
 # `v̄_k = (T_p / s_p)(ȳ_k − a)`; on the floor the sum term drops.
-# Groups that share a total add into stacked copies of its cotangent.
+# A total shared by the groups adds into stacked copies of its cotangent.
 function pullback!(grads, m::Allocate{<:Any, Nothing}, ::Step, v, s, t)
     strata, offsets = _like(v, m.strata), _like(v, m.offsets)
     G = _ngroups(m)
-    accs = _accumulators(Serial(), v, G, length(v), grads.piece)
+    slots = _param_slots(grads.piece, m)
+    accs = _accumulators(Serial(), v, G, length(v), slots)
     _reduce_blocks!(
         _allocate_back!, accs, G, grads.v, v, strata, offsets, m.total, t
     )
     _reduce!(accs)
     return nothing
 end
-function _allocate_back!(ps, m̄, v̄, v, strata, offsets, total, t)
-    T̄ = cotangent(m̄, :total)
+function _allocate_back!(ps, acc, v̄, v, strata, offsets, total, t)
+    T̄ = cotangent(_unown(acc), :total)
     ε = eps(eltype(v))
     for p in ps
         zs = view(strata, (offsets[p] + 1):offsets[p + 1])

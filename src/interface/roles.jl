@@ -818,15 +818,16 @@ end
 # Groups that share a parameter add into stacked copies of its cotangent.
 function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
     G = _ngroups(Val(B), length(v))
-    accs = _accumulators(Serial(), v, G, G, grads.piece)
+    accs = _accumulators(Serial(), v, G, G, _param_slots(grads.piece, m))
     _reduce_blocks!(
         _group_back!, accs, G, grads.v, grads.s, m, v, s, t, Val(B), G
     )
     _reduce!(accs)
     return nothing
 end
-function _group_back!(gs, m̄, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
+function _group_back!(gs, acc, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
     nv, ns = B
+    m̄ = _unown(acc)
     for g in gs
         gg = (;
             piece = m̄, v = _gather(v̄, Val(nv), G, g),
@@ -845,12 +846,13 @@ end
 function _strata_pullback!(grads, m, v, s, t)
     v̄, s̄ = grads.v, grads.s
     n = length(eachindex(v, s, v̄, s̄))
-    accs = _accumulators(Serial(), v, n, n, grads.piece)
+    accs = _accumulators(Serial(), v, n, n, _param_slots(grads.piece, m))
     _reduce_blocks!(_strata_steps_back!, accs, n, v̄, s̄, m, v, s, t)
     _reduce!(accs)
     return nothing
 end
-function _strata_steps_back!(ks, m̄, v̄, s̄, m, v, s, t)
+function _strata_steps_back!(ks, acc, v̄, s̄, m, v, s, t)
+    m̄ = _unown(acc)
     for k in ks
         @inbounds v̄[k], s̄[k] = _step_pullback(
             (; piece = m̄, v = v̄[k], s = s̄[k]), m, v[k], s[k], t, k

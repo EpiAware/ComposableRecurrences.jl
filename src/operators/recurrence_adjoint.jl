@@ -166,11 +166,40 @@ const _ReversedPairwise = Union{_OldestFirstPairwise, TimeVarying{<:Any, <:Pairw
 # A mirror as the calling task writes it.
 _own(x̄) = x̄
 _own(x̄::_Owned) = x̄.x
+# The pass's blocks for a loop over strata within a step: on the host it
+# runs on the calling task, as tasks spawned every step cost more than the
+# loop, and on device arrays it is one kernel.
+_step_accs(accs) = (first(accs), ())
+_step_accs(accs::Tuple{Any, _Stacked}) = accs
 # A scale every stratum shares is copied once per block for the whole pass;
 # a `Diagonal`'s entries are each written by one stratum, and other
 # couplings reverse on the calling task.
 _coupling_slots(C̄, C) = _Owned(C̄)
 _coupling_slots(C̄, C::UniformScaling) = C̄
+# A modifier's parameter cotangents `m̄` as a step's blocks write them. A
+# `PerStratum` parameter is read, so written, at one stratum or group per
+# entry, so the blocks share it; any other leaf is shared by the strata
+# and copied per block.
+_param_slots(m̄, x) = _param_leaves(m̄, x)
+_param_slots(m̄, ::Union{PerStratum, TimeVarying{<:Any, <:PerStratum}}) =
+    _own_leaf(m̄)
+_own_leaf(::Nothing) = nothing
+_own_leaf(m̄) = _Owned(m̄)
+_param_leaves(m̄, x) = m̄
+_param_leaves(m̄::Tuple, x::Tuple) = map(_param_slots, m̄, x)
+# Field by field, each name a constant: a loop or a recursion over the
+# names leaves the fields' types to inference, which widens them.
+@generated function _param_leaves(m̄::NamedTuple{K}, x) where {K}
+    fields = map(K) do k
+        name = QuoteNode(k)
+        :(_param_slots(getfield(m̄, $name), getfield(x, $name)))
+    end
+    return :(NamedTuple{$K}(($(fields...),)))
+end
+# The mirror itself, from slots `_param_slots` made.
+_unown(x) = x
+_unown(x::_Owned) = x.x
+_unown(x::Union{Tuple, NamedTuple}) = map(_unown, x)
 
 # The reverse run of the independent strata `ks`, time outermost as in
 # `_series_body!`: each stratum's step reads and writes only its own slots
@@ -354,7 +383,8 @@ function _steps_back!(
                 copyto!(v̄, view(H̄, D + t, :))
                 _stages_back!(ms, _own(acc.m̄s), rec, s̄s, bufs, v̄, τ, t)
                 _reduce_blocks!(
-                    _gain_adds_back!, accs, S, q̄, v̄, pr, gain, coupling, t, τ
+                    _gain_adds_back!, _step_accs(accs), S,
+                    q̄, v̄, pr, gain, coupling, t, τ
                 )
             end
             _step_coupling_back!(accs, p̄, coupling, q̄, pr, t, τ, pbufs)
@@ -551,7 +581,8 @@ function _step_coupling_back!(
         accs, p̄, C::_PointwiseCoupling, q̄, pr, t, τ, pbufs
     )
     n = length(p̄)
-    _reduce_blocks!(_step_couplings_back!, accs, n, p̄, C, q̄, pr, t)
+    blocks = _step_accs(accs)
+    _reduce_blocks!(_step_couplings_back!, blocks, n, p̄, C, q̄, pr, t)
     return p̄
 end
 function _step_coupling_back!(accs, p̄, C, q̄, pr, t, τ, pbufs)

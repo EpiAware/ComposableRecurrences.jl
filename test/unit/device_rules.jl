@@ -202,6 +202,21 @@ end
             @test agree(p̄1, p̄0)
         end
     end
+    # The values above cannot show memory: per-stratum parameters' cotangents
+    # are shared by a step's blocks, not copied per block at every step. The
+    # pullback of two pools allocates about 1600 times S × T floats on
+    # JLArrays when shared and over 27000 times when copied.
+    S = CR._KERNEL_BLOCKS + 1
+    op, args = modified_case((two_pools(S),), S, true)
+    function pullback_bytes()
+        y, cache = CR._run_forward(op, args...)
+        rest = map(_ -> nothing, Base.tail(args))
+        x̄, Ȳ = zero(args[1]), JLArray(weights(S))
+        grads = (; piece = CR._zero_mirror(op), y = Ȳ, args = (x̄, rest...))
+        return @allocated CR._run_pullback!(grads, op, cache)
+    end
+    pullback_bytes()
+    @test pullback_bytes() < 5000 * sizeof(Float64) * S * T
 end
 
 @testitem "JLArrays: a dense coupling's pullback with and without its own mirror" setup = [DeviceRules] begin
