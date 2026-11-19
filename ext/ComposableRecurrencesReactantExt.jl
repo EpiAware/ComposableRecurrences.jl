@@ -379,6 +379,20 @@ function ComposableRecurrences._copy_column!(
     R[:, t] = x
     return nothing
 end
+# A whole-step trace fills a fresh column, then records it at the traced
+# step: a view of the column at a traced step is not traced.
+function ComposableRecurrences._stage_trace!(
+        ::Val{false}, R, m, v, s, τ, t::TracedRNumber
+    )
+    CR = ComposableRecurrences
+    CR._copy_trace!(R.v, v)
+    CR._copy_trace!(R.s, s)
+    CR._stage!(m, v, s, τ)
+    col = CR._zeros(R.out, eltype(R.out), size(R.out, 1))
+    CR._trace!(col, m, R.v, R.s, v, s, τ)
+    CR._copy_column!(R.out, col, t)
+    return nothing
+end
 
 # Traced weights or a traced coupling stand for real numbers, and a traced
 # number scales a `Recent` or a `Derived` as a real one does.
