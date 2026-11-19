@@ -622,8 +622,9 @@ end
 
 # A dense coupling over at least `TRACED_MIN_STRATA` strata mixes a traced
 # step's pressures as one broadcast and sum, rather than one multiply-add
-# per pair of strata written out. A matrix product here compiled to wrong
-# values once a weighted sum followed it.
+# per pair of strata written out. Its gradient runs as fast as a matrix
+# product's or faster; the product's took about 15% longer at 256 strata
+# on the CPU (#750).
 function ComposableRecurrences._mix!(q::AnyTracedRVector, C, p)
     length(q) < Traced().min_strata && return invoke(
         ComposableRecurrences._mix!, Tuple{Any, Any, Any}, q, C, p
