@@ -37,6 +37,25 @@ end
     @test_throws ArgumentError ComposableRecurrences.Recent(Any[0.5])
 end
 
+# A history, of traced numbers or a view of a traced array, loads
+# into the traced buffer and gives the plain call's output.
+@testset "Reactant history into a traced buffer" begin
+    r = Recurrence([0.5, 0.2])
+    numbers(θ) = sum(r(; history = [sum(θ)], add = fill(1.0, 5)))
+    viewed(θ) = sum(r(; history = reshape(view(θ, 1:2), 2), add = fill(1.0, 5)))
+    # Longer than the buffer's two rows: only the last two values load.
+    longer(θ) = sum(r(; history = reshape(view(θ, 1:3), 3), add = fill(1.0, 5)))
+    # A matrix history loads through the core's block copy.
+    matrix(θ) = sum(
+        r(; history = reshape(view(θ, 1:2), 1, 2), add = fill(1.0, 1, 5))
+    )
+    θ = [0.1, 0.3, 0.2]
+    x = Reactant.to_rarray(θ)
+    for f in (numbers, viewed, longer, matrix)
+        @test Reactant.@compile(f(x))(x) ≈ f(θ)
+    end
+end
+
 # Reactant compiles the kernels through CUDA.jl, so a traced call without it
 # says to load it.
 @testset "Reactant traced call needs CUDA.jl" begin

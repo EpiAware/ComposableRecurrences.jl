@@ -151,6 +151,19 @@ function ComposableRecurrences._buffer(
     return ComposableRecurrences._zeros(h, Tp, D + T, S)
 end
 
+# A vector history loads into the traced buffer through a block of rows by
+# one column: a copy into the column `H[rows, 1]` is not traced. A matrix
+# history already loads as a block, `H[rows, :]`, so it keeps the core's
+# method.
+function ComposableRecurrences._load_history!(
+        H::AnyTracedRArray, h::AbstractVector, D
+    )
+    m = length(h)
+    n = min(m, D)
+    H[(D - n + 1):D, 1:1] .= reshape(view(h, (m - n + 1):m), n, 1)
+    return H
+end
+
 # A traced array's eltype is a traced number, which is not a `Real`, so the
 # generic array method would reduce over its entries' types; the eltype
 # is the answer, also for reshapes and views of traced arrays.

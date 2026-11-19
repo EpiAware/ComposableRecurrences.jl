@@ -45,7 +45,7 @@ Total run time 26.3 min, timeout 600 s a case.
 | Recurrence Primary time-varying kernel | works (2.5 s / 15.4 µs) | works (1.3 s / 69.9 µs) |
 | Recurrence returning its state | works (3.1 s / 17.7 µs) | works (1.4 s / 11.6 µs) |
 | Recurrence seeded on a growth path | works (4.1 s / 10.6 µs) | works (1.1 s / 10.3 µs) |
-| Recurrence random walk and strata prepending a view history | error: MethodError in `_load_history!` | error: MethodError in `_load_history!` |
+| Recurrence random walk and strata prepending a view history | works (47.6 s / 9.8 µs) | works (2.8 s / 9.1 µs) |
 | Recurrence returning its state after its seed | works (1.8 s / 12.0 µs) | works (1.1 s / 12.3 µs) |
 | Convolution delay with history | works (2.9 s / 6.6 µs) | works (0.8 s / 4.6 µs) |
 | Convolution time-varying kernel | works (2.3 s / 7.8 µs) | works (1.2 s / 75.3 µs) |
@@ -64,7 +64,7 @@ Total run time 26.3 min, timeout 600 s a case.
 | Recurrence Derived modifier parameters | works (5.9 s / 12.4 µs) | works (1.2 s / 90.8 µs) |
 | Recurrence Redistribute, Transform(+) and Transform(clamp) | works (3.2 s / 33.7 µs) | works (1.4 s / 147.1 µs) |
 | Recurrence capacity, beds with overflow | works (3.7 s / 7.0 µs) | works (1.3 s / 12.5 µs) |
-| Recurrence bed cap with a stay that is not geometric | error: MethodError in `_load_history!` | error: MethodError in `_load_history!` |
+| Recurrence bed cap with a stay that is not geometric | works (14.5 s / 11.1 µs) | works (1.3 s / 71.7 µs) |
 | Recurrence capacity, weekly budget with a queue | works (3.6 s / 12.5 µs) | works (1.3 s / 127.0 µs) |
 | Recurrence trace of the importation (Redistribute) | error: MethodError in `_copy_column!` | error: MethodError in `_copy_column!` |
 | Recurrence trace through a sparse coupling | error: MethodError | error: MethodError |
@@ -207,8 +207,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence returning its state | reverse | cpu | 12 | works | 3.0e-15 | 1.4 | 11.6 | 21.6 |  |  |
 | registry | Recurrence seeded on a growth path | forward | cpu | 12 | works | 1.7e-16 | 4.1 | 10.6 | 2.4 |  |  |
 | registry | Recurrence seeded on a growth path | reverse | cpu | 12 | works | 1.8e-15 | 1.1 | 10.3 | 30.5 |  |  |
-| registry | Recurrence random walk and strata prepending a view history | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _load_history! | MethodError: no method matching Float64(::Reactant.TracedRArray{Float64, 1}) The type `Float64` exists, but no method is defined for this combination of argumen |
-| registry | Recurrence random walk and strata prepending a view history | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _load_history! | MethodError: no method matching Float64(::Reactant.TracedRArray{Float64, 1}) The type `Float64` exists, but no method is defined for this combination of argumen |
+| registry | Recurrence random walk and strata prepending a view history | forward | cpu | 12 | works | 2.9e-16 | 47.6 | 9.8 | 1.9 |  |  |
+| registry | Recurrence random walk and strata prepending a view history | reverse | cpu | 12 | works | 2.3e-15 | 2.8 | 9.1 | 33.7 |  |  |
 | registry | Recurrence returning its state after its seed | forward | cpu | 12 | works | 0.0e+00 | 1.8 | 12.0 | 5.1 |  |  |
 | registry | Recurrence returning its state after its seed | reverse | cpu | 12 | works | 1.2e-14 | 1.1 | 12.3 | 29.5 |  |  |
 | registry | Convolution delay with history | forward | cpu | 12 | works | 4.4e-16 | 2.9 | 6.6 | 0.3 |  |  |
@@ -245,8 +245,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence Redistribute, Transform(+) and Transform(clamp) | reverse | cpu | 12 | works | 7.9e-06 | 1.4 | 147.1 | 75.9 |  |  |
 | registry | Recurrence capacity, beds with overflow | forward | cpu | 12 | works | 1.1e-16 | 3.7 | 7.0 | 2.4 |  |  |
 | registry | Recurrence capacity, beds with overflow | reverse | cpu | 12 | works | 3.1e-14 | 1.3 | 12.5 | 22.0 |  |  |
-| registry | Recurrence bed cap with a stay that is not geometric | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _load_history! | MethodError: no method matching Float64(::Reactant.TracedRArray{Float64, 1}) The type `Float64` exists, but no method is defined for this combination of argumen |
-| registry | Recurrence bed cap with a stay that is not geometric | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | _load_history! | MethodError: no method matching Float64(::Reactant.TracedRArray{Float64, 1}) The type `Float64` exists, but no method is defined for this combination of argumen |
+| registry | Recurrence bed cap with a stay that is not geometric | forward | cpu | 12 | works | 0.0e+00 | 14.5 | 11.1 | 0.7 |  |  |
+| registry | Recurrence bed cap with a stay that is not geometric | reverse | cpu | 12 | works | 1.5e-16 | 1.3 | 71.7 | 5.1 |  |  |
 | registry | Recurrence capacity, weekly budget with a queue | forward | cpu | 12 | works | 0.0e+00 | 3.6 | 12.5 | 2.3 |  |  |
 | registry | Recurrence capacity, weekly budget with a queue | reverse | cpu | 12 | works | 1.4e-14 | 1.3 | 127.0 | 81.6 |  |  |
 | registry | Recurrence trace of the importation (Redistribute) | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | _copy_column! | MethodError: no method matching copyto!(::Reactant.TracedRArray{Float64, 2}, ::Reactant.TracedRNumber{Int64}, ::Reactant.TracedRArray{Float64, 1}, ::Int64, ::In |

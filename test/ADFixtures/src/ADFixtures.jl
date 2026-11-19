@@ -3036,12 +3036,6 @@ const REACTANT_BROKEN = Dict(
     "lag contributions read a traced number (`_at`)" => [
         "Convolution lag contributions",
     ],
-    # The history is loaded into a buffer of plain floats, which cannot
-    # hold a traced value.
-    "a history loaded into a Float64 buffer" => [
-        "Recurrence random walk and strata prepending a view history",
-        "Recurrence bed cap with a stay that is not geometric",
-    ],
 )
 
 """
