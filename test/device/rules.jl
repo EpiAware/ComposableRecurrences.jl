@@ -102,6 +102,7 @@ function _rule_cases(S)
     )
     totals = CR.Allocate([1:(S ÷ 2), (S ÷ 2 + 1):S], PerStratum(fill(1.0, 2)))
     # The same totals importing by a pattern, with a spill in the first group.
+    # As `imported` in the unit tests, which this environment does not load.
     pattern = zeros(S, S)
     pattern[1, S], pattern[2, S], pattern[S, 1] = 0.6, 0.4, 1.0
     within = Matrix(1.0I, S, S)

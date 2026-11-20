@@ -470,11 +470,13 @@ function pullback!(
     T̄, φ̄ = cotangent(grads.piece, :total), cotangent(īm, :fraction)
     u, h = _spilled_and_pattern(_field(grads, :after), spill, pattern, v, t)
     pass = _field(grads, :pass)
+    ε = eps(eltype(v))
     if _on_gpu(v) && _device_modifier(m)
-        _device_imports_back!(T̄, φ̄, m, v̄, h̄, u, h, t)
+        _device_imports_back!(T̄, φ̄, m, v̄, h̄, u, h, t, ε)
     else
         for p in 1:_ngroups(m)
-            _import_back!(T̄, φ̄, m.total, fraction, v̄, h̄, u, h, _group(m, p), p, t)
+            zs = _group(m, p)
+            _import_back!(T̄, φ̄, m.total, fraction, v̄, h̄, u, h, zs, p, t, ε)
         end
     end
     r̄, P̄ = cotangent(īm, :spill), cotangent(īm, :pattern)
@@ -484,9 +486,11 @@ function pullback!(
     return nothing
 end
 
-# Group `p`'s pullback over its strata `zs`, which no other group writes.
-@inline function _import_back!(T̄, φ̄, total, fraction, v̄, h̄, u, h, zs, p, t)
-    ε = eps(eltype(u))
+# Group `p`'s pullback over its strata `zs`, which no other group writes,
+# with the floor `ε` of the state's element type.
+@inline function _import_back!(
+        T̄, φ̄, total, fraction, v̄, h̄, u, h, zs, p, t, ε
+    )
     su = zero(eltype(u))
     sh = zero(eltype(u))
     au = zero(eltype(v̄))
@@ -518,7 +522,7 @@ end
 # On a device each group's pullback is one index of a kernel. Groups that
 # share the total's or the fraction's cotangent, such as a scalar's, add
 # into stacked copies of it; a per-group one is written by its group alone.
-function _device_imports_back!(T̄, φ̄, m, v̄, h̄, u, h, t)
+function _device_imports_back!(T̄, φ̄, m, v̄, h̄, u, h, t, ε)
     G = _ngroups(m)
     strata, offsets = _like(v̄, m.strata), _like(v̄, m.offsets)
     slots = (;
@@ -528,18 +532,18 @@ function _device_imports_back!(T̄, φ̄, m, v̄, h̄, u, h, t)
     accs = _accumulators(Serial(), v̄, G, G, slots)
     _reduce_blocks!(
         _imports_back_blocks!, accs, G, m.total, m.imports.fraction,
-        v̄, h̄, u, h, strata, offsets, t
+        v̄, h̄, u, h, strata, offsets, t, ε
     )
     _reduce!(accs)
     return nothing
 end
 function _imports_back_blocks!(
-        ps, acc, total, fraction, v̄, h̄, u, h, strata, offsets, t
+        ps, acc, total, fraction, v̄, h̄, u, h, strata, offsets, t, ε
     )
     (; T̄, φ̄) = _unown(acc)
     for p in ps
         zs = view(strata, (offsets[p] + 1):offsets[p + 1])
-        _import_back!(T̄, φ̄, total, fraction, v̄, h̄, u, h, zs, p, t)
+        _import_back!(T̄, φ̄, total, fraction, v̄, h̄, u, h, zs, p, t, ε)
     end
     return nothing
 end
