@@ -926,6 +926,7 @@ _trace_is_state(::Redistribute) = true
 # and on a resumed state, not on every step.
 function forward!(m::Redistribute, ::Init, s, history)
     _check_modifier_strata(m, length(s))
+    _check_device_moves(m.M, s)
     fill!(s, zero(eltype(s)))
     return nothing
 end
@@ -940,6 +941,22 @@ function _check_intensity_strata(M::TimeVarying{<:Any, <:_Movement}, S)
     E = M.x.E
     E isa AbstractMatrix || _check_param_strata(:ε, E, S)
     return nothing
+end
+# A step on device arrays reads each diagonal entry of the moves in a
+# kernel, which a dense or `Diagonal` matrix gives and a sparse one does not.
+_check_device_moves(M, s) = nothing
+function _check_device_moves(M::AbstractMatrix, s)
+    _on_gpu(s) && !(M isa Union{DenseMatrix, Diagonal}) && _device_moves_error(M)
+    return nothing
+end
+@noinline function _device_moves_error(M)
+    throw(
+        ArgumentError(
+            "Redistribute on device arrays takes its moves as a dense or " *
+                "Diagonal matrix, got $(_describe(M)); move a dense copy to " *
+                "the device"
+        )
+    )
 end
 _movement_array(M::AbstractMatrix) = M
 _movement_array(M::TimeVarying) = M.x
@@ -962,6 +979,8 @@ end
 # The smallest and largest column sums over every column (and time): one
 # pass over a host array, a reduction elsewhere.
 _column_sum_range(A) = extrema(sum(A; dims = 1))
+# A `Diagonal`'s column sums are its diagonal, read without indexing it.
+_column_sum_range(A::Diagonal) = extrema(A.diag)
 function _column_sum_range(A::Array)
     cs = CartesianIndices(Base.tail(axes(A)))
     lo = hi = _colsum(A, first(cs))

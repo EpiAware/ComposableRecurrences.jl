@@ -519,6 +519,8 @@ end
 end
 
 @testitem "JLArrays: calls whose reverse pass runs on a device take the rule" setup = [DeviceRules] begin
+    using JLArrays: JLSparseMatrixCSR
+    using SparseArrays: sparse
     S = 4
     route(op, args) = CR._route_val(op, args...)
     op, args = convolution_case(pmf, S, true)
@@ -565,6 +567,28 @@ end
     @test CR._device_modifiers(())
     @test CR._device_modifier(by_matrix) && CR._device_modifier(movement(S))
     @test !CR._device_modifier(tv_moves)
+    # Moves as a `Diagonal` or sparse device matrix keep plain AD, as the
+    # kernels index dense matrices. A `Diagonal` runs forward as on the
+    # host, and sparse moves on a device fail with a clear error.
+    let
+        diag, moves = fill(0.9, S), 0.8 .* dense(S)
+        h = fill(1.0, S, L)
+        rec(M, x) = Recurrence(
+            x(pmf); modifiers = (CR.Redistribute(M; leak = true),)
+        )
+        run(M, x) = rec(M, x)(x(inputs(S)); history = x(h))
+        D1, D0 = Diagonal(JLArray(diag)), Diagonal(diag)
+        sp = JLSparseMatrixCSR(sparse(moves))
+        for M in (D1, sp)
+            op = rec(M, JLArray)
+            args = CR._run_args(
+                op, JLArray(inputs(S)), JLArray(h), nothing, nothing, 1
+            )
+            @test (@inferred route(op, (args..., nothing))) === Val(:plain)
+        end
+        @test Array(run(D1, JLArray)) ≈ run(D0, identity)
+        @test_throws "dense or Diagonal" run(sp, JLArray)
+    end
     @test CR._device_modifier(totals(S))
     # These have their own vector pullbacks, which a device skips.
     for m in (last(pools(S)), CR.Transform(*, PerStratum(fill(0.9, S))))
