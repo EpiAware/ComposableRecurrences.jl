@@ -111,7 +111,7 @@ end
 # where a probe that throws there would drop its scenarios. No scenario is
 # skipped, and each broken or plain entry names a backend and a scenario that
 # exist, so a renamed scenario cannot leave an entry that no longer applies.
-@testitem "AD fixtures need only features this version has, skip nothing and name real scenarios" tags = [:ad, :forwarddiff, :enzyme_reverse, :mooncake_reverse] begin
+@testitem "AD fixtures need only features this version has, skip nothing and name real scenarios" tags = [:ad, :forwarddiff] begin
     using ADFixtures
     using ADFixtures: MatrixCases
     @test isempty(ADFixtures.unsupported_scenarios())

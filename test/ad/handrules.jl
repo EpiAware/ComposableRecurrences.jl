@@ -1,7 +1,9 @@
 # The benchmark matrix's `handrule` arms for the tutorials: each hand-written
 # Mooncake rule is a primitive Mooncake calls, and the arm's Mooncake
 # gradient matches ForwardDiff on the same case's plain hand loop.
-@testitem "The tutorials' hand-written Mooncake rules match ForwardDiff on their hand loops" tags = [:ad, :mooncake_reverse] begin
+# They check the benchmark's rules, not the package's, so they run in the
+# Mooncake forward job, which loads Mooncake and has time to spare.
+@testitem "The tutorials' hand-written Mooncake rules match ForwardDiff on their hand loops" tags = [:ad, :mooncake_forward] begin
     using ADFixtures: MatrixCases as MC
     using ADTypes: AutoMooncake
     import DifferentiationInterface as DI
@@ -68,7 +70,7 @@ end
 # map to the `Transform`, as the tutorial does; that derivative matches
 # ForwardDiff's, and the arm's Mooncake gradient matches ForwardDiff on the
 # plain hand loop.
-@testitem "The transform case's closed-form derivative matches ForwardDiff" tags = [:ad, :mooncake_reverse] begin
+@testitem "The transform case's closed-form derivative matches ForwardDiff" tags = [:ad, :mooncake_forward] begin
     using ADFixtures: MatrixCases as MC
     using ADTypes: AutoMooncake
     import DifferentiationInterface as DI
@@ -94,7 +96,7 @@ end
 # The caps on the doses and the transfers and the floor on the share left
 # are branches the matrix's smooth inputs may not reach; each rule is
 # checked on inputs that take both sides of its branch.
-@testitem "The tutorials' hand-written Mooncake rules take both sides of their caps and floor" tags = [:ad, :mooncake_reverse] begin
+@testitem "The tutorials' hand-written Mooncake rules take both sides of their caps and floor" tags = [:ad, :mooncake_forward] begin
     using ADFixtures: MatrixCases as MC
     using Random: Xoshiro
     import Mooncake
@@ -137,7 +139,7 @@ end
 # primitive Mooncake calls. At both realistic sizes every pool stays off its
 # floor after the first day, so the arms meet no tie, and the package,
 # `NoAdjoint` and `handrule` gradients match ForwardDiff on the hand loop.
-@testitem "The occupancy case's arms agree off the pools' floors" tags = [:ad, :mooncake_reverse] begin
+@testitem "The occupancy case's arms agree off the pools' floors" tags = [:ad, :mooncake_forward] begin
     using ADFixtures: MatrixCases as MC
     using ADTypes: AutoMooncake
     import DifferentiationInterface as DI
@@ -172,7 +174,7 @@ end
     end
 end
 
-@testitem "The window-weights and window-reports cases' arms agree at the backend's sizes" tags = [:ad, :mooncake_reverse] begin
+@testitem "The window-weights and window-reports cases' arms agree at the backend's sizes" tags = [:ad, :mooncake_forward] begin
     using ADFixtures: MatrixCases as MC
     using ADTypes: AutoMooncake
     import DifferentiationInterface as DI
@@ -215,7 +217,7 @@ end
     end
 end
 
-@testitem "The abscond-flow, two-clock, patch and onset port cases' arms agree with the backend's rules" tags = [:ad, :mooncake_reverse] begin
+@testitem "The abscond-flow, two-clock, patch and onset port cases' arms agree with the backend's rules" tags = [:ad, :mooncake_forward] begin
     using ADFixtures: MatrixCases as MC
     using ADTypes: AutoMooncake
     import DifferentiationInterface as DI
@@ -263,7 +265,7 @@ end
     end
 end
 
-@testitem "The knots case's arms agree at the backend's sizes" tags = [:ad, :mooncake_reverse] begin
+@testitem "The knots case's arms agree at the backend's sizes" tags = [:ad, :mooncake_forward] begin
     using ADFixtures: MatrixCases as MC
     using ADTypes: AutoMooncake
     import DifferentiationInterface as DI
