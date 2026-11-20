@@ -337,6 +337,23 @@ end
                     param_view(move_kernel(S)), param_view(intensity(S))
                 ),
             ),
+            # An intensity read from the last three outputs, per stratum or
+            # across strata: every origin adds into the scale's cotangent.
+            "movement read from recent outputs" => (
+                CR.Redistribute(
+                    move_kernel(S),
+                    CR.Derived(x -> 0.2 * tanh(x), 0.05 * CR.Recent(pmf[1:3])),
+                ),
+                first(pools(S)),
+            ),
+            "movement read from recent outputs across strata" => (
+                CR.Redistribute(
+                    move_kernel(S),
+                    CR.Derived(
+                        x -> 0.2 * tanh(x), 0.05 * coupled(pmf[1:3], dense(S))
+                    ),
+                ),
+            ),
             # Per-stratum modifiers with their own vector pullbacks beside
             # a vector step, which on a device reverse per stratum instead.
             "a pool per stratum and a scale beside two draws" => (
@@ -666,12 +683,15 @@ end
     # intensity.
     by_matrix = CR.Redistribute(0.9 .* dense(S); leak = true)
     # So do moves given as a reshaped view of a parameter vector, as AD
-    # passes them.
+    # passes them, and a movement whose intensity is read from recent
+    # outputs.
     by_view = CR.Redistribute(param_view(0.9 .* dense(S)); leak = true)
     moved_view = CR.Redistribute(
         param_view(move_kernel(S)), param_view(intensity(S))
     )
-    for m in (by_matrix, movement(S), by_view, moved_view)
+    read = CR.Derived(x -> 0.2 * tanh(x), 0.05 * CR.Recent(pmf[1:3]))
+    from_recent = CR.Redistribute(param_view(move_kernel(S)), read)
+    for m in (by_matrix, movement(S), by_view, moved_view, from_recent)
         @test (@inferred route(modified_case((m,), S, true)...)) === Val(:rule)
     end
     # Moves over time given as an array reverse on the host.
@@ -752,6 +772,17 @@ end
     @test_throws "cannot read a sparse matrix" r(
         JLArray(inputs(S)); history = JLArray(h)
     )
+    # An `Allocate`'s spill is checked as a `Redistribute` is.
+    within = [0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0]
+    split = CR.Allocate(
+        [1:2, 3:3], PerStratum([10.0, 2.0]);
+        imports = (PerStratum([0.2, 0.0]), zeros(3, 3)),
+        spill = CR.Redistribute(JLSparseMatrixCSR(sparse(within))),
+    )
+    @test_throws "cannot read a sparse matrix" CR._check_device_moves(
+        JLArray(zeros(3, 2)), (split,)
+    )
+    @test CR._check_device_moves(zeros(3, 2), (split,)) === nothing
 end
 
 @testitem "JLArrays: the reverse pass stacks shared cotangents with an inferred choice" tags = [:threads] setup = [DeviceRules] begin

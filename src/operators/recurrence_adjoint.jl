@@ -152,17 +152,18 @@ _device_modifier(m::Transform) = _strata_loop(m)
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
 # A whole step on the calling task, whose loops run as kernels. Each origin
 # or stratum writes only its own entries of the moves' cotangent, so the
-# step reverses without per-block copies. The kernels index every entry,
-# which a dense array holds, as does a reshape or view of one, such as of a
-# parameter vector as AD passes it; a `Diagonal`, triangular or sparse
-# matrix does not, so any other matrix keeps plain AD.
-const _DeviceMovement = TimeVarying{
-    Secondary, <:_Movement{<:AbstractMatrix, <:AbstractMatrix},
-}
+# step reverses without per-block copies; an intensity read from a
+# parameter stacks only the cotangents origins share. The kernels index
+# every entry, which a dense array holds, as does a reshape or view of one,
+# such as of a parameter vector as AD passes it; a `Diagonal`, triangular or
+# sparse matrix does not, so any other matrix keeps plain AD.
+const _DeviceMovement = TimeVarying{Secondary, <:_Movement}
 _device_modifier(m::Redistribute{<:Any, <:AbstractMatrix}) = _dense_moves(m.M)
 function _device_modifier(m::Redistribute{<:Any, <:_DeviceMovement})
-    return _dense_moves(m.M.x.K) && _dense_moves(m.M.x.E)
+    return _dense_moves(m.M.x.K) && _device_intensity(m.M.x.E)
 end
+_device_intensity(E) = true
+_device_intensity(E::AbstractMatrix) = _dense_moves(E)
 _dense_moves(M) = false
 _dense_moves(::DenseArray) = true
 _dense_moves(M::Union{Base.ReshapedArray, SubArray}) = _dense_moves(parent(M))
