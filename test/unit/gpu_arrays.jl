@@ -33,6 +33,8 @@
     # Hazards over time, shared by the strata or one per stratum.
     const HZ1 = 0.1 .+ 0.05 .* sin.(1:T)
     const HZS = [0.1 + 0.05 * sin(k + t) for k in 1:S, t in 1:T]
+    # An intensity of movement per origin and time.
+    const EM = [0.1 + 0.01 * k + 0.005 * t for k in 1:S, t in 1:T]
 
     # A sparse coupling on the host, or in CSR form on the device.
     _sparse(d, K) = d(zeros(1)) isa Array ? sparse(K) : JLSparseMatrixCSR(sparse(K))
@@ -280,6 +282,22 @@
             d -> Recurrence(
             d(g0);
             modifiers = (Redistribute(d(Redistribute(K0 - 0.5I, [0.1, 0.2, 0.3]).M)),)
+        )(d(RS); history = d(HS)),
+        "Redistribute, a kernel and an intensity over time" =>
+            d -> Recurrence(
+            d(g0);
+            modifiers = (
+                Redistribute(d(K0 - 0.5I), d(EM)),
+            )
+        )(d(RS); history = d(HS)),
+        "Redistribute, a kernel that leaks" =>
+            d -> Recurrence(
+            d(g0);
+            modifiers = (
+                Redistribute(
+                    d(0.5 .* (K0 - 0.5I)), d(fill(0.2, S, T)); leak = true
+                ),
+            )
         )(d(RS); history = d(HS)),
         "Recurrence, routes" =>
             d -> Recurrence(

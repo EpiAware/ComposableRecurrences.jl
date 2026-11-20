@@ -88,6 +88,11 @@ function _rule_cases(S)
     )
     totals = CR.Allocate([1:(S ÷ 2), (S ÷ 2 + 1):S], PerStratum(fill(1.0, 2)))
     stepped(m) = rec(Recurrence(pmf; modifiers = (m,)))
+    # Moves between strata: a matrix, and a kernel with an intensity over
+    # time.
+    moves = CR.Redistribute(0.9 .* C; leak = true)
+    E = [0.1 + 0.01 * k + 0.005 * t for k in 1:S, t in 1:T]
+    movement = CR.Redistribute(0.6 .* (ones(S, S) .- I(S)) ./ (S - 1), E)
     # Kernels computed from a hazard over time: shared by the strata and
     # confirmed from the lag after entry, one per stratum, and one through a
     # map, whose partials come from a local forward-mode derivative.
@@ -129,6 +134,9 @@ function _rule_cases(S)
         "Recurrence, two draws on one pool" => stepped(two_draws),
         "Recurrence, a queue" => stepped(queued),
         "Recurrence, grouped totals" => stepped(totals),
+        "Recurrence, a matrix of moves" => stepped(moves),
+        "Recurrence, movement of a kernel and an intensity" =>
+            stepped(movement),
         "Convolution, kernel from a hazard and a survival" =>
             conv(computed(confirmed)),
         "Convolution, survival per stratum" => conv(computed(stratified)),
