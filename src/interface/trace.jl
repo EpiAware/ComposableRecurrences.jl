@@ -120,6 +120,7 @@ function _copy_trace!(r::AbstractVector, s′)
 end
 _add_trace!(s̄′, r̄::Tuple) = _add_trace!(s̄′, first(r̄))
 function _add_trace!(s̄′, r̄::AbstractVector)
+    _on_gpu(s̄′) && return (s̄′ .+= r̄; nothing)
     for k in eachindex(s̄′, r̄)
         s̄′[k] += r̄[k]
     end
@@ -129,12 +130,15 @@ end
 # A modifier's trace at one step into its column `col`.
 _trace!(col, m, v, s, v′, s′, t) = _trace!(_blocks(m), col, m, v, s, v′, s′, t)
 function _trace!(::Nothing, col, m, v, s, v′, s′, t)
+    _on_gpu(v) && _strata_loop(m) &&
+        return _device_traces!(nothing, col, m, v, s, v′, s′, t)
     r = _strata_loop(m) ? _trace_series(col, Val(ntrace(m, 1)), length(v)) : col
     _written(m, forward!(m, Trace(), r, v, s, v′, s′, t))
     return nothing
 end
 # A blockwise modifier's trace, one group at a time on one-entry views.
 function _trace!(::Val{B}, col, m, v, s, v′, s′, t) where {B}
+    _on_gpu(v) && return _device_traces!(Val(B), col, m, v, s, v′, s′, t)
     G = _ngroups(Val(B), length(v))
     for g in 1:G
         _group_trace!(m, Val(B), col, v, s, v′, s′, t, G, g)
@@ -161,4 +165,50 @@ function _trace_series(col, ::Val{n}, S) where {n}
 end
 function _group_views(x, ::Val{n}, G, g) where {n}
     return ntuple(j -> _At(x, (j - 1) * G + g), Val(n))
+end
+
+# == On a device ==
+
+# On a device each stratum's trace of a pointwise modifier (`B` nothing), or
+# each group's of a blockwise one, is one index of a kernel, on one-entry
+# views of local slots as its step runs, and writes only its own rows of the
+# column.
+function _device_traces!(B, col, m, v, s, v′, s′, t)
+    G = _trace_groups(B, length(v))
+    _each!(_trace_body!, Serial(), v, G, G, col, m, v, s, v′, s′, t, B, G)
+    return nothing
+end
+_trace_groups(::Nothing, S) = S
+_trace_groups(::Val{B}, S) where {B} = _ngroups(Val(B), S)
+_trace_shape(::Nothing) = (1, 1)
+_trace_shape(::Val{B}) where {B} = B
+function _trace_body!(g, col, m, v, s, v′, s′, t, B, G)
+    _slot_trace!(m, B, col, v, s, v′, s′, t, G, g)
+    return nothing
+end
+# A pointwise modifier's trace takes its vector arguments as one-entry views;
+# a blockwise one's takes tuples of them and the group.
+@inline function _slot_trace!(m, B, col, v, s, v′, s′, t, G, g)
+    nv, ns = _trace_shape(B)
+    T = eltype(col)
+    r = ntuple(_ -> Ref(zero(T)), Val(ntrace(m, nv)))
+    slots(x, n) = _group_slots(y -> _slot(m, y), x, n, G, g)
+    args = (
+        slots(v, Val(nv)), slots(s, Val(ns)), slots(v′, Val(nv)),
+        slots(s′, Val(ns)),
+    )
+    _written(m, @inline _slot_forward!(B, m, map(x -> _At(x, g), r), args, t, g))
+    _scatter!(col, map(getindex, r), G, g)
+    return nothing
+end
+# Group `g`'s entries of `x` as one-entry views of local slots that `slot`
+# makes from each value.
+@inline function _group_slots(slot, x, n, G, g)
+    return map(y -> _At(slot(y), g), _gather(x, n, G, g))
+end
+@inline function _slot_forward!(::Nothing, m, r, args, t, g)
+    return @inline forward!(m, Trace(), r, map(only, args)..., t)
+end
+@inline function _slot_forward!(::Val, m, r, args, t, g)
+    return @inline forward!(m, Trace(), r, args..., t, g)
 end

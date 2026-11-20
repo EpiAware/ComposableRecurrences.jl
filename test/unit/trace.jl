@@ -132,6 +132,28 @@ end
     @test !CR._trace_is_state(CR.Depletion(100.0))
 end
 
+@testitem "Trace: a pointwise modifier's host trace step allocates nothing" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # The step reads its arguments through one-entry views of local slots,
+    # which stay off the heap only while every call on them inlines, the
+    # three-view `eachindex` included.
+    S = 3
+    m = CR.Depletion(PerStratum(fill(150.0, S)), CR.Floor())
+    @test CR._blocks(m) === nothing && CR._strata_loop(m)
+    R = CR._TraceSink(zeros(CR.ntrace(m, S), 4), nothing, nothing, S)
+    # Through the module's own name, a constant, and measured inside a
+    # function, so only the step's allocations are counted.
+    step(R, m) = ComposableRecurrences._trace_step!(
+        R, m, 2.0, 50.0, 1.5, 49.0, 1, 2, 2
+    )
+    bytes(R, m) = @allocated step(R, m)
+    bytes(R, m)
+    @test R.out[:, 2] == [0.0, 49.0, 0.0, 0.0, 1.5, 0.0, 0.0, 0.5, 0.0]
+    coverage = Base.JLOptions().code_coverage != 0
+    @test bytes(R, m) == 0 skip = coverage
+end
+
 @testitem "Trace: a call without records writes the rule's trace in each step" setup = [InStepTraces] begin
     @test CR.blocks(beds) == (1, 1)
     @test !CR._strata_loop(beds)
