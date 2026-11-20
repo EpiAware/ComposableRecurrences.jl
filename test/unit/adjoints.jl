@@ -3193,6 +3193,12 @@ end
         @test Kb[k, :] ≈ a .* H[t:(t + L - 1), k]
         @test H̄[t:(t + L - 1), k] ≈ H̄0[t:(t + L - 1), k] .+ a .* G[k, :]
     end
+    # A kernel cotangent held as a view adds in place, as a `Vector` does.
+    ḡ, kb = view(zeros(L + 1), 2:(L + 1)), rand(rng, L, S)
+    CR._kernel_finish!(ḡ, kb)
+    @test ḡ ≈ [sum(kb[L + 1 - i, :]) for i in 1:L]
+    coverage = Base.JLOptions().code_coverage != 0
+    @test (@allocated CR._kernel_finish!(ḡ, kb)) == 0 skip = coverage
 end
 
 @testitem "Recurrence: the run buffer zeroes only its history rows" begin
