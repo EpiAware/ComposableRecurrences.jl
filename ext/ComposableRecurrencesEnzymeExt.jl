@@ -15,7 +15,7 @@ using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
     _spawn_blocks, _spawn_chunks, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
-using LinearAlgebra: Diagonal
+using LinearAlgebra: Adjoint, Diagonal, Transpose
 using SparseArrays: SparseMatrixCSC, nonzeros
 
 const _IEEEFloat = Union{Float16, Float32, Float64}
@@ -484,6 +484,35 @@ end
     return foldl((a, b) -> :($a || $b), (:(ow[$i]) for i in idx))
 end
 
+# The leaves' values with a copy of each of the operator's float arrays.
+# The forward pass runs on the copies and the reverse pass rebuilds the
+# operator from them, so it reads the values the call ran on even when later
+# code overwrites the operator's arrays. `Enzyme`'s overwritten marks do not
+# cover this: they mark a `Diagonal` whose array is written after the call
+# as kept, so every array is copied, once per call; against a gradient's
+# cost this measures at most about 1 µs, on a small, cheap coupling.
+@generated function _kept_operator(::Type{X}, vals::Tuple) where {X}
+    keep(i, p) = first(p) == 1 ? :(_kept_leaf(vals[$i])) : :(vals[$i])
+    return :(($(map(keep, eachindex(_leaf_paths(X)), _leaf_paths(X))...),))
+end
+# A copy of the same type, as the operator is rebuilt field by field. An
+# array is copied, and a view, reshape, transpose, adjoint or `Diagonal` is
+# rebuilt around a copy of what it wraps, so the innermost array is copied.
+# A leaf whose copy would have another type is kept as it is, and is not
+# protected against a later overwrite; nor are the arrays inside a mutable
+# struct or an abstractly typed field, which are leaves of their own.
+_kept_leaf(x) = x
+_kept_leaf(x::AbstractArray{<:AbstractFloat}) = _same_type(x, _kept_array(x))
+_same_type(x, y) = y isa typeof(x) ? y : x
+_kept_array(x::AbstractArray) = copy(x)
+_kept_array(x::SubArray) = view(_kept_array(parent(x)), parentindices(x)...)
+function _kept_array(x::Base.ReshapedArray)
+    return Base.ReshapedArray(_kept_array(parent(x)), size(x), x.mi)
+end
+_kept_array(x::Transpose) = transpose(_kept_array(parent(x)))
+_kept_array(x::Adjoint) = adjoint(_kept_array(parent(x)))
+_kept_array(x::Diagonal) = Diagonal(_kept_array(x.diag))
+
 # The primal and shadow are typed by the return annotation, which is the
 # inferred return type of `_ADLeaves` and may be abstract.
 function EnzymeRules.augmented_primal(
@@ -494,7 +523,8 @@ function EnzymeRules.augmented_primal(
         throw(ArgumentError("batched Enzyme reverse mode is not supported"))
     VERSION < v"1.12" &&
         _warn_scalar_loss(fieldtype(X, 1), leaves, _any_active_float)
-    args = _rebuild_leaves(X, _map_leaves(_val, leaves))
+    vals = _kept_operator(X, _map_leaves(_val, leaves))
+    args = _rebuild_leaves(X, vals)
     y, cache = _run_forward(args...)
     # A cache that holds the input keeps a copy of it when later code may
     # overwrite it.
@@ -506,7 +536,7 @@ function EnzymeRules.augmented_primal(
     R = eltype(RA)
     P = EnzymeRules.needs_primal(config) ? R : Nothing
     D = EnzymeRules.needs_shadow(config) ? R : Nothing
-    tape = (cache, y, dy)
+    tape = (cache, y, dy, vals)
     return EnzymeRules.AugmentedReturn{P, D, typeof(tape)}(ret, dy, tape)
 end
 
@@ -514,25 +544,26 @@ function EnzymeRules.reverse(
         config::EnzymeRules.RevConfig, ::Const{_ADLeaves{X}}, ::Type{<:Annotation},
         tape, leaves::Vararg{Annotation, N}
     ) where {X, N}
-    cache, y, dy = tape
+    cache, y, dy, vals = tape
     # An unused output still owes each `Active` leaf a zero cotangent.
     dy === nothing && return _map_leaves(l -> _ez_ret(l, nothing), leaves)
     if EnzymeRules.runtime_activity(config)
         # The inferred mirrors save most on a single series, whose setup is
         # much of its gradient; elsewhere they cost more to compile than they
         # save, so other outputs keep the checked mode.
-        y isa AbstractVector || return _reverse_leaves(_Shared(), X, cache, y, dy, leaves)
-        _any_shares(leaves) && return _reverse_shared(X, cache, y, dy, leaves)
+        y isa AbstractVector ||
+            return _reverse_leaves(_Shared(), X, cache, y, dy, leaves, vals)
+        _any_shares(leaves) && return _reverse_shared(X, cache, y, dy, leaves, vals)
     end
-    return _reverse_leaves(_Distinct(), X, cache, y, dy, leaves)
+    return _reverse_leaves(_Distinct(), X, cache, y, dy, leaves, vals)
 end
 # A shared shadow is found only at run time. `invokelatest` hides the call
 # from inference, so that reverse pass is compiled only for calls that take
 # it, not for every call beside the distinct one. Its return type is the
 # same: an `Active` leaf's cotangent has its value's type and every other
 # leaf returns `nothing`.
-@noinline function _reverse_shared(::Type{X}, cache, y, dy, leaves) where {X}
-    ret = Base.invokelatest(_reverse_leaves, _Shared(), X, cache, y, dy, leaves)
+@noinline function _reverse_shared(::Type{X}, cache, y, dy, leaves, vals) where {X}
+    ret = Base.invokelatest(_reverse_leaves, _Shared(), X, cache, y, dy, leaves, vals)
     return ret::_rets(typeof(leaves))
 end
 @generated function _rets(::Type{L}) where {L <: Tuple}
@@ -546,11 +577,12 @@ end
 # The pullback compiled on its own for the mirrors' types: inlined into the
 # rule, it ran slower on a coupled run with a modifier.
 @noinline _pullback_call(grads, op, cache) = _run_pullback!(grads, op, cache)
-function _reverse_leaves(mode, ::Type{X}, cache, y, dy, leaves) where {X}
+# The operator is rebuilt from the values the forward pass ran on (`vals`).
+function _reverse_leaves(mode, ::Type{X}, cache, y, dy, leaves, vals) where {X}
     lms = _map_leaves(a -> _ez(a, mode), leaves)
     ms = _assemble(X, typeof(leaves), lms)
     grads = (; piece = first(ms), y = _ezs(y, dy, mode), args = Base.tail(ms))
-    _pullback_call(grads, _rebuild_leaves(X, _map_leaves(_val, leaves))[1], cache)
+    _pullback_call(grads, _rebuild_leaves(X, vals)[1], cache)
     _foreach_leaves(_ez_writeback!, leaves, lms)
     return _map_leaves(_ez_ret, leaves, lms)
 end
