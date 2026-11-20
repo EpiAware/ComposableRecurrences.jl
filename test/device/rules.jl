@@ -27,21 +27,35 @@ _mirror(a) = nothing
 # outputs of one shape, so a device output of another shape fails the check.
 _cotangent_like(y) = cos.(0.37 .* reshape(1:length(y), size(y)))
 
+# An output on the host, and a cotangent of its shape on arrays made by
+# `move`: a traced run's output is the run's and each modifier's trace.
+_host(y::AbstractArray) = Array(y)
+function _host(y::Tuple)
+    return vcat(vec(Array(first(y))), map(T -> vec(Array(T)), y[2].modifiers)...)
+end
+# A traced run's operator wraps the recurrence, which moves to the device.
+_on_device(A, op) = adapt(A, op)
+_on_device(A, w::CR._WithTrace) = CR._WithTrace(adapt(A, w.op))
+_cotangent_of(y::AbstractArray, move) = move(_cotangent_like(Array(y)))
+function _cotangent_of((Y, tr)::Tuple, move)
+    T̄s = map(T -> _cotangent_of(T, move), tr.modifiers)
+    return (_cotangent_of(Y, move), (; modifiers = T̄s, pressure = nothing))
+end
+
 # The output, the input's cotangent and the leaves of the parameter mirror
 # after the rule's passes, for `op` on arrays made by `A`. A convolution's
 # gain, add input and history take cotangents too.
 function _rule_passes(op0, args0, A)
-    op = A === identity ? op0 : adapt(A, op0)
+    op = A === identity ? op0 : _on_device(A, op0)
     move(x) = x isa AbstractArray ? A(x) : x
     args = map(move, args0)
     y, cache = CR._run_forward(op, args...)
     x̄ = zero(args[1])
     rest = map(a -> op isa Convolution ? _mirror(a) : nothing, Base.tail(args))
     piece = CR._zero_mirror(op)
-    Ȳ = move(_cotangent_like(Array(y)))
-    grads = (; piece, y = Ȳ, args = (x̄, rest...))
+    grads = (; piece, y = _cotangent_of(y, move), args = (x̄, rest...))
     CR._run_pullback!(grads, op, cache)
-    return Array(y), Array(x̄), vcat(_leaves(piece), _leaves(rest))
+    return _host(y), Array(x̄), vcat(_leaves(piece), _leaves(rest))
 end
 
 # The rule cases, each an operator and its rule arguments on the host, for
@@ -88,6 +102,12 @@ function _rule_cases(S)
     )
     totals = CR.Allocate([1:(S ÷ 2), (S ÷ 2 + 1):S], PerStratum(fill(1.0, 2)))
     stepped(m) = rec(Recurrence(pmf; modifiers = (m,)))
+    # The same with each modifier's trace, written and reversed per stratum
+    # or group.
+    function traced(ms...)
+        r, args = rec(Recurrence(pmf; modifiers = ms))
+        return CR._WithTrace(r), args
+    end
     # Moves between strata: a matrix, and a kernel with an intensity over
     # time.
     moves = CR.Redistribute(0.9 .* C; leak = true)
@@ -137,6 +157,10 @@ function _rule_cases(S)
         "Recurrence, a matrix of moves" => stepped(moves),
         "Recurrence, movement of a kernel and an intensity" =>
             stepped(movement),
+        "Recurrence, traces of pools per stratum" => traced(pools...),
+        "Recurrence, traces of two pools and of a queue" =>
+            traced(two_pools, queued),
+        "Recurrence, trace of two draws on one pool" => traced(two_draws),
         "Convolution, kernel from a hazard and a survival" =>
             conv(computed(confirmed)),
         "Convolution, survival per stratum" => conv(computed(stratified)),

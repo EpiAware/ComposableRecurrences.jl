@@ -488,6 +488,92 @@ end
     @test pullback_bytes() < 500 * sizeof(eltype(K̄)) * length(K̄)
 end
 
+@testitem "JLArrays: the rule passes of traced runs match the CPU" setup = [DeviceRules] begin
+    # A user modifier on pairs of strata, with its own trace (the pair's
+    # total after the step) or the default one (its state after the step).
+    struct DevPairs{A}
+        a::A
+    end
+    struct DevTracedPairs{A}
+        a::A
+    end
+    for P in (DevPairs, DevTracedPairs)
+        @eval begin
+            CR.blocks(::$P) = (2, 2)
+            function CR.forward!(m::$P, ::CR.Step, v::Tuple, s::Tuple, t, g)
+                v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
+                v[1][], v[2][] = v1 * m.a, v2 + 0.1 * s1
+                s[1][], s[2][] = 0.5 * s1 + v1, 0.5 * s2 + v2
+                return nothing
+            end
+            function CR.pullback!(
+                    grads, m::$P, ::CR.Step, v::Tuple, s::Tuple, t, g
+                )
+                v̄1, v̄2 = grads.v[1][], grads.v[2][]
+                s̄1, s̄2 = grads.s[1][], grads.s[2][]
+                CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1][])
+                grads.v[1][], grads.v[2][] = v̄1 * m.a + s̄1, v̄2 + s̄2
+                grads.s[1][], grads.s[2][] = 0.1 * v̄2 + 0.5 * s̄1, 0.5 * s̄2
+                return nothing
+            end
+        end
+    end
+    CR.ntrace(::DevTracedPairs, S) = S ÷ 2
+    function CR.forward!(
+            m::DevTracedPairs, ::CR.Trace, r::Tuple, v::Tuple, s::Tuple,
+            v′::Tuple, s′::Tuple, t, g
+        )
+        only(r)[] = v′[1][] + v′[2][]
+        return nothing
+    end
+    function CR.pullback!(
+            grads, m::DevTracedPairs, ::CR.Trace, v::Tuple, s::Tuple, t, g
+        )
+        r̄ = only(grads.trace)[]
+        grads.v′[1][] += r̄
+        grads.v′[2][] += r̄
+        return nothing
+    end
+    # The traces of pointwise, grouped and user modifiers, written and
+    # reversed per stratum or group on the device, at a few strata and at
+    # more strata or groups than kernel blocks.
+    function traced_passes(ms, S, dev)
+        op, args = modified_case(ms, S, dev)
+        w = CR._WithTrace(op)
+        (y, tr), c = CR._run_forward(w, args...)
+        Ts = tr.modifiers
+        T̄s = map(T -> (dev ? JLArray : identity)(cotangent_like(Array(T))), Ts)
+        Ȳ = dev ? JLArray(weights(S)) : weights(S)
+        x̄ = zero(args[1])
+        rest = map(_ -> nothing, Base.tail(args))
+        piece = CR._zero_mirror(w)
+        tr̄ = (; modifiers = T̄s, pressure = nothing)
+        CR._run_pullback!((; piece, y = (Ȳ, tr̄), args = (x̄, rest...)), w, c)
+        return Array(y), map(Array, Ts), Array(x̄), piece
+    end
+    # A user modifier keeps plain AD on a device, so its rule passes are
+    # checked here directly.
+    many = 2 * (CR._KERNEL_BLOCKS + 1)
+    cases = (
+        "pools per stratum" => (pools, :rule),
+        "two pools" => (S -> (two_pools(S),), :rule),
+        "two draws on one pool" => (S -> (two_draws(),), :rule),
+        "a queue" => (S -> (queued(),), :rule),
+        "a user modifier's own trace" => (S -> (DevTracedPairs(0.9),), :plain),
+        "a user modifier's default trace" => (S -> (DevPairs(0.9),), :plain),
+    )
+    @testset "$name, $S strata" for (name, (ms, how)) in cases, S in (4, many)
+        op, args = modified_case(ms(S), S, true)
+        @test CR._route_val(CR._WithTrace(op), args...) === Val(how)
+        y0, T0, x̄0, p̄0 = traced_passes(ms(S), S, false)
+        y1, T1, x̄1, p̄1 = traced_passes(ms(S), S, true)
+        @test y1 ≈ y0
+        @test all(map(≈, T1, T0))
+        @test x̄1 ≈ x̄0
+        @test agree(p̄1, p̄0)
+    end
+end
+
 @testitem "JLArrays: calls whose reverse pass runs on a device take the rule" setup = [DeviceRules] begin
     S = 4
     route(op, args) = CR._route_val(op, args...)

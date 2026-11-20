@@ -8,9 +8,10 @@ struct _WithTrace{O <: AbstractOperator} <: AbstractOperator
     op::O
 end
 
-# Routed as its operator is.
+# Routed as its operator is, on a device too.
 uses_adjoint(w::_WithTrace, ::Run) = uses_adjoint(w.op, Run())
 _type_adjoint(w::_WithTrace) = _type_adjoint(w.op)
+_device_ready(w::_WithTrace) = _device_ready(w.op)
 _fit(w::_WithTrace, args...) = _fit(w.op, args...)
 
 function _run_forward(w::_WithTrace, gain, add, h, s0, τ0, stop)
@@ -222,6 +223,7 @@ function _add_trace_column!(s̄, T̄, t)
         throw(DimensionMismatch("a trace column is not the state's length"))
     o = (t - 1) * n
     checkbounds(T̄, (o + 1):(o + n))
+    _on_gpu(s̄) && return (s̄ .+= view(vec(T̄), (o + 1):(o + n)); nothing)
     @inbounds for k in 1:n
         s̄[k] += T̄[o + k]
     end
@@ -240,6 +242,7 @@ function _trace_back!(::Val{B}, R, m, m̄, v̄, s̄, r̄, v, s, τ) where {B}
     G = _ngroups(Val(B), length(v))
     R.V̄ .= zero(eltype(R.V̄))
     R.S̄ .= zero(eltype(R.S̄))
+    _on_gpu(v) && return _device_trace_back!(Val(B), R, m, m̄, v̄, s̄, r̄, v, s, τ)
     for g in 1:G
         _group_trace_back!(m, Val(B), R, m̄, v̄, s̄, r̄, v, s, τ, G, g)
     end
@@ -259,6 +262,65 @@ function _group_trace_back!(
     )
     vg, sg = _group_views(v, V, G, g), _group_views(s, Σ, G, g)
     _written(m, pullback!(grads, m, Trace(), vg, sg, τ, g))
+    return nothing
+end
+
+# On a device each group's trace pullback is one index of a kernel, on
+# gathered values in local slots, and writes only its own entries of the
+# cotangents. Groups that share a parameter add into stacked copies of its
+# cotangent, as their step pullbacks do.
+function _device_trace_back!(::Val{B}, R, m, m̄, v̄, s̄, r̄, v, s, τ) where {B}
+    G = _ngroups(Val(B), length(v))
+    accs = _accumulators(Serial(), v, G, G, _param_slots(m̄, m))
+    R̄ = (; V̄ = R.V̄, S̄ = R.S̄)
+    _reduce_blocks!(
+        _trace_back_blocks!, accs, G, R̄, v̄, s̄, r̄, v, s, τ, m, Val(B), G
+    )
+    _reduce!(accs)
+    return nothing
+end
+function _trace_back_blocks!(
+        gs, acc, R̄, v̄, s̄, r̄, v, s, τ, m, ::Val{B}, G
+    ) where {B}
+    m̄ = _unown(acc)
+    for g in gs
+        _slot_trace_back!(m, Val(B), R̄, m̄, v̄, s̄, r̄, v, s, τ, G, g)
+    end
+    return nothing
+end
+# A group's trace pullback on one-entry views of local slots, added into the
+# group's entries; a built-in may take the gathered values instead.
+@inline function _slot_trace_back!(
+        m, ::Val{B}, R̄, m̄, v̄, s̄, r̄, v, s, τ, G, g
+    ) where {B}
+    nv, ns = B
+    V, Σ = Val(nv), Val(ns)
+    z = zero(eltype(v̄))
+    at = x -> _At(x, g)
+    zeros_of(n) = ntuple(_ -> Ref(z), n)
+    a, b, c, d = zeros_of(V), zeros_of(Σ), zeros_of(V), zeros_of(Σ)
+    slots(x, n) = map(y -> at(Ref(y)), _gather(x, n, G, g))
+    grads = (;
+        piece = m̄, trace = slots(r̄, Val(ntrace(m, nv))), v = map(at, a),
+        s = map(at, b), v′ = map(at, c), s′ = map(at, d),
+    )
+    _written(
+        m, @inline pullback!(grads, m, Trace(), slots(v, V), slots(s, Σ), τ, g)
+    )
+    _add_group!(R̄.V̄, a, G, g)
+    _add_group!(R̄.S̄, b, G, g)
+    _add_group!(v̄, c, G, g)
+    _add_group!(s̄, d, G, g)
+    return nothing
+end
+@inline function _slot_trace_back!(
+        m::Depletion, ::Val{B}, R̄, m̄, v̄, s̄, r̄, v, s, τ, G, g
+    ) where {B}
+    return _group_trace_back!(m, Val(B), R̄, m̄, v̄, s̄, r̄, v, s, τ, G, g)
+end
+@inline function _add_group!(x, slots, G, g)
+    n = Val(length(slots))
+    _scatter!(x, map(+, _gather(x, n, G, g), map(getindex, slots)), G, g)
     return nothing
 end
 

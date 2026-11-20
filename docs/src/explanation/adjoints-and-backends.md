@@ -262,6 +262,8 @@ Float types:
   A `Recent` with a coupling fills each stratum's window as one kernel once a step, before the strata read them.
 - A computed kernel (a `Survival` or a `Derived` kernel) fills its weights as one kernel, each thread walking one cohort's lags for one stratum.
   `kernel_weights` fills them the same way when its coefficients live on a device.
+- A modifier's trace is written per stratum, or per group of a blockwise modifier, as one index of a kernel.
+  A modifier whose step runs on the whole vectors writes its trace with its own code, which must not index the arrays from the host.
 - Views and reshapes of device arrays, such as views into one parameter vector, run on the device as the arrays themselves do.
 
 `test/unit/gpu_arrays.jl` runs every operator, coupling and built-in modifier on JLArrays, with scalar indexing disallowed, on every pull request.
@@ -296,6 +298,7 @@ A per-stratum time-varying kernel's cotangent (S × L × T) is not copied, as ea
 The cotangent of a modifier's `PerStratum` parameter in a vector step is not copied either, as each stratum or group writes only its own entries.
 A computed kernel's reverse pass walks its cohorts again in blocks, and each block adds into its own copy of the coefficients' cotangents, as cohorts share them.
 With strata the blocks are blocks of strata, so a per-stratum coefficient's cotangent is not copied either.
+A run that returns its modifiers' traces takes the rule too: each stratum's or group's trace pullback is one index of a kernel, and groups that share a parameter add into stacked copies of its cotangent, as their steps do.
 `kernel_weights` takes the rule the same way.
 A `Redistribute` step runs as kernels, one index per stratum, and each origin writes only its own column of the kernel's cotangent, so nothing is copied.
 
