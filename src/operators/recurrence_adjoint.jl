@@ -650,7 +650,6 @@ function _kernel_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
 end
 # One stratum per kernel index; a fixed kernel's stratum writes only its own
 # column of the buffer, of `H̄` and of `kbuf`.
-const _FixedKernel = Union{AbstractVector, PerStratum}
 function _device_kernel_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
     S = length(p̄)
     _each!(
