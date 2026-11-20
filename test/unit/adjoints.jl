@@ -2527,9 +2527,10 @@ end
         return J
     end
     rng = Xoshiro(3)
-    # Past one pass, whole passes of 24 come first and the inputs left take
-    # the narrowest lane that covers them: `Mixer` has `2S + 2` inputs, so
-    # 2, 4, 6, 10, 18 and 24 in the last pass from 12 strata on.
+    # Past one pass, whole passes of 24 come first and 8 or fewer inputs left
+    # take a pass of 4 or 8; more run every pass 24 wide. `Mixer` has
+    # `2S + 2` inputs, so 2, 4, 6, 10, 18 and 24 past the first pass from 12
+    # strata on.
     for (m, S) in (
             (Mixer(0.9, 0.1), 1), (Mixer(0.9, 0.1), 3), (Mixer(0.9, 0.1), 11),
             (Mixer(0.9, 0.1), 12), (Mixer(0.9, 0.1), 13), (Mixer(0.9, 0.1), 14),
@@ -2565,6 +2566,17 @@ end
         CR._local_step_back!(grads, m, v, s, 2)
         @test (@allocated CR._local_step_back!(grads, m, v, s, 2)) == 0 skip = coverage
         @inferred CR._local_step_back!(grads, m, v, s, 2)
+    end
+    # The lanes a step runs on, by their values' length: 4 inputs left take
+    # the 4-wide lane, 6 the 8-wide and 10 run every pass 24 wide.
+    for (S, used) in ((13, (1, 4)), (14, (2, 4)), (16, (4,)))
+        m = Mixer(0.9, 0.1)
+        m̄ = zero_mirror(m)
+        b = CR._step_duals(m̄, m, Float64)
+        grads = (; piece = m̄, v = ones(S), s = ones(S), pass = b)
+        CR._local_step_back!(grads, m, ones(S), ones(S), 2)
+        @test [length(first(l)) for l in b.lanes] ==
+            [k in used ? S : 0 for k in eachindex(b.lanes)]
     end
     # Through a recurrence the rule matches ForwardDiff over every leaf.
     for (ms, S) in (

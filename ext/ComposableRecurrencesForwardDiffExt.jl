@@ -400,7 +400,10 @@ function _local_step!(m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
 end
 # Inputs beyond `_LOCAL_PRESSURE` take whole passes of that width; when 8 or
 # fewer remain they take one pass of 4 or 8 after them. Otherwise every pass
-# is of 24, or one of 12 or fewer when that covers all the inputs.
+# is of 24, or one of 12 or fewer when that covers all the inputs. Unlike a
+# coupling's, a tail of 9 to 12 does not take the 12-wide lane: after whole
+# passes, that and splitting the passes over two calls ran slower than
+# keeping every pass 24 wide in one.
 function _local_step!(::Val{false}, m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     θs = _step_scalars(m̄, m)
     n = length(v) + length(s) + length(b.θ) + length(θs)
