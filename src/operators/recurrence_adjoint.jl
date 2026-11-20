@@ -140,14 +140,22 @@ end
 _device_coupling(C) = false
 _device_coupling(::Union{UniformScaling, Diagonal}) = true
 _device_coupling(C::AbstractMatrix) = _on_gpu(C)
-# A modifier of another type keeps plain AD: its pullback may index the
-# arrays from the host.
 _device_modifiers(::Tuple{}) = true
 function _device_modifiers(ms::Tuple)
     return _device_modifier(first(ms)) && _device_modifiers(Base.tail(ms))
 end
-_device_modifier(m) = false
+# A modifier the package does not define takes the rule when it runs per
+# stratum and its parameters are scalars: its step reverses per stratum,
+# through its own scalar pullback or a local derivative, in a kernel as its
+# forward step runs. Any other keeps plain AD, as its pullback may index the
+# arrays from the host. An `Init` of its own reverses on the host, so such a
+# call keeps plain AD too (`_parts_fit` on device arrays, in the GPUArraysCore
+# extension).
+_device_modifier(m) = _strata_loop(m) && _scalar_params(m)
 _device_modifier(m::Transform) = _strata_loop(m)
+# The modifiers the package defines, whose `Init` pullbacks run on a device.
+_builtin_modifier(m) = false
+_builtin_modifier(::Union{Transform, Depletion, Allocate, Redistribute}) = true
 # Their group steps reverse in blocks too, as their forward steps run.
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
 # A whole step on the calling task, whose loops run as kernels. Each origin

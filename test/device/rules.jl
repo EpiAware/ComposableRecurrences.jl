@@ -58,6 +58,19 @@ function _rule_passes(op0, args0, A)
     return _host(y), Array(x̄), vcat(_leaves(piece), _leaves(rest))
 end
 
+# A user modifier per stratum with a scalar parameter and no `pullback!`,
+# whose step reverses through its local derivative in a kernel.
+struct _DevShrink{A}
+    a::A
+end
+CR.blocks(::_DevShrink) = (1, 1)
+function CR.forward!(m::_DevShrink, ::CR.Step, v, s, t)
+    for k in eachindex(v, s)
+        v[k] = v[k] / (1 + m.a * v[k])
+    end
+    return nothing
+end
+
 # The rule cases, each an operator and its rule arguments on the host, for
 # `S` strata.
 function _rule_cases(S)
@@ -153,6 +166,8 @@ function _rule_cases(S)
         "Recurrence, feedback from recent outputs across strata" => rec(
             Recurrence(pmf; modifiers = (across,))
         ),
+        "Recurrence, a user modifier with a scalar parameter" =>
+            rec(Recurrence(pmf; coupling = C, modifiers = (_DevShrink(0.1),))),
         "Recurrence, time-varying kernel" => rec(Recurrence(TimeVarying(G))),
         "Recurrence, per-stratum time-varying kernel" =>
             rec(Recurrence(TimeVarying(PerStratum(GS)))),
