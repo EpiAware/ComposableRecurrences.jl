@@ -410,6 +410,21 @@ end
     @test !CR._all_pointwise(moved)
     m̄v = CR._Owned(CR._mirrors(CR._zero_mirror(moved), moved))
     @test CR._stack(m̄v, CR._KERNEL_BLOCKS, H) === m̄v
+    # A movement reads each origin's intensity once per step on a device.
+    # Read through a coupling, at a pass over the strata per read, its
+    # forward pass allocates about 1.4 times as much as with a matrix
+    # intensity on JLArrays at 64 strata, and 28 times with a read for
+    # every pair of strata.
+    function forward_bytes(E, S)
+        moved = (CR.Redistribute(move_kernel(S), E),)
+        op, args = modified_case(moved, S, true)
+        CR._run_forward(op, args...)
+        return @allocated CR._run_forward(op, args...)
+    end
+    across = CR.Derived(
+        x -> 0.2 * tanh(x), 0.05 * CR.Recent(pmf[1:3]; coupling = dense(64))
+    )
+    @test forward_bytes(across, 64) < 4 * forward_bytes(intensity(64), 64)
 end
 
 @testitem "JLArrays: a dense coupling's pullback with and without its own mirror" setup = [DeviceRules] begin
