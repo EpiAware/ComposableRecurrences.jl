@@ -152,11 +152,11 @@ _device_modifier(m::Transform) = _strata_loop(m)
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
 # A whole step on the calling task, whose loops run as kernels. Each origin
 # or stratum writes only its own entries of the moves' cotangent, so the
-# step reverses without per-block copies.
+# step reverses without per-block copies. The kernels index dense matrices.
 const _DeviceMovement = TimeVarying{
-    Secondary, <:_Movement{<:AbstractMatrix, <:AbstractMatrix},
+    Secondary, <:_Movement{<:DenseMatrix, <:DenseMatrix},
 }
-_device_modifier(::Redistribute{<:Any, <:AbstractMatrix}) = true
+_device_modifier(::Redistribute{<:Any, <:DenseMatrix}) = true
 _device_modifier(::Redistribute{<:Any, <:_DeviceMovement}) = true
 
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)

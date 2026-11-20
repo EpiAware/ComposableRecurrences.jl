@@ -941,6 +941,29 @@ function _check_intensity_strata(M::TimeVarying{<:Any, <:_Movement}, S)
     E isa AbstractMatrix || _check_param_strata(:ε, E, S)
     return nothing
 end
+# A step on device arrays reads the moves' entries in kernels, which a
+# sparse matrix cannot give. Checked with the other inputs, before a fresh or
+# a resumed run.
+function _check_device_moves(h, modifiers)
+    _on_gpu(h) && foreach(_device_moves, modifiers)
+    return nothing
+end
+_device_moves(x) = nothing
+_device_moves(m::Redistribute) = _device_moves(m.M)
+function _device_moves(M::TimeVarying{<:Any, <:_Movement})
+    _device_moves(M.x.K)
+    _device_moves(M.x.E)
+    return nothing
+end
+_device_moves(M::AbstractSparseMatrix) = _device_moves_error(M)
+@noinline function _device_moves_error(M)
+    throw(
+        ArgumentError(
+            "Redistribute on device arrays cannot read a sparse matrix, got " *
+                "$(_describe(M)); move a dense copy to the device"
+        )
+    )
+end
 _movement_array(M::AbstractMatrix) = M
 _movement_array(M::TimeVarying) = M.x
 function _check_columns(A, leak)
@@ -962,6 +985,8 @@ end
 # The smallest and largest column sums over every column (and time): one
 # pass over a host array, a reduction elsewhere.
 _column_sum_range(A) = extrema(sum(A; dims = 1))
+# A `Diagonal`'s column sums are its diagonal, read without indexing it.
+_column_sum_range(A::Diagonal) = extrema(A.diag)
 function _column_sum_range(A::Array)
     cs = CartesianIndices(Base.tail(axes(A)))
     lo = hi = _colsum(A, first(cs))
