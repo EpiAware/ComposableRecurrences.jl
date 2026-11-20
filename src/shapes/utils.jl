@@ -498,10 +498,11 @@ end
     return a.k:a.k
 end
 # Over more views too: Base's mismatch error builds a string, which a GPU
-# kernel cannot.
-@inline function Base.eachindex(a::_At, b::_At, c::_At...)
-    all(x -> x.k == a.k, (b, c...)) || _view_mismatch()
-    return a.k:a.k
+# kernel cannot. Pairwise, as a closure over the views would put their
+# slots on the heap in a host step.
+@inline function Base.eachindex(a::_At, b::_At, c::_At, d::_At...)
+    eachindex(a, b)
+    return eachindex(a, c, d...)
 end
 @noinline function _view_mismatch()
     throw(DimensionMismatch("one-entry views of different strata"))
