@@ -365,9 +365,8 @@ end
     using ComposableRecurrences, ForwardDiff
     CR = ComposableRecurrences
     W = WeightsChecks
-    # The walk takes its number type as an argument. Over several strata, a
-    # call that did not specialise on it allocated on every cohort under
-    # dual numbers.
+    # Over several strata under dual numbers, the call's allocations do not
+    # grow with the number of cohorts.
     D = ForwardDiff.Dual{Nothing}
     function allocs(n)
         h = [D(0.1 + 0.3 * abs(sin(t)), 1.0, float(t)) for t in 1:(n + W.L)]
@@ -378,7 +377,8 @@ end
         c(X)
         return @allocations c(X)
     end
-    @test allocs(2 * W.T) - allocs(W.T) < W.T skip = Base.JLOptions().code_coverage != 0
+    coverage = Base.JLOptions().code_coverage != 0
+    @test allocs(4 * W.T) - allocs(2 * W.T) <= 2 skip = coverage
 end
 
 @testitem "Computed kernels: a survival scratch's row is fixed by the hazard's type" begin
