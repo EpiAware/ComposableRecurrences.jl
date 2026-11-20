@@ -569,7 +569,8 @@ end
     @test !CR._device_modifier(tv_moves)
     # Moves as a `Diagonal` or sparse device matrix keep plain AD.
     xd, hd = JLArray(inputs(S)), JLArray(fill(1.0, S, L))
-    for M in (Diagonal(JLArray(fill(0.9, S))), JLSparseMatrixCSR(sparse(dense(S))))
+    diagonal = Diagonal(JLArray(fill(0.9, S)))
+    for M in (diagonal, JLSparseMatrixCSR(sparse(dense(S))))
         r = Recurrence(JLArray(pmf); modifiers = (CR.Redistribute(M),))
         a = CR._run_args(r, xd, hd, nothing, nothing, 1)
         @test (@inferred route(r, (a..., nothing))) === Val(:plain)
