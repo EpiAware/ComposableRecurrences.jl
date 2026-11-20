@@ -567,27 +567,12 @@ end
     @test CR._device_modifiers(())
     @test CR._device_modifier(by_matrix) && CR._device_modifier(movement(S))
     @test !CR._device_modifier(tv_moves)
-    # Moves as a `Diagonal` or sparse device matrix keep plain AD, as the
-    # kernels index dense matrices. A `Diagonal` runs forward as on the
-    # host, and sparse moves on a device fail with a clear error.
-    let
-        diag, moves = fill(0.9, S), 0.8 .* dense(S)
-        h = fill(1.0, S, L)
-        rec(M, x) = Recurrence(
-            x(pmf); modifiers = (CR.Redistribute(M; leak = true),)
-        )
-        run(M, x) = rec(M, x)(x(inputs(S)); history = x(h))
-        D1, D0 = Diagonal(JLArray(diag)), Diagonal(diag)
-        sp = JLSparseMatrixCSR(sparse(moves))
-        for M in (D1, sp)
-            op = rec(M, JLArray)
-            args = CR._run_args(
-                op, JLArray(inputs(S)), JLArray(h), nothing, nothing, 1
-            )
-            @test (@inferred route(op, (args..., nothing))) === Val(:plain)
-        end
-        @test Array(run(D1, JLArray)) ≈ run(D0, identity)
-        @test_throws "dense or Diagonal" run(sp, JLArray)
+    # Moves as a `Diagonal` or sparse device matrix keep plain AD.
+    xd, hd = JLArray(inputs(S)), JLArray(fill(1.0, S, L))
+    for M in (Diagonal(JLArray(fill(0.9, S))), JLSparseMatrixCSR(sparse(dense(S))))
+        r = Recurrence(JLArray(pmf); modifiers = (CR.Redistribute(M),))
+        a = CR._run_args(r, xd, hd, nothing, nothing, 1)
+        @test (@inferred route(r, (a..., nothing))) === Val(:plain)
     end
     @test CR._device_modifier(totals(S))
     # These have their own vector pullbacks, which a device skips.
@@ -605,6 +590,39 @@ end
     # Numbers other than IEEE floats keep plain AD.
     xq, cq = JLArray(fill(1 // 2, S, T)), Convolution(JLArray(fill(1 // 5, L)))
     @test route(cq, (xq, true, nothing, nothing, 1, nothing)) === Val(:plain)
+end
+
+@testitem "JLArrays: Redistribute by a Diagonal, wrapped or sparse matrix" setup = [DeviceRules] begin
+    using JLArrays: JLSparseMatrixCSR
+    using SparseArrays: sparse
+    S = 4
+    h = fill(1.0, S, L)
+    by(M, to) = Recurrence(
+        to(pmf); modifiers = (CR.Redistribute(M; leak = true),)
+    )(to(inputs(S)); history = to(h))
+    # A `Diagonal` or a wrapped dense matrix runs forward as on the host.
+    d, shares = fill(0.9, S), 0.8 .* dense(S)
+    @test Array(by(Diagonal(JLArray(d)), JLArray)) ≈ by(Diagonal(d), identity)
+    @test Array(by(transpose(JLArray(shares)), JLArray)) ≈
+        by(transpose(shares), identity)
+    # Sparse moves fail with a clear error, on a fresh or a resumed run, and
+    # so does a movement's sparse kernel.
+    sp = JLSparseMatrixCSR(sparse(shares))
+    @test_throws "cannot read a sparse matrix" by(sp, JLArray)
+    moved(M) = Recurrence(
+        JLArray(pmf); modifiers = (CR.Redistribute(M; leak = true),)
+    )
+    x = JLArray(inputs(S))
+    _, st = moved(JLArray(shares))(
+        x; history = JLArray(h), stop = 2, record = (:state,)
+    )
+    @test_throws "cannot read a sparse matrix" moved(sp)(x; state = st)
+    E = JLArray(fill(0.1, S, size(inputs(S), 2)))
+    flows = CR.Redistribute(TimeVarying(CR._Movement(sp, E)))
+    r = Recurrence(JLArray(pmf); modifiers = (flows,))
+    @test_throws "cannot read a sparse matrix" r(
+        JLArray(inputs(S)); history = JLArray(h)
+    )
 end
 
 @testitem "JLArrays: the reverse pass stacks shared cotangents with an inferred choice" tags = [:threads] setup = [DeviceRules] begin

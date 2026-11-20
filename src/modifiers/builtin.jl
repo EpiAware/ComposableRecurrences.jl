@@ -926,7 +926,6 @@ _trace_is_state(::Redistribute) = true
 # and on a resumed state, not on every step.
 function forward!(m::Redistribute, ::Init, s, history)
     _check_modifier_strata(m, length(s))
-    _check_device_moves(m.M, s)
     fill!(s, zero(eltype(s)))
     return nothing
 end
@@ -942,19 +941,26 @@ function _check_intensity_strata(M::TimeVarying{<:Any, <:_Movement}, S)
     E isa AbstractMatrix || _check_param_strata(:ε, E, S)
     return nothing
 end
-# A step on device arrays reads each diagonal entry of the moves in a
-# kernel, which a dense or `Diagonal` matrix gives and a sparse one does not.
-_check_device_moves(M, s) = nothing
-function _check_device_moves(M::AbstractMatrix, s)
-    _on_gpu(s) && !(M isa Union{DenseMatrix, Diagonal}) && _device_moves_error(M)
+# A step on device arrays reads the moves' entries in kernels, which a
+# sparse matrix cannot give. Checked with the other inputs, before a fresh or
+# a resumed run.
+function _check_device_moves(h, modifiers)
+    _on_gpu(h) && foreach(_device_moves, modifiers)
     return nothing
 end
+_device_moves(x) = nothing
+_device_moves(m::Redistribute) = _device_moves(m.M)
+function _device_moves(M::TimeVarying{<:Any, <:_Movement})
+    _device_moves(M.x.K)
+    _device_moves(M.x.E)
+    return nothing
+end
+_device_moves(M::AbstractSparseMatrix) = _device_moves_error(M)
 @noinline function _device_moves_error(M)
     throw(
         ArgumentError(
-            "Redistribute on device arrays takes its moves as a dense or " *
-                "Diagonal matrix, got $(_describe(M)); move a dense copy to " *
-                "the device"
+            "Redistribute on device arrays cannot read a sparse matrix, got " *
+                "$(_describe(M)); move a dense copy to the device"
         )
     )
 end

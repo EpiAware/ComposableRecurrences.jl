@@ -563,6 +563,8 @@ function _pass_buffer(
 end
 _batches(P, P̄) = false
 _batches(P::Matrix, P̄) = _array_mirror(P̄) isa Matrix
+# A spill on device arrays is checked as a `Redistribute` is.
+_device_moves(m::Allocate{<:Any, <:_AllocateImports}) = _device_moves(m.imports.spill)
 _batches_spill(spill, r̄) = false
 _batches_spill(r::Redistribute, r̄) = _batches(r.M, cotangent(r̄, :M))
 # Every step's pullback writes its column before `_finish_pass!` reads
