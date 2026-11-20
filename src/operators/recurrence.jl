@@ -1301,6 +1301,7 @@ function _recur(
     _check_times(:coupling, coupling, stop)
     _check_times(:modifiers, modifiers, stop)
     _check_device(h, (kernel, coupling, modifiers, gain, add, s0))
+    _check_device_moves(h, modifiers)
     T = stop - τ0 + 1
     Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
     return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache)

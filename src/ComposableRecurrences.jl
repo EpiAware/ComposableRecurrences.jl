@@ -85,7 +85,8 @@ using DocStringExtensions: @template, DOCSTRING, EXPORTS, IMPORTS,
 using Interfaces: Interfaces, Arguments, @interface, @implements
 using LinearAlgebra: Diagonal, I, UniformScaling, mul!
 using PrecompileTools: @compile_workload, @setup_workload
-using SparseArrays: SparseMatrixCSC, nonzeros, nzrange, rowvals
+using SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, nonzeros, nzrange,
+    rowvals
 using Base.ScopedValues: ScopedValue
 
 # Register the standard docstring conventions before any
