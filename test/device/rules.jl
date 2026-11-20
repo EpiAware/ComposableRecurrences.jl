@@ -122,6 +122,12 @@ function _rule_cases(S)
     moves = CR.Redistribute(0.9 .* C; leak = true)
     E = [0.1 + 0.01 * k + 0.005 * t for k in 1:S, t in 1:T]
     movement = CR.Redistribute(0.6 .* (ones(S, S) .- I(S)) ./ (S - 1), E)
+    # The intensity read from recent outputs, whose scale every origin
+    # shares.
+    flows = 0.6 .* (ones(S, S) .- I(S)) ./ (S - 1)
+    from_recent = CR.Redistribute(
+        flows, CR.Derived(x -> 0.2 * tanh(x), 0.05 * CR.Recent(pmf[1:3]))
+    )
     # Kernels computed from a hazard over time: shared by the strata and
     # confirmed from the lag after entry, one per stratum, and one through a
     # map, whose partials come from a local forward-mode derivative.
@@ -174,6 +180,8 @@ function _rule_cases(S)
         "Recurrence, trace of two draws on one pool" => traced(two_draws),
         "Recurrence, traces of pools beside a matrix of moves" =>
             traced(pools..., moves),
+        "Recurrence, movement read from recent outputs" =>
+            stepped(from_recent),
         "Convolution, kernel from a hazard and a survival" =>
             conv(computed(confirmed)),
         "Convolution, survival per stratum" => conv(computed(stratified)),
