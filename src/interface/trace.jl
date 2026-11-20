@@ -203,8 +203,8 @@ end
     return nothing
 end
 @inline function _slot_forward!(::Nothing, m, r, args, t, g)
-    return forward!(m, Trace(), r, map(only, args)..., t)
+    return @inline forward!(m, Trace(), r, map(only, args)..., t)
 end
 @inline function _slot_forward!(::Val, m, r, args, t, g)
-    return forward!(m, Trace(), r, args..., t, g)
+    return @inline forward!(m, Trace(), r, args..., t, g)
 end
