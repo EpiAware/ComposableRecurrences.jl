@@ -185,6 +185,49 @@ end
     end
 end
 
+@testitem "JLArrays: the rule passes of routes match the CPU" setup = [DeviceRules] begin
+    using SparseArrays: sparse
+    # Two routes of different lengths, each a coupling and its own kernel.
+    # A sparse route coupling becomes a dense matrix on the device, so the
+    # host runs its dense copy, whose cotangent the device's matches.
+    near(S) = Matrix(0.3I, S, S) .+ 0.1 .* (ones(S, S) .- I(S)) ./ S
+    short = pmf[1:(L - 1)]
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        sp = sparse(near(S))
+        cases = [
+            "dense routes" => (
+                Pairwise(dense(S) => short, near(S) => pmf),
+                Pairwise(dense(S) => short, near(S) => pmf),
+            ),
+            "a sparse route" => (
+                Pairwise(dense(S) => short, Matrix(sp) => pmf),
+                Pairwise(dense(S) => short, sp => pmf),
+            ),
+            "a per-stratum route kernel" => (
+                Pairwise(dense(S) => PerStratum(repeat(short', S)), near(S) => pmf),
+                Pairwise(dense(S) => PerStratum(repeat(short', S)), near(S) => pmf),
+            ),
+        ]
+        @testset "$name, $S strata" for (name, (host, device)) in cases
+            op0, args0 = recurrence_case(I, S, false; kernel = host)
+            op1, args1 = recurrence_case(I, S, true; kernel = device)
+            @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
+            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
+            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
+            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test agree(p̄1, p̄0)
+        end
+    end
+    # A route coupling that is not a matrix on the device keeps plain AD.
+    # Routes that are all scaled identities fold into one kernel, so one
+    # route here is a matrix.
+    mixed = Pairwise(dense(4) => short, 0.5I => pmf)
+    op, args = recurrence_case(I, 4, true; kernel = mixed)
+    @test (@inferred CR._route_val(op, args...)) === Val(:plain)
+end
+
 @testitem "JLArrays: the rule passes of a convolution with gain and add match the CPU" setup = [DeviceRules] begin
     # The output, and the cotangents of the input, gain, add input and
     # history, after the rule's passes with output cotangent `Ȳ`. A scalar

@@ -1,7 +1,7 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
-using ComposableRecurrences: ComposableRecurrences, Parallel, Pressure,
-    Secondary, Serial, Threaded, TimeVarying, _Ragged, _Piecewise,
+using ComposableRecurrences: ComposableRecurrences, Parallel, PerStratum,
+    Pressure, Secondary, Serial, Threaded, TimeVarying, _Ragged, _Piecewise,
     _PIECEWISE_DEVICE
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
 using KernelAbstractions: get_backend
@@ -16,6 +16,17 @@ function ComposableRecurrences._resolve(
     return Parallel(get_backend(x))
 end
 ComposableRecurrences._on_gpu(::AnyGPUArray) = true
+
+# A route's fixed kernel reverses one stratum per kernel index on a device,
+# as each stratum writes only its own entries.
+function ComposableRecurrences._kernel_back!(
+        kbuf, ḡ, g::Union{AbstractVector, PerStratum}, p̄::AnyGPUArray,
+        H, H̄, t, τ, L
+    )
+    return ComposableRecurrences._device_kernel_back!(
+        kbuf, ḡ, g, p̄, H, H̄, t, τ, L
+    )
+end
 
 # Device arrays reverse by indexing with a reversed range, one gather,
 # where `reverse` would index each entry from the host.

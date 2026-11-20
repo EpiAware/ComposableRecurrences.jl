@@ -146,6 +146,26 @@ function _kernel_adjoint(R::_Routes)
 end
 _kernel_couplings(R::_Routes) = R.couplings
 
+# Routes reverse on the calling task, one route at a time: each route's
+# coupling as a coupling's pressure does, and its kernel one stratum per
+# kernel index. A fixed kernel's strata write only their own entries; a
+# route coupling must be a matrix on the device.
+function _device_ready(r::Recurrence{<:_Routes})
+    R = r.kernel
+    return _device_coupling(r.coupling) && _device_routes(R.couplings) &&
+        _device_route_kernels(R.kernels) && _device_modifiers(r.modifiers)
+end
+_device_routes(::Tuple{}) = true
+function _device_routes(Cs::Tuple)
+    C = first(Cs)
+    return C isa AbstractMatrix && _on_gpu(C) && _device_routes(Base.tail(Cs))
+end
+_device_route_kernels(::Tuple{}) = true
+function _device_route_kernels(gs::Tuple)
+    return first(gs) isa Union{AbstractVector, PerStratum} &&
+        _device_route_kernels(Base.tail(gs))
+end
+
 # The plain-AD note names the route couplings the rule cannot use.
 function _no_adjoint_kernel(R::_Routes)
     return Tuple(
