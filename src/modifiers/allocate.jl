@@ -471,41 +471,55 @@ function pullback!(
     u, h = _spilled_and_pattern(_field(grads, :after), spill, pattern, v, t)
     pass = _field(grads, :pass)
     ε = eps(eltype(v))
-    # On the host main's loop, unchanged; on a device the same per-group
-    # body runs as one kernel index per group.
-    if _on_gpu(v) && _device_modifier(m)
-        _device_imports_back!(T̄, φ̄, m, v̄, h̄, u, h, t, ε)
-    else
-        for p in 1:_ngroups(m)
-            zs = _group(m, p)
-            su = zero(eltype(v))
-            sh = zero(eltype(v))
-            au = zero(eltype(v̄))
-            ah = zero(eltype(v̄))
-            for k in zs
-                su += u[k]
-                sh += h[k]
-                au += v̄[k] * u[k]
-                ah += v̄[k] * h[k]
-            end
-            T, φ = param(m.total, p, t), param(fraction, p, t)
-            cu, ch = _import_weights(T, φ, su, sh, ε)
-            mh = max(sh, ε)
-            r = sh / mh
-            au /= max(su, ε)
-            ah /= mh
-            add_param!(T̄, m.total, (1 - φ * r) * au + φ * ah, p, t)
-            add_param!(φ̄, fraction, T * (ah - r * au), p, t)
-            on = su >= ε
-            # Below the floor `h` moves the share through `r`, not through `mh`.
-            bh = sh > ε ? ah : au
-            for k in zs
-                ȳk = v̄[k]
-                h̄[k] += ch * (ȳk - bh)
-                v̄[k] = cu * (on ? ȳk - au : ȳk)
-            end
+    for p in 1:_ngroups(m)
+        zs = _group(m, p)
+        su = zero(eltype(v))
+        sh = zero(eltype(v))
+        au = zero(eltype(v̄))
+        ah = zero(eltype(v̄))
+        for k in zs
+            su += u[k]
+            sh += h[k]
+            au += v̄[k] * u[k]
+            ah += v̄[k] * h[k]
+        end
+        T, φ = param(m.total, p, t), param(fraction, p, t)
+        cu, ch = _import_weights(T, φ, su, sh, ε)
+        mh = max(sh, ε)
+        r = sh / mh
+        au /= max(su, ε)
+        ah /= mh
+        add_param!(T̄, m.total, (1 - φ * r) * au + φ * ah, p, t)
+        add_param!(φ̄, fraction, T * (ah - r * au), p, t)
+        on = su >= ε
+        # Below the floor `h` moves the share through `r`, not through `mh`.
+        bh = sh > ε ? ah : au
+        for k in zs
+            ȳk = v̄[k]
+            h̄[k] += ch * (ȳk - bh)
+            v̄[k] = cu * (on ? ȳk - au : ȳk)
         end
     end
+    r̄, P̄ = cotangent(īm, :spill), cotangent(īm, :pattern)
+    _spill_back!(spill, r̄, v̄, s̄, v, t, _field(pass, :vc), pass)
+    _pattern_back!(pattern, P̄, h̄, v̄, v, t, _field(pass, :hb))
+    fill!(h̄, zero(eltype(h̄)))
+    return nothing
+end
+
+# On a device, through a method of `pullback!` on device arrays in the
+# GPUArraysCore extension, so the host method above holds no device code:
+# the same steps, with each group one kernel index.
+function _device_imports_pullback!(grads, m, v, s, t)
+    (; fraction, pattern, spill) = m.imports
+    v̄, s̄ = grads.v, grads.s
+    S = length(v)
+    h̄ = view(s̄, (length(s̄) - S + 1):length(s̄))
+    īm = cotangent(grads.piece, :imports)
+    T̄, φ̄ = cotangent(grads.piece, :total), cotangent(īm, :fraction)
+    u, h = _spilled_and_pattern(_field(grads, :after), spill, pattern, v, t)
+    pass = _field(grads, :pass)
+    _device_imports_back!(T̄, φ̄, m, v̄, h̄, u, h, t, eps(eltype(v)))
     r̄, P̄ = cotangent(īm, :spill), cotangent(īm, :pattern)
     _spill_back!(spill, r̄, v̄, s̄, v, t, _field(pass, :vc), pass)
     _pattern_back!(pattern, P̄, h̄, v̄, v, t, _field(pass, :hb))
