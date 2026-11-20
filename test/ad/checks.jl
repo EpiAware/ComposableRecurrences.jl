@@ -81,11 +81,14 @@
     # Whether the gradients of the scenario named `name` ran the analytic
     # reverse pass (`fired`), as they must on a backend with a rule of its
     # own, unless the scenario is a `NoAdjoint` twin or takes plain AD there
-    # by design (`plain`). A rule that stops firing fails here.
+    # by design (`plain`). A rule that stops firing fails here. A broken
+    # scenario's gradient may throw before any pass runs, so the check that
+    # its rule fires is broken too; the check that none fires holds either
+    # way, so it stays a test.
     function test_rule_fires(name, fired, plain, broken)
         rule = !startswith(name, "NoAdjoint") && !(name in plain)
         @testset "$name: $(rule ? "the rule fires" : "no rule fires")" begin
-            if broken
+            if broken && rule
                 @test_broken fired == rule
             else
                 @test fired == rule
