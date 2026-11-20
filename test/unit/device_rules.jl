@@ -99,6 +99,20 @@
         h = S ÷ 2
         return CR.Allocate([1:h, (h + 1):S], PerStratum(fill(1.0, 2)))
     end
+    # Grouped totals that import by a pattern, with a fraction the groups
+    # share or one per group, and a spill within the first group.
+    function imported(S; fraction = 0.2, spill = true)
+        h = S ÷ 2
+        P = zeros(S, S)
+        P[1, S], P[2, S], P[S, 1] = 0.6, 0.4, 1.0
+        M = Matrix(1.0I, S, S)
+        M[1:2, 1:2] .= [0.9 0.1; 0.1 0.9]
+        spills = spill ? (; spill = CR.Redistribute(M)) : (;)
+        return CR.Allocate(
+            [1:h, (h + 1):S], PerStratum(fill(6.0, 2));
+            imports = (fraction, P), spills...
+        )
+    end
 
     # A cotangent with the shape of `y`, the same on the host and the
     # device for outputs of one shape.
@@ -323,6 +337,10 @@ end
             "two draws on one pool" => (two_draws(),),
             "an overflow that joins a queue" => (queued(),),
             "grouped totals" => (totals(S),),
+            "grouped totals with imports and a spill" => (imported(S),),
+            "grouped totals importing with a fraction per group" => (
+                imported(S; fraction = PerStratum([0.2, 0.1]), spill = false),
+            ),
             # Whole steps that move between strata, as kernels.
             "movement of a kernel and an intensity" => (movement(S),),
             "movement that leaks, and a pool" => (
@@ -657,7 +675,7 @@ end
     op, args = modified_case((pools(S)...,), S, true)
     @test (@inferred route(op, args)) === Val(:rule)
     # So do built-in modifiers whose steps run per group.
-    for m in (two_pools(S), two_draws(), queued(), totals(S))
+    for m in (two_pools(S), two_draws(), queued(), totals(S), imported(S))
         op, args = modified_case((m,), S, true)
         @test (@inferred route(op, args)) === Val(:rule)
     end

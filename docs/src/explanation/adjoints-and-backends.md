@@ -289,7 +289,8 @@ The package's own rules run on device arrays for:
 - a recurrence with:
   - a kernel that is fixed, time-varying as a dense array, or computed;
   - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
-  - modifiers that are `Transform`s, `Depletion`s, `Allocate`s without imports and `Redistribute`s.
+  - modifiers that are `Transform`s, `Depletion`s, `Allocate`s and `Redistribute`s.
+    An `Allocate` with imports takes the rule when its pattern is a matrix on the device.
     A `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
     A `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time.
 
@@ -309,7 +310,7 @@ Other calls on device arrays take plain AD, as their reverse passes still index 
 - a kernel given by change points or as ragged columns;
 - a time-varying coupling;
 - a `Redistribute` whose moves are a time-varying array, or whose intensity is read from a parameter;
-- an `Allocate` with imports;
+- an `Allocate` whose import pattern varies over time;
 - a modifier type the package does not define.
 
 What is checked:
