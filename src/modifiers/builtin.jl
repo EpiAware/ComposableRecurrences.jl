@@ -872,6 +872,10 @@ function forward!(
     (; K, E) = m.M.x
     _check_time(E, t)
     _check_pressure(K, s, v)
+    # Every movement steps forward as kernels on a device, though only those
+    # `_device_modifier` admits reverse there: a call whose intensity is read
+    # from a parameter takes plain AD, which runs this forward step on the
+    # device too, so it must not index from the host.
     _on_gpu(v) && return _device_movement_step!(K, E, v, s, t)
     fill!(s, zero(eltype(s)))
     for b in axes(K, 2)
@@ -894,9 +898,9 @@ end
 # On a device a thread per destination sums its arrivals into `s`, then a
 # second kernel updates `v`, as every arrival reads the old `v`.
 function _device_movement_step!(K, E, v, s, t)
-    S, ex = length(v), _resolve(Serial(), v)
-    each!(_movement_arrivals!, ex, S, typemax(Int), s, K, E, v, t)
-    each!(_movement_keep!, ex, S, typemax(Int), v, s, K, E, t)
+    S = length(v)
+    _each!(_movement_arrivals!, Serial(), v, S, typemax(Int), s, K, E, v, t)
+    _each!(_movement_keep!, Serial(), v, S, typemax(Int), v, s, K, E, t)
     return nothing
 end
 function _movement_arrivals!(a, s, K, E, v, t)
@@ -994,7 +998,9 @@ function pullback!(grads, m::Redistribute, ::Step, v, s, t)
     v̄, s̄ = grads.v, grads.s
     _stays(M) && return (fill!(s̄, zero(eltype(s̄))); nothing)
     M̄ = cotangent(grads.piece, :M)
-    _on_gpu(v) && return _device_redistribute_back!(M̄, M, v̄, s̄, v, t)
+    # Only the moves `_device_modifier` admits reverse on a device.
+    _on_gpu(v) && _device_modifier(m) &&
+        return _device_redistribute_back!(M̄, M, v̄, s̄, v, t)
     for p in eachindex(v, v̄, s̄)
         s̄p = s̄[p]
         s̄[p] = v̄[p] + s̄p
@@ -1008,8 +1014,10 @@ end
 # On a device a thread per stratum takes the diagonal's share, then the
 # coupling's products run as on a device coupling.
 function _device_redistribute_back!(M̄, M, v̄, s̄, v, t)
-    S, ex = length(v), _resolve(Serial(), v)
-    each!(_redistribute_back_body!, ex, S, typemax(Int), M̄, M, v̄, s̄, v, t)
+    _each!(
+        _redistribute_back_body!, Serial(), v, length(v), typemax(Int),
+        M̄, M, v̄, s̄, v, t
+    )
     pullback!((; piece = M̄, q = s̄, p = v̄), M, Pressure(), s̄, v, t)
     fill!(s̄, zero(eltype(s̄)))
     return nothing
@@ -1041,7 +1049,8 @@ function pullback!(
     (; K, E) = m.M.x
     X̄ = cotangent(cotangent(grads.piece, :M), :x)
     K̄, Ē = cotangent(X̄, :K), cotangent(X̄, :E)
-    _on_gpu(v) && return _device_movement_back!(K̄, Ē, K, E, v̄, s̄, v, t)
+    _on_gpu(v) && _device_modifier(m) &&
+        return _device_movement_back!(K̄, Ē, K, E, v̄, s̄, v, t)
     # `v̄` holds `s̄′` until its column is done, which reads it for the
     # diagonal.
     for p in eachindex(v, v̄, s̄)
@@ -1082,13 +1091,16 @@ function pullback!(
     return nothing
 end
 
-# On a device the same as a kernel per origin `b`, which alone writes
-# column `b` of `K̄`, `Ē[b, t]` and `v̄[b]`, while every origin reads `s̄`.
+# Per origin `b`, one thread writes column `b` of `K̄`, `Ē[b, t]` and
+# `v̄[b]`. Every thread reads `s̄`, so the swap runs first as its own kernel.
+# The body is the host loop's second branch: with `d` zero it gives the
+# first branch, so the device needs no `iszero(d)` check.
 function _device_movement_back!(K̄, Ē, K, E, v̄, s̄, v, t)
-    S, ex = length(v), _resolve(Serial(), v)
-    each!(_movement_swap!, ex, S, typemax(Int), v̄, s̄)
-    each!(
-        _movement_back_body!, ex, S, typemax(Int), K̄, Ē, K, E, v̄, s̄, v, t
+    S = length(v)
+    _each!(_movement_swap!, Serial(), v, S, typemax(Int), v̄, s̄)
+    _each!(
+        _movement_back_body!, Serial(), v, S, typemax(Int),
+        K̄, Ē, K, E, v̄, s̄, v, t
     )
     fill!(s̄, zero(eltype(s̄)))
     return nothing
