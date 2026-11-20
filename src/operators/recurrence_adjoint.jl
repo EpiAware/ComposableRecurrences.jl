@@ -656,6 +656,20 @@ function _kernel_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
     end
     return nothing
 end
+# One stratum per kernel index; a fixed kernel's stratum writes only its own
+# column of the buffer, of `H̄` and of `kbuf`.
+function _device_kernel_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
+    S = length(p̄)
+    _each!(
+        _route_kernel_back!, Serial(), p̄, S, typemax(Int),
+        kbuf, ḡ, g, p̄, H, H̄, t, τ, L
+    )
+    return nothing
+end
+function _route_kernel_back!(k, kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
+    @inbounds _kernel_back_at!(kbuf, ḡ, g, p̄[k], H, H̄, t, τ, L, k)
+    return nothing
+end
 function _kernel_back!(kbuf, ḡ, g::_OldestFirstPairwise, p̄, H, H̄, t, τ, L)
     for a in eachindex(p̄), b in axes(H, 2)
         kb = kbuf === nothing ? nothing : view(kbuf, :, b, a)

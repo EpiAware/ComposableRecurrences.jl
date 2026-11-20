@@ -2,7 +2,7 @@ module ComposableRecurrencesGPUArraysCoreExt
 
 using ComposableRecurrences: ComposableRecurrences, Allocate, Parallel,
     Pressure, Secondary, Serial, Step, Threaded, TimeVarying, _AllocateImports,
-    _Ragged, _Piecewise, _PIECEWISE_DEVICE
+    _FixedKernel, _Ragged, _Piecewise, _PIECEWISE_DEVICE
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
 using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
@@ -16,6 +16,16 @@ function ComposableRecurrences._resolve(
     return Parallel(get_backend(x))
 end
 ComposableRecurrences._on_gpu(::AnyGPUArray) = true
+
+# A fixed kernel's pullback over every stratum on device arrays, as a
+# route's kernel runs it; the host loop cannot index them.
+function ComposableRecurrences._kernel_back!(
+        kbuf, ḡ, g::_FixedKernel, p̄::AnyGPUArray, H, H̄, t, τ, L
+    )
+    return ComposableRecurrences._device_kernel_back!(
+        kbuf, ḡ, g, p̄, H, H̄, t, τ, L
+    )
+end
 
 # An `Allocate` with imports on a device reverses each group as one kernel
 # index, as the host loop cannot index device arrays; the host method holds

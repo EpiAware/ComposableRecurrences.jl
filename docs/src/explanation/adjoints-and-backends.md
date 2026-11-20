@@ -293,6 +293,8 @@ The package's own rules run on device arrays for:
     An `Allocate` with imports takes the rule when its pattern is a matrix on the device and its spill, if it has one, takes the rule too.
     A `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
     A `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time or read from a parameter, such as recent outputs.
+- a recurrence over routes (a `Pairwise` of couplings and kernels) whose couplings are matrices on the device and whose kernels are fixed.
+  A sparse route coupling becomes a dense matrix on the device.
 
 Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
@@ -305,10 +307,12 @@ A run that returns its modifiers' traces takes the rule too: each stratum's or g
 A `Redistribute` step runs as kernels, one index per stratum, and each origin writes only its own column of the kernel's cotangent, so nothing is copied.
 An intensity read from a parameter may share a cotangent between origins, such as a scale's, and blocks of origins add into their own copies of it.
 The rule covers `window_sums` too: each sum is one index of a kernel, and in the reverse pass each time adds the cotangents of the windows it falls in.
+Routes reverse one route at a time on the calling task: each route's coupling as a dense coupling's pressure does, then its kernel, one stratum per kernel index, as each stratum writes only its own entries.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 
 - a kernel given by change points or as ragged columns;
+- routes with a coupling that is not a matrix, such as a scaled identity beside a matrix, or with a time-varying kernel;
 - a time-varying coupling;
 - a `Redistribute` whose moves are a time-varying array;
 - an `Allocate` whose import pattern varies over time;
