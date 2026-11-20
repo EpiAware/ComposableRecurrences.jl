@@ -559,6 +559,11 @@ end
         "two pools" => (S -> (two_pools(S),), :rule),
         "two draws on one pool" => (S -> (two_draws(),), :rule),
         "a queue" => (S -> (queued(),), :rule),
+        # Beside a whole-step modifier the pools' traces reverse at vector
+        # level, one kernel index per stratum.
+        "pools and a matrix of moves" => (
+            S -> (pools(S)..., CR.Redistribute(moves(S))), :rule,
+        ),
         "a user modifier's own trace" => (S -> (DevTracedPairs(0.9),), :plain),
         "a user modifier's default trace" => (S -> (DevPairs(0.9),), :plain),
     )

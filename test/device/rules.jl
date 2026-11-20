@@ -161,6 +161,8 @@ function _rule_cases(S)
         "Recurrence, traces of two pools and of a queue" =>
             traced(two_pools, queued),
         "Recurrence, trace of two draws on one pool" => traced(two_draws),
+        "Recurrence, traces of pools beside a matrix of moves" =>
+            traced(pools..., moves),
         "Convolution, kernel from a hazard and a survival" =>
             conv(computed(confirmed)),
         "Convolution, survival per stratum" => conv(computed(stratified)),

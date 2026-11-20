@@ -233,6 +233,8 @@ end
 function _trace_back!(::Nothing, R, m, m̄, v̄, s̄, r̄, v, s, τ)
     R.V̄ .= zero(eltype(R.V̄))
     R.S̄ .= zero(eltype(R.S̄))
+    _on_gpu(v) && _strata_loop(m) &&
+        return _device_trace_back!(nothing, R, m, m̄, v̄, s̄, r̄, v, s, τ)
     r = _strata_loop(m) ? _trace_series(r̄, Val(ntrace(m, 1)), length(v)) : r̄
     grads = (; piece = m̄, trace = r, v = R.V̄, s = R.S̄, v′ = v̄, s′ = s̄)
     _written(m, pullback!(grads, m, Trace(), v, s, τ))
@@ -265,35 +267,31 @@ function _group_trace_back!(
     return nothing
 end
 
-# On a device each group's trace pullback is one index of a kernel, on
-# gathered values in local slots, and writes only its own entries of the
-# cotangents. Groups that share a parameter add into stacked copies of its
-# cotangent, as their step pullbacks do.
-function _device_trace_back!(::Val{B}, R, m, m̄, v̄, s̄, r̄, v, s, τ) where {B}
-    G = _ngroups(Val(B), length(v))
+# On a device each stratum's, or group's, trace pullback is one index of a
+# kernel, on gathered values in local slots, and writes only its own entries
+# of the cotangents. Groups that share a parameter add into stacked copies of
+# its cotangent, as their step pullbacks do.
+function _device_trace_back!(B, R, m, m̄, v̄, s̄, r̄, v, s, τ)
+    G = _trace_groups(B, length(v))
     accs = _accumulators(Serial(), v, G, G, _param_slots(m̄, m))
     R̄ = (; V̄ = R.V̄, S̄ = R.S̄)
     _reduce_blocks!(
-        _trace_back_blocks!, accs, G, R̄, v̄, s̄, r̄, v, s, τ, m, Val(B), G
+        _trace_back_blocks!, accs, G, R̄, v̄, s̄, r̄, v, s, τ, m, B, G
     )
     _reduce!(accs)
     return nothing
 end
-function _trace_back_blocks!(
-        gs, acc, R̄, v̄, s̄, r̄, v, s, τ, m, ::Val{B}, G
-    ) where {B}
+function _trace_back_blocks!(gs, acc, R̄, v̄, s̄, r̄, v, s, τ, m, B, G)
     m̄ = _unown(acc)
     for g in gs
-        _slot_trace_back!(m, Val(B), R̄, m̄, v̄, s̄, r̄, v, s, τ, G, g)
+        _slot_trace_back!(m, B, R̄, m̄, v̄, s̄, r̄, v, s, τ, G, g)
     end
     return nothing
 end
 # A group's trace pullback on one-entry views of local slots, added into the
 # group's entries; a built-in may take the gathered values instead.
-@inline function _slot_trace_back!(
-        m, ::Val{B}, R̄, m̄, v̄, s̄, r̄, v, s, τ, G, g
-    ) where {B}
-    nv, ns = B
+@inline function _slot_trace_back!(m, B, R̄, m̄, v̄, s̄, r̄, v, s, τ, G, g)
+    nv, ns = _trace_shape(B)
     V, Σ = Val(nv), Val(ns)
     z = zero(eltype(v̄))
     at = x -> _At(x, g)
@@ -301,12 +299,12 @@ end
     a, b, c, d = zeros_of(V), zeros_of(Σ), zeros_of(V), zeros_of(Σ)
     slots(x, n) = map(y -> at(Ref(y)), _gather(x, n, G, g))
     grads = (;
-        piece = m̄, trace = slots(r̄, Val(ntrace(m, nv))), v = map(at, a),
-        s = map(at, b), v′ = map(at, c), s′ = map(at, d),
+        piece = m̄, trace = slots(r̄, Val(ntrace(m, nv))),
+        v = _slot_args(B, map(at, a)), s = _slot_args(B, map(at, b)),
+        v′ = _slot_args(B, map(at, c)), s′ = _slot_args(B, map(at, d)),
     )
-    _written(
-        m, @inline pullback!(grads, m, Trace(), slots(v, V), slots(s, Σ), τ, g)
-    )
+    args = (_slot_args(B, slots(v, V)), _slot_args(B, slots(s, Σ)))
+    _written(m, @inline _slot_pullback!(B, grads, m, args, τ, g))
     _add_group!(R̄.V̄, a, G, g)
     _add_group!(R̄.S̄, b, G, g)
     _add_group!(v̄, c, G, g)
@@ -317,6 +315,16 @@ end
         m::Depletion, ::Val{B}, R̄, m̄, v̄, s̄, r̄, v, s, τ, G, g
     ) where {B}
     return _group_trace_back!(m, Val(B), R̄, m̄, v̄, s̄, r̄, v, s, τ, G, g)
+end
+# A pointwise modifier's step takes one view per argument and no group; a
+# blockwise one takes a tuple per argument and its group.
+_slot_args(::Nothing, x) = only(x)
+_slot_args(::Val, x) = x
+@inline function _slot_pullback!(::Nothing, grads, m, args, τ, g)
+    return @inline pullback!(grads, m, Trace(), args..., τ)
+end
+@inline function _slot_pullback!(::Val, grads, m, args, τ, g)
+    return @inline pullback!(grads, m, Trace(), args..., τ, g)
 end
 @inline function _add_group!(x, slots, G, g)
     n = Val(length(slots))
