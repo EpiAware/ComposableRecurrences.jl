@@ -1,8 +1,8 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
-using ComposableRecurrences: ComposableRecurrences, Parallel, Pressure,
-    Secondary, Serial, Threaded, TimeVarying, _Ragged, _Piecewise,
-    _PIECEWISE_DEVICE
+using ComposableRecurrences: ComposableRecurrences, Allocate, Parallel,
+    Pressure, Secondary, Serial, Step, Threaded, TimeVarying, _AllocateImports,
+    _Ragged, _Piecewise, _PIECEWISE_DEVICE
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
 using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
@@ -28,6 +28,16 @@ end
 function _host_init(m, h)
     ComposableRecurrences._builtin_modifier(m) && return false
     return !ComposableRecurrences._default_init(m, similar(h, 0), h)
+end
+
+# An `Allocate` with imports on a device reverses each group as one kernel
+# index, as the host loop cannot index device arrays; the host method holds
+# no device code.
+function ComposableRecurrences.pullback!(
+        grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step,
+        v::AnyGPUArray, s, t
+    )
+    return ComposableRecurrences._device_imports_pullback!(grads, m, v, s, t)
 end
 
 # Device arrays reverse by indexing with a reversed range, one gather,

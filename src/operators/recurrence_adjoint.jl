@@ -151,6 +151,14 @@ _device_modifier(m) = _strata_loop(m) && _scalar_params(m)
 _device_modifier(m::Transform) = _strata_loop(m)
 # Built-in group steps reverse in blocks, as their forward steps run.
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
+# With imports its groups reverse in blocks too; its pattern and spill
+# reverse as a coupling and a `Redistribute` do.
+function _device_modifier(m::Allocate{<:Any, <:_AllocateImports})
+    (; pattern, spill) = m.imports
+    return _device_coupling(pattern) && _device_spill(spill)
+end
+_device_spill(::Nothing) = true
+_device_spill(r::Redistribute) = _device_modifier(r)
 # The modifiers the package defines, whose `Init` pullbacks run on a device.
 _builtin_modifier(m) = false
 _builtin_modifier(::Union{Transform, Depletion, Allocate, Redistribute}) = true
