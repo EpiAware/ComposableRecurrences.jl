@@ -688,6 +688,20 @@ end
     for (op, states) in ((Recurrence([0.4, 0.3]), nothing), (rm, nothing), (r, ([0.5, 1.0, 2.0],)))
         @test history_gradient(op, states, true) == history_gradient(op, states, false)
     end
+    # Nor does overwriting the kernel, which a single series reads through
+    # a view of it.
+    function kernel_gradient(overwrite)
+        g = [0.4, 0.3]
+        xs = (Recurrence(g), recargs(R[1, :], nothing, h[1, :])...)
+        _, c = CR._run_forward(xs...)
+        overwrite && (g .= -7.0)
+        ms = zero_mirror(xs)
+        CR._run_pullback!(
+            (; piece = first(ms), y = ȳ[1, :], args = Base.tail(ms)), first(xs), c
+        )
+        return mirror_vec(ms, xs)
+    end
+    @test kernel_gradient(true) == kernel_gradient(false)
 end
 
 @testitem "Adjoint: an integer gain and coefficient record no convolutions" setup = [AdjointCheck] begin
@@ -2343,6 +2357,16 @@ end
     CR._local_pressure!(p̄, C̄, C, q̄, p, 1, CR._array_pressure(C, Float64))
     @test p̄ ≈ transpose(C.M) * q̄
     @test C̄.M ≈ q̄ * transpose(p)
+    # Past one pass, the inputs left after whole passes take the narrowest
+    # lane that covers them: 30 and 42 inputs, 6 and 18 in the last pass.
+    for S in (5, 6)
+        C = Mix([0.1 * sin(i + 2j) for i in 1:S, j in 1:S])
+        p, q̄ = collect(1.0:S), [cos(k) for k in 1:S]
+        p̄, C̄ = zeros(S), (; M = zeros(S, S))
+        CR._local_pressure!(p̄, C̄, C, q̄, p, 1, CR._array_pressure(C, Float64))
+        @test p̄ ≈ transpose(C.M) * q̄
+        @test C̄.M ≈ q̄ * transpose(p)
+    end
 end
 
 @testitem "Adjoint: local pullback of a coupling holding arrays" setup = [ReferenceAD, AdjointCheck] begin
@@ -2889,9 +2913,10 @@ end
         return @allocated CR._pressure_back!(p̄, C̄, C, q̄, p, 4, bufs)
     end
     # One pass of 4, 8, 12 or 24 partials, and more than one when called
-    # directly with more inputs, the last pass partly filled.
+    # with more inputs: whole passes of 24, then the narrowest lane that
+    # covers the rest (1, 4, 5, 9, 13 and 14 inputs from 23 strata on).
     rng = Xoshiro(5)
-    for S in (2, 6, 10, 20, 23, 60)
+    for S in (2, 6, 10, 20, 23, 26, 27, 31, 35, 60)
         p, q̄ = randn(rng, S), randn(rng, S)
         function pressure(x)
             q = zeros(eltype(x), S)
