@@ -1532,7 +1532,7 @@ end
     # The reverse pass reads the coupling's and the modifiers' arrays, so
     # an array the loss overwrites after the call must reach it unchanged:
     # a `Diagonal`, whose array `Enzyme` does not mark as overwritten, a
-    # dense coupling and a pool.
+    # dense coupling, wrapped as the fixtures wrap it and nested, and a pool.
     x = [1.1 0.9 1.2 1.0; 0.8 1.3 1.0 0.7]
     h = [1.0 2.0; 0.5 1.5]
     g = [0.3, 0.2]
@@ -1548,6 +1548,25 @@ end
         K .= 0
         return sum(abs2, y)
     end
+    function dense_view(θ)
+        buf = θ[1:4] .* 1
+        y = Recurrence(g; coupling = reshape(view(buf, 1:4), 2, 2))(x; history = h)
+        buf .= 0
+        return sum(abs2, y)
+    end
+    function nested(θ)
+        buf = θ[1:6] .* 1
+        K = view(reshape(view(buf, 1:6), 2, 3), :, 1:2)
+        y = Recurrence(g; coupling = K)(x; history = h)
+        buf .= 0
+        return sum(abs2, y)
+    end
+    function transposed(θ)
+        K = reshape(θ[1:4], 2, 2)
+        y = Recurrence(g; coupling = transpose(K))(x; history = h)
+        K .= 0
+        return sum(abs2, y)
+    end
     function pool(θ)
         N = θ[1:2] .* 10
         m = CR.Depletion(CR.PerStratum(N))
@@ -1555,7 +1574,7 @@ end
         N .= 1
         return sum(abs2, y)
     end
-    θ = [1.1, 0.9, 0.2, 0.8]
+    θ = [1.1, 0.9, 0.2, 0.8, 0.3, 0.4]
     for backend in job_backends(
                 :mooncake_reverse => AutoMooncake(; config = nothing),
                 :enzyme_reverse => AutoEnzyme(;
@@ -1563,7 +1582,7 @@ end
                     function_annotation = Enzyme.Const
                 ),
             ),
-            f in (diagonal, dense, pool)
+            f in (diagonal, dense, dense_view, nested, transposed, pool)
         @test gradient(f, backend, θ) ≈ gradient(f, AutoForwardDiff(), θ)
     end
 end

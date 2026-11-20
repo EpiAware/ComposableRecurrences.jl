@@ -15,7 +15,7 @@ using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
     _spawn_blocks, _spawn_chunks, _untraced
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
-using LinearAlgebra: Diagonal
+using LinearAlgebra: Adjoint, Diagonal, Transpose
 using SparseArrays: SparseMatrixCSC, nonzeros
 
 const _IEEEFloat = Union{Float16, Float32, Float64}
@@ -488,23 +488,30 @@ end
 # The forward pass runs on the copies and the reverse pass rebuilds the
 # operator from them, so it reads the values the call ran on even when later
 # code overwrites the operator's arrays. `Enzyme`'s overwritten marks do not
-# cover this: they miss an array written after the call that holds it.
+# cover this: they mark a `Diagonal` whose array is written after the call
+# as kept, so every array is copied, once per call; against a gradient's
+# cost this measures at most about 1 µs, on a small, cheap coupling.
 @generated function _kept_operator(::Type{X}, vals::Tuple) where {X}
     keep(i, p) = first(p) == 1 ? :(_kept_leaf(vals[$i])) : :(vals[$i])
     return :(($(map(keep, eachindex(_leaf_paths(X)), _leaf_paths(X))...),))
 end
-# A copy of the same type, as the operator is rebuilt field by field: a
-# `Diagonal` or sparse matrix copies its arrays, and a view copies its
-# parent. A leaf whose copy has another type is kept as it is.
-function _kept_leaf(x::AbstractArray{<:AbstractFloat})
-    y = copy(x)
-    return y isa typeof(x) ? y : x
-end
-function _kept_leaf(x::SubArray{<:AbstractFloat, N, <:Array}) where {N}
-    y = view(copy(parent(x)), parentindices(x)...)
-    return y isa typeof(x) ? y : x
-end
+# A copy of the same type, as the operator is rebuilt field by field. An
+# array is copied, and a view, reshape, transpose, adjoint or `Diagonal` is
+# rebuilt around a copy of what it wraps, so the innermost array is copied.
+# A leaf whose copy would have another type is kept as it is, and is not
+# protected against a later overwrite; nor are the arrays inside a mutable
+# struct or an abstractly typed field, which are leaves of their own.
 _kept_leaf(x) = x
+_kept_leaf(x::AbstractArray{<:AbstractFloat}) = _same_type(x, _kept_array(x))
+_same_type(x, y) = y isa typeof(x) ? y : x
+_kept_array(x::AbstractArray) = copy(x)
+_kept_array(x::SubArray) = view(_kept_array(parent(x)), parentindices(x)...)
+function _kept_array(x::Base.ReshapedArray)
+    return Base.ReshapedArray(_kept_array(parent(x)), size(x), x.mi)
+end
+_kept_array(x::Transpose) = transpose(_kept_array(parent(x)))
+_kept_array(x::Adjoint) = adjoint(_kept_array(parent(x)))
+_kept_array(x::Diagonal) = Diagonal(_kept_array(x.diag))
 
 # The primal and shadow are typed by the return annotation, which is the
 # inferred return type of `_ADLeaves` and may be abstract.
