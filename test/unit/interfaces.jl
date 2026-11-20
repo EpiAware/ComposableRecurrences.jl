@@ -354,7 +354,7 @@ end
     @test eachindex(a, b) == 2:2
     @test collect(eachindex(a, b)) == collect(eachindex(a))
     @test_throws DimensionMismatch eachindex(a, CR._At(Ref(0.0), 3))
-    # Over three, as a trace's step loops, with the same fixed message.
+    # Over three, as a trace's step loops.
     @test eachindex(a, b, CR._At(Ref(1.0), 2)) == 2:2
     @test_throws DimensionMismatch eachindex(a, b, CR._At(Ref(0.0), 3))
 end

@@ -192,15 +192,19 @@ end
     nv, ns = _trace_shape(B)
     T = eltype(col)
     r = ntuple(_ -> Ref(zero(T)), Val(ntrace(m, nv)))
-    at = x -> _At(x, g)
-    slots(x, n) = map(y -> at(_slot(m, y)), _gather(x, n, G, g))
+    slots(x, n) = _group_slots(y -> _slot(m, y), x, n, G, g)
     args = (
         slots(v, Val(nv)), slots(s, Val(ns)), slots(v′, Val(nv)),
         slots(s′, Val(ns)),
     )
-    _written(m, @inline _slot_forward!(B, m, map(at, r), args, t, g))
+    _written(m, @inline _slot_forward!(B, m, map(x -> _At(x, g), r), args, t, g))
     _scatter!(col, map(getindex, r), G, g)
     return nothing
+end
+# Group `g`'s entries of `x` as one-entry views of local slots that `slot`
+# makes from each value.
+@inline function _group_slots(slot, x, n, G, g)
+    return map(y -> _At(slot(y), g), _gather(x, n, G, g))
 end
 @inline function _slot_forward!(::Nothing, m, r, args, t, g)
     return @inline forward!(m, Trace(), r, map(only, args)..., t)

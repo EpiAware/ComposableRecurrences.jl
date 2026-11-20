@@ -297,7 +297,7 @@ end
     at = x -> _At(x, g)
     zeros_of(n) = ntuple(_ -> Ref(z), n)
     a, b, c, d = zeros_of(V), zeros_of(Σ), zeros_of(V), zeros_of(Σ)
-    slots(x, n) = map(y -> at(Ref(y)), _gather(x, n, G, g))
+    slots(x, n) = _group_slots(Ref, x, n, G, g)
     grads = (;
         piece = m̄, trace = slots(r̄, Val(ntrace(m, nv))),
         v = _slot_args(B, map(at, a)), s = _slot_args(B, map(at, b)),
@@ -311,6 +311,10 @@ end
     _add_group!(s̄, d, G, g)
     return nothing
 end
+# A blockwise `Depletion` reverses its trace through one-entry views of the
+# arrays themselves, as its host loop does: each group writes only its own
+# entries, so it needs no local slots. Two pools, two draws on one pool and
+# a queue take this path in the device tests.
 @inline function _slot_trace_back!(
         m::Depletion, ::Val{B}, R̄, m̄, v̄, s̄, r̄, v, s, τ, G, g
     ) where {B}

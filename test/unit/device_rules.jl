@@ -577,6 +577,21 @@ end
         @test x̄1 ≈ x̄0
         @test agree(p̄1, p̄0)
     end
+    # Scalar indexing is off, so a host loop on these arrays would throw:
+    # matching runs took the device branches. The trace's cotangent adds
+    # into the state's on a device as on the host.
+    n = 5
+    r̄, T̄ = collect(1.0:n), reshape(collect(1.0:(3n)), n, 3)
+    adds = (
+        (s̄, to) -> CR._add_trace!(s̄, to(r̄)),
+        (s̄, to) -> CR._add_trace_column!(s̄, to(T̄), 2),
+    )
+    for add! in adds
+        s̄0, s̄1 = fill(0.5, n), JLArray(fill(0.5, n))
+        add!(s̄0, identity)
+        add!(s̄1, JLArray)
+        @test Array(s̄1) == s̄0
+    end
 end
 
 @testitem "JLArrays: the rule passes of window sums match the CPU" setup = [DeviceRules] begin

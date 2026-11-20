@@ -497,8 +497,8 @@ end
     a.k == b.k || _view_mismatch()
     return a.k:a.k
 end
-# Over more views too, such as a trace's `eachindex(v, v′, s′)`: Base's
-# mismatch error builds a string, which a GPU kernel cannot.
+# Over more views too: Base's mismatch error builds a string, which a GPU
+# kernel cannot.
 @inline function Base.eachindex(a::_At, b::_At, c::_At...)
     all(x -> x.k == a.k, (b, c...)) || _view_mismatch()
     return a.k:a.k
