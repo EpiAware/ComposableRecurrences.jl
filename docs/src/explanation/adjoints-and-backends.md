@@ -262,6 +262,7 @@ Float types:
   A `Recent` with a coupling fills each stratum's window as one kernel once a step, before the strata read them.
 - A computed kernel (a `Survival` or a `Derived` kernel) fills its weights as one kernel, each thread walking one cohort's lags for one stratum.
   `kernel_weights` fills them the same way when its coefficients live on a device.
+- `window_sums` runs each sum as one index of a kernel.
 - Views and reshapes of device arrays, such as views into one parameter vector, run on the device as the arrays themselves do.
 
 `test/unit/gpu_arrays.jl` runs every operator, coupling and built-in modifier on JLArrays, with scalar indexing disallowed, on every pull request.
@@ -298,6 +299,7 @@ A computed kernel's reverse pass walks its cohorts again in blocks, and each blo
 With strata the blocks are blocks of strata, so a per-stratum coefficient's cotangent is not copied either.
 `kernel_weights` takes the rule the same way.
 A `Redistribute` step runs as kernels, one index per stratum, and each origin writes only its own column of the kernel's cotangent, so nothing is copied.
+The rule covers `window_sums` too: each sum is one index of a kernel, and in the reverse pass each time adds the cotangents of the windows it falls in.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 

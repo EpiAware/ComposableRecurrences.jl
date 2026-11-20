@@ -76,7 +76,8 @@ function _windows(op::_WindowSums)
     return (; lo, hi)
 end
 
-function _window_sums(::_WindowSums, (; lo, hi), x::AbstractVector)
+function _window_sums(op::_WindowSums, (; lo, hi), x::AbstractVector)
+    _on_gpu(x) && return _device_window_sums(op, lo, hi, x)
     out = _zeros(x, eltype(x), length(hi))
     @inbounds for v in eachindex(hi)
         acc = zero(eltype(x))
@@ -88,6 +89,7 @@ function _window_sums(::_WindowSums, (; lo, hi), x::AbstractVector)
     return out
 end
 function _window_sums(op::_WindowSums, (; lo, hi), x::AbstractMatrix)
+    _on_gpu(x) && return _device_window_sums(op, lo, hi, x)
     if op.dims == 1
         out = _zeros(x, eltype(x), length(hi), size(x, 2))
         @inbounds for k in axes(x, 2), v in eachindex(hi)
@@ -116,7 +118,8 @@ function pullback!(grads, op::_WindowSums, ::Run, w)
     _window_sums_back!(x̄, op, w, grads.y)
     return nothing
 end
-function _window_sums_back!(x̄::AbstractVector, ::_WindowSums, (; lo, hi), ȳ)
+function _window_sums_back!(x̄::AbstractVector, op::_WindowSums, (; lo, hi), ȳ)
+    _on_gpu(x̄) && return _device_window_sums_back!(x̄, op, lo, hi, ȳ)
     @inbounds for v in eachindex(hi), t in (lo[v] + 1):hi[v]
         x̄[t] += ȳ[v]
     end
@@ -125,6 +128,7 @@ end
 function _window_sums_back!(
         x̄::AbstractMatrix, op::_WindowSums, (; lo, hi), ȳ
     )
+    _on_gpu(x̄) && return _device_window_sums_back!(x̄, op, lo, hi, ȳ)
     if op.dims == 1
         @inbounds for k in axes(x̄, 2), v in eachindex(hi)
             ȳv = ȳ[v, k]
@@ -141,3 +145,59 @@ function _window_sums_back!(
     end
     return x̄
 end
+
+# == On a device ==
+
+# On a device each sum is one index of a kernel, and in the reverse pass each
+# time is one index that adds the cotangents of the windows it falls in, so
+# no index writes where another does. A vector is a matrix of one column.
+_device_ready(::_WindowSums) = true
+_device_ints(like, v) = copyto!(similar(like, Int, length(v)), v)
+function _device_window_sums(op::_WindowSums, lo, hi, x)
+    V = length(hi)
+    dims = op.dims == 1 ? (V, size(x, 2)) : (size(x, 1), V)
+    out = similar(x, eltype(x), x isa AbstractVector ? (V,) : dims)
+    lo, hi = _device_ints(x, lo), _device_ints(x, hi)
+    each!(
+        _window_sum_at!, _resolve(Serial(), x), length(out), typemax(Int),
+        out, x, lo, hi, op.dims == 1, first(dims)
+    )
+    return out
+end
+function _window_sum_at!(i, out, x, lo, hi, along, m)
+    a, b = _split_index(i, m)
+    acc = zero(eltype(out))
+    @inbounds if along
+        for t in (lo[a] + 1):hi[a]
+            acc += x[t, b]
+        end
+    else
+        for t in (lo[b] + 1):hi[b]
+            acc += x[a, t]
+        end
+    end
+    @inbounds out[i] = acc
+    return nothing
+end
+function _device_window_sums_back!(x̄, op::_WindowSums, lo, hi, ȳ)
+    lo, hi = _device_ints(x̄, lo), _device_ints(x̄, hi)
+    each!(
+        _window_sums_back_at!, _resolve(Serial(), x̄), length(x̄),
+        typemax(Int), x̄, ȳ, lo, hi, op.dims == 1, size(x̄, 1)
+    )
+    return x̄
+end
+function _window_sums_back_at!(j, x̄, ȳ, lo, hi, along, m)
+    a, b = _split_index(j, m)
+    t = along ? a : b
+    acc = zero(eltype(x̄))
+    @inbounds for v in eachindex(hi)
+        if lo[v] < t <= hi[v]
+            acc += along ? ȳ[v, b] : ȳ[a, v]
+        end
+    end
+    @inbounds x̄[j] += acc
+    return nothing
+end
+# Row and column of linear index `i` in a matrix of `m` rows.
+_split_index(i, m) = (rem(i - 1, m) + 1, div(i - 1, m) + 1)
