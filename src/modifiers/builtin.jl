@@ -873,9 +873,9 @@ function forward!(
     _check_time(E, t)
     _check_pressure(K, s, v)
     # Every movement steps forward as kernels on a device, though only those
-    # `_device_modifier` admits reverse there: a call whose intensity is read
-    # from a parameter takes plain AD, which runs this forward step on the
-    # device too, so it must not index from the host.
+    # `_device_modifier` admits reverse there: a call that takes plain AD
+    # runs this forward step on the device too, so it must not index from
+    # the host.
     _on_gpu(v) && return _device_movement_step!(K, E, v, s, t)
     fill!(s, zero(eltype(s)))
     for b in axes(K, 2)
@@ -897,7 +897,7 @@ end
 
 # On a device a thread per destination sums its arrivals into `s`, then a
 # second kernel updates `v`, as every arrival reads the old `v`.
-function _device_movement_step!(K, E, v, s, t)
+function _device_movement_step!(K, E::AbstractMatrix, v, s, t)
     S = length(v)
     _each!(_movement_arrivals!, Serial(), v, S, typemax(Int), s, K, E, v, t)
     _each!(_movement_keep!, Serial(), v, S, typemax(Int), v, s, K, E, t)
@@ -915,6 +915,36 @@ end
 function _movement_keep!(a, v, s, K, E, t)
     e = _intensity(E, a, t)
     @inbounds v[a] = (1 - e * _colsum(K, a)) * v[a] + K[a, a] * (e * v[a]) +
+        s[a]
+    return nothing
+end
+# A parameter intensity can cost a pass over the strata per read, such as
+# recent outputs read through a coupling, so a thread per origin reads it
+# once per step into `e`, and the arrivals and the update read that.
+function _device_movement_step!(K, E, v, s, t)
+    S = length(v)
+    e = similar(v)
+    _each!(_movement_intensity!, Serial(), v, S, typemax(Int), e, E, t)
+    _each!(_movement_arrivals!, Serial(), v, S, typemax(Int), s, K, e, v)
+    _each!(_movement_keep!, Serial(), v, S, typemax(Int), v, s, K, e)
+    return nothing
+end
+function _movement_intensity!(b, e, E, t)
+    @inbounds e[b] = _intensity(E, b, t)
+    return nothing
+end
+function _movement_arrivals!(a, s, K, e::AbstractVector, v)
+    acc = zero(eltype(s))
+    @inbounds for b in axes(K, 2)
+        b == a && continue
+        acc += K[a, b] * (e[b] * v[b])
+    end
+    @inbounds s[a] = acc
+    return nothing
+end
+function _movement_keep!(a, v, s, K, e::AbstractVector)
+    @inbounds ea = e[a]
+    @inbounds v[a] = (1 - ea * _colsum(K, a)) * v[a] + K[a, a] * (ea * v[a]) +
         s[a]
     return nothing
 end
@@ -1123,11 +1153,33 @@ end
 function _device_movement_back!(K̄, Ē, K, E, v̄, s̄, v, t)
     S = length(v)
     _each!(_movement_swap!, Serial(), v, S, typemax(Int), v̄, s̄)
+    _movement_back_origins!(K̄, Ē, K, E, v̄, s̄, v, t, S)
+    fill!(s̄, zero(eltype(s̄)))
+    return nothing
+end
+function _movement_back_origins!(K̄, Ē, K, E::AbstractMatrix, v̄, s̄, v, t, S)
     _each!(
         _movement_back_body!, Serial(), v, S, typemax(Int),
         K̄, Ē, K, E, v̄, s̄, v, t
     )
-    fill!(s̄, zero(eltype(s̄)))
+    return nothing
+end
+# An intensity read from a parameter, such as a `Derived` of recent
+# outputs, may add every origin's share into a cotangent they all share,
+# such as a scale's. Blocks of origins add into stacked copies of those,
+# while each origin still writes only its own column of the kernel's.
+function _movement_back_origins!(K̄, Ē, K, E, v̄, s̄, v, t, S)
+    slots = (; K̄ = _Owned(K̄), Ē = _param_slots(Ē, E))
+    accs = _accumulators(Serial(), v, S, S, slots)
+    _reduce_blocks!(_movement_back_blocks!, accs, S, K, E, v̄, s̄, v, t)
+    _reduce!(accs)
+    return nothing
+end
+function _movement_back_blocks!(bs, acc, K, E, v̄, s̄, v, t)
+    (; K̄, Ē) = _unown(acc)
+    for b in bs
+        _movement_back_body!(b, K̄, Ē, K, E, v̄, s̄, v, t)
+    end
     return nothing
 end
 function _movement_swap!(p, v̄, s̄)

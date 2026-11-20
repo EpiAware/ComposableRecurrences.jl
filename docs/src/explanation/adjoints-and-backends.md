@@ -291,7 +291,7 @@ The package's own rules run on device arrays for:
   - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
   - modifiers that are `Transform`s, `Depletion`s, `Allocate`s without imports and `Redistribute`s.
     A `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
-    A `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time.
+    A `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time or read from a parameter, such as recent outputs.
 
 Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
@@ -302,13 +302,14 @@ With strata the blocks are blocks of strata, so a per-stratum coefficient's cota
 `kernel_weights` takes the rule the same way.
 A run that returns its modifiers' traces takes the rule too: each stratum's or group's trace pullback is one index of a kernel, and groups that share a parameter add into stacked copies of its cotangent, as their steps do.
 A `Redistribute` step runs as kernels, one index per stratum, and each origin writes only its own column of the kernel's cotangent, so nothing is copied.
+An intensity read from a parameter may share a cotangent between origins, such as a scale's, and blocks of origins add into their own copies of it.
 The rule covers `window_sums` too: each sum is one index of a kernel, and in the reverse pass each time adds the cotangents of the windows it falls in.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 
 - a kernel given by change points or as ragged columns;
 - a time-varying coupling;
-- a `Redistribute` whose moves are a time-varying array, or whose intensity is read from a parameter;
+- a `Redistribute` whose moves are a time-varying array;
 - an `Allocate` with imports;
 - a modifier type the package does not define.
 
