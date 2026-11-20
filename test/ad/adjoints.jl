@@ -1509,16 +1509,96 @@ end
         h .= 0
         return sum(W .* y)
     end
+    # The kernel is overwritten after the call and after `pressure`; a
+    # single series reads it through a view.
+    x, hx = [1.1, 0.9, 1.2, 1.0], [1.0, 2.0, 0.5]
+    function kernel(θ)
+        k = θ[1:3]
+        y = Recurrence(k)(x; history = hx)
+        k .= 0
+        return sum(abs2, y)
+    end
+    function kernel_pressure(θ)
+        k = θ[1:3]
+        q = ComposableRecurrences.pressure(Recurrence(k), x; history = hx)
+        k .= 0
+        return sum(abs2, q)
+    end
     θ = [1.1, 0.9, 1.2, 1.0, 0.8, 1.3, 1.0, 2.0]
-    ref = gradient(f, AutoForwardDiff(), θ)
     for backend in job_backends(
-            :mooncake_reverse => AutoMooncake(; config = nothing),
-            :enzyme_reverse => AutoEnzyme(;
-                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
-                function_annotation = Enzyme.Const
+                :mooncake_reverse => AutoMooncake(; config = nothing),
+                :enzyme_reverse => AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
             ),
-        )
-        @test gradient(f, backend, θ) ≈ ref
+            fn in (f, kernel, kernel_pressure)
+        @test gradient(fn, backend, θ) ≈ gradient(fn, AutoForwardDiff(), θ)
+    end
+end
+
+@testitem "Rule gradients survive an operator's arrays overwritten after the call" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    using LinearAlgebra: Diagonal
+    import Enzyme, ForwardDiff, Mooncake
+    # The reverse pass reads the coupling's and the modifiers' arrays, so
+    # an array the loss overwrites after the call must reach it unchanged:
+    # a `Diagonal`, whose array `Enzyme` does not mark as overwritten, a
+    # dense coupling, wrapped as the fixtures wrap it and nested, and a pool.
+    x = [1.1 0.9 1.2 1.0; 0.8 1.3 1.0 0.7]
+    h = [1.0 2.0; 0.5 1.5]
+    g = [0.3, 0.2]
+    function diagonal(θ)
+        d = θ[1:2]
+        y = Recurrence(g; coupling = Diagonal(d))(x; history = h)
+        d .= 0
+        return sum(abs2, y)
+    end
+    function dense(θ)
+        K = reshape(θ[1:4], 2, 2)
+        y = Recurrence(g; coupling = K)(x; history = h)
+        K .= 0
+        return sum(abs2, y)
+    end
+    function dense_view(θ)
+        buf = θ[1:4] .* 1
+        y = Recurrence(g; coupling = reshape(view(buf, 1:4), 2, 2))(x; history = h)
+        buf .= 0
+        return sum(abs2, y)
+    end
+    function nested(θ)
+        buf = θ[1:6] .* 1
+        K = view(reshape(view(buf, 1:6), 2, 3), :, 1:2)
+        y = Recurrence(g; coupling = K)(x; history = h)
+        buf .= 0
+        return sum(abs2, y)
+    end
+    function transposed(θ)
+        K = reshape(θ[1:4], 2, 2)
+        y = Recurrence(g; coupling = transpose(K))(x; history = h)
+        K .= 0
+        return sum(abs2, y)
+    end
+    function pool(θ)
+        N = θ[1:2] .* 10
+        m = CR.Depletion(CR.PerStratum(N))
+        y = Recurrence(g; modifiers = (m,))(x; history = h)
+        N .= 1
+        return sum(abs2, y)
+    end
+    θ = [1.1, 0.9, 0.2, 0.8, 0.3, 0.4]
+    for backend in job_backends(
+                :mooncake_reverse => AutoMooncake(; config = nothing),
+                :enzyme_reverse => AutoEnzyme(;
+                    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                    function_annotation = Enzyme.Const
+                ),
+            ),
+            f in (diagonal, dense, dense_view, nested, transposed, pool)
+        @test gradient(f, backend, θ) ≈ gradient(f, AutoForwardDiff(), θ)
     end
 end
 
