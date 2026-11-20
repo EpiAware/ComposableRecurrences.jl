@@ -299,8 +299,8 @@ A per-stratum time-varying kernel's cotangent (S × L × T) is not copied, as ea
 The cotangent of a modifier's `PerStratum` parameter in a vector step is not copied either, as each stratum or group writes only its own entries.
 A computed kernel's reverse pass walks its cohorts again in blocks, and each block adds into its own copy of the coefficients' cotangents, as cohorts share them.
 With strata the blocks are blocks of strata, so a per-stratum coefficient's cotangent is not copied either.
-A run that returns its modifiers' traces takes the rule too: each stratum's or group's trace pullback is one index of a kernel, and groups that share a parameter add into stacked copies of its cotangent, as their steps do.
 `kernel_weights` takes the rule the same way.
+A run that returns its modifiers' traces takes the rule too: each stratum's or group's trace pullback is one index of a kernel, and groups that share a parameter add into stacked copies of its cotangent, as their steps do.
 A `Redistribute` step runs as kernels, one index per stratum, and each origin writes only its own column of the kernel's cotangent, so nothing is copied.
 The rule covers `window_sums` too: each sum is one index of a kernel, and in the reverse pass each time adds the cotangents of the windows it falls in.
 
