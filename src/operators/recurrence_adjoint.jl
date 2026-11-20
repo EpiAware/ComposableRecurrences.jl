@@ -162,6 +162,10 @@ _device_modifier(m::Redistribute{<:Any, <:AbstractMatrix}) = _dense_moves(m.M)
 function _device_modifier(m::Redistribute{<:Any, <:_DeviceMovement})
     return _dense_moves(m.M.x.K) && _device_intensity(m.M.x.E)
 end
+# An intensity that is not a matrix is a parameter, read through `param` and
+# reversed through `add_param!`, such as a `PerStratum`, a `TimeVarying`, a
+# `Derived` or a `Recent`. `_param_slots` stacks every cotangent leaf of one
+# it does not know to be written per origin, so any parameter is safe.
 _device_intensity(E) = true
 _device_intensity(E::AbstractMatrix) = _dense_moves(E)
 _dense_moves(M) = false

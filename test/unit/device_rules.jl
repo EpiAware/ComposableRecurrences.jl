@@ -683,14 +683,14 @@ end
     # intensity.
     by_matrix = CR.Redistribute(0.9 .* dense(S); leak = true)
     # So do moves given as a reshaped view of a parameter vector, as AD
-    # passes them, and a movement whose intensity is read from recent
-    # outputs.
+    # passes them.
     by_view = CR.Redistribute(param_view(0.9 .* dense(S)); leak = true)
     moved_view = CR.Redistribute(
         param_view(move_kernel(S)), param_view(intensity(S))
     )
-    read = CR.Derived(x -> 0.2 * tanh(x), 0.05 * CR.Recent(pmf[1:3]))
-    from_recent = CR.Redistribute(param_view(move_kernel(S)), read)
+    # And a movement whose intensity is read from recent outputs.
+    recent_read = CR.Derived(x -> 0.2 * tanh(x), 0.05 * CR.Recent(pmf[1:3]))
+    from_recent = CR.Redistribute(param_view(move_kernel(S)), recent_read)
     for m in (by_matrix, movement(S), by_view, moved_view, from_recent)
         @test (@inferred route(modified_case((m,), S, true)...)) === Val(:rule)
     end
