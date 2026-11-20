@@ -290,7 +290,7 @@ The package's own rules run on device arrays for:
   - a kernel that is fixed, time-varying as a dense array, or computed;
   - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
   - modifiers that are `Transform`s, `Depletion`s, `Allocate`s and `Redistribute`s.
-    An `Allocate` with imports takes the rule when its pattern is a matrix on the device.
+    An `Allocate` with imports takes the rule when its pattern is a matrix on the device and its spill, if it has one, takes the rule too.
     A `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
     A `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time or read from a parameter, such as recent outputs.
 

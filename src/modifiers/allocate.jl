@@ -471,12 +471,39 @@ function pullback!(
     u, h = _spilled_and_pattern(_field(grads, :after), spill, pattern, v, t)
     pass = _field(grads, :pass)
     ε = eps(eltype(v))
+    # On the host main's loop, unchanged; on a device the same per-group
+    # body runs as one kernel index per group.
     if _on_gpu(v) && _device_modifier(m)
         _device_imports_back!(T̄, φ̄, m, v̄, h̄, u, h, t, ε)
     else
         for p in 1:_ngroups(m)
             zs = _group(m, p)
-            _import_back!(T̄, φ̄, m.total, fraction, v̄, h̄, u, h, zs, p, t, ε)
+            su = zero(eltype(v))
+            sh = zero(eltype(v))
+            au = zero(eltype(v̄))
+            ah = zero(eltype(v̄))
+            for k in zs
+                su += u[k]
+                sh += h[k]
+                au += v̄[k] * u[k]
+                ah += v̄[k] * h[k]
+            end
+            T, φ = param(m.total, p, t), param(fraction, p, t)
+            cu, ch = _import_weights(T, φ, su, sh, ε)
+            mh = max(sh, ε)
+            r = sh / mh
+            au /= max(su, ε)
+            ah /= mh
+            add_param!(T̄, m.total, (1 - φ * r) * au + φ * ah, p, t)
+            add_param!(φ̄, fraction, T * (ah - r * au), p, t)
+            on = su >= ε
+            # Below the floor `h` moves the share through `r`, not through `mh`.
+            bh = sh > ε ? ah : au
+            for k in zs
+                ȳk = v̄[k]
+                h̄[k] += ch * (ȳk - bh)
+                v̄[k] = cu * (on ? ȳk - au : ȳk)
+            end
         end
     end
     r̄, P̄ = cotangent(īm, :spill), cotangent(īm, :pattern)
@@ -487,7 +514,8 @@ function pullback!(
 end
 
 # Group `p`'s pullback over its strata `zs`, which no other group writes,
-# with the floor `ε` of the state's element type.
+# with the floor `ε` of the state's element type: the host loop's body, as a
+# device kernel index runs it.
 @inline function _import_back!(
         T̄, φ̄, total, fraction, v̄, h̄, u, h, zs, p, t, ε
     )
