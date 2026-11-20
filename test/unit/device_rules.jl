@@ -596,6 +596,22 @@ end
     @test CR._fit(op, args...) === :none
     op, args = modified_case((DevStart(50.0),), 4, false)
     @test CR._fit(op, args...) === :one
+    # The same when its `Init` is defined only for device states, with a
+    # history that is a view.
+    struct DevStartOn{A}
+        N::A
+    end
+    CR.blocks(::DevStartOn) = (1, 1)
+    function CR.forward!(m::DevStartOn, ::CR.Init, s::JLArray, history)
+        fill!(s, m.N)
+        return nothing
+    end
+    CR.forward!(::DevStartOn, ::CR.Step, v, s, t) = nothing
+    r = Recurrence(pmf; modifiers = (DevStartOn(50.0),))
+    op, h = adapt(JLArray, r), JLArray(fill(1.0, 4, L + 1))
+    x, hv = JLArray(inputs(4)), view(h, :, 1:L)
+    args = (CR._run_args(op, x, hv, nothing, nothing, 1)..., nothing)
+    @test CR._fit(op, args...) === :none
     # A modifier holding an array keeps plain AD on a device, as its
     # step may read the array from the host.
     op, args = modified_case((DevShrink(fill(0.1, 4)),), 4, true)
