@@ -99,6 +99,20 @@
         h = S ÷ 2
         return CR.Allocate([1:h, (h + 1):S], PerStratum(fill(1.0, 2)))
     end
+    # Grouped totals that import by a pattern, with a fraction the groups
+    # share or one per group, and a spill within the first group.
+    function imported(S; fraction = 0.2, spill = true)
+        h = S ÷ 2
+        P = zeros(S, S)
+        P[1, S], P[2, S], P[S, 1] = 0.6, 0.4, 1.0
+        M = Matrix(1.0I, S, S)
+        M[1:2, 1:2] .= [0.9 0.1; 0.1 0.9]
+        spills = spill ? (; spill = CR.Redistribute(M)) : (;)
+        return CR.Allocate(
+            [1:h, (h + 1):S], PerStratum(fill(6.0, 2));
+            imports = (fraction, P), spills...
+        )
+    end
 
     # A cotangent with the shape of `y`, the same on the host and the
     # device for outputs of one shape.
@@ -183,6 +197,53 @@ end
             @test agree(p̄1, p̄0)
         end
     end
+end
+
+@testitem "JLArrays: the rule passes of routes match the CPU" setup = [DeviceRules] begin
+    using SparseArrays: sparse
+    # Two routes of different lengths, each a coupling and its own kernel.
+    # A sparse route coupling becomes a dense matrix on the device, so the
+    # host runs its dense copy, whose cotangent the device's matches.
+    near(S) = Matrix(0.3I, S, S) .+ 0.1 .* (ones(S, S) .- I(S)) ./ S
+    short = pmf[1:(L - 1)]
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        sp = sparse(near(S))
+        cases = [
+            "dense routes" => (
+                Pairwise(dense(S) => short, near(S) => pmf),
+                Pairwise(dense(S) => short, near(S) => pmf),
+            ),
+            "a sparse route" => (
+                Pairwise(dense(S) => short, Matrix(sp) => pmf),
+                Pairwise(dense(S) => short, sp => pmf),
+            ),
+            "a per-stratum route kernel" => (
+                Pairwise(dense(S) => PerStratum(repeat(short', S)), near(S) => pmf),
+                Pairwise(dense(S) => PerStratum(repeat(short', S)), near(S) => pmf),
+            ),
+        ]
+        @testset "$name, $S strata" for (name, (host, device)) in cases
+            op0, args0 = recurrence_case(I, S, false; kernel = host)
+            op1, args1 = recurrence_case(I, S, true; kernel = device)
+            @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
+            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
+            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
+            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test agree(p̄1, p̄0)
+        end
+    end
+    # A route coupling that is not a matrix on the device keeps plain AD.
+    # Routes that are all scaled identities fold into one kernel, so one
+    # route here is a matrix.
+    mixed = Pairwise(dense(4) => short, 0.5I => pmf)
+    op, args = recurrence_case(I, 4, true; kernel = mixed)
+    @test (@inferred CR._route_val(op, args...)) === Val(:plain)
+    # A route whose kernel varies over time keeps plain AD too.
+    over_time = Pairwise(dense(4) => short, dense(4) => tv_kernel())
+    op, args = recurrence_case(I, 4, true; kernel = over_time)
+    @test (@inferred CR._route_val(op, args...)) === Val(:plain)
 end
 
 @testitem "JLArrays: the rule passes of a convolution with gain and add match the CPU" setup = [DeviceRules] begin
@@ -323,6 +384,10 @@ end
             "two draws on one pool" => (two_draws(),),
             "an overflow that joins a queue" => (queued(),),
             "grouped totals" => (totals(S),),
+            "grouped totals with imports and a spill" => (imported(S),),
+            "grouped totals importing with a fraction per group" => (
+                imported(S; fraction = PerStratum([0.2, 0.1]), spill = false),
+            ),
             # Whole steps that move between strata, as kernels.
             "movement of a kernel and an intensity" => (movement(S),),
             "movement that leaks, and a pool" => (
@@ -689,7 +754,7 @@ end
     op, args = modified_case((pools(S)...,), S, true)
     @test (@inferred route(op, args)) === Val(:rule)
     # So do built-in modifiers whose steps run per group.
-    for m in (two_pools(S), two_draws(), queued(), totals(S))
+    for m in (two_pools(S), two_draws(), queued(), totals(S), imported(S))
         op, args = modified_case((m,), S, true)
         @test (@inferred route(op, args)) === Val(:rule)
     end

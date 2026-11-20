@@ -507,6 +507,89 @@ function pullback!(
     return nothing
 end
 
+# On a device, through a method of `pullback!` on device arrays in the
+# GPUArraysCore extension, so the host method above holds no device code:
+# the same steps, with each group one kernel index.
+function _device_imports_pullback!(grads, m, v, s, t)
+    (; fraction, pattern, spill) = m.imports
+    v̄, s̄ = grads.v, grads.s
+    S = length(v)
+    h̄ = view(s̄, (length(s̄) - S + 1):length(s̄))
+    īm = cotangent(grads.piece, :imports)
+    T̄, φ̄ = cotangent(grads.piece, :total), cotangent(īm, :fraction)
+    u, h = _spilled_and_pattern(_field(grads, :after), spill, pattern, v, t)
+    pass = _field(grads, :pass)
+    _device_imports_back!(T̄, φ̄, m, v̄, h̄, u, h, t, eps(eltype(v)))
+    r̄, P̄ = cotangent(īm, :spill), cotangent(īm, :pattern)
+    _spill_back!(spill, r̄, v̄, s̄, v, t, _field(pass, :vc), pass)
+    _pattern_back!(pattern, P̄, h̄, v̄, v, t, _field(pass, :hb))
+    fill!(h̄, zero(eltype(h̄)))
+    return nothing
+end
+
+# Group `p`'s pullback over its strata `zs`, which no other group writes,
+# with the floor `ε` of the state's element type: the host loop's body, as a
+# device kernel index runs it.
+@inline function _import_back!(
+        T̄, φ̄, total, fraction, v̄, h̄, u, h, zs, p, t, ε
+    )
+    su = zero(eltype(u))
+    sh = zero(eltype(u))
+    au = zero(eltype(v̄))
+    ah = zero(eltype(v̄))
+    for k in zs
+        su += u[k]
+        sh += h[k]
+        au += v̄[k] * u[k]
+        ah += v̄[k] * h[k]
+    end
+    T, φ = param(total, p, t), param(fraction, p, t)
+    cu, ch = _import_weights(T, φ, su, sh, ε)
+    mh = max(sh, ε)
+    r = sh / mh
+    au /= max(su, ε)
+    ah /= mh
+    add_param!(T̄, total, (1 - φ * r) * au + φ * ah, p, t)
+    add_param!(φ̄, fraction, T * (ah - r * au), p, t)
+    on = su >= ε
+    # Below the floor `h` moves the share through `r`, not through `mh`.
+    bh = sh > ε ? ah : au
+    for k in zs
+        ȳk = v̄[k]
+        h̄[k] += ch * (ȳk - bh)
+        v̄[k] = cu * (on ? ȳk - au : ȳk)
+    end
+    return nothing
+end
+# On a device each group's pullback is one index of a kernel. Groups that
+# share the total's or the fraction's cotangent, such as a scalar's, add
+# into stacked copies of it; a per-group one is written by its group alone.
+function _device_imports_back!(T̄, φ̄, m, v̄, h̄, u, h, t, ε)
+    G = _ngroups(m)
+    strata, offsets = _like(v̄, m.strata), _like(v̄, m.offsets)
+    slots = (;
+        T̄ = _param_slots(T̄, m.total),
+        φ̄ = _param_slots(φ̄, m.imports.fraction),
+    )
+    accs = _accumulators(Serial(), v̄, G, G, slots)
+    _reduce_blocks!(
+        _imports_back_blocks!, accs, G, m.total, m.imports.fraction,
+        v̄, h̄, u, h, strata, offsets, t, ε
+    )
+    _reduce!(accs)
+    return nothing
+end
+function _imports_back_blocks!(
+        ps, acc, total, fraction, v̄, h̄, u, h, strata, offsets, t, ε
+    )
+    (; T̄, φ̄) = _unown(acc)
+    for p in ps
+        zs = view(strata, (offsets[p] + 1):offsets[p + 1])
+        _import_back!(T̄, φ̄, total, fraction, v̄, h̄, u, h, zs, p, t, ε)
+    end
+    return nothing
+end
+
 # A step's `u` and `h`: read from the state after the step when the reverse
 # pass recorded it, else computed again from its input `v`.
 function _spilled_and_pattern(::Nothing, spill, pattern, v, t)
