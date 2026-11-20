@@ -246,25 +246,36 @@ _dual_buffers(bufs::Tuple, ::Type{D}, S) where {D} = _dual_buffers(Base.tail(buf
 # Default pullback of a coupling without its own: the local `ForwardDiff`
 # derivative of `q = C(p)` in `p` and the coupling's float scalars `θ`.
 # The `n = S + P` inputs are seeded `N` at a time, and each pass adds
-# `q̄ ⋅ ∂q/∂x` for its inputs, so no Jacobian is stored; `N` is the smallest
-# of 4, 8, 12 and 24 that covers them. The rule takes this route while one
-# pass covers every input (`_LOCAL_PRESSURE`), and through `_ad_wide` while
-# two do (`_LOCAL_PRESSURE_WIDE`).
+# `q̄ ⋅ ∂q/∂x` for its inputs, so no Jacobian is stored. Inputs beyond
+# `_LOCAL_PRESSURE` take whole passes of that width first; the rest take
+# one pass of the smallest of 4, 8, 12 and 24 that covers them. The rule
+# takes this route while one pass covers every input (`_LOCAL_PRESSURE`),
+# and through `_ad_wide` while two do (`_LOCAL_PRESSURE_WIDE`).
 function _local_pressure!(p̄, C̄, C, q̄, p, t, θ::Tuple, bufs = nothing)
     n = length(p) + length(θ)
-    n <= 4 && return _local_pressure!(Val(4), p̄, C̄, C, q̄, p, t, θ, bufs)
-    n <= 8 && return _local_pressure!(Val(8), p̄, C̄, C, q̄, p, t, θ, bufs)
-    n <= 12 && return _local_pressure!(Val(12), p̄, C̄, C, q̄, p, t, θ, bufs)
-    return _local_pressure!(Val(_LOCAL_PRESSURE), p̄, C̄, C, q̄, p, t, θ, bufs)
+    lo = _whole_passes(n)
+    lo > 0 && _local_pressure!(
+        Val(_LOCAL_PRESSURE), p̄, C̄, C, q̄, p, t, θ, bufs, 0, lo
+    )
+    r = n - lo
+    r <= 4 && return _local_pressure!(Val(4), p̄, C̄, C, q̄, p, t, θ, bufs, lo, n)
+    r <= 8 && return _local_pressure!(Val(8), p̄, C̄, C, q̄, p, t, θ, bufs, lo, n)
+    r <= 12 && return _local_pressure!(Val(12), p̄, C̄, C, q̄, p, t, θ, bufs, lo, n)
+    return _local_pressure!(
+        Val(_LOCAL_PRESSURE), p̄, C̄, C, q̄, p, t, θ, bufs, lo, n
+    )
 end
+# The inputs before the last pass: whole passes of `_LOCAL_PRESSURE`.
+_whole_passes(n) = _LOCAL_PRESSURE * ((n - 1) ÷ _LOCAL_PRESSURE)
+# Passes of `N` over inputs `lo + 1` to `hi`.
 function _local_pressure!(
-        ::Val{N}, p̄, C̄, C, q̄, p, t, θ::NTuple{P, Any}, bufs
+        ::Val{N}, p̄, C̄, C, q̄, p, t, θ::NTuple{P, Any}, bufs, lo, hi
     ) where {N, P}
     T = float(promote_type(eltype(p), map(typeof, θ)...))
     D = _pressure_dual(T, Val(N))
     S = length(p)
     pd, qd = _dual_buffers(bufs, D, S)
-    for o in 0:N:(S + P - 1)
+    for o in lo:N:(hi - 1)
         for i in 1:S
             @inbounds pd[i] = D(T(p[i]), _unit(T, i - o, Val(N)))
         end
@@ -301,20 +312,36 @@ function _array_pressure(C, Tp)
 end
 function _local_pressure!(p̄, C̄, C, q̄, p, t, b::_ArrayPressure)
     n = length(p) + length(b.θ)
-    n <= 4 && return _array_pressure!(Val(4), b.lanes[1], b, p̄, C̄, C, q̄, p, t)
-    n <= 8 && return _array_pressure!(Val(8), b.lanes[2], b, p̄, C̄, C, q̄, p, t)
-    n <= 12 && return _array_pressure!(Val(12), b.lanes[3], b, p̄, C̄, C, q̄, p, t)
-    return _array_pressure!(Val(_LOCAL_PRESSURE), b.lanes[4], b, p̄, C̄, C, q̄, p, t)
+    fill!(b.ḡ, zero(eltype(b.ḡ)))
+    lo = _whole_passes(n)
+    lo > 0 && _array_pressure!(
+        Val(_LOCAL_PRESSURE), b.lanes[4], b, p̄, C̄, C, q̄, p, t, 0, lo
+    )
+    r = n - lo
+    if r <= 4
+        _array_pressure!(Val(4), b.lanes[1], b, p̄, C̄, C, q̄, p, t, lo, n)
+    elseif r <= 8
+        _array_pressure!(Val(8), b.lanes[2], b, p̄, C̄, C, q̄, p, t, lo, n)
+    elseif r <= 12
+        _array_pressure!(Val(12), b.lanes[3], b, p̄, C̄, C, q̄, p, t, lo, n)
+    else
+        _array_pressure!(
+            Val(_LOCAL_PRESSURE), b.lanes[4], b, p̄, C̄, C, q̄, p, t, lo, n
+        )
+    end
+    _addparams!(C̄, C, b.ḡ, 0)
+    return nothing
 end
-function _array_pressure!(::Val{N}, lane, b, p̄, C̄, C, q̄, p, t) where {N}
+# Passes of `N` over inputs `lo + 1` to `hi`, adding the parameters'
+# cotangents into `b.ḡ`.
+function _array_pressure!(::Val{N}, lane, b, p̄, C̄, C, q̄, p, t, lo, hi) where {N}
     pd, qd, θd = lane
     D = eltype(θd)
     T = eltype(b.θ)
     S, P = length(p), length(b.θ)
     resize!(pd, S)
     resize!(qd, S)
-    fill!(b.ḡ, zero(T))
-    for o in 0:N:(S + P - 1)
+    for o in lo:N:(hi - 1)
         for i in 1:S
             @inbounds pd[i] = D(T(p[i]), _unit(T, i - o, Val(N)))
         end
@@ -333,7 +360,6 @@ function _array_pressure!(::Val{N}, lane, b, p̄, C̄, C, q̄, p, t) where {N}
             @inbounds b.ḡ[j] += ā[S + j - o]
         end
     end
-    _addparams!(C̄, C, b.ḡ, 0)
     return nothing
 end
 
