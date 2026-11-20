@@ -284,10 +284,10 @@ The package's own rules run on device arrays for:
 
 - a convolution with a kernel that is:
   - fixed (a vector or `PerStratum`);
-  - time-varying as a dense array (a `TimeVarying` matrix or `PerStratum` array);
+  - time-varying as a dense array (a `TimeVarying` matrix or `PerStratum` array) or as ragged columns;
   - computed from coefficients (a `Survival` or a `Derived` kernel);
 - a recurrence with:
-  - a kernel that is fixed, time-varying as a dense array, or computed;
+  - a kernel that is fixed, time-varying as a dense array or as ragged columns, or computed;
   - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
   - modifiers that are `Transform`s, `Depletion`s, `Allocate`s without imports and `Redistribute`s.
     A `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
@@ -307,7 +307,7 @@ The rule covers `window_sums` too: each sum is one index of a kernel, and in the
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 
-- a kernel given by change points or as ragged columns;
+- a kernel given by change points;
 - a time-varying coupling;
 - a `Redistribute` whose moves are a time-varying array;
 - an `Allocate` with imports;
