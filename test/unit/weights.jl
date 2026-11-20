@@ -361,6 +361,26 @@ end
     end
 end
 
+@testitem "Computed kernels: a dual walk allocates nothing per cohort" setup = [WeightsChecks] begin
+    using ComposableRecurrences, ForwardDiff
+    CR = ComposableRecurrences
+    W = WeightsChecks
+    # The walk takes its number type as an argument. Over several strata, a
+    # call that did not specialise on it allocated on every cohort under
+    # dual numbers.
+    D = ForwardDiff.Dual{Nothing}
+    function allocs(n)
+        h = [D(0.1 + 0.3 * abs(sin(t)), 1.0, float(t)) for t in 1:(n + W.L)]
+        X = [D(2.0 + cos(k * t), 0.5, 0.0) for k in 1:2, t in 1:n]
+        c = Convolution(
+            TimeVarying(W.nested(W.P, D(0.4, 0.0, 1.0), h), CR.Primary())
+        )
+        c(X)
+        return @allocations c(X)
+    end
+    @test allocs(2 * W.T) - allocs(W.T) < W.T skip = Base.JLOptions().code_coverage != 0
+end
+
 @testitem "Computed kernels: a survival scratch's row is fixed by the hazard's type" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
