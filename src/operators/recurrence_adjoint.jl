@@ -152,12 +152,18 @@ _device_modifier(m::Transform) = _strata_loop(m)
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
 # A whole step on the calling task, whose loops run as kernels. Each origin
 # or stratum writes only its own entries of the moves' cotangent, so the
-# step reverses without per-block copies. The kernels index dense matrices.
+# step reverses without per-block copies. The kernels index every entry,
+# which a `Diagonal` or sparse matrix does not hold; a view or reshape of a
+# parameter vector, as AD passes one, does.
 const _DeviceMovement = TimeVarying{
-    Secondary, <:_Movement{<:DenseMatrix, <:DenseMatrix},
+    Secondary, <:_Movement{<:AbstractMatrix, <:AbstractMatrix},
 }
-_device_modifier(::Redistribute{<:Any, <:DenseMatrix}) = true
-_device_modifier(::Redistribute{<:Any, <:_DeviceMovement}) = true
+_device_modifier(m::Redistribute{<:Any, <:AbstractMatrix}) = _dense_moves(m.M)
+function _device_modifier(m::Redistribute{<:Any, <:_DeviceMovement})
+    return _dense_moves(m.M.x.K) && _dense_moves(m.M.x.E)
+end
+_dense_moves(M) = true
+_dense_moves(::Union{Diagonal, AbstractSparseMatrix}) = false
 
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)
 _kernel_slots(ḡ, kernel::TimeVarying) = ḡ

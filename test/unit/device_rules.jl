@@ -284,6 +284,8 @@ end
     using ForwardDiff
     # A read of the outputs through a coupling.
     coupled(w, C) = CR.Recent(w; coupling = C)
+    # A matrix as a reshaped view of a parameter vector, as AD passes one.
+    param_view(M) = reshape(view(vec(copy(M)), 1:length(M)), size(M))
     # More strata than blocks, so the blocks' copies of a shared pool's
     # cotangent are summed.
     for S in (4, CR._KERNEL_BLOCKS + 1)
@@ -326,6 +328,14 @@ end
                 movement(S; leak = true), first(pools(S)),
             ),
             "a matrix of moves" => (CR.Redistribute(moves(S)),),
+            # The same moves as reshaped views of a parameter vector.
+            "a matrix of moves viewed from a parameter vector" =>
+                (CR.Redistribute(param_view(moves(S))),),
+            "movement viewed from a parameter vector" => (
+                CR.Redistribute(
+                    param_view(move_kernel(S)), param_view(intensity(S))
+                ),
+            ),
             # Per-stratum modifiers with their own vector pullbacks beside
             # a vector step, which on a device reverse per stratum instead.
             "a pool per stratum and a scale beside two draws" => (
@@ -654,7 +664,12 @@ end
     # as kernels: a matrix of moves, or a movement of a kernel and an
     # intensity.
     by_matrix = CR.Redistribute(0.9 .* dense(S); leak = true)
-    for m in (by_matrix, movement(S))
+    # So do moves given as a reshaped view of a parameter vector, as AD
+    # passes them.
+    viewed(M) = reshape(view(vec(copy(M)), 1:length(M)), size(M))
+    by_view = CR.Redistribute(viewed(0.9 .* dense(S)); leak = true)
+    moved_view = CR.Redistribute(viewed(move_kernel(S)), viewed(intensity(S)))
+    for m in (by_matrix, movement(S), by_view, moved_view)
         @test (@inferred route(modified_case((m,), S, true)...)) === Val(:rule)
     end
     # Moves over time given as an array reverse on the host.
