@@ -372,8 +372,9 @@ function _local_step!(m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     n <= 12 && return _local_read_step!(Val(12), b.lanes[3], b, θs, m̄, m, v̄, s̄, v, s, t)
     return _local_read_step!(Val(_LOCAL_PRESSURE), b.lanes[4], b, θs, m̄, m, v̄, s̄, v, s, t)
 end
-# Inputs beyond `_LOCAL_PRESSURE` take whole passes of that width first; the
-# rest take one pass of the smallest of 4, 8, 12 and 24 that covers them.
+# Inputs beyond `_LOCAL_PRESSURE` take whole passes of that width; when 8 or
+# fewer remain they take one pass of 4 or 8 after them. Otherwise every pass
+# is of 24, or one of 12 or fewer when that covers all the inputs.
 function _local_step!(::Val{false}, m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     θs = _step_scalars(m̄, m)
     n = length(v) + length(s) + length(b.θ) + length(θs)
@@ -384,16 +385,18 @@ function _local_step!(::Val{false}, m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     fill!(b.ḡ, zero(eltype(b.ḡ)))
     args = (b, θs, m̄, m, v̄, s̄, v, s, t)
     lo = _LOCAL_PRESSURE * ((n - 1) ÷ _LOCAL_PRESSURE)
-    lo > 0 && _local_step!(Val(_LOCAL_PRESSURE), b.lanes[4], args..., 0, lo)
     r = n - lo
-    if r <= 4
-        _local_step!(Val(4), b.lanes[1], args..., lo, n)
-    elseif r <= 8
-        _local_step!(Val(8), b.lanes[2], args..., lo, n)
-    elseif r <= 12
-        _local_step!(Val(12), b.lanes[3], args..., lo, n)
+    if r <= 8
+        lo > 0 && _local_step!(Val(_LOCAL_PRESSURE), b.lanes[4], args..., 0, lo)
+        if r <= 4
+            _local_step!(Val(4), b.lanes[1], args..., lo, n)
+        else
+            _local_step!(Val(8), b.lanes[2], args..., lo, n)
+        end
+    elseif n <= 12
+        _local_step!(Val(12), b.lanes[3], args..., 0, n)
     else
-        _local_step!(Val(_LOCAL_PRESSURE), b.lanes[4], args..., lo, n)
+        _local_step!(Val(_LOCAL_PRESSURE), b.lanes[4], args..., 0, n)
     end
     isempty(b.θ) || _addparams!(m̄, m, b.ḡ, 0)
     return nothing
