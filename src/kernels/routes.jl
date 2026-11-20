@@ -162,8 +162,7 @@ function _device_routes(Cs::Tuple)
 end
 _device_route_kernels(::Tuple{}) = true
 function _device_route_kernels(gs::Tuple)
-    return first(gs) isa Union{AbstractVector, PerStratum} &&
-        _device_route_kernels(Base.tail(gs))
+    return first(gs) isa _FixedKernel && _device_route_kernels(Base.tail(gs))
 end
 
 # The plain-AD note names the route couplings the rule cannot use.

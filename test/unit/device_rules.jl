@@ -226,6 +226,10 @@ end
     mixed = Pairwise(dense(4) => short, 0.5I => pmf)
     op, args = recurrence_case(I, 4, true; kernel = mixed)
     @test (@inferred CR._route_val(op, args...)) === Val(:plain)
+    # A route whose kernel varies over time keeps plain AD too.
+    over_time = Pairwise(dense(4) => short, dense(4) => tv_kernel())
+    op, args = recurrence_case(I, 4, true; kernel = over_time)
+    @test (@inferred CR._route_val(op, args...)) === Val(:plain)
 end
 
 @testitem "JLArrays: the rule passes of a convolution with gain and add match the CPU" setup = [DeviceRules] begin

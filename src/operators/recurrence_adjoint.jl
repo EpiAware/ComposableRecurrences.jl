@@ -648,10 +648,9 @@ function _kernel_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
     end
     return nothing
 end
-# On a device one stratum per index: a fixed kernel's stratum writes only
-# its own column of the buffer, of `H̄` and of `kbuf`. A route's kernel runs
-# it through a method of `_kernel_back!` on device arrays (in the
-# GPUArraysCore extension), so the host loop above is unchanged.
+# One stratum per kernel index; a fixed kernel's stratum writes only its own
+# column of the buffer, of `H̄` and of `kbuf`.
+const _FixedKernel = Union{AbstractVector, PerStratum}
 function _device_kernel_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
     S = length(p̄)
     _each!(
