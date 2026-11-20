@@ -122,7 +122,7 @@ function _pressure_run(
         ::Type{Tp}, r, y, h, τ0, L, D, S, T, keep::Val
     ) where {Tp}
     coupling = r.coupling
-    kernel = _run_kernel(Tp, r.kernel, h, S)
+    kernel = _kept_kernel(keep, _run_kernel(Tp, r.kernel, h, S))
     H = _load_history!(_buffer(h, Tp, D, T, S), h, D)
     _load_outputs!(H, y, D)
     out = _zeros(h, Tp, S, T)

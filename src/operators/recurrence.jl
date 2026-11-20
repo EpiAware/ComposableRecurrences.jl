@@ -391,6 +391,20 @@ _oldest_first(g) = g
 
 # The kernel as a run reads it, with any work vectors at buffer eltype `Tp`.
 _run_kernel(::Type{Tp}, g, h, S) where {Tp} = _oldest_first(g)
+# A single series reads a host `Vector` kernel through a reversed view, as
+# the kernel is only read. A vector history is one series (`S == 1`) known
+# from its type, so the choice is type-stable where a test of `S` is not.
+# Strata keep the copy, which their interleaved loop reads faster.
+function _run_kernel(::Type{Tp}, g::Vector, ::AbstractVector, S) where {Tp}
+    return view(g, lastindex(g):-1:firstindex(g))
+end
+# The kernel a run that keeps a cache reads: the view borrows the caller's
+# kernel, so it is copied before the run, and a caller overwriting the
+# kernel after the call cannot change the gradient. Any other run kernel is
+# the run's own.
+_kept_kernel(::Val{false}, k) = k
+_kept_kernel(::Val{true}, k) = k
+_kept_kernel(::Val{true}, k::SubArray{<:Any, 1, <:Vector}) = copy(k)
 
 # Kernels that do not mix strata read only `b = a`. The call checks the
 # kernel's strata and times, so loops reading weights skip bounds checks.
@@ -1715,7 +1729,7 @@ function _run(
     ) where {Tp, C}
     keep = C === true || C === :traced
     coupling = r.coupling
-    kernel = _run_kernel(Tp, r.kernel, h, S)
+    kernel = _kept_kernel(Val(keep), _run_kernel(Tp, r.kernel, h, S))
     H = _history_buffer(h, Tp, D, T, S)
     # Parameters that read the outputs are bound to this call's buffer.
     modifiers = _bind(r.modifiers, H, nothing, D - τ0 + 1)

@@ -688,6 +688,20 @@ end
     for (op, states) in ((Recurrence([0.4, 0.3]), nothing), (rm, nothing), (r, ([0.5, 1.0, 2.0],)))
         @test history_gradient(op, states, true) == history_gradient(op, states, false)
     end
+    # Nor does overwriting the kernel, which a single series reads through
+    # a view of it.
+    function kernel_gradient(overwrite)
+        g = [0.4, 0.3]
+        xs = (Recurrence(g), recargs(R[1, :], nothing, h[1, :])...)
+        _, c = CR._run_forward(xs...)
+        overwrite && (g .= -7.0)
+        ms = zero_mirror(xs)
+        CR._run_pullback!(
+            (; piece = first(ms), y = ȳ[1, :], args = Base.tail(ms)), first(xs), c
+        )
+        return mirror_vec(ms, xs)
+    end
+    @test kernel_gradient(true) == kernel_gradient(false)
 end
 
 @testitem "Adjoint: an integer gain and coefficient record no convolutions" setup = [AdjointCheck] begin
