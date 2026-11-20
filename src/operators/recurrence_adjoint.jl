@@ -150,6 +150,14 @@ _device_modifier(m) = false
 _device_modifier(m::Transform) = _strata_loop(m)
 # Their group steps reverse in blocks too, as their forward steps run.
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
+# With imports its groups reverse in blocks too; its pattern and spill
+# reverse as a coupling and a `Redistribute` do.
+function _device_modifier(m::Allocate{<:Any, <:_AllocateImports})
+    (; pattern, spill) = m.imports
+    return _device_coupling(pattern) && _device_spill(spill)
+end
+_device_spill(::Nothing) = true
+_device_spill(r::Redistribute) = _device_modifier(r)
 # A whole step on the calling task, whose loops run as kernels. Each origin
 # or stratum writes only its own entries of the moves' cotangent, so the
 # step reverses without per-block copies; an intensity read from a

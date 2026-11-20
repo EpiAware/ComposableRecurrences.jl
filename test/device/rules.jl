@@ -101,6 +101,16 @@ function _rule_cases(S)
         CR.Truncate(; overflow = :queue); pools = (B = 50.0,)
     )
     totals = CR.Allocate([1:(S ÷ 2), (S ÷ 2 + 1):S], PerStratum(fill(1.0, 2)))
+    # The same totals importing by a pattern, with a spill in the first group.
+    # As `imported` in the unit tests, which this environment does not load.
+    pattern = zeros(S, S)
+    pattern[1, S], pattern[2, S], pattern[S, 1] = 0.6, 0.4, 1.0
+    within = Matrix(1.0I, S, S)
+    within[1:2, 1:2] .= [0.9 0.1; 0.1 0.9]
+    imported = CR.Allocate(
+        [1:(S ÷ 2), (S ÷ 2 + 1):S], PerStratum(fill(6.0, 2));
+        imports = (0.2, pattern), spill = CR.Redistribute(within)
+    )
     stepped(m) = rec(Recurrence(pmf; modifiers = (m,)))
     # The same with each modifier's trace, written and reversed per stratum
     # or group.
@@ -160,6 +170,8 @@ function _rule_cases(S)
         "Recurrence, two draws on one pool" => stepped(two_draws),
         "Recurrence, a queue" => stepped(queued),
         "Recurrence, grouped totals" => stepped(totals),
+        "Recurrence, grouped totals with imports and a spill" =>
+            stepped(imported),
         "Recurrence, a matrix of moves" => stepped(moves),
         "Recurrence, movement of a kernel and an intensity" =>
             stepped(movement),
