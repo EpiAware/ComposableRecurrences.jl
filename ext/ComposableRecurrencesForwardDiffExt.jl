@@ -398,16 +398,42 @@ function _local_step!(m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     n <= 12 && return _local_read_step!(Val(12), b.lanes[3], b, θs, m̄, m, v̄, s̄, v, s, t)
     return _local_read_step!(Val(_LOCAL_PRESSURE), b.lanes[4], b, θs, m̄, m, v̄, s̄, v, s, t)
 end
+# Inputs beyond `_LOCAL_PRESSURE` take whole passes of that width; when 8 or
+# fewer remain they take one pass of 4 or 8 after them. Otherwise every pass
+# is of 24, or one of 12 or fewer when that covers all the inputs. Unlike a
+# coupling's, a tail of 9 to 12 does not take the 12-wide lane: after whole
+# passes, that and splitting the passes over two calls ran slower than
+# keeping every pass 24 wide in one.
 function _local_step!(::Val{false}, m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     θs = _step_scalars(m̄, m)
     n = length(v) + length(s) + length(b.θ) + length(θs)
-    n <= 4 && return _local_step!(Val(4), b.lanes[1], b, θs, m̄, m, v̄, s̄, v, s, t)
-    n <= 8 && return _local_step!(Val(8), b.lanes[2], b, θs, m̄, m, v̄, s̄, v, s, t)
-    n <= 12 && return _local_step!(Val(12), b.lanes[3], b, θs, m̄, m, v̄, s̄, v, s, t)
-    return _local_step!(Val(_LOCAL_PRESSURE), b.lanes[4], b, θs, m̄, m, v̄, s̄, v, s, t)
+    copyto!(resize!(b.v̄, length(v)), v̄)
+    copyto!(resize!(b.s̄, length(s)), s̄)
+    fill!(v̄, zero(eltype(v̄)))
+    fill!(s̄, zero(eltype(s̄)))
+    fill!(b.ḡ, zero(eltype(b.ḡ)))
+    args = (b, θs, m̄, m, v̄, s̄, v, s, t)
+    lo = _whole_passes(n)
+    r = n - lo
+    if r <= 8
+        lo > 0 && _local_step!(Val(_LOCAL_PRESSURE), b.lanes[4], args..., 0, lo)
+        if r <= 4
+            _local_step!(Val(4), b.lanes[1], args..., lo, n)
+        else
+            _local_step!(Val(8), b.lanes[2], args..., lo, n)
+        end
+    elseif n <= 12
+        _local_step!(Val(12), b.lanes[3], args..., 0, n)
+    else
+        _local_step!(Val(_LOCAL_PRESSURE), b.lanes[4], args..., 0, n)
+    end
+    isempty(b.θ) || _addparams!(m̄, m, b.ḡ, 0)
+    return nothing
 end
+# Passes of `N` over inputs `lo + 1` to `hi`, against the output cotangents
+# kept in `b.v̄` and `b.s̄`, adding into `v̄`, `s̄`, `b.ḡ` and the scalars'.
 function _local_step!(
-        ::Val{N}, lane, b, θs::NTuple{Q, Any}, m̄, m, v̄, s̄, v, s, t
+        ::Val{N}, lane, b, θs::NTuple{Q, Any}, m̄, m, v̄, s̄, v, s, t, lo, hi
     ) where {N, Q}
     vd, sd, θd = lane
     D = eltype(vd)
@@ -415,12 +441,7 @@ function _local_step!(
     S, R, P = length(v), length(s), length(b.θ)
     resize!(vd, S)
     resize!(sd, R)
-    copyto!(resize!(b.v̄, S), v̄)
-    copyto!(resize!(b.s̄, R), s̄)
-    fill!(v̄, zero(eltype(v̄)))
-    fill!(s̄, zero(eltype(s̄)))
-    fill!(b.ḡ, zero(T))
-    for o in 0:N:(S + R + P + Q - 1)
+    for o in lo:N:(hi - 1)
         for i in 1:S
             @inbounds vd[i] = D(T(v[i]), _unit(T, i - o, Val(N)))
         end
@@ -451,7 +472,6 @@ function _local_step!(
         Q == 0 || o + N <= S + R ||
             _add_scalar!(m̄, m, _picks(ā, S + R - o, Val(Q)), nothing)
     end
-    P == 0 || _addparams!(m̄, m, b.ḡ, 0)
     return nothing
 end
 # The local derivative of a whole-step modifier that reads its float arrays
