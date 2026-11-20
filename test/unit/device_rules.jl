@@ -10,7 +10,7 @@
     using ComposableRecurrences
     using Adapt: adapt
     using JLArrays
-    using LinearAlgebra: Diagonal, I
+    using LinearAlgebra: Diagonal, I, UpperTriangular
     const CR = ComposableRecurrences
     JLArrays.allowscalar(false)
 
@@ -28,6 +28,9 @@
     end
     # A coupling that mixes every pair of strata.
     dense(S) = Matrix(0.5I, S, S) .+ 0.5 / S
+    # A matrix as AD passes it: a `ReshapedArray` of a `SubArray` of a
+    # parameter vector, not a `Matrix`.
+    param_view(M) = reshape(view(vec(copy(M)), 1:length(M)), size(M))
     function recurrence_case(coupling, S, dev; kernel = pmf, start = 1)
         r = Recurrence(kernel; coupling)
         op = dev ? adapt(JLArray, r) : r
@@ -284,8 +287,6 @@ end
     using ForwardDiff
     # A read of the outputs through a coupling.
     coupled(w, C) = CR.Recent(w; coupling = C)
-    # A matrix as a reshaped view of a parameter vector, as AD passes one.
-    param_view(M) = reshape(view(vec(copy(M)), 1:length(M)), size(M))
     # More strata than blocks, so the blocks' copies of a shared pool's
     # cotangent are summed.
     for S in (4, CR._KERNEL_BLOCKS + 1)
@@ -666,9 +667,10 @@ end
     by_matrix = CR.Redistribute(0.9 .* dense(S); leak = true)
     # So do moves given as a reshaped view of a parameter vector, as AD
     # passes them.
-    viewed(M) = reshape(view(vec(copy(M)), 1:length(M)), size(M))
-    by_view = CR.Redistribute(viewed(0.9 .* dense(S)); leak = true)
-    moved_view = CR.Redistribute(viewed(move_kernel(S)), viewed(intensity(S)))
+    by_view = CR.Redistribute(param_view(0.9 .* dense(S)); leak = true)
+    moved_view = CR.Redistribute(
+        param_view(move_kernel(S)), param_view(intensity(S))
+    )
     for m in (by_matrix, movement(S), by_view, moved_view)
         @test (@inferred route(modified_case((m,), S, true)...)) === Val(:rule)
     end
@@ -688,14 +690,19 @@ end
     @test CR._device_modifiers(())
     @test CR._device_modifier(by_matrix) && CR._device_modifier(movement(S))
     @test !CR._device_modifier(tv_moves)
-    # Moves as a `Diagonal` or sparse device matrix keep plain AD.
+    # Moves as a `Diagonal`, triangular or sparse device matrix keep plain
+    # AD, and so does a movement whose kernel is one.
     xd, hd = JLArray(inputs(S)), JLArray(fill(1.0, S, L))
     diagonal = Diagonal(JLArray(fill(0.9, S)))
-    for M in (diagonal, JLSparseMatrixCSR(sparse(dense(S))))
+    triangular = UpperTriangular(JLArray(dense(S)))
+    for M in (diagonal, triangular, JLSparseMatrixCSR(sparse(dense(S))))
         r = Recurrence(JLArray(pmf); modifiers = (CR.Redistribute(M),))
         a = CR._run_args(r, xd, hd, nothing, nothing, 1)
         @test (@inferred route(r, (a..., nothing))) === Val(:plain)
     end
+    @test !CR._device_modifier(
+        CR.Redistribute(Diagonal(fill(0.1, S)), intensity(S))
+    )
     @test CR._device_modifier(totals(S))
     # These have their own vector pullbacks, which a device skips.
     for m in (last(pools(S)), CR.Transform(*, PerStratum(fill(0.9, S))))
