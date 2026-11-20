@@ -410,7 +410,7 @@ function _local_step!(::Val{false}, m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     fill!(s̄, zero(eltype(s̄)))
     fill!(b.ḡ, zero(eltype(b.ḡ)))
     args = (b, θs, m̄, m, v̄, s̄, v, s, t)
-    lo = _LOCAL_PRESSURE * ((n - 1) ÷ _LOCAL_PRESSURE)
+    lo = _whole_passes(n)
     r = n - lo
     if r <= 8
         lo > 0 && _local_step!(Val(_LOCAL_PRESSURE), b.lanes[4], args..., 0, lo)
