@@ -251,9 +251,11 @@ _heterogeneity_floor(w, θ) = _heterogeneity(w, θ, ComposableRecurrences.Floor(
 
 # A modifier whose type is chosen at run time: the branch reads a value the
 # compiler cannot fold, so the modifier enters `modifiers = (dep,)` as a
-# `Union` of two depletion types. The branch stays in this function, where
-# the call is made: Enzyme crashes while compiling the gradient when such a
-# modifier crosses a function barrier first.
+# `Union` of two depletion types. The `Union` is what is under test: the run
+# takes the `Hazard` branch, and the `Floor` branch's gradients are those of
+# the floored depletion scenario. The branch stays in the function that makes
+# the call, as a function barrier on such a modifier crashes Enzyme reverse's
+# compiler, which would end its job rather than fail the scenario.
 const FLOOR_CHOSEN = Ref(false)
 function _chosen_at_run_time(w, θ)
     logh, logR = _unpack(θ, (S, L), (S, T))
