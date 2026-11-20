@@ -150,6 +150,14 @@ _device_modifier(m) = false
 _device_modifier(m::Transform) = _strata_loop(m)
 # Their group steps reverse in blocks too, as their forward steps run.
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
+# With imports its groups reverse in blocks too; its pattern and spill
+# reverse as a coupling and a `Redistribute` do.
+function _device_modifier(m::Allocate{<:Any, <:_AllocateImports})
+    (; pattern, spill) = m.imports
+    return _device_coupling(pattern) && _device_spill(spill)
+end
+_device_spill(::Nothing) = true
+_device_spill(r::Redistribute) = _device_modifier(r)
 # A whole step on the calling task, whose loops run as kernels. Each origin
 # or stratum writes only its own entries of the moves' cotangent, so the
 # step reverses without per-block copies; an intensity read from a
@@ -646,6 +654,20 @@ function _kernel_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
     for k in eachindex(p̄)
         _kernel_back_at!(kbuf, ḡ, g, p̄[k], H, H̄, t, τ, L, k)
     end
+    return nothing
+end
+# One stratum per kernel index; a fixed kernel's stratum writes only its own
+# column of the buffer, of `H̄` and of `kbuf`.
+function _device_kernel_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
+    S = length(p̄)
+    _each!(
+        _route_kernel_back!, Serial(), p̄, S, typemax(Int),
+        kbuf, ḡ, g, p̄, H, H̄, t, τ, L
+    )
+    return nothing
+end
+function _route_kernel_back!(k, kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
+    @inbounds _kernel_back_at!(kbuf, ḡ, g, p̄[k], H, H̄, t, τ, L, k)
     return nothing
 end
 function _kernel_back!(kbuf, ḡ, g::_OldestFirstPairwise, p̄, H, H̄, t, τ, L)

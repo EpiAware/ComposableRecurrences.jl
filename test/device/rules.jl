@@ -85,6 +85,9 @@ function _rule_cases(S)
     across = CR.Transform(
         *, CR.Derived(exp, -0.05 * CR.Recent(pmf[1:3]; coupling = C))
     )
+    # Two routes of different lengths, each a dense coupling and a kernel.
+    near = Matrix(0.3I, S, S) .+ 0.1 / S
+    routes = Pairwise(C => pmf[1:(L - 1)], near => pmf)
     # A gain or add input per stratum and time, per time or shared.
     gain, add = 0.5 .* x, collect(range(0.1, 1.0; length = T))
     scaled(g, a) = (Convolution(pmf), (x, g, a, fill(1.0, S, 2), 1, nothing))
@@ -106,6 +109,16 @@ function _rule_cases(S)
         CR.Truncate(; overflow = :queue); pools = (B = 50.0,)
     )
     totals = CR.Allocate([1:(S ÷ 2), (S ÷ 2 + 1):S], PerStratum(fill(1.0, 2)))
+    # The same totals importing by a pattern, with a spill in the first group.
+    # As `imported` in the unit tests, which this environment does not load.
+    pattern = zeros(S, S)
+    pattern[1, S], pattern[2, S], pattern[S, 1] = 0.6, 0.4, 1.0
+    within = Matrix(1.0I, S, S)
+    within[1:2, 1:2] .= [0.9 0.1; 0.1 0.9]
+    imported = CR.Allocate(
+        [1:(S ÷ 2), (S ÷ 2 + 1):S], PerStratum(fill(6.0, 2));
+        imports = (0.2, pattern), spill = CR.Redistribute(within)
+    )
     stepped(m) = rec(Recurrence(pmf; modifiers = (m,)))
     # The same with each modifier's trace, written and reversed per stratum
     # or group.
@@ -161,6 +174,7 @@ function _rule_cases(S)
         "Recurrence, feedback from recent outputs across strata" => rec(
             Recurrence(pmf; modifiers = (across,))
         ),
+        "Recurrence, routes of two lengths" => rec(Recurrence(routes)),
         "Recurrence, time-varying kernel" => rec(Recurrence(TimeVarying(G))),
         "Recurrence, per-stratum time-varying kernel" =>
             rec(Recurrence(TimeVarying(PerStratum(GS)))),
@@ -170,6 +184,8 @@ function _rule_cases(S)
         "Recurrence, two draws on one pool" => stepped(two_draws),
         "Recurrence, a queue" => stepped(queued),
         "Recurrence, grouped totals" => stepped(totals),
+        "Recurrence, grouped totals with imports and a spill" =>
+            stepped(imported),
         "Recurrence, a matrix of moves" => stepped(moves),
         "Recurrence, movement of a kernel and an intensity" =>
             stepped(movement),
