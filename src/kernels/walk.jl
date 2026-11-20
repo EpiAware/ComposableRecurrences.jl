@@ -86,7 +86,7 @@ end
     end
     return nothing
 end
-function _walk_cohort!(x, sc, k, τ, o, imax, T)
+function _walk_cohort!(x, sc, k, τ, o, imax, ::Type{T}) where {T}
     return _walk_cohort!(_skip, x, sc, k, τ, o, imax, T)
 end
 _skip(i, l, st) = nothing
