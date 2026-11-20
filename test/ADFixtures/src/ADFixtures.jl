@@ -3013,7 +3013,9 @@ Per-backend broken scenario names (`Dict{String, Set{String}}`): the
 scenarios expected to fail on a backend, by backend name.
 
 `Reactant` lists the scenarios that do not run under Reactant, forward or
-reverse; `test/reactant/` reads it.
+reverse; `test/reactant/` reads it. `Enzyme reverse` lists the scenario
+whose modifier is chosen at run time, and its twin, which fail there with an
+upstream bug.
 """
 function backend_broken_scenarios()
     return Dict(
