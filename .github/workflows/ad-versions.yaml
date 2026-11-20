@@ -49,15 +49,19 @@ jobs:
       - run: julia --project=test/ad -e 'using Pkg; Pkg.instantiate()'
       # The backend's tag is passed on, so items that check several
       # backends check only this one (see `test/ad/job_backends.jl`).
+      # The benchmark's hand-rule items run in the Mooncake forward job on
+      # the current release; here they run with Mooncake reverse.
       - run: |
           julia --project=test/ad -e '
               using TestItemRunner
               tag, part = Symbol(ARGS[1]), ARGS[2]
               in_part(file) = endswith(file, "scenarios.jl") == (part == "registry")
+              selected(ti, tag) = tag in ti.tags ||
+                  (tag == :mooncake_reverse && :handrules in ti.tags)
               matched = Ref(false)
               TestItemRunner.run_tests(
                   joinpath(pwd(), "test", "ad");
-                  filter = ti -> (tag in ti.tags && in_part(ti.filename)) &&
+                  filter = ti -> (selected(ti, tag) && in_part(ti.filename)) &&
                       (matched[] = true)
               )
               matched[] || error("no AD test item matches $tag ($part)")

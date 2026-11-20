@@ -150,6 +150,14 @@ _device_modifier(m) = false
 _device_modifier(m::Transform) = _strata_loop(m)
 # Their group steps reverse in blocks too, as their forward steps run.
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
+# With imports its groups reverse in blocks too; its pattern and spill
+# reverse as a coupling and a `Redistribute` do.
+function _device_modifier(m::Allocate{<:Any, <:_AllocateImports})
+    (; pattern, spill) = m.imports
+    return _device_coupling(pattern) && _device_spill(spill)
+end
+_device_spill(::Nothing) = true
+_device_spill(r::Redistribute) = _device_modifier(r)
 # A whole step on the calling task, whose loops run as kernels. Each origin
 # or stratum writes only its own entries of the moves' cotangent, so the
 # step reverses without per-block copies; an intensity read from a
@@ -739,18 +747,21 @@ end
 
 # Add the oldest-first buffer into the lag-first kernel cotangent.
 _kernel_finish!(ḡ, ::Nothing) = nothing
-# Host arrays add in loops, which allocate nothing; device arrays in one
-# array operation each, which runs where they live.
-function _kernel_finish!(ḡ::Vector, kbuf::Matrix)
+# Host arrays add in loops, which allocate nothing, whatever their wrapper;
+# device arrays add in one array operation each, which runs where they live.
+function _kernel_finish!(ḡ::AbstractVector, kbuf::AbstractMatrix)
     L = size(kbuf, 1)
+    _on_gpu(kbuf) &&
+        return (ḡ .+= vec(sum(view(kbuf, L:-1:1, :); dims = 2)); nothing)
     for k in axes(kbuf, 2), i in 1:L
         ḡ[i] += kbuf[L + 1 - i, k]
     end
     return nothing
 end
-function _kernel_finish!(ḡ::NamedTuple, kbuf::Matrix)
+function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractMatrix)
     Ḡ = cotangent(ḡ, :x)
     L = size(kbuf, 2)
+    _on_gpu(kbuf) && return (Ḡ .+= view(kbuf, :, L:-1:1); nothing)
     for i in 1:L, k in axes(kbuf, 1)
         Ḡ[k, i] += kbuf[k, L + 1 - i]
     end
@@ -762,16 +773,6 @@ function _kernel_finish!(ḡ::NamedTuple, kbuf::Array{<:Any, 3})
     for i in 1:L, b in axes(kbuf, 2), a in axes(kbuf, 3)
         Ḡ[a, b, i] += kbuf[L + 1 - i, b, a]
     end
-    return nothing
-end
-function _kernel_finish!(ḡ::AbstractVector, kbuf::AbstractMatrix)
-    L = size(kbuf, 1)
-    ḡ .+= vec(sum(view(kbuf, L:-1:1, :); dims = 2))
-    return nothing
-end
-function _kernel_finish!(ḡ::NamedTuple, kbuf::AbstractMatrix)
-    L = size(kbuf, 2)
-    cotangent(ḡ, :x) .+= view(kbuf, :, L:-1:1)
     return nothing
 end
 
