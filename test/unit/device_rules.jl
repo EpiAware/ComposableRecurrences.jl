@@ -596,6 +596,93 @@ end
     @test pullback_bytes() < 500 * sizeof(eltype(K̄)) * length(K̄)
 end
 
+@testitem "JLArrays: the rule passes of user pointwise modifiers match the CPU" setup = [DeviceRules] begin
+    # The local derivative of a step without a `pullback!` uses dual numbers.
+    using ForwardDiff
+    # A user modifier per stratum that passes the value through and asks for
+    # a buffer deeper than the kernel, one that shrinks the value by a
+    # scalar, and one that starts its state from its own `Init`.
+    struct DevDeep
+        w::Int
+    end
+    struct DevShrink{A}
+        a::A
+    end
+    struct DevStart{A}
+        N::A
+    end
+    for P in (DevDeep, DevShrink, DevStart)
+        @eval CR.blocks(::$P) = (1, 1)
+    end
+    CR.depth(m::DevDeep) = m.w
+    CR.forward!(::DevDeep, ::CR.Step, v, s, t) = nothing
+    function CR.forward!(m::DevShrink, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k] = v[k] / (1 + m.a * v[k])
+        end
+        return nothing
+    end
+    CR.forward!(m::DevStart, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
+    function CR.forward!(m::DevStart, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v[k], s[k] = min(v[k], s[k]), s[k] - min(v[k], s[k])
+        end
+        return nothing
+    end
+    function deep_case(m, S, dev)
+        r = Recurrence(pmf; coupling = dense(S), modifiers = (m,))
+        op = dev ? adapt(JLArray, r) : r
+        x, h = inputs(S), fill(1.0, S, 2L)
+        x, h = dev ? (JLArray(x), JLArray(h)) : (x, h)
+        return op, (CR._run_args(op, x, h, nothing, nothing, 1)..., nothing)
+    end
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        cases = [
+            "a buffer deeper than the kernel" =>
+                dev -> deep_case(DevDeep(2L), S, dev),
+            "a scalar parameter" =>
+                dev -> modified_case((DevShrink(0.1),), S, dev),
+        ]
+        @testset "$name, $S strata" for (name, case) in cases
+            (op0, args0), (op1, args1) = case(false), case(true)
+            @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
+            @test CR._fit(op1, args1...) === :one
+            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
+            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
+            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test agree(p̄1, p̄0)
+        end
+    end
+    # An `Init` of its own reverses on the host, so on a device the call
+    # keeps plain AD; on the host it takes the rule.
+    op, args = modified_case((DevStart(50.0),), 4, true)
+    @test CR._fit(op, args...) === :none
+    op, args = modified_case((DevStart(50.0),), 4, false)
+    @test CR._fit(op, args...) === :one
+    # The same when its `Init` is defined only for device states, with a
+    # history that is a view.
+    struct DevStartOn{A}
+        N::A
+    end
+    CR.blocks(::DevStartOn) = (1, 1)
+    function CR.forward!(m::DevStartOn, ::CR.Init, s::JLArray, history)
+        fill!(s, m.N)
+        return nothing
+    end
+    CR.forward!(::DevStartOn, ::CR.Step, v, s, t) = nothing
+    r = Recurrence(pmf; modifiers = (DevStartOn(50.0),))
+    op, h = adapt(JLArray, r), JLArray(fill(1.0, 4, L + 1))
+    x, hv = JLArray(inputs(4)), view(h, :, 1:L)
+    args = (CR._run_args(op, x, hv, nothing, nothing, 1)..., nothing)
+    @test CR._fit(op, args...) === :none
+    # A modifier holding an array keeps plain AD on a device, as its
+    # step may read the array from the host.
+    op, args = modified_case((DevShrink(fill(0.1, 4)),), 4, true)
+    @test (@inferred CR._route_val(op, args...)) === Val(:plain)
+end
+
 @testitem "JLArrays: the rule passes of traced runs match the CPU" setup = [DeviceRules] begin
     # A user modifier on pairs of strata, with its own trace (the pair's
     # total after the step) or the default one (its state after the step).

@@ -140,15 +140,16 @@ end
 _device_coupling(C) = false
 _device_coupling(::Union{UniformScaling, Diagonal}) = true
 _device_coupling(C::AbstractMatrix) = _on_gpu(C)
-# A modifier of another type keeps plain AD: its pullback may index the
-# arrays from the host.
 _device_modifiers(::Tuple{}) = true
 function _device_modifiers(ms::Tuple)
     return _device_modifier(first(ms)) && _device_modifiers(Base.tail(ms))
 end
-_device_modifier(m) = false
+# A user modifier takes the rule when it runs per stratum with scalar
+# parameters. One with its own `Init` keeps plain AD on device arrays (see
+# `_parts_fit` in the GPUArraysCore extension).
+_device_modifier(m) = _strata_loop(m) && _scalar_params(m)
 _device_modifier(m::Transform) = _strata_loop(m)
-# Their group steps reverse in blocks too, as their forward steps run.
+# Built-in group steps reverse in blocks, as their forward steps run.
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
 # With imports its groups reverse in blocks too; its pattern and spill
 # reverse as a coupling and a `Redistribute` do.
@@ -158,6 +159,9 @@ function _device_modifier(m::Allocate{<:Any, <:_AllocateImports})
 end
 _device_spill(::Nothing) = true
 _device_spill(r::Redistribute) = _device_modifier(r)
+# The modifiers the package defines, whose `Init` pullbacks run on a device.
+_builtin_modifier(m) = false
+_builtin_modifier(::Union{Transform, Depletion, Allocate, Redistribute}) = true
 # A whole step on the calling task, whose loops run as kernels. Each origin
 # or stratum writes only its own entries of the moves' cotangent, so the
 # step reverses without per-block copies; an intensity read from a

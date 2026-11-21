@@ -17,6 +17,19 @@ function ComposableRecurrences._resolve(
 end
 ComposableRecurrences._on_gpu(::AnyGPUArray) = true
 
+# A user modifier with an `Init` of its own reverses it on the host, which
+# cannot index device arrays, so a call with one keeps plain AD; the host
+# method decides the rest. The probe state is built as the run builds its
+# states, so a method on the state's type is seen.
+function ComposableRecurrences._parts_fit(r, h::AnyGPUArray, tlast = 2)
+    fit = @invoke ComposableRecurrences._parts_fit(r, h::Any, tlast)
+    return any(m -> _host_init(m, h), r.modifiers) ? :none : fit
+end
+function _host_init(m, h)
+    ComposableRecurrences._builtin_modifier(m) && return false
+    return !ComposableRecurrences._default_init(m, similar(h, 0), h)
+end
+
 # A fixed kernel's pullback over every stratum on device arrays, as a
 # route's kernel runs it; the host loop cannot index them.
 function ComposableRecurrences._kernel_back!(
