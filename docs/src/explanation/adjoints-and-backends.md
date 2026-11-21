@@ -294,7 +294,7 @@ Other calls on device arrays take plain AD, as their reverse passes still index 
 - a kernel given by change points;
 - routes with a coupling that is not a matrix, such as a scaled identity beside a matrix, or with a time-varying kernel;
 - a `Redistribute` whose moves are a time-varying array;
-- a modifier type the package does not define that works on the whole step, holds an array, or has an `Init` written only for device states.
+- a modifier type the package does not define that works on the whole step, holds an array, has a `pullback!` for the whole step, or has an `Init` written only for device states.
 
 What is checked:
 

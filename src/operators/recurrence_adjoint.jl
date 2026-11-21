@@ -153,8 +153,11 @@ function _device_modifiers(ms::Tuple)
 end
 # A user modifier takes the rule when it runs per stratum or on fixed groups
 # with scalar parameters; an `Init` of its own reverses on host copies (see
-# `_init_strata_back!` in the GPUArraysCore extension).
-_device_modifier(m) = (_strata_loop(m) || _blocks(m) isa Val) && _scalar_params(m)
+# `_init_strata_back!` in the GPUArraysCore extension). Groups reverse one
+# per kernel index unless the modifier has a `pullback!` for the whole step,
+# which would index the device arrays from the host.
+_device_modifier(m) = (_strata_loop(m) || _device_groups(m)) && _scalar_params(m)
+_device_groups(m) = _blocks(m) isa Val && !_has_vector_pullback(m)
 _device_modifier(m::Transform) = _strata_loop(m)
 # Built-in group steps reverse in blocks, as their forward steps run.
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true

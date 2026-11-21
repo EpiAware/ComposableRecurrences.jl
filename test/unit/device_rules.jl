@@ -919,6 +919,19 @@ end
     # derivative.
     CR.uses_adjoint(::DevTracedPairs, ::CR.Step) = true
     CR.ntrace(::DevTracedPairs, S) = S ÷ 2
+    # The same pairs with a `pullback!` for the whole step, which indexes the
+    # device arrays from the host, so the call keeps plain AD.
+    struct DevVectorPairs{A}
+        a::A
+    end
+    CR.blocks(::DevVectorPairs) = (2, 2)
+    function CR.forward!(m::DevVectorPairs, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v[1][] *= m.a
+        return nothing
+    end
+    function CR.pullback!(grads, m::DevVectorPairs, ::CR.Step, v, s, t)
+        return nothing
+    end
     function CR.forward!(
             m::DevTracedPairs, ::CR.Trace, r::Tuple, v::Tuple, s::Tuple,
             v′::Tuple, s′::Tuple, t, g
@@ -967,6 +980,8 @@ end
         "a user modifier's own trace" => (S -> (DevTracedPairs(0.9),), :rule),
         "a user modifier's default trace" => (S -> (DevPairs(0.9),), :rule),
     )
+    op, args = modified_case((DevVectorPairs(0.9),), 4, true)
+    @test (@inferred CR._route_val(op, args...)) === Val(:plain)
     @testset "$name, $S strata" for (name, (ms, how)) in cases, S in (4, many)
         op, args = modified_case(ms(S), S, true)
         @test CR._route_val(CR._WithTrace(op), args...) === Val(how)
