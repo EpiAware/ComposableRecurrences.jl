@@ -18,6 +18,11 @@
 #   threads_only  — run only `:threads`-tagged items (those that use
 #                   `Threaded`, `EXECUTOR` or `Threads`)
 #
+# On CI the QA testset runs only on Linux: its checks (Aqua, JET, doctests,
+# formatting, the standards) do not depend on the operating system, and the
+# Test workflow's Linux cell already runs them, so the macOS cell would only
+# repeat them. Locally they run on every system.
+#
 # `:usecase_pending` items need API that has not landed yet, so only
 # `usecase_only` runs them; drop the tag once they pass.
 #
@@ -37,12 +42,14 @@ const PKG_DIR = dirname(TEST_DIR)
 
 include(joinpath(TEST_DIR, "item_times.jl"))
 
+_quality_here() = !(get(ENV, "CI", "") == "true" && !Sys.islinux())
+
 function mode_filter(args)
     "quality_only" in args && return ti -> :quality in ti.tags
     "readme_only" in args && return ti -> :readme in ti.tags
     "usecase_only" in args && return ti -> :usecase in ti.tags
     "threads_only" in args && return ti -> :threads in ti.tags
-    quality = !("skip_quality" in args)
+    quality = !("skip_quality" in args) && _quality_here()
     return ti -> (quality || !(:quality in ti.tags)) && !(:ad in ti.tags) &&
         !(:usecase_pending in ti.tags)
 end

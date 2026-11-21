@@ -1,10 +1,10 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
 using ComposableRecurrences: ComposableRecurrences, Allocate, Pairwise,
-    Parallel, Pressure, Secondary, Serial, Step, Threaded, TimeVarying,
+    Parallel, PerStratum, Pressure, Secondary, Serial, Step, Threaded, TimeVarying,
     _AllocateImports, _FixedKernel, _OldestFirstPairwise, _Ragged, _Piecewise,
     _PIECEWISE_DEVICE, cotangent
-using GPUArraysCore: AbstractGPUArray, AnyGPUArray
+using GPUArraysCore: AbstractGPUArray, AnyGPUArray, @allowscalar
 using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
 using SparseArrays: SparseMatrixCSC
@@ -21,6 +21,16 @@ ComposableRecurrences._on_gpu(::AnyGPUArray) = true
 # Transpose a view of the rows, so they are copied once.
 function ComposableRecurrences._public(H::AnyGPUArray, rows, h::AbstractMatrix)
     return permutedims(view(H, rows, :))
+end
+
+# The construction and call checks rebuild a part from its parameters at
+# stratum 1 and time 1, once: on a device that is one read from the host.
+const _DeviceParam = Union{
+    PerStratum{<:AnyGPUArray}, TimeVarying{<:Any, <:AnyGPUArray{<:Any, 1}},
+    TimeVarying{<:Any, <:PerStratum{<:AnyGPUArray}},
+}
+function ComposableRecurrences._entry(x::_DeviceParam, at::Tuple)
+    return @allowscalar ComposableRecurrences.param(x, at...)
 end
 
 # A user modifier's `Init` reverses once per call, on host copies: its
@@ -160,6 +170,50 @@ end
 # Columns on a device stack there.
 function ComposableRecurrences._like(ks::AbstractVector{<:AnyGPUArray}, x::Array)
     return isempty(ks) ? x : ComposableRecurrences._like(first(ks), x)
+end
+
+# A dense coupling's step and the kernels' reverse run in one kernel per
+# step, one index per stratum, where the two products and the kernels' pass
+# took a launch each. Stratum `k` sums its entry of `p̄` from a transposed
+# copy of the coupling, so neighbouring indices read neighbouring entries,
+# records its `q̄` and steps its kernel back. The coupling's cotangent is one
+# product after the loop, `Q̄ Pᵀ`. Both buffers are made once per call.
+struct _FusedSteps{A, Q}
+    Cᵀ::A
+    Q̄::Q
+end
+function ComposableRecurrences._coupling_steps(
+        C̄, C::AnyGPUArray{<:Number, 2}, kernel, H::AnyGPUArray, pr
+    )
+    C̄m = ComposableRecurrences._array_mirror(C̄)
+    Q̄ = C̄m isa AbstractMatrix ? fill!(similar(pr.P), false) : nothing
+    return _FusedSteps(permutedims(C), Q̄)
+end
+function ComposableRecurrences._coupling_steps_done!(C̄, pr, f::_FusedSteps)
+    f.Q̄ === nothing && return nothing
+    mul!(ComposableRecurrences._array_mirror(C̄), f.Q̄, transpose(pr.P), true, true)
+    return nothing
+end
+function ComposableRecurrences._coupling_kernels_back!(
+        accs, kb, g, p̄, C, q̄, pr, H, H̄, t, τ, D, L, pbufs, f::_FusedSteps
+    )
+    ComposableRecurrences._reduce_blocks!(
+        _fused_back!, accs, length(p̄), kb, g, p̄, f.Cᵀ, f.Q̄, q̄, H, H̄, t,
+        t + D - L, τ, L
+    )
+    return nothing
+end
+function _fused_back!(ks, acc, kb, g, p̄, Cᵀ, Q̄, q̄, H, H̄, t, j, τ, L)
+    for k in ks
+        s = zero(eltype(p̄))
+        for i in axes(Cᵀ, 2)
+            s += @inbounds Cᵀ[k, i] * q̄[i]
+        end
+        @inbounds p̄[k] = s
+        Q̄ === nothing || @inbounds(Q̄[k, t] = q̄[k])
+        ComposableRecurrences._kernel_back_at!(kb, acc.ḡ, g, s, H, H̄, j, τ, L, k)
+    end
+    return nothing
 end
 
 # Couplings on a device mix the strata with one `mul!` (or broadcast) per

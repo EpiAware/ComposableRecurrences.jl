@@ -207,6 +207,12 @@ end
                     coupling = dev ? JLArray(zeros(S, S)) : zeros(S, S),
                 ),
             ),
+            # A coupling held fixed has no cotangent, so its steps record
+            # no `q̄`.
+            "recurrence, dense coupling held fixed" => (
+                dev -> recurrence_case(dense(S), S, dev),
+                dev -> (; kernel = dev ? JLArray(zeros(L)) : zeros(L), coupling = nothing),
+            ),
             "recurrence, scalar coupling" => (
                 dev -> recurrence_case(0.8I, S, dev),
                 dev -> (;
@@ -697,6 +703,21 @@ end
         @test Array(dgrads.p) ≈ p̄
         C̄ === nothing || @test Array(d̄) ≈ C̄
     end
+    # In a reverse pass on device arrays its steps fuse with the kernels':
+    # one kernel per step reads a transposed copy and records `q̄` for one
+    # product after the loop, made once per call. Host arrays keep the
+    # passes as they are.
+    P, H = zeros(S, T), zeros(L + T, S)
+    @test CR._coupling_steps(zeros(S, S), C, pmf, H, (; P)) === nothing
+    f = CR._coupling_steps(
+        JLArray(zeros(S, S)), JLArray(C), JLArray(pmf), JLArray(H), (; P = JLArray(P))
+    )
+    @test Array(f.Cᵀ) == permutedims(C)
+    @test size(f.Q̄) == (S, T)
+    held = CR._coupling_steps(
+        nothing, JLArray(C), JLArray(pmf), JLArray(H), (; P = JLArray(P))
+    )
+    @test held.Q̄ === nothing
     # Pressures of the wrong length are an error, not a wrong result.
     bad = (; piece = nothing, q = JLArray(q̄), p = JLArray(zeros(S + 1)))
     @test_throws DimensionMismatch CR.pullback!(
@@ -790,6 +811,7 @@ end
 @testitem "JLArrays: the rule passes of user pointwise modifiers match the CPU" setup = [DeviceRules] begin
     # The local derivative of a step without a `pullback!` uses dual numbers.
     using ForwardDiff
+    import Adapt
     # A user modifier per stratum that passes the value through and asks for
     # a buffer deeper than the kernel, one that shrinks the value by a
     # scalar, and one that starts its state from its own `Init`, read from
@@ -808,6 +830,18 @@ end
     end
     CR.depth(m::DevDeep) = m.w
     CR.forward!(::DevDeep, ::CR.Step, v, s, t) = nothing
+    struct DevCap{A}
+        κ::A
+    end
+    Adapt.adapt_structure(to, m::DevCap) = DevCap(adapt(to, m.κ))
+    CR.blocks(::DevCap) = (1, 1)
+    function CR.forward!(m::DevCap, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            κ = CR.param(m.κ, k, t)
+            v[k] = v[k] * κ / (κ + v[k])
+        end
+        return nothing
+    end
     function CR.forward!(m::DevShrink, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] = v[k] / (1 + m.a * v[k])
@@ -896,6 +930,24 @@ end
     # step may read the array from the host.
     op, args = modified_case((DevShrink(fill(0.1, 4)),), 4, true)
     @test (@inferred CR._route_val(op, args...)) === Val(:plain)
+    # One that reads a per-stratum parameter through `param` builds and runs
+    # on the device: the construction and call checks read that parameter
+    # once, at stratum 1, from the host.
+    κs = (
+        "per stratum" => PerStratum(collect(range(2.0, 5.0; length = 4))),
+        "over time" => TimeVarying(collect(range(2.0, 5.0; length = T))),
+        "per stratum over time" => TimeVarying(
+            PerStratum([2.0 + k + 0.1 * t for k in 1:4, t in 1:T])
+        ),
+    )
+    @testset "a parameter $name" for (name, κ) in κs
+        op0, args0 = modified_case((DevCap(κ),), 4, false)
+        op1, args1 = modified_case((DevCap(κ),), 4, true)
+        @test CR._array(op1.modifiers[1].κ) isa JLArray
+        y0, = CR._run_forward(op0, args0...)
+        y1, = CR._run_forward(op1, args1...)
+        @test Array(y1) ≈ y0
+    end
 end
 
 @testitem "JLArrays: the rule passes of traced runs match the CPU" setup = [DeviceRules] begin

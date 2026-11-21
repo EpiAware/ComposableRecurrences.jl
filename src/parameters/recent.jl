@@ -74,22 +74,6 @@ round.(r(fill(2.0, 8); history = ones(3)); digits = 3)
  2.414
  2.273
 ```
-
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-# Each of two places responds to the incidence in both.
-C = [0.8 0.2; 0.2 0.8]
-β = CR.Derived(exp, -0.05 * CR.Recent(7; coupling = C))
-r = Recurrence([0.2, 0.5, 0.3]; modifiers = (CR.Transform(*, β),))
-round.(r([2.0 2.0 2.0; 1.0 1.0 1.0]; history = ones(2, 3)); digits = 3)
-
-# output
-
-2×3 Matrix{Float64}:
- 1.721  1.823  2.241
- 0.861  0.795  0.691
-```
 """
 struct Recent{W <: AbstractVector, C}
     "The weights, lag 1 first."

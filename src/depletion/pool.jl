@@ -184,6 +184,38 @@ function _Depletion(pools::I, pieces::C) where {I, C}
 end
 ConstructionBase.constructorof(::Type{<:Depletion}) = _Depletion
 
+# Inlined, so that a differentiated function that builds a `Depletion` holds
+# no call returning it. A first argument that is a parameter, or an array
+# given where one was meant, is the population.
+const _Population = Union{
+    Real, PerStratum, TimeVarying, Derived, Recent, AbstractArray,
+}
+@inline function Depletion(N::_Population, pieces...)
+    return _depletion(_population(N), pieces, nothing)
+end
+@inline Depletion(pieces...) = _depletion(nothing, pieces, nothing)
+# The keyword `pools`, taken here rather than by a keyword method, whose
+# body would take the parts splatted again: past 32 parts that splat is
+# left to run time, which reverse-mode AD may not differentiate through.
+@inline function Core.kwcall(
+        kw::NamedTuple, ::Type{Depletion}, N::_Population, pieces...
+    )
+    return _depletion(_population(N), pieces, _pools_keyword(kw))
+end
+@inline function Core.kwcall(kw::NamedTuple, ::Type{Depletion}, pieces...)
+    return _depletion(nothing, pieces, _pools_keyword(kw))
+end
+_pools_keyword(kw::NamedTuple{()}) = nothing
+_pools_keyword(kw::NamedTuple{(:pools,)}) = kw.pools
+@noinline function _pools_keyword(kw::NamedTuple)
+    throw(
+        ArgumentError(
+            "a Depletion takes the keyword pools alone, got " *
+                join(keys(kw), ", ")
+        )
+    )
+end
+
 # `first` is the pool a draw takes from when the weighted pools are empty.
 struct _DrawFrom{F, P, W, O}
     form::F
@@ -250,38 +282,6 @@ _kind_of(::Tuple{}, K) = _Drop()
 function _kind_of(ps::Tuple, K)
     o = _overflow_of(first(ps))
     return _either(o isa K ? o : _Drop(), _kind_of(Base.tail(ps), K))
-end
-
-# Inlined, so that a differentiated function that builds a `Depletion` holds
-# no call returning it. A first argument that is a parameter, or an array
-# given where one was meant, is the population.
-const _Population = Union{
-    Real, PerStratum, TimeVarying, Derived, Recent, AbstractArray,
-}
-@inline function Depletion(N::_Population, pieces...)
-    return _depletion(_population(N), pieces, nothing)
-end
-@inline Depletion(pieces...) = _depletion(nothing, pieces, nothing)
-# The keyword `pools`, taken here rather than by a keyword method, whose
-# body would take the parts splatted again: past 32 parts that splat is
-# left to run time, which reverse-mode AD may not differentiate through.
-@inline function Core.kwcall(
-        kw::NamedTuple, ::Type{Depletion}, N::_Population, pieces...
-    )
-    return _depletion(_population(N), pieces, _pools_keyword(kw))
-end
-@inline function Core.kwcall(kw::NamedTuple, ::Type{Depletion}, pieces...)
-    return _depletion(nothing, pieces, _pools_keyword(kw))
-end
-_pools_keyword(kw::NamedTuple{()}) = nothing
-_pools_keyword(kw::NamedTuple{(:pools,)}) = kw.pools
-@noinline function _pools_keyword(kw::NamedTuple)
-    throw(
-        ArgumentError(
-            "a Depletion takes the keyword pools alone, got " *
-                join(keys(kw), ", ")
-        )
-    )
 end
 
 @inline function _depletion(N, pieces::Tuple, pools)

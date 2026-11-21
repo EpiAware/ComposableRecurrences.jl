@@ -60,6 +60,24 @@ Each slot accepts its own set of wrappers.
 Wrappers nest from the outside in: time, then strata, then the slot's own axes.
 So `TimeVarying(PerStratum(G))` is an `S × L × T` kernel and `TimeVarying(Pairwise(A))` is `S × S × L × T`.
 A `Derived` or `Recent` parameter sits inside arithmetic, as in `β * Recent(7)`, and its arguments may be any other parameter.
+`Recent(7; coupling = C)` mixes the recent outputs between strata, so each place responds to the incidence in both:
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+# Each of two places responds to the incidence in both.
+C = [0.8 0.2; 0.2 0.8]
+β = CR.Derived(exp, -0.05 * CR.Recent(7; coupling = C))
+r = Recurrence([0.2, 0.5, 0.3]; modifiers = (CR.Transform(*, β),))
+round.(r([2.0 2.0 2.0; 1.0 1.0 1.0]; history = ones(2, 3)); digits = 3)
+
+# output
+
+2×3 Matrix{Float64}:
+ 1.721  1.823  2.241
+ 0.861  0.795  0.691
+```
+
 A `Derived` kernel's arguments may also be vectors of lag weights, `Primary()` coefficients and [`Survival`](@ref ComposableRecurrences.Survival).
 
 Every modifier reads a parameter through [`param`](@ref ComposableRecurrences.param), which takes every form.

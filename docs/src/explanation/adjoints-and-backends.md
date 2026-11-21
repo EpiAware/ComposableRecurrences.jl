@@ -237,6 +237,9 @@ Float types:
   `kernel_weights` fills them the same way when its coefficients live on a device.
 - A modifier's trace is written per stratum, or per group of a blockwise modifier, as one index of a kernel.
   A modifier whose step runs on the whole vectors writes its trace with its own code, which must not index the arrays from the host.
+- A pointwise or blockwise modifier's step runs per stratum or group inside a kernel, so its `forward!` may loop over its entries.
+  A coupling the package does not define, a modifier whose step runs on the whole vectors, and an `Init` get the whole device vectors on the host instead.
+  Their `forward!` must use array operations, such as broadcasts and `mul!`; a loop over entries stops with the array package's scalar-indexing error.
 - `window_sums` runs each sum as one index of a kernel.
 - Views and reshapes of device arrays, such as views into one parameter vector, run on the device as the arrays themselves do.
 
@@ -287,7 +290,9 @@ A convolution's transpose takes the rule when the convolution does, as it runs t
 Routes reverse one route at a time on the calling task: each route's coupling as a dense coupling's pressure does, then its kernel, one stratum per kernel index, as each stratum writes only its own entries.
 A pairwise kernel reverses one sender per kernel index, as every stratum reads a sender's window.
 The sender's index loops over the strata and writes only its own column of the buffer's cotangent and its own pairs of the kernel's, so nothing is copied.
-A coupling over time reverses each step's slice as a dense coupling does, as two products, and writes only that slice of its cotangent, so nothing is copied.
+A coupling over time reverses each step's slice as two products, and writes only that slice of its cotangent, so nothing is copied.
+A fixed dense coupling's step reverses in the same kernel as the kernels' step, one stratum per index, from a transposed copy of the coupling made once per call.
+Each stratum records its step's cotangent, and the coupling's cotangent is one product of those records after the loop.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 
