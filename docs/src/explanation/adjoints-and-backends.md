@@ -83,11 +83,6 @@ A `Recurrence` built before ForwardDiff loads checks its parts at each call rath
 #### Types it can rebuild
 
 The local step rebuilds a type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
-For that:
-
-- give each float field a type parameter, as `struct Smooth{A}; a::A; end`, so that it can hold a dual number;
-- let the constructor keep its arguments as given.
-
 These send the operator to plain AD:
 
 - a float field typed abstractly or as `Float64`;
@@ -105,41 +100,6 @@ So the step must read it at its own `k` and `t`, as `param(m.κ, k, t)`:
 
 - a step that indexes the array sends the operator to plain AD;
 - a step that reads another stratum or time gets the wrong entry, so it needs a `pullback!`.
-
-A blockwise modifier's local step does the same for each group.
-It seeds the group's values, its state and the entries its parameters read at group `g`, as `param(m.a, g, t)`.
-So its dual numbers are as wide as one group, whatever the number of strata.
-
-#### Other float arrays
-
-What the local step seeds:
-
-- a pointwise modifier: the entries of its other float arrays that a step reads, as `m.a[t]`;
-- a whole-step modifier: the step's values and state, and every scalar and array entry of its parameters;
-- a whole-step modifier whose step reads fewer entries of a strided float array outside `PerStratum` and `TimeVarying` than it holds, as `m.total[t]`: only the entries read, as for a pointwise modifier;
-- a coupling: every entry of its float arrays;
-- a `Diagonal` or sparse matrix: nothing, as a step may read its fields rather than its entries.
-
-How the reads are counted:
-
-- for a pointwise modifier, the `Recurrence` constructor runs one step at the first stratum and time;
-- for a whole-step modifier, each call runs one step at each of the first two times;
-- a whole-step modifier that reads a different number of entries at each, as a step that sums every entry up to `t`, seeds every entry instead.
-
-The seeded entries set the passes of dual numbers:
-
-- up to four reads take one pass;
-- more run once more with room for 8 or 12;
-- past 12, the step runs in passes of 12.
-
-A step that reads more at a later time than when counted still gets the right gradient, in more passes.
-
-The limits:
-
-- a pointwise modifier with more than 24 reads takes plain AD, which is then faster, and the constructor says so;
-- a coupling or whole-step modifier whose entries need a second pass takes the rule on Mooncake and plain AD on Enzyme, where the rule is slower than plain AD;
-- past two passes it takes plain AD on every backend;
-- a coupling over more strata than the route table allows needs a `pullback!` to take the rule.
 
 #### Ties and kinks
 
