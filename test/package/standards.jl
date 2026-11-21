@@ -35,6 +35,27 @@ end
     end
 end
 
+# The docs pages' `jldoctest` blocks run here as well as in the docs build,
+# so an example moved out of a docstring keeps a unit-test check.
+@testitem "Standards: docs page doctests" tags = [:quality] begin
+    using ComposableRecurrences, Documenter
+    root = joinpath(@__DIR__, "..", "..", "docs", "src")
+    pages = String[]
+    for (dir, _, files) in walkdir(root), f in files
+        path = joinpath(dir, f)
+        endswith(f, ".md") && occursin("```jldoctest", read(path, String)) &&
+            push!(pages, path)
+    end
+    @test !isempty(pages)
+    src = joinpath(mktempdir(), "src")
+    for path in pages
+        dest = joinpath(src, relpath(path, root))
+        mkpath(dirname(dest))
+        cp(path, dest)
+    end
+    doctest(src, Module[])
+end
+
 @testitem "Standards: wording" tags = [:quality] begin
     using ComposableRecurrences
     include(joinpath(@__DIR__, "standards_helpers.jl"))
