@@ -777,6 +777,7 @@ end
 @testitem "JLArrays: the rule passes of user pointwise modifiers match the CPU" setup = [DeviceRules] begin
     # The local derivative of a step without a `pullback!` uses dual numbers.
     using ForwardDiff
+    import Adapt
     # A user modifier per stratum that passes the value through and asks for
     # a buffer deeper than the kernel, one that shrinks the value by a
     # scalar, and one that starts its state from its own `Init`, read from
@@ -795,6 +796,18 @@ end
     end
     CR.depth(m::DevDeep) = m.w
     CR.forward!(::DevDeep, ::CR.Step, v, s, t) = nothing
+    struct DevCap{A}
+        κ::A
+    end
+    Adapt.adapt_structure(to, m::DevCap) = DevCap(adapt(to, m.κ))
+    CR.blocks(::DevCap) = (1, 1)
+    function CR.forward!(m::DevCap, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            κ = CR.param(m.κ, k, t)
+            v[k] = v[k] * κ / (κ + v[k])
+        end
+        return nothing
+    end
     function CR.forward!(m::DevShrink, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k] = v[k] / (1 + m.a * v[k])
@@ -883,6 +896,16 @@ end
     # step may read the array from the host.
     op, args = modified_case((DevShrink(fill(0.1, 4)),), 4, true)
     @test (@inferred CR._route_val(op, args...)) === Val(:plain)
+    # One that reads a per-stratum parameter through `param` builds and runs
+    # on the device: the construction and call checks read that parameter
+    # once, at stratum 1, from the host.
+    caps = (DevCap(PerStratum(collect(range(2.0, 5.0; length = 4)))),)
+    op0, args0 = modified_case(caps, 4, false)
+    op1, args1 = modified_case(caps, 4, true)
+    @test op1.modifiers[1].κ.x isa JLArray
+    y0, = CR._run_forward(op0, args0...)
+    y1, = CR._run_forward(op1, args1...)
+    @test Array(y1) ≈ y0
 end
 
 @testitem "JLArrays: the rule passes of traced runs match the CPU" setup = [DeviceRules] begin
