@@ -140,6 +140,9 @@ end
 _device_coupling(C) = false
 _device_coupling(::Union{UniformScaling, Diagonal}) = true
 _device_coupling(C::AbstractMatrix) = _on_gpu(C)
+# A coupling over time reverses as a dense one at each step's slice
+# (`_device_tv_coupling_back!`).
+_device_coupling(C::_TVCoupling) = _on_gpu(C.x)
 _device_modifiers(::Tuple{}) = true
 function _device_modifiers(ms::Tuple)
     return _device_modifier(first(ms)) && _device_modifiers(Base.tail(ms))

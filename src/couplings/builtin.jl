@@ -311,6 +311,15 @@ function pullback!(
     return nothing
 end
 
+# On a device, step `t`'s slice reverses as a dense coupling does, as two
+# products.
+function _device_tv_coupling_back!(grads, C, p, t)
+    X̄ = _array_mirror(cotangent(grads.piece, :x))
+    X̄t = X̄ isa AbstractArray ? view(X̄, :, :, t) : X̄
+    _device_coupling_back!(grads.p, X̄t, view(C.x, :, :, t), grads.q, p)
+    return nothing
+end
+
 @implements PieceInterface{(:pullback,)} TimeVarying [
     Arguments(;
         piece = TimeVarying(reshape(collect(1.0:8.0), 2, 2, 2)),
