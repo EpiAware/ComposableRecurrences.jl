@@ -1,10 +1,10 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
 using ComposableRecurrences: ComposableRecurrences, Allocate, Pairwise,
-    Parallel, Pressure, Secondary, Serial, Step, Threaded, TimeVarying,
+    Parallel, PerStratum, Pressure, Secondary, Serial, Step, Threaded, TimeVarying,
     _AllocateImports, _FixedKernel, _OldestFirstPairwise, _Ragged, _Piecewise,
     _PIECEWISE_DEVICE, cotangent
-using GPUArraysCore: AbstractGPUArray, AnyGPUArray
+using GPUArraysCore: AbstractGPUArray, AnyGPUArray, @allowscalar
 using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
 using SparseArrays: SparseMatrixCSC
@@ -17,6 +17,16 @@ function ComposableRecurrences._resolve(
     return Parallel(get_backend(x))
 end
 ComposableRecurrences._on_gpu(::AnyGPUArray) = true
+
+# The construction and call checks rebuild a part from its parameters at
+# stratum 1 and time 1, once: on a device that is one read from the host.
+const _DeviceParam = Union{
+    PerStratum{<:AnyGPUArray}, TimeVarying{<:Any, <:AnyGPUArray{<:Any, 1}},
+    TimeVarying{<:Any, <:PerStratum{<:AnyGPUArray}},
+}
+function ComposableRecurrences._entry(x::_DeviceParam, at::Tuple)
+    return @allowscalar ComposableRecurrences.param(x, at...)
+end
 
 # == pressure on device arrays ==
 
