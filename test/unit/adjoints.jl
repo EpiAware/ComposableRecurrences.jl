@@ -1827,6 +1827,59 @@ end
     # Without a history cotangent nothing is seeded there, so it runs.
     grads = (; piece = (; κ = Ref(0.0)), s = ones(3), history = nothing)
     @test CR.pullback!(grads, Summed(5.0), CR.Init(), zeros(3), ones(3, 4)) === nothing
+    # From 24 strata that read the same scalars, the history rows are seeded
+    # together: the same cotangents as the Jacobian, in one pass and in two.
+    function shared_check(S, L)
+        m = HPool(4.0, 0.8)
+        h = [1.0 + 0.1 * k + 0.01 * c for k in 1:S, c in 1:L]
+        s̄ = [isodd(k) ? 0.0 : (-1.0)^k * (1 + 0.1 * k) for k in 1:S]
+        f = function (x)
+            s = zeros(eltype(x), S)
+            CR.forward!(HPool(x[1], x[2]), CR.Init(), s, reshape(x[3:end], S, L))
+            return s
+        end
+        g = transpose(ForwardDiff.jacobian(f, [4.0; 0.8; vec(h)])) * s̄
+        grads = (; piece = (; N = Ref(0.0), a = Ref(0.0)), s = s̄, history = zeros(S, L))
+        CR.pullback!(grads, m, CR.Init(), zeros(S), h)
+        @test grads.piece.N[] ≈ g[1] rtol = 1.0e-12
+        @test grads.piece.a[] ≈ g[2] rtol = 1.0e-12
+        @test vec(grads.history) ≈ g[3:end] rtol = 1.0e-12
+        return nothing
+    end
+    shared_check(40, 4)
+    shared_check(40, 30)
+    # Seeded together, a row that reaches another stratum's state is still
+    # found, wherever the two strata are, and named as stratum by stratum.
+    # The last case reads two rows with opposite signs, which equal seeds
+    # would cancel.
+    struct Reads{K, P}
+        κ::K
+        pairs::P
+    end
+    CR.blocks(::Reads) = (1, 1)
+    function CR.forward!(m::Reads, ::CR.Init, s, history)
+        for k in eachindex(s)
+            s[k] = m.κ * history[k, end]
+        end
+        for (j, k, sign) in m.pairs
+            s[j] += sign * history[k, 1]
+        end
+        return nothing
+    end
+    CR.forward!(m::Reads, ::CR.Step, v, s, t) = (v .= v .* s; nothing)
+    for (pairs, k) in (
+            (((21, 20, 1),), 20), (((14, 27, 1),), 27),
+            (((2, 39, 1),), 39), (((7, 3, 1), (7, 5, -1)), 3),
+        )
+        grads = (; piece = (; κ = Ref(0.0)), s = ones(40), history = zeros(40, 5))
+        msg = Regex(
+            "^ArgumentError: the Init of Reads writes another stratum's " *
+                "state from stratum $k's history"
+        )
+        @test_throws msg CR.pullback!(
+            grads, Reads(0.5, pairs), CR.Init(), zeros(40), ones(40, 5)
+        )
+    end
 end
 
 @testitem "Adjoint: coupling pullbacks called directly" setup = [ReferenceAD, AdjointCheck] begin
