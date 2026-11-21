@@ -899,13 +899,21 @@ end
     # One that reads a per-stratum parameter through `param` builds and runs
     # on the device: the construction and call checks read that parameter
     # once, at stratum 1, from the host.
-    caps = (DevCap(PerStratum(collect(range(2.0, 5.0; length = 4)))),)
-    op0, args0 = modified_case(caps, 4, false)
-    op1, args1 = modified_case(caps, 4, true)
-    @test op1.modifiers[1].κ.x isa JLArray
-    y0, = CR._run_forward(op0, args0...)
-    y1, = CR._run_forward(op1, args1...)
-    @test Array(y1) ≈ y0
+    κs = (
+        "per stratum" => PerStratum(collect(range(2.0, 5.0; length = 4))),
+        "over time" => TimeVarying(collect(range(2.0, 5.0; length = T))),
+        "per stratum over time" => TimeVarying(
+            PerStratum([2.0 + k + 0.1 * t for k in 1:4, t in 1:T])
+        ),
+    )
+    @testset "a parameter $name" for (name, κ) in κs
+        op0, args0 = modified_case((DevCap(κ),), 4, false)
+        op1, args1 = modified_case((DevCap(κ),), 4, true)
+        @test CR._array(op1.modifiers[1].κ) isa JLArray
+        y0, = CR._run_forward(op0, args0...)
+        y1, = CR._run_forward(op1, args1...)
+        @test Array(y1) ≈ y0
+    end
 end
 
 @testitem "JLArrays: the rule passes of traced runs match the CPU" setup = [DeviceRules] begin
