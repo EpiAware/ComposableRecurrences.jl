@@ -324,13 +324,10 @@ function _pressure_back!(::Val{true}, p̄, C̄, C, q̄, p, t, bufs)
     pullback!((; piece = C̄, q = q̄, p = p̄), C, Pressure(), nothing, p, t)
     return nothing
 end
+# A coupling that seeds its arrays steps on the buffers the reverse pass
+# made once for it (`_pressure_buffers`).
 function _pressure_back!(::Val{false}, p̄, C̄, C, q̄, p, t, bufs)
-    if _array_seeds(C̄, C)
-        # The reverse pass makes the buffers once (`_pressure_buffers`); a
-        # direct call without them makes its own.
-        b = bufs isa _ArrayPressure ? bufs : _array_pressure(C, eltype(p))
-        return _local_pressure!(p̄, C̄, C, q̄, p, t, b)
-    end
+    _array_seeds(C̄, C) && return _local_pressure!(p̄, C̄, C, q̄, p, t, bufs)
     return _local_pressure!(p̄, C̄, C, q̄, p, t, _pressure_scalars(C̄, C), bufs)
 end
 _pressure_scalars(C̄, C) = C̄ === nothing ? () : _param_tuple(C)
