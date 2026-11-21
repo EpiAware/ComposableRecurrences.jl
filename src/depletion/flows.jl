@@ -486,19 +486,6 @@ end
 # to the pool it leaves only. The arm follows the primal value.
 _moved_in(m) = ifelse(_primal_value(m) < 0, zero(m), m)
 
-# What a count `a` moves out of a pool holding `s`, and the
-# cotangents `(ā, s̄, κ̄)` from that of the move; `κ̄` is the softness's.
-_moved(::_HardTruncate, a, s) = _removal(a, s)
-_moved(form::_SoftTruncate, a, s) = _soft_min(form.κ, a, _pool_left(s))
-function _moved_back(::_HardTruncate, a, s, m̄)
-    ā, s̄ = _removal_pullback(a, s, m̄)
-    return ā, s̄, zero(m̄)
-end
-function _moved_back(form::_SoftTruncate, a, s, m̄)
-    ā, c̄, κ̄ = _soft_min_back(form.κ, a, _pool_left(s), m̄)
-    return ā, ifelse(s > 0, c̄, zero(c̄)), κ̄
-end
-
 # The count flows in order on the pools `y` and arrivals `a`.
 @inline function _counts(fs::Tuple, y, a, g, t)
     count = @inline ((y, a), f, _) -> _count(f, y, a, g, t)
