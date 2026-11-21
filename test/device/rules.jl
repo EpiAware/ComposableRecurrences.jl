@@ -72,6 +72,22 @@ function CR.forward!(m::_DevShrink, ::CR.Step, v, s, t)
     end
     return nothing
 end
+# One that starts its state from its own `Init`, read from the history,
+# whose pullback runs on host copies.
+struct _DevStart{A}
+    N::A
+end
+CR.blocks(::_DevStart) = (1, 1)
+function CR.forward!(m::_DevStart, ::CR.Init, s, history)
+    s .= m.N .* (1 .+ 0.1 .* view(history, :, size(history, 2)))
+    return nothing
+end
+function CR.forward!(::_DevStart, ::CR.Step, v, s, t)
+    for k in eachindex(v, s)
+        v[k], s[k] = min(v[k], s[k]), s[k] - min(v[k], s[k])
+    end
+    return nothing
+end
 
 # The rule cases, each an operator and its rule arguments on the host, for
 # `S` strata.
@@ -205,6 +221,8 @@ function _rule_cases(S)
         "Recurrence, routes of two lengths" => rec(Recurrence(routes)),
         "Recurrence, a user modifier with a scalar parameter" =>
             rec(Recurrence(pmf; coupling = C, modifiers = (_DevShrink(0.1),))),
+        "Recurrence, a user modifier with its own Init" =>
+            rec(Recurrence(pmf; modifiers = (_DevStart(5.0),))),
         "Recurrence, time-varying kernel" => rec(Recurrence(TimeVarying(G))),
         "Recurrence, per-stratum time-varying kernel" =>
             rec(Recurrence(TimeVarying(PerStratum(GS)))),
