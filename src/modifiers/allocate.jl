@@ -125,30 +125,8 @@ r(fill(1.2, 3, 4); history = ones(3, 2))
  2.0  3.0  3.0  4.0
 ```
 
-A fifth of the first group's total lands where the third stratum sends,
-read before the first two strata spill a tenth of their values to each
-other; the second group imports nothing:
-
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-P = [0.0 0.0 0.2; 0.0 0.0 0.8; 0.0 0.0 0.0]
-within = CR.Redistribute([0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0])
-split = CR.Allocate(
-    [1:2, 3:3], PerStratum([10.0, 2.0]);
-    imports = (PerStratum([0.2, 0.0]), P), spill = within
-)
-r = Recurrence([1.0]; modifiers = (split,))
-y = r(ones(3, 1); history = [3.0; 1.0; 1.0;;])
-round.(y; digits = 3)
-
-# output
-
-3×1 Matrix{Float64}:
- 6.0
- 4.0
- 2.0
-```
+[Allocate with imports](@ref explanation-allocate-imports) adds an import
+pattern and a spill.
 """
 struct Allocate{T, I}
     "The strata of every group, group by group."

@@ -210,9 +210,9 @@ exponent.
   pass a float to differentiate the exponent.
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the form's arguments as a draw in a
-  [`ComposableRecurrences.Depletion`](@ref): each pool's weight, the pool
-  it fills and where what it leaves goes.
+- `weights`, `into`, `overflow`: make the form a draw in a
+  [`ComposableRecurrences.Depletion`](@ref), whose keyword arguments
+  define them.
 
 # Examples
 ```jldoctest
@@ -298,9 +298,9 @@ The pool can go negative, and then the floor applies.
   [`ComposableRecurrences.Hazard`](@ref).
 
 # Keyword Arguments
-- `weights`, `into`, `overflow`: the form's arguments as a draw in a
-  [`ComposableRecurrences.Depletion`](@ref): each pool's weight, the pool
-  it fills and where what it leaves goes.
+- `weights`, `into`, `overflow`: make the form a draw in a
+  [`ComposableRecurrences.Depletion`](@ref), whose keyword arguments
+  define them.
 
 # Examples
 ```jldoctest
