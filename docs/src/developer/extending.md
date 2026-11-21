@@ -97,8 +97,7 @@ The arguments mean the same in every role:
   Read them, but do not write to them.
 - Leave `grads` and the arguments after the role in `pullback!` untyped, so that [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) finds the method.
 - A pointwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to `(1, 1)`, and writes entry `k` of `v` and `s` from entry `k` only, for each `k` in `eachindex(v)`.
-  The operator may call it on a one-entry view of stratum `k`, whose axes are `k:k`, so loop over `eachindex(v)` and read parameters at `k` with [`param`](@ref ComposableRecurrences.param).
-  A broadcast against a field with one entry per stratum, such as `v .*= m.w`, cannot run on that view; the pointwise check of `PieceInterface` reports it.
+  `blocks` says why to loop over `eachindex(v)` and read parameters with [`param`](@ref ComposableRecurrences.param), not broadcast; the pointwise check of `PieceInterface` reports a broadcast.
   Its `Init` writes `s[k]` from the parameters read at stratum `k` and time 1, `param(m.a, k, 1)`, and from row `k` of the history only.
   Without an `Init` `pullback!`, its derivative is then taken stratum by stratum, and the pointwise check of `PieceInterface` checks it.
   Such a step runs under [`Parallel`](@ref ComposableRecurrences.Parallel) when it reads and writes only `eachindex(v)` entries, and allocates nothing.
@@ -658,9 +657,7 @@ An operator's hand-written gradient is its rule.
 | [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the conformance test for a new type, built on the Interfaces.jl package | a test result |
 
 For an operator, pass `ComposableRecurrences.Run()` as the role to `ComposableRecurrences.uses_adjoint`, `PieceInterface` and `test_adjoint`.
-`blocks` gives `(nv, ns)`, the number of values and of state entries in each group.
-It is `(1, 1)` for a pointwise modifier and `nothing` for one that reads every stratum.
-`ComposableRecurrences.ispointwise` and `nstate` are read from `blocks`.
+`ComposableRecurrences.ispointwise` and `nstate` are read from [`blocks`](@ref ComposableRecurrences.blocks).
 A modifier that defines `ispointwise` without `blocks` still runs as one that reads every stratum, so its parameters are not checked against the strata.
 A run keeps at least `ComposableRecurrences.depth` past outputs, even when the kernel is shorter.
 
