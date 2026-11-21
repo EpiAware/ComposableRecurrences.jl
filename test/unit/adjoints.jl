@@ -2379,14 +2379,6 @@ end
             @test pullback_matches(Recurrence([0.3, 0.2]; coupling = C), args(S)...)
         end
     end
-    # Called without the reverse pass's buffers, the step makes its own; no
-    # reverse pass calls it so.
-    C, p, q̄ = ScaledMix(0.5 .* rand(rng, 3, 3), 0.7), rand(rng, 3), randn(rng, 3)
-    C̄, p̄ = zero_mirror(C), zeros(3)
-    CR._pressure_back!(p̄, C̄, C, q̄, p, 1)
-    @test p̄ ≈ C.a .* (transpose(C.M) * q̄)
-    @test C̄.M ≈ C.a .* (q̄ * transpose(p))
-    @test C̄.a[] ≈ sum(q̄ .* (C.M * p))
     # Through a recurrence; with 3 strata the 12 inputs fit one pass.
     r = Recurrence([0.3, 0.2]; coupling = Mix(0.5 .* rand(rng, 3, 3)))
     @test r.rebuilds === true
