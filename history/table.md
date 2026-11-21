@@ -1,67 +1,67 @@
-|                                                                                    | v0.1.0              | ad1fa8773b309f...  | v0.1.0 / ad1fa8773b309f... |
+|                                                                                    | v0.1.0              | 3b41cb2a334b7d...  | v0.1.0 / 3b41cb2a334b7d... |
 |:-----------------------------------------------------------------------------------|:-------------------:|:------------------:|:--------------------------:|
-| AD gradients/Matrix bvd_renewal_call T200_L20_S1/Enzyme reverse                    | 0.0742 ± 0.012 ms   | 26.2 ± 7.6 μs      | 2.84 ± 0.94                |
-| AD gradients/Matrix bvd_renewal_call T200_L20_S1/ForwardDiff                       | 1.87 ± 0.029 ms     | 0.808 ± 0.024 ms   | 2.32 ± 0.078               |
-| AD gradients/Matrix bvd_renewal_call T200_L20_S1/Mooncake reverse                  | 0.112 ± 0.027 ms    | 0.0364 ± 0.01 ms   | 3.09 ± 1.1                 |
-| AD gradients/Matrix conv_fixed T200_L20_S1/Enzyme reverse                          | 16.8 ± 6.7 μs       | 3.56 ± 4.2 μs      | 4.74 ± 5.9                 |
-| AD gradients/Matrix conv_fixed T200_L20_S1/ForwardDiff                             | 1.29 ± 0.024 ms     | 0.325 ± 0.017 ms   | 3.97 ± 0.22                |
-| AD gradients/Matrix conv_fixed T200_L20_S1/Mooncake reverse                        | 0.0541 ± 0.022 ms   | 13 ± 2.1 μs        | 4.17 ± 1.9                 |
-| AD gradients/Matrix delay_fixed T200_L20_S1/Enzyme reverse                         | 10.8 ± 0.83 μs      | 5.19 ± 4.9 μs      | 2.09 ± 2                   |
-| AD gradients/Matrix delay_fixed T200_L20_S1/ForwardDiff                            | 1.44 ± 0.1 ms       | 0.427 ± 0.012 ms   | 3.37 ± 0.26                |
-| AD gradients/Matrix delay_fixed T200_L20_S1/Mooncake reverse                       | 0.0344 ± 0.00083 ms | 13.2 ± 2.7 μs      | 2.61 ± 0.53                |
-| AD gradients/Matrix overview T200_L20_S3/Enzyme reverse                            | 0.37 ± 0.051 ms     | 0.0469 ± 0.024 ms  | 7.88 ± 4.3                 |
-| AD gradients/Matrix overview T200_L20_S3/ForwardDiff                               | 21.2 ± 2.3 ms       | 3.07 ± 0.097 ms    | 6.88 ± 0.77                |
-| AD gradients/Matrix overview T200_L20_S3/Mooncake reverse                          | 0.445 ± 0.035 ms    | 0.0662 ± 0.002 ms  | 6.72 ± 0.56                |
-| AD gradients/Matrix random_walk T30_L1_S1/Enzyme reverse                           | 4.37 ± 0.38 μs      | 0.39 ± 0.07 μs     | 11.2 ± 2.2                 |
-| AD gradients/Matrix random_walk T30_L1_S1/ForwardDiff                              | 7.68 ± 6.4 μs       | 4.48 ± 0.52 μs     | 1.72 ± 1.4                 |
-| AD gradients/Matrix random_walk T30_L1_S1/Mooncake reverse                         | 11.5 ± 0.93 μs      | 1.27 ± 0.19 μs     | 9.05 ± 1.5                 |
-| AD gradients/Matrix renewal T200_L20_S1/Enzyme reverse                             | 26 ± 8.5 μs         | 7.85 ± 0.59 μs     | 3.32 ± 1.1                 |
-| AD gradients/Matrix renewal T200_L20_S1/ForwardDiff                                | 1.41 ± 0.023 ms     | 0.544 ± 0.028 ms   | 2.6 ± 0.14                 |
-| AD gradients/Matrix renewal T200_L20_S1/Mooncake reverse                           | 0.069 ± 0.0094 ms   | 13.7 ± 0.61 μs     | 5.04 ± 0.72                |
-| AD gradients/Matrix strata_mixing T200_L20_S5/Enzyme reverse                       | 0.537 ± 0.098 ms    | 0.0688 ± 0.0057 ms | 7.81 ± 1.6                 |
-| AD gradients/Matrix strata_mixing T200_L20_S5/ForwardDiff                          | 0.0419 ± 0.0016 s   | 13 ± 0.3 ms        | 3.22 ± 0.14                |
-| AD gradients/Matrix strata_mixing T200_L20_S5/Mooncake reverse                     | 0.551 ± 0.026 ms    | 0.109 ± 0.0047 ms  | 5.07 ± 0.32                |
-| Convolution body/BLAS axpy per lag                                                 | 0.703 ± 0.0061 μs   | 0.708 ± 0.0061 μs  | 0.994 ± 0.012              |
-| Convolution body/native axpy per lag                                               | 0.415 ± 0.006 μs    | 0.418 ± 0.0065 μs  | 0.992 ± 0.021              |
-| Convolution body/package                                                           | 0.703 ± 0.0056 μs   | 0.325 ± 0.0051 μs  | 2.16 ± 0.038               |
-| Evaluation/Matrix bvd_renewal_call T200_L20_S1                                     | 12.2 ± 1.9 μs       | 7.45 ± 0.23 μs     | 1.64 ± 0.26                |
-| Evaluation/Matrix conv_fixed T200_L20_S1                                           | 4.2 ± 0.34 μs       | 2.28 ± 0.39 μs     | 1.84 ± 0.35                |
-| Evaluation/Matrix delay_fixed T200_L20_S1                                          | 1.72 ± 1.3 μs       | 2.63 ± 1.7 μs      | 0.654 ± 0.65               |
-| Evaluation/Matrix overview T200_L20_S3                                             | 0.0325 ± 0.00082 ms | 15.4 ± 1 μs        | 2.11 ± 0.15                |
-| Evaluation/Matrix random_walk T30_L1_S1                                            | 0.37 ± 0.041 μs     | 0.13 ± 0.02 μs     | 2.85 ± 0.54                |
-| Evaluation/Matrix renewal T200_L20_S1                                              | 6.81 ± 1.7 μs       | 2.76 ± 0.2 μs      | 2.46 ± 0.64                |
-| Evaluation/Matrix strata_mixing T200_L20_S5                                        | 0.0351 ± 0.00083 ms | 23.9 ± 2.6 μs      | 1.47 ± 0.16                |
-| AD gradients/Matrix bvd_patches_call T200_L20_S1/ForwardDiff                       |                     | 1.51 ± 0.078 ms    |                            |
-| AD gradients/Matrix bvd_patch T200_L20_S5/Mooncake reverse                         |                     | 0.136 ± 0.0092 ms  |                            |
-| AD gradients/Matrix tv_piecewise_secondary_k5 T200_L20_S1/Mooncake reverse         |                     | 25.2 ± 3.3 μs      |                            |
-| AD gradients/Matrix bvd_patches_call T200_L20_S1/Mooncake reverse                  |                     | 0.0651 ± 0.0017 ms |                            |
-| AD gradients/Matrix tv_piecewise_renewal_primary_k5 T200_L20_S1/ForwardDiff        |                     | 0.641 ± 0.03 ms    |                            |
-| Evaluation/Matrix tv_piecewise_renewal_primary_k5 T200_L20_S1                      |                     | 5.24 ± 0.49 μs     |                            |
-| AD gradients/Matrix tv_piecewise_renewal_secondary_k5 T200_L20_S1/ForwardDiff      |                     | 0.871 ± 0.032 ms   |                            |
-| Evaluation/Matrix tv_piecewise_secondary_k5 T200_L20_S1                            |                     | 4.74 ± 3.7 μs      |                            |
-| Evaluation/Matrix bvd_patch T200_L20_S5                                            |                     | 0.035 ± 0.0098 ms  |                            |
-| AD gradients/Matrix tv_piecewise_renewal_primary_k5 T200_L20_S1/Mooncake reverse   |                     | 0.0342 ± 0.0041 ms |                            |
-| AD gradients/Matrix bvd_patches_call T200_L20_S1/Enzyme reverse                    |                     | 0.0423 ± 0.0012 ms |                            |
-| Evaluation/Matrix tv_piecewise_primary_k5 T200_L20_S1                              |                     | 4.96 ± 3.8 μs      |                            |
-| Evaluation/Matrix tv_piecewise_renewal_secondary_k5 T200_L20_S1                    |                     | 6.91 ± 3.3 μs      |                            |
-| AD gradients/Matrix bvd_patches_call T200_L20_S5/Mooncake reverse                  |                     | 0.18 ± 0.0099 ms   |                            |
-| AD gradients/Matrix tv_piecewise_secondary_k5 T200_L20_S1/Enzyme reverse           |                     | 15.1 ± 7 μs        |                            |
-| AD gradients/Matrix tv_piecewise_primary_k5 T200_L20_S1/Mooncake reverse           |                     | 25.8 ± 3.4 μs      |                            |
-| AD gradients/Matrix tv_piecewise_renewal_secondary_k5 T200_L20_S1/Enzyme reverse   |                     | 20.4 ± 7.7 μs      |                            |
-| AD gradients/Matrix bvd_patches_call T200_L20_S5/Enzyme reverse                    |                     | 0.122 ± 0.0078 ms  |                            |
-| Evaluation/Matrix bvd_patches_call T200_L20_S5                                     |                     | 0.047 ± 0.0019 ms  |                            |
-| AD gradients/Matrix tv_piecewise_primary_k5 T200_L20_S1/ForwardDiff                |                     | 0.604 ± 0.044 ms   |                            |
-| AD gradients/Matrix bvd_patch T200_L20_S5/Enzyme reverse                           |                     | 0.0948 ± 0.0067 ms |                            |
-| AD gradients/Matrix tv_piecewise_secondary_k5 T200_L20_S1/ForwardDiff              |                     | 0.602 ± 0.046 ms   |                            |
-| AD gradients/Matrix bvd_patch T200_L20_S5/ForwardDiff                              |                     | 15.5 ± 1.5 ms      |                            |
-| AD gradients/Matrix tv_piecewise_primary_k5 T200_L20_S1/Enzyme reverse             |                     | 16.1 ± 6.8 μs      |                            |
-| AD gradients/Matrix tv_piecewise_renewal_primary_k5 T200_L20_S1/Enzyme reverse     |                     | 23 ± 9 μs          |                            |
-| Evaluation/Matrix bvd_patches_call T200_L20_S1                                     |                     | 19.8 ± 4.6 μs      |                            |
-| AD gradients/Matrix bvd_patches_call T200_L20_S5/ForwardDiff                       |                     | 0.0436 ± 0.00078 s |                            |
-| AD gradients/Matrix tv_piecewise_renewal_secondary_k5 T200_L20_S1/Mooncake reverse |                     | 31.1 ± 12 μs       |                            |
-| time_to_load                                                                       | 0.188 ± 0.0013 s    | 0.244 ± 0.0012 s   | 0.769 ± 0.0063             |
+| AD gradients/Matrix bvd_renewal_call T200_L20_S1/Enzyme reverse                    | 0.0736 ± 0.012 ms   | 26.4 ± 7.9 μs      | 2.78 ± 0.96                |
+| AD gradients/Matrix bvd_renewal_call T200_L20_S1/ForwardDiff                       | 1.87 ± 0.036 ms     | 0.808 ± 0.018 ms   | 2.31 ± 0.069               |
+| AD gradients/Matrix bvd_renewal_call T200_L20_S1/Mooncake reverse                  | 0.115 ± 0.013 ms    | 0.0365 ± 0.01 ms   | 3.14 ± 0.95                |
+| AD gradients/Matrix conv_fixed T200_L20_S1/Enzyme reverse                          | 16.2 ± 7.1 μs       | 3.5 ± 4 μs         | 4.63 ± 5.7                 |
+| AD gradients/Matrix conv_fixed T200_L20_S1/ForwardDiff                             | 1.29 ± 0.029 ms     | 0.335 ± 0.013 ms   | 3.86 ± 0.18                |
+| AD gradients/Matrix conv_fixed T200_L20_S1/Mooncake reverse                        | 0.0536 ± 0.022 ms   | 13 ± 2.2 μs        | 4.12 ± 1.9                 |
+| AD gradients/Matrix delay_fixed T200_L20_S1/Enzyme reverse                         | 10.9 ± 0.82 μs      | 6.81 ± 5 μs        | 1.6 ± 1.2                  |
+| AD gradients/Matrix delay_fixed T200_L20_S1/ForwardDiff                            | 1.45 ± 0.027 ms     | 0.443 ± 0.011 ms   | 3.26 ± 0.1                 |
+| AD gradients/Matrix delay_fixed T200_L20_S1/Mooncake reverse                       | 0.035 ± 0.001 ms    | 13 ± 2.5 μs        | 2.7 ± 0.54                 |
+| AD gradients/Matrix overview T200_L20_S3/Enzyme reverse                            | 0.375 ± 0.063 ms    | 0.0471 ± 0.025 ms  | 7.97 ± 4.4                 |
+| AD gradients/Matrix overview T200_L20_S3/ForwardDiff                               | 21.4 ± 2.5 ms       | 3.05 ± 0.17 ms     | 6.99 ± 0.92                |
+| AD gradients/Matrix overview T200_L20_S3/Mooncake reverse                          | 0.436 ± 0.037 ms    | 0.0665 ± 0.0023 ms | 6.55 ± 0.6                 |
+| AD gradients/Matrix random_walk T30_L1_S1/Enzyme reverse                           | 4.45 ± 0.4 μs       | 0.361 ± 0.08 μs    | 12.3 ± 2.9                 |
+| AD gradients/Matrix random_walk T30_L1_S1/ForwardDiff                              | 7.77 ± 7.3 μs       | 4.56 ± 0.54 μs     | 1.71 ± 1.6                 |
+| AD gradients/Matrix random_walk T30_L1_S1/Mooncake reverse                         | 11.4 ± 0.83 μs      | 1.31 ± 0.17 μs     | 8.66 ± 1.3                 |
+| AD gradients/Matrix renewal T200_L20_S1/Enzyme reverse                             | 26.3 ± 8.9 μs       | 7.82 ± 0.52 μs     | 3.36 ± 1.2                 |
+| AD gradients/Matrix renewal T200_L20_S1/ForwardDiff                                | 1.42 ± 0.025 ms     | 0.548 ± 0.082 ms   | 2.59 ± 0.39                |
+| AD gradients/Matrix renewal T200_L20_S1/Mooncake reverse                           | 0.0677 ± 0.011 ms   | 13.5 ± 0.68 μs     | 5 ± 0.84                   |
+| AD gradients/Matrix strata_mixing T200_L20_S5/Enzyme reverse                       | 0.535 ± 0.075 ms    | 0.0684 ± 0.0045 ms | 7.82 ± 1.2                 |
+| AD gradients/Matrix strata_mixing T200_L20_S5/ForwardDiff                          | 0.0421 ± 0.0024 s   | 13.1 ± 0.18 ms     | 3.2 ± 0.19                 |
+| AD gradients/Matrix strata_mixing T200_L20_S5/Mooncake reverse                     | 0.551 ± 0.024 ms    | 0.109 ± 0.0042 ms  | 5.07 ± 0.3                 |
+| Convolution body/BLAS axpy per lag                                                 | 0.733 ± 0.0059 μs   | 0.695 ± 0.0063 μs  | 1.05 ± 0.013               |
+| Convolution body/native axpy per lag                                               | 0.423 ± 0.0059 μs   | 0.424 ± 0.0055 μs  | 0.999 ± 0.019              |
+| Convolution body/package                                                           | 0.733 ± 0.0059 μs   | 0.322 ± 0.0073 μs  | 2.27 ± 0.055               |
+| Evaluation/Matrix bvd_renewal_call T200_L20_S1                                     | 12.2 ± 3 μs         | 7.47 ± 0.26 μs     | 1.63 ± 0.4                 |
+| Evaluation/Matrix conv_fixed T200_L20_S1                                           | 3.92 ± 2.7 μs       | 2.31 ± 1.4 μs      | 1.69 ± 1.6                 |
+| Evaluation/Matrix delay_fixed T200_L20_S1                                          | 1.65 ± 1.2 μs       | 3.7 ± 1.6 μs       | 0.447 ± 0.38               |
+| Evaluation/Matrix overview T200_L20_S3                                             | 0.0324 ± 0.00095 ms | 15.3 ± 0.98 μs     | 2.11 ± 0.15                |
+| Evaluation/Matrix random_walk T30_L1_S1                                            | 0.391 ± 0.2 μs      | 0.13 ± 0.03 μs     | 3.01 ± 1.7                 |
+| Evaluation/Matrix renewal T200_L20_S1                                              | 6.75 ± 1.7 μs       | 2.71 ± 0.23 μs     | 2.49 ± 0.65                |
+| Evaluation/Matrix strata_mixing T200_L20_S5                                        | 0.0351 ± 0.00091 ms | 24.4 ± 10 μs       | 1.44 ± 0.61                |
+| AD gradients/Matrix bvd_patches_call T200_L20_S1/ForwardDiff                       |                     | 1.53 ± 0.074 ms    |                            |
+| AD gradients/Matrix bvd_patch T200_L20_S5/Mooncake reverse                         |                     | 0.136 ± 0.01 ms    |                            |
+| AD gradients/Matrix tv_piecewise_secondary_k5 T200_L20_S1/Mooncake reverse         |                     | 25.1 ± 3.4 μs      |                            |
+| AD gradients/Matrix bvd_patches_call T200_L20_S1/Mooncake reverse                  |                     | 0.066 ± 0.0019 ms  |                            |
+| AD gradients/Matrix tv_piecewise_renewal_primary_k5 T200_L20_S1/ForwardDiff        |                     | 0.656 ± 0.034 ms   |                            |
+| Evaluation/Matrix tv_piecewise_renewal_primary_k5 T200_L20_S1                      |                     | 5.43 ± 1.6 μs      |                            |
+| AD gradients/Matrix tv_piecewise_renewal_secondary_k5 T200_L20_S1/ForwardDiff      |                     | 0.886 ± 0.038 ms   |                            |
+| Evaluation/Matrix tv_piecewise_secondary_k5 T200_L20_S1                            |                     | 4.25 ± 3.7 μs      |                            |
+| Evaluation/Matrix bvd_patch T200_L20_S5                                            |                     | 0.0353 ± 0.0052 ms |                            |
+| AD gradients/Matrix tv_piecewise_renewal_primary_k5 T200_L20_S1/Mooncake reverse   |                     | 0.0338 ± 0.011 ms  |                            |
+| AD gradients/Matrix bvd_patches_call T200_L20_S1/Enzyme reverse                    |                     | 0.0443 ± 0.0013 ms |                            |
+| Evaluation/Matrix tv_piecewise_primary_k5 T200_L20_S1                              |                     | 4.67 ± 3.6 μs      |                            |
+| Evaluation/Matrix tv_piecewise_renewal_secondary_k5 T200_L20_S1                    |                     | 7.5 ± 2 μs         |                            |
+| AD gradients/Matrix bvd_patches_call T200_L20_S5/Mooncake reverse                  |                     | 0.183 ± 0.01 ms    |                            |
+| AD gradients/Matrix tv_piecewise_secondary_k5 T200_L20_S1/Enzyme reverse           |                     | 15 ± 7.8 μs        |                            |
+| AD gradients/Matrix tv_piecewise_primary_k5 T200_L20_S1/Mooncake reverse           |                     | 25.6 ± 3.4 μs      |                            |
+| AD gradients/Matrix tv_piecewise_renewal_secondary_k5 T200_L20_S1/Enzyme reverse   |                     | 21.2 ± 5 μs        |                            |
+| AD gradients/Matrix bvd_patches_call T200_L20_S5/Enzyme reverse                    |                     | 0.124 ± 0.0081 ms  |                            |
+| Evaluation/Matrix bvd_patches_call T200_L20_S5                                     |                     | 0.0477 ± 0.0019 ms |                            |
+| AD gradients/Matrix tv_piecewise_primary_k5 T200_L20_S1/ForwardDiff                |                     | 0.64 ± 0.03 ms     |                            |
+| AD gradients/Matrix bvd_patch T200_L20_S5/Enzyme reverse                           |                     | 0.0948 ± 0.0092 ms |                            |
+| AD gradients/Matrix tv_piecewise_secondary_k5 T200_L20_S1/ForwardDiff              |                     | 0.637 ± 0.032 ms   |                            |
+| AD gradients/Matrix bvd_patch T200_L20_S5/ForwardDiff                              |                     | 15.5 ± 1.4 ms      |                            |
+| AD gradients/Matrix tv_piecewise_primary_k5 T200_L20_S1/Enzyme reverse             |                     | 16.4 ± 6.7 μs      |                            |
+| AD gradients/Matrix tv_piecewise_renewal_primary_k5 T200_L20_S1/Enzyme reverse     |                     | 23.4 ± 7.7 μs      |                            |
+| Evaluation/Matrix bvd_patches_call T200_L20_S1                                     |                     | 20 ± 4.6 μs        |                            |
+| AD gradients/Matrix bvd_patches_call T200_L20_S5/ForwardDiff                       |                     | 0.0448 ± 0.00077 s |                            |
+| AD gradients/Matrix tv_piecewise_renewal_secondary_k5 T200_L20_S1/Mooncake reverse |                     | 31.2 ± 11 μs       |                            |
+| time_to_load                                                                       | 0.19 ± 0.00067 s    | 0.247 ± 0.00084 s  | 0.769 ± 0.0038             |
 
-|                                                                                    | v0.1.0                    | ad1fa8773b309f...         | v0.1.0 / ad1fa8773b309f... |
+|                                                                                    | v0.1.0                    | 3b41cb2a334b7d...         | v0.1.0 / 3b41cb2a334b7d... |
 |:-----------------------------------------------------------------------------------|:-------------------------:|:-------------------------:|:--------------------------:|
 | AD gradients/Matrix bvd_renewal_call T200_L20_S1/Enzyme reverse                    | 0.118 k allocs: 0.0363 MB | 0.053 k allocs: 28.5 kB   | 1.31                       |
 | AD gradients/Matrix bvd_renewal_call T200_L20_S1/ForwardDiff                       | 0.949 k allocs: 2.53 MB   | 0.465 k allocs: 2.03 MB   | 1.25                       |
