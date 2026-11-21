@@ -168,6 +168,18 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
     end
 end
 
+function Recurrence(
+        kernel; coupling = I, modifiers = (), lags = nothing, step = 1
+    )
+    lags === nothing || return Recurrence(
+        _delay_kernel(kernel, lags, 1, step); coupling, modifiers
+    )
+    _check_no_step(step)
+    _check_no_delays(kernel)
+    k, C = _fold(kernel, coupling)
+    return Recurrence(k, C, Tuple(modifiers))
+end
+
 # The identity coupling is stored with an integer scale: reverse AD on Julia
 # 1.11 loses a scalar field's gradient beside a field wrapping a `Bool` in
 # uninferred code. Route couplings in a `Pairwise` kernel are stored as given.
@@ -202,18 +214,6 @@ end
 # A rebuild of a `Recurrence` from its fields checks its parts again.
 _recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, coupling, modifiers)
 ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
-
-function Recurrence(
-        kernel; coupling = I, modifiers = (), lags = nothing, step = 1
-    )
-    lags === nothing || return Recurrence(
-        _delay_kernel(kernel, lags, 1, step); coupling, modifiers
-    )
-    _check_no_step(step)
-    _check_no_delays(kernel)
-    k, C = _fold(kernel, coupling)
-    return Recurrence(k, C, Tuple(modifiers))
-end
 
 # A kernel and coupling with a cheaper equivalent form, such as routes that
 # fold into one kernel, are replaced by it.
