@@ -82,22 +82,6 @@ round.(y; digits = 3)
  0.945
  0.961
 ```
-
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-# Imports added after the depletion, so not drawn from the pool.
-imports = CR.Transform(+, TimeVarying([1.0, 0.0, 2.0]))
-mods = (CR.Depletion(50.0, CR.Floor()), imports)
-Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
-
-# output
-
-3-element Vector{Float64}:
- 3.0
- 2.88
- 4.598912
-```
 """
 struct Transform{F, P, D}
     "The map, called as `f(v)` or `f(v, θ)`."

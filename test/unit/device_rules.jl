@@ -194,6 +194,12 @@ end
                     coupling = dev ? JLArray(zeros(S, S)) : zeros(S, S),
                 ),
             ),
+            # A coupling held fixed has no cotangent, so its steps record
+            # no `q̄`.
+            "recurrence, dense coupling held fixed" => (
+                dev -> recurrence_case(dense(S), S, dev),
+                dev -> (; kernel = dev ? JLArray(zeros(L)) : zeros(L), coupling = nothing),
+            ),
             "recurrence, scalar coupling" => (
                 dev -> recurrence_case(0.8I, S, dev),
                 dev -> (;
@@ -684,6 +690,21 @@ end
         @test Array(dgrads.p) ≈ p̄
         C̄ === nothing || @test Array(d̄) ≈ C̄
     end
+    # In a reverse pass on device arrays its steps fuse with the kernels':
+    # one kernel per step reads a transposed copy and records `q̄` for one
+    # product after the loop, made once per call. Host arrays keep the
+    # passes as they are.
+    P, H = zeros(S, T), zeros(L + T, S)
+    @test CR._coupling_steps(zeros(S, S), C, pmf, H, (; P)) === nothing
+    f = CR._coupling_steps(
+        JLArray(zeros(S, S)), JLArray(C), JLArray(pmf), JLArray(H), (; P = JLArray(P))
+    )
+    @test Array(f.Cᵀ) == permutedims(C)
+    @test size(f.Q̄) == (S, T)
+    held = CR._coupling_steps(
+        nothing, JLArray(C), JLArray(pmf), JLArray(H), (; P = JLArray(P))
+    )
+    @test held.Q̄ === nothing
     # Pressures of the wrong length are an error, not a wrong result.
     bad = (; piece = nothing, q = JLArray(q̄), p = JLArray(zeros(S + 1)))
     @test_throws DimensionMismatch CR.pullback!(

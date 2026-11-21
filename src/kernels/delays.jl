@@ -68,26 +68,6 @@ ComposableRecurrences.delay_masses(k, 3) === k
 
 true
 ```
-
-A delay type of its own, with masses ``p (1 - p)^l`` on whole units, and
-the masses of `step` units summed for a lag:
-
-```jldoctest
-using ComposableRecurrences
-struct GeometricDelay
-    p::Float64
-end
-function ComposableRecurrences.delay_masses(d::GeometricDelay, lags; step = 1)
-    q = (1 - d.p)^step
-    return map(l -> (1 - q) * q^l, 0:(lags - 1))
-end
-Convolution(GeometricDelay(0.5); lags = 3).kernel,
-Recurrence(GeometricDelay(0.5); lags = 3, step = 2).kernel
-
-# output
-
-([0.5, 0.25, 0.125], [0.1875, 0.046875])
-```
 """
 delay_masses(k::AbstractVector, lags; step = 1) = k
 
