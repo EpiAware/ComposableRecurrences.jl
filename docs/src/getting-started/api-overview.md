@@ -115,7 +115,7 @@ In the table, `renewal` is a `Recurrence` and `delay` a `Convolution`, as in the
 ```@example api-overview
 infections = renewal(R; history = seed)
 reports = delay(infections; gain = 0.4, history = seed)
-size(reports)
+nothing # hide
 ```
 
 A [`ComposableRecurrences.State`](@ref ComposableRecurrences.State) holds what a run needs to continue: the last ``L`` outputs, each modifier's state, and `state.t`, the time the next step computes.
@@ -296,7 +296,8 @@ In the three-town model, a [`Depletion`](@ref ComposableRecurrences.Depletion) o
 
 ```@example api-overview
 depleted = Recurrence(gi; coupling = K, modifiers = (Depletion(PerStratum(pop)),))
-round.(Int, vec(sum(depleted(R; history = seed); dims = 2)))
+depleted(R; history = seed)
+nothing # hide
 ```
 
 | Name | What it does | Parameters |
@@ -342,7 +343,8 @@ Each form is a type, passed as an instance.
 ```@example api-overview
 N = 60_000.0
 floored = Recurrence(gi; modifiers = (Depletion(N, Floor()),))
-round(Int, sum(floored(fill(1.8, T); history = fill(10.0, 6))))
+floored(fill(1.8, T); history = fill(10.0, 6))
+nothing # hide
 ```
 
 | Name | What it does | Example |
