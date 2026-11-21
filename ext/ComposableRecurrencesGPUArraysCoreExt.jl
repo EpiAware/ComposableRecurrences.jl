@@ -1,8 +1,9 @@
 module ComposableRecurrencesGPUArraysCoreExt
 
-using ComposableRecurrences: ComposableRecurrences, Allocate, Parallel,
-    Pressure, Secondary, Serial, Step, Threaded, TimeVarying, _AllocateImports,
-    _FixedKernel, _Ragged, _Piecewise, _PIECEWISE_DEVICE
+using ComposableRecurrences: ComposableRecurrences, Allocate, Pairwise,
+    Parallel, Pressure, Secondary, Serial, Step, Threaded, TimeVarying,
+    _AllocateImports, _FixedKernel, _OldestFirstPairwise, _Ragged, _Piecewise,
+    _PIECEWISE_DEVICE, cotangent
 using GPUArraysCore: AbstractGPUArray, AnyGPUArray
 using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
@@ -38,6 +39,33 @@ function ComposableRecurrences._kernel_back!(
     return ComposableRecurrences._device_kernel_back!(
         kbuf, ḡ, g, p̄, H, H̄, t, τ, L
     )
+end
+
+# A pairwise kernel's pullback on device arrays, one sender per kernel
+# index; the host loops cannot index them.
+function ComposableRecurrences._kernel_back!(
+        kbuf, ḡ, g::_OldestFirstPairwise, p̄::AnyGPUArray, H, H̄, t, τ, L
+    )
+    return ComposableRecurrences._device_pairwise_back!(
+        kbuf, ḡ, g, p̄, H, H̄, t, τ, L
+    )
+end
+function ComposableRecurrences._kernel_back!(
+        kbuf, ḡ, g::TimeVarying{<:Any, <:Pairwise}, p̄::AnyGPUArray, H, H̄, t,
+        τ, L
+    )
+    return ComposableRecurrences._device_pairwise_back!(
+        kbuf, ḡ, g, p̄, H, H̄, t, τ, L
+    )
+end
+# The oldest-first buffer of a fixed pairwise kernel adds into its
+# cotangent as one array operation.
+function ComposableRecurrences._kernel_finish!(
+        ḡ::NamedTuple, kbuf::AnyGPUArray{<:Any, 3}
+    )
+    L = size(kbuf, 1)
+    cotangent(ḡ, :x) .+= permutedims(kbuf[L:-1:1, :, :], (3, 2, 1))
+    return nothing
 end
 
 # An `Allocate` with imports on a device reverses each group as one kernel

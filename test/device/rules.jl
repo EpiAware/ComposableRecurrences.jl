@@ -81,6 +81,12 @@ function _rule_cases(S)
     G = pmf .* (1 .+ 0.1 .* sin.((1:L) .+ (1:T)'))
     GS = [pmf[i] * (1 + 0.1 * sin(a + i + t)) for a in 1:S, i in 1:L, t in 1:T]
     C = Matrix(0.5I, S, S) .+ 0.5 / S
+    # A kernel per pair of strata, fixed and over time.
+    PP = [pmf[i] * (1 + 0.1 * sin(a + 2b)) / S for a in 1:S, b in 1:S, i in 1:L]
+    PT = [
+        pmf[i] * (1 + 0.1 * sin(a + 2b + t)) / S
+            for a in 1:S, b in 1:S, i in 1:L, t in 1:T
+    ]
     flow = CR.Flow(:S => 0, 0.1; form = CR.Share())
     pools = (
         CR.Depletion(200.0, CR.Hazard(), flow),
@@ -185,6 +191,9 @@ function _rule_cases(S)
         "Recurrence, time-varying kernel" => rec(Recurrence(TimeVarying(G))),
         "Recurrence, per-stratum time-varying kernel" =>
             rec(Recurrence(TimeVarying(PerStratum(GS)))),
+        "Recurrence, pairwise kernel" => rec(Recurrence(Pairwise(PP))),
+        "Recurrence, pairwise kernel over time" =>
+            rec(Recurrence(TimeVarying(Pairwise(PT)))),
         "Recurrence, two pools" => stepped(two_pools),
         "Recurrence, two draws on one pool" => stepped(two_draws),
         "Recurrence, a queue" => stepped(queued),
