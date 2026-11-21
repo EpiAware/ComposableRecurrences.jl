@@ -237,6 +237,8 @@ Float types:
   `kernel_weights` fills them the same way when its coefficients live on a device.
 - A modifier's trace is written per stratum, or per group of a blockwise modifier, as one index of a kernel.
   A modifier whose step runs on the whole vectors writes its trace with its own code, which must not index the arrays from the host.
+- A coupling the package does not define, a modifier whose step runs on the whole vectors, and an `Init` get the whole device vectors on the host.
+  Their `forward!` must use array operations, such as broadcasts and `mul!`; a loop over entries stops with the array package's scalar-indexing error.
 - `window_sums` runs each sum as one index of a kernel.
 - Views and reshapes of device arrays, such as views into one parameter vector, run on the device as the arrays themselves do.
 
