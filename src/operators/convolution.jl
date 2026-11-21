@@ -1,3 +1,5 @@
+# == Methods: Direct, FFTMethod and Auto ==
+
 @doc raw"""
 The method a [`Convolution`](@ref) uses to compute its lag sum
 ```math
@@ -147,6 +149,8 @@ struct Auto <: ConvolutionMethod end
 const _AUTO_MIN_LAGS = 300
 const _AUTO_MIN_TIMES = 1000
 _auto_fft(L, T) = L >= _AUTO_MIN_LAGS && T >= _AUTO_MIN_TIMES
+
+# == Convolution: type and construction ==
 
 @doc raw"""
 A convolution whose kernel starts at lag 0: each output weights the current
@@ -303,6 +307,8 @@ function _check_one_based(
     return nothing
 end
 
+# == A call: forward, cache and paths ==
+
 # The call builds the positional arguments
 # `(x, gain, add, history, start, stop)` and routes them through the native
 # rules; `route` is `c` or `NoAdjoint(c)`.
@@ -396,6 +402,8 @@ function _convolve_public(
     end
     return out
 end
+
+# == Gathering in the layout of the input ==
 
 # The call's checks fix every shape and the caller requires one-based
 # indices, so the loops read without bounds checks.
@@ -507,6 +515,8 @@ end
     _axpy!(α, view(x, 1:(last - r)), view(Y, (r + 1):last))
     return Y
 end
+
+# == The layout cache and its reverse pass ==
 
 # The gain and add input applied to the lag sums `Y` into `out`, which may
 # be `Y`.
@@ -653,6 +663,8 @@ _add_to!(::Nothing, v, i) = nothing
 _part(::Nothing, r) = nothing
 _part(x̄, r) = view(x̄, r)
 
+# == The transform ==
+
 # The input buffer and the lag sums by the transform, checked on the output
 # they give with the gain and add input.
 function _fft_buffers(
@@ -691,6 +703,8 @@ _fft_convolve_back!(X̄, k̄, kernel, X, Ȳ, m, start) = _no_fftw()
 # dispatch cannot tell them apart; AD extensions replace this with `false`.
 # Inference must not see the constant, or it folds the branch away.
 _untraced() = Base.inferencebarrier(true)::Bool
+
+# == Checks, buffers and the output ==
 
 # The checks a convolution call shares with `contributions`; returns the
 # buffer eltype, the strata, the history length and the last time.
@@ -858,6 +872,8 @@ function _load_input!(X::Array, x::AbstractMatrix, m, stop, lo = 1)
     return X
 end
 
+# == Series loops ==
+
 # IEEE floats vectorise lags in blocks of four, one pass per block; other
 # numbers gather one dot per output so its sum stays in registers. Up to three
 # kernel lengths of outputs pay more in loop overhead, so they gather.
@@ -968,6 +984,8 @@ end
 end
 @noinline _axpy_mismatch() =
     throw(DimensionMismatch("axpy vectors have different axes"))
+
+# == Strata loops on blocks and devices ==
 
 # On a device a gathering kernel runs one output per index instead: outputs
 # are independent, and neighbouring indices read neighbouring rows.
@@ -1082,6 +1100,8 @@ function _strata_forward!(ks, Y, c, X, m, start)
     end
     return nothing
 end
+
+# == Reverse pass ==
 
 # `grads.args` mirror `(x, gain, add, history, start, stop)`.
 function pullback!(grads, c::Convolution, ::Run, cache)
@@ -1271,6 +1291,8 @@ end
     end
     return nothing
 end
+
+# == contributions ==
 
 @doc raw"""
 Return the lag contributions of a [`Convolution`](@ref): the terms of its
