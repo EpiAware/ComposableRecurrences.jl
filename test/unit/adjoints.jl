@@ -2353,7 +2353,7 @@ end
     end
 end
 
-@testitem "Adjoint: local pullback of a coupling holding arrays" setup = [ReferenceAD, AdjointCheck] begin
+@testitem "Adjoint: local pullback of a coupling holding arrays" setup = [AdjointCheck] begin
     using ComposableRecurrences
     using LinearAlgebra: Diagonal, mul!
     using SparseArrays: sparse
@@ -2369,37 +2369,27 @@ end
     end
     CR.forward!(C::ScaledMix, ::CR.Pressure, q, p, t) = (q .= C.a .* (C.M * p); nothing)
     rng = Xoshiro(7)
+    args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
+    # The rule's coupling step, in one pass for 2 and 3 strata and two for 7.
     for S in (2, 3, 7)
         M = 0.5 .* rand(rng, S, S)
         for C in (Mix(M), ScaledMix(M, 0.7))
             @test CR._coupling_adjoint(C) === :local
             @test CR._ninputs(C) == S^2 + (C isa ScaledMix)
-            p, q̄ = rand(rng, S), randn(rng, S)
-            θ0 = [p; CR._params(C)]
-            function pressure(x)
-                q = zeros(eltype(x), S)
-                CR.forward!(CR._rebuild(C, x[(S + 1):end]), CR.Pressure(), q, x[1:S], 1)
-                return sum(q̄ .* q)
-            end
-            ref = ReferenceAD.gradient(pressure, θ0)
-            C̄ = zero_mirror(C)
-            p̄ = zeros(S)
-            bufs = CR._pressure_buffers(C̄, C, Float64)
-            CR._pressure_back!(p̄, C̄, C, q̄, p, 1, bufs)
-            @test p̄ ≈ ref[1:S]
-            @test mirror_vec(C̄, C) ≈ ref[(S + 1):end]
-            # Without the reverse pass's buffers the step makes its own.
-            C̄ = zero_mirror(C)
-            p̄ = zeros(S)
-            CR._pressure_back!(p̄, C̄, C, q̄, p, 1)
-            @test p̄ ≈ ref[1:S]
-            @test mirror_vec(C̄, C) ≈ ref[(S + 1):end]
+            @test pullback_matches(Recurrence([0.3, 0.2]; coupling = C), args(S)...)
         end
     end
+    # Called without the reverse pass's buffers, the step makes its own; no
+    # reverse pass calls it so.
+    C, p, q̄ = ScaledMix(0.5 .* rand(rng, 3, 3), 0.7), rand(rng, 3), randn(rng, 3)
+    C̄, p̄ = zero_mirror(C), zeros(3)
+    CR._pressure_back!(p̄, C̄, C, q̄, p, 1)
+    @test p̄ ≈ C.a .* (transpose(C.M) * q̄)
+    @test C̄.M ≈ C.a .* (q̄ * transpose(p))
+    @test C̄.a[] ≈ sum(q̄ .* (C.M * p))
     # Through a recurrence; with 3 strata the 12 inputs fit one pass.
     r = Recurrence([0.3, 0.2]; coupling = Mix(0.5 .* rand(rng, 3, 3)))
     @test r.rebuilds === true
-    args(S) = recargs(ones(S, 4), nothing, ones(S, 2))
     @test CR._fit(r, args(3)...) === :one
     @test pullback_matches(r, args(3)...)
     @test CR._fit(Recurrence([0.3]; coupling = Mix(rand(5, 5))), args(5)...) === :wide
