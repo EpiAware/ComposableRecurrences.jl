@@ -1801,8 +1801,8 @@ function _run(
 end
 
 @doc raw"""
-A geometric history of `L` steps that grows by a factor ``e^{r}`` each step
-and ends at `I0`, to seed a [`Recurrence`](@ref).
+Return a geometric history of `L` steps that grows by a factor ``e^{r}``
+each step and ends at `I0`, to seed a [`Recurrence`](@ref).
 
 For one series, and for stratum ``i`` of ``S``, it is
 
