@@ -1,6 +1,7 @@
-# [Reactant extension](@id extension-reactant)
+# [Adapt + KernelAbstractions + Reactant extension](@id extension-reactant)
 
-`ComposableRecurrencesReactantExt` is loaded automatically when Reactant and KernelAbstractions are available alongside ComposableRecurrences.
+Loading Adapt, KernelAbstractions and Reactant with ComposableRecurrences loads `ComposableRecurrencesReactantExt`.
+KernelAbstractions loads Adapt itself, so loading Reactant and KernelAbstractions is enough.
 Without KernelAbstractions the extension does not load, and nothing says so: a traced call then runs the package's plain loops, which do not compile under Reactant.
 A traced call runs a loop over many strata as a KernelAbstractions kernel, and Reactant compiles a kernel through CUDA.jl, on the CPU too.
 So load CUDA.jl as well, whatever the target.
