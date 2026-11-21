@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 440" role="img" aria-label="ComposableRecurrences.jl logo">
+  <title>ComposableRecurrences.jl logo</title>
+  <desc>Three coupled strata of a time series. Each value is built from a weighted window of its own past, and each stratum feeds its neighbours.</desc>
+  <polygon points="200,30 364.5,125 364.5,315 200,410 35.5,315 35.5,125" fill="none" stroke="#64748b" stroke-width="2" stroke-linejoin="round" opacity="0.4"/>
+
+  <!-- Coupling between neighbouring strata -->
+  <g fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-dasharray="4 3">
+    <path d="M 252,137 L 294,179"/>
+    <path d="M 252,183 L 294,141"/>
+    <path d="M 252,197 L 294,239"/>
+    <path d="M 252,243 L 294,201"/>
+  </g>
+
+  <!-- Each stratum: lag-1 arcs gaining weight towards the newest value, plus a lag-2 arc into it -->
+  <g fill="none" stroke="#8b5cf6" stroke-linecap="round">
+    <path d="M 104,126 Q 120,104 136,126" stroke-width="1.5" opacity="0.4"/>
+    <path d="M 154,126 Q 170,104 186,126" stroke-width="2" opacity="0.6"/>
+    <path d="M 204,126 Q 220,104 236,126" stroke-width="2.5" opacity="0.8"/>
+    <path d="M 254,126 Q 273,104 292,124" stroke-width="4.5"/>
+    <path d="M 197,122 Q 250,58 300,118" stroke-width="2" opacity="0.45"/>
+  </g>
+  <g fill="#8b5cf6">
+    <circle cx="95" cy="130" r="8" opacity="0.35"/>
+    <circle cx="145" cy="130" r="8" opacity="0.55"/>
+    <circle cx="195" cy="130" r="8" opacity="0.75"/>
+    <circle cx="245" cy="130" r="8"/>
+    <circle cx="305" cy="130" r="13"/>
+  </g>
+  <g fill="none" stroke="#0ea5e9" stroke-linecap="round">
+    <path d="M 104,186 Q 120,164 136,186" stroke-width="1.5" opacity="0.4"/>
+    <path d="M 154,186 Q 170,164 186,186" stroke-width="2" opacity="0.6"/>
+    <path d="M 204,186 Q 220,164 236,186" stroke-width="2.5" opacity="0.8"/>
+    <path d="M 254,186 Q 273,164 292,184" stroke-width="4.5"/>
+    <path d="M 197,182 Q 250,118 300,178" stroke-width="2" opacity="0.45"/>
+  </g>
+  <g fill="#0ea5e9">
+    <circle cx="95" cy="190" r="8" opacity="0.35"/>
+    <circle cx="145" cy="190" r="8" opacity="0.55"/>
+    <circle cx="195" cy="190" r="8" opacity="0.75"/>
+    <circle cx="245" cy="190" r="8"/>
+    <circle cx="305" cy="190" r="13"/>
+  </g>
+  <g fill="none" stroke="#10b981" stroke-linecap="round">
+    <path d="M 104,246 Q 120,224 136,246" stroke-width="1.5" opacity="0.4"/>
+    <path d="M 154,246 Q 170,224 186,246" stroke-width="2" opacity="0.6"/>
+    <path d="M 204,246 Q 220,224 236,246" stroke-width="2.5" opacity="0.8"/>
+    <path d="M 254,246 Q 273,224 292,244" stroke-width="4.5"/>
+    <path d="M 197,242 Q 250,178 300,238" stroke-width="2" opacity="0.45"/>
+  </g>
+  <g fill="#10b981">
+    <circle cx="95" cy="250" r="8" opacity="0.35"/>
+    <circle cx="145" cy="250" r="8" opacity="0.55"/>
+    <circle cx="195" cy="250" r="8" opacity="0.75"/>
+    <circle cx="245" cy="250" r="8"/>
+    <circle cx="305" cy="250" r="13"/>
+  </g>
+
+  <text x="200" y="335" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="600" fill="#64748b" text-anchor="middle">Composable</text>
+  <text x="200" y="360" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="400" fill="#94a3b8" text-anchor="middle">Recurrences.jl</text>
+</svg>

@@ -1,0 +1,60 @@
+import{_ as s,o as n,c as a,an as t}from"./chunks/framework.BZZnt2ex.js";const u=JSON.parse('{"title":"Contributing","description":"","frontmatter":{},"headers":[],"relativePath":"developer/contributing.md","filePath":"developer/contributing.md","lastUpdated":null}'),o={name:"developer/contributing.md"};function i(l,e,p,r,c,d){return n(),a("div",null,[...e[0]||(e[0]=[t(`<h1 id="contributing" tabindex="-1">Contributing <a class="header-anchor" href="#contributing" aria-label="Permalink to &quot;Contributing {#contributing}&quot;">​</a></h1><p>Contributions are welcome as issues and pull requests on <a href="https://github.com/EpiAware/ComposableRecurrences.jl" target="_blank" rel="noreferrer">GitHub</a>. The package follows <a href="https://github.com/SciML/ColPrac" target="_blank" rel="noreferrer">ColPrac</a> and is formatted with <a href="https://github.com/fredrikekre/Runic.jl" target="_blank" rel="noreferrer">Runic</a>.</p><h2 id="Workflow" tabindex="-1">Workflow <a class="header-anchor" href="#Workflow" aria-label="Permalink to &quot;Workflow {#Workflow}&quot;">​</a></h2><ol><li><p>Open or find an issue that describes the change.</p></li><li><p>Work on a branch, never on <code>main</code>.</p></li><li><p>Write a failing test first, commit it, then make it pass and commit again.</p></li><li><p>Run the checks below before opening a pull request.</p></li></ol><h2 id="Checks" tabindex="-1">Checks <a class="header-anchor" href="#Checks" aria-label="Permalink to &quot;Checks {#Checks}&quot;">​</a></h2><p>Common tasks run through the <a href="https://taskfile.dev" target="_blank" rel="noreferrer">Taskfile</a>.</p><table tabindex="0"><thead><tr><th style="text-align:right;">Task</th><th style="text-align:right;">What it runs</th></tr></thead><tbody><tr><td style="text-align:right;"><code>task test-fast</code></td><td style="text-align:right;">the unit and use-case tests, without the quality gates</td></tr><tr><td style="text-align:right;"><code>task test-quality</code></td><td style="text-align:right;">Aqua, formatting, linting and doctests</td></tr><tr><td style="text-align:right;"><code>task test-ad</code></td><td style="text-align:right;">gradient tests on every AD backend</td></tr><tr><td style="text-align:right;"><code>task format</code></td><td style="text-align:right;">Runic over the source, tests and docs</td></tr><tr><td style="text-align:right;"><code>task docs-fast</code></td><td style="text-align:right;">the documentation, with heavy tutorials stubbed</td></tr><tr><td style="text-align:right;"><code>task precommit</code></td><td style="text-align:right;">the pre-commit hooks</td></tr></tbody></table><p>On a shared machine, run one Julia process at a time.</p><h2 id="Use-case-tests" tabindex="-1">Use-case tests <a class="header-anchor" href="#Use-case-tests" aria-label="Permalink to &quot;Use-case tests {#Use-case-tests}&quot;">​</a></h2><p>A new operator, modifier or coupling adds a use case when it replaces code in a modelling package. Run the <a href="/previews/PR770/developer/testing#testing">use-case tests</a> with <code>julia --project=test test/runtests.jl usecase_only</code>.</p><h2 id="Documentation" tabindex="-1">Documentation <a class="header-anchor" href="#Documentation" aria-label="Permalink to &quot;Documentation {#Documentation}&quot;">​</a></h2><p>Pages, tutorials and docstrings follow the <a href="/previews/PR770/developer/contributing#contributing-style">style sheet</a>. Docstrings describe the maths and name no other package. Tutorials are Literate scripts under <code>docs/src/getting-started/tutorials/</code>, registered in <code>docs/docs_config.jl</code>. A heavy tutorial runs on its own with <code>julia --project=docs docs/run_literate_tutorial.jl &lt;tutorial.jl&gt; &lt;outdir&gt;</code>. Navigation is generated into <code>docs/pages.jl</code>, which is not edited by hand.</p><h3 id="contributing-style" tabindex="-1">Style <a class="header-anchor" href="#contributing-style" aria-label="Permalink to &quot;Style {#contributing-style}&quot;">​</a></h3><p>The standards tests check the banned words, one sentence per line, sentence length and code line length. The rest of the style sheet is for review.</p><div class="language-text vp-adaptive-theme"><button title="Copy Code" class="copy"></button><span class="lang">text</span><pre class="shiki shiki-themes github-light github-dark vp-code" tabindex="0"><code><span class="line"><span>Reference page: docs/src/explanation/operators.md.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Language</span></span>
+<span class="line"><span>1. UK English. One sentence per line, at most 35 words; most 10-25.</span></span>
+<span class="line"><span>2. Plain expository prose: each sentence says one thing and follows from the</span></span>
+<span class="line"><span>   last. Join short sentences about one thing with &quot;and&quot;, &quot;so&quot;, &quot;because&quot;.</span></span>
+<span class="line"><span>   No lists of fragments.</span></span>
+<span class="line"><span>3. Start with the content: no &quot;This page lists/covers&quot;, &quot;This tutorial gets&quot;,</span></span>
+<span class="line"><span>   and no closing questions (&quot;Want X? See Y.&quot;).</span></span>
+<span class="line"><span>4. Say each thing once per page; a summary points back, it does not restate.</span></span>
+<span class="line"><span>5. State what is true now: no &quot;was timed&quot;, &quot;used to&quot;, or issue numbers.</span></span>
+<span class="line"><span>   Measurement conditions go in table columns or one sentence.</span></span>
+<span class="line"><span>6. Few adjectives; none of the banned words.</span></span>
+<span class="line"><span>7. Define a term in a sentence at its first use on a page, or link its home.</span></span>
+<span class="line"><span>   No private words (mirror, twin, whole-step, local step) used as known.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Format</span></span>
+<span class="line"><span>8. Headings in sentence case, no colons; # title, ## sections, ### for a</span></span>
+<span class="line"><span>   sub-step only.</span></span>
+<span class="line"><span>9. Tutorial: Introduction (2-3 sentences: what it models) &gt; Packages used &gt;</span></span>
+<span class="line"><span>   one ## per model &gt; Performance (one sentence: the model timed) &gt;</span></span>
+<span class="line"><span>   References (if cited) &gt; Learning more.</span></span>
+<span class="line"><span>10. Model section: motivation sentence &gt; display maths &gt; &quot;where X is ...,</span></span>
+<span class="line"><span>    Y the ... and Z the ...&quot; (at most 3 symbols per sentence, never a run of</span></span>
+<span class="line"><span>    &quot;X is ...&quot;) &gt; &quot;Here ...&quot; with values &gt; code &gt; plot &gt; result sentences</span></span>
+<span class="line"><span>    with numbers.</span></span>
+<span class="line"><span>11. Lists are full sentences ending in &quot;.&quot;; Learning more items are</span></span>
+<span class="line"><span>    &quot;- [Page](@ref id): what it adds.&quot;</span></span>
+<span class="line"><span>12. Link the first mention of a public name on each page as [\`Name\`](@ref);</span></span>
+<span class="line"><span>    later mentions are bare backticks.</span></span>
+<span class="line"><span>13. Code lines &lt;= 80 characters in pages, tutorials and docstrings.</span></span>
+<span class="line"><span>14. Table cells &lt;= about 15 words; long code goes below the table.</span></span>
+<span class="line"><span>15. Extension page: &quot;Loading A with ComposableRecurrences loads \`XExt\`.&quot;</span></span>
+<span class="line"><span>    then what it adds; title = nav label + &quot; extension&quot;.</span></span>
+<span class="line"><span>16. Docstring: summary sentence (types: noun phrase; functions: imperative)</span></span>
+<span class="line"><span>    &gt; maths with a &quot;where&quot; sentence &gt; arguments not obvious from the</span></span>
+<span class="line"><span>    signature &gt; one doctest &gt; link to the page that teaches the concept.</span></span>
+<span class="line"><span>    No manual signature line.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Glossary (one meaning each)</span></span>
+<span class="line"><span>stratum/strata: series run side by side (towns, patches are examples).</span></span>
+<span class="line"><span>kernel: weights on lags. movement matrix: strata x strata weights.</span></span>
+<span class="line"><span>gain (gamma_t): multiplies the coupled sum (R_t for a renewal). add (a_t).</span></span>
+<span class="line"><span>pressure: the coupled weighted sum (not &quot;force&quot;).</span></span>
+<span class="line"><span>value before the modifiers (v_t): &quot;new infections before depletion&quot; in</span></span>
+<span class="line"><span>  infection models (not &quot;renewal value&quot;).</span></span>
+<span class="line"><span>pool: what a Depletion carries (not compartment, stock).</span></span>
+<span class="line"><span>depletion form: Hazard, Floor, Truncate, Share (not &quot;variant&quot;).</span></span>
+<span class="line"><span>part: a draw or flow of a Depletion only.</span></span>
+<span class="line"><span>component: a coupling, modifier or form.</span></span>
+<span class="line"><span>rule: the package&#39;s reverse pass. plain AD: the backend differentiating the</span></span>
+<span class="line"><span>  forward code. Spell out &quot;automatic differentiation (AD)&quot; once per page.</span></span>
+<span class="line"><span>history: values before start. seed: a history built to start an outbreak.</span></span>
+<span class="line"><span>innovations (eps_t), not &quot;noise&quot;.</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>Symbols</span></span>
+<span class="line"><span>t time from 1; l lag; L length; i, j receiving and giving stratum;</span></span>
+<span class="line"><span>tau input (cohort) time; k_l kernel; g_l generation interval; w_l delay;</span></span>
+<span class="line"><span>K coupling; S_t susceptible pool; N population; rho reporting share;</span></span>
+<span class="line"><span>iota imports. S as a count of strata only in array shapes (S x T).</span></span></code></pre></div><h3 id="Maths-before-code" tabindex="-1">Maths before code <a class="header-anchor" href="#Maths-before-code" aria-label="Permalink to &quot;Maths before code {#Maths-before-code}&quot;">​</a></h3><p>A section that introduces a model, a modifier, a coupling or a transformation gives the equation first. It names every symbol, then shows the code. Take the equation from the docstring of the part the code uses, so the two stay the same. A section that reuses a model defined above on the same page links to it instead. The standards tests check the first use of each built-in operator in the tutorials listed in <code>test/package/standards_config.jl</code>.</p>`,17)])])}const g=s(o,[["render",i]]);export{u as __pageData,g as default};
