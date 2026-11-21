@@ -78,8 +78,7 @@ function ComposableRecurrences.pullback!(
     return ComposableRecurrences._device_imports_pullback!(grads, m, v, s, t)
 end
 
-# A coupling over time on the device reverses each step's slice as two
-# products; the host loops cannot index it.
+# A coupling over time on the device: see `_device_tv_coupling_back!`.
 function ComposableRecurrences.pullback!(
         grads, C::TimeVarying{Secondary, <:AnyGPUArray{<:Any, 3}}, ::Pressure,
         q, p, t
