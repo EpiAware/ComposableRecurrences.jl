@@ -288,9 +288,9 @@ The package's own rules run on device arrays for:
   - computed from coefficients (a `Survival` or a `Derived` kernel);
 - a recurrence with:
   - a kernel that is fixed, time-varying as a dense array or as ragged columns, computed, or one per pair of strata (`Pairwise`), fixed or over time;
-  - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device;
+  - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device, fixed or over time (a `TimeVarying` array);
   - modifiers that are `Transform`s, `Depletion`s, `Allocate`s and `Redistribute`s.
-    An `Allocate` with imports takes the rule when its pattern is a matrix on the device and its spill, if it has one, takes the rule too.
+    An `Allocate` with imports takes the rule when its pattern is a matrix on the device, fixed or over time, and its spill, if it has one, takes the rule too.
     A `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
     A `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time or read from a parameter, such as recent outputs.
     A modifier the package does not define takes the rule when it runs per stratum, its parameters are scalars and it has no `Init` of its own.
@@ -312,14 +312,13 @@ A convolution's transpose takes the rule when the convolution does, as it runs t
 Routes reverse one route at a time on the calling task: each route's coupling as a dense coupling's pressure does, then its kernel, one stratum per kernel index, as each stratum writes only its own entries.
 A pairwise kernel reverses one sender per kernel index, as every stratum reads a sender's window.
 The sender's index loops over the strata and writes only its own column of the buffer's cotangent and its own pairs of the kernel's, so nothing is copied.
+A coupling over time reverses each step's slice as a dense coupling does, as two products, and writes only that slice of its cotangent, so nothing is copied.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 
 - a kernel given by change points;
 - routes with a coupling that is not a matrix, such as a scaled identity beside a matrix, or with a time-varying kernel;
-- a time-varying coupling;
 - a `Redistribute` whose moves are a time-varying array;
-- an `Allocate` whose import pattern varies over time;
 - a modifier type the package does not define that works on groups or the whole step, holds an array, or has an `Init` of its own.
 
 What is checked:

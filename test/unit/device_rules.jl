@@ -109,12 +109,16 @@
         h = S ÷ 2
         return CR.Allocate([1:h, (h + 1):S], PerStratum(fill(1.0, 2)))
     end
-    # Grouped totals that import by a pattern, with a fraction the groups
-    # share or one per group, and a spill within the first group.
-    function imported(S; fraction = 0.2, spill = true)
+    # Grouped totals that import by a pattern, fixed or over time, with a
+    # fraction the groups share or one per group, and a spill within the
+    # first group.
+    function imported(S; fraction = 0.2, spill = true, over_time = false)
         h = S ÷ 2
         P = zeros(S, S)
         P[1, S], P[2, S], P[S, 1] = 0.6, 0.4, 1.0
+        if over_time
+            P = TimeVarying(P .* reshape(1 .+ 0.1 .* sin.(1:T), 1, 1, T))
+        end
         M = Matrix(1.0I, S, S)
         M[1:2, 1:2] .= [0.9 0.1; 0.1 0.9]
         spills = spill ? (; spill = CR.Redistribute(M)) : (;)
@@ -430,6 +434,35 @@ end
     end
 end
 
+@testitem "JLArrays: the rule passes of a coupling over time match the CPU" setup = [DeviceRules] begin
+    # Each step's slice reverses as a dense coupling does. More strata than
+    # blocks covers the products at size.
+    function over_time(S)
+        C = [
+            (a == b ? 0.5 : 0.5 / S) * (1 + 0.1 * sin(a + b + t))
+                for a in 1:S, b in 1:S, t in 1:T
+        ]
+        return TimeVarying(C)
+    end
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        cases = [
+            "a fixed kernel" => dev -> recurrence_case(over_time(S), S, dev),
+            "a kernel over time" =>
+                dev -> recurrence_case(over_time(S), S, dev; kernel = tv_kernel()),
+        ]
+        @testset "$name, $S strata" for (name, case) in cases
+            (op0, args0), (op1, args1) = case(false), case(true)
+            @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
+            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
+            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
+            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test agree(p̄1, p̄0)
+        end
+    end
+end
+
 @testitem "JLArrays: the rule passes of a convolution's transpose match the CPU" setup = [DeviceRules] begin
     # The transpose runs the convolution's bodies, so it takes the rule when
     # the convolution does. A series extended past its end (`tail`) has its
@@ -524,6 +557,8 @@ end
             "grouped totals importing with a fraction per group" => (
                 imported(S; fraction = PerStratum([0.2, 0.1]), spill = false),
             ),
+            "grouped totals importing by a pattern over time" =>
+                (imported(S; over_time = true),),
             # Whole steps that move between strata, as kernels.
             "movement of a kernel and an intensity" => (movement(S),),
             "movement that leaks, and a pool" => (
@@ -969,10 +1004,10 @@ end
     # So does a dense coupling on the device.
     op, args = recurrence_case(dense(S), S, true)
     @test (@inferred route(op, args)) === Val(:rule)
-    # A time-varying coupling reverses its steps on the host.
+    # So does a coupling over time on the device.
     X = JLArray(repeat(dense(S), 1, 1, T))
     op, args = recurrence_case(TimeVarying(X), S, true)
-    @test route(op, args) === Val(:plain)
+    @test (@inferred route(op, args)) === Val(:rule)
     # Built-in modifiers that reverse per stratum take the rule.
     op, args = modified_case((pools(S)...,), S, true)
     @test (@inferred route(op, args)) === Val(:rule)
@@ -1009,7 +1044,8 @@ end
     @test CR._device_ready(first(convolution_case(pmf, S, false)))
     @test CR._device_ready(first(recurrence_case(I, S, false)))
     @test CR._device_coupling(I) && CR._device_coupling(Diagonal(ones(S)))
-    @test !CR._device_coupling(TimeVarying(X))
+    @test CR._device_coupling(TimeVarying(X))
+    @test !CR._device_coupling(TimeVarying(Array(X)))
     @test CR._device_modifiers(())
     @test CR._device_modifier(by_matrix) && CR._device_modifier(movement(S))
     @test !CR._device_modifier(tv_moves)

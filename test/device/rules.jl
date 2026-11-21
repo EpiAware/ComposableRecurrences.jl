@@ -83,6 +83,11 @@ function _rule_cases(S)
     G = pmf .* (1 .+ 0.1 .* sin.((1:L) .+ (1:T)'))
     GS = [pmf[i] * (1 + 0.1 * sin(a + i + t)) for a in 1:S, i in 1:L, t in 1:T]
     C = Matrix(0.5I, S, S) .+ 0.5 / S
+    # A coupling over time.
+    CT = [
+        (a == b ? 0.5 : 0.5 / S) * (1 + 0.1 * sin(a + b + t))
+            for a in 1:S, b in 1:S, t in 1:T
+    ]
     tail = repeat(x[:, end], 1, L - 1)
     # Ragged columns, held flat as a device holds them; by output time a
     # recurrence's columns may be empty.
@@ -187,6 +192,8 @@ function _rule_cases(S)
         "Recurrence, Diagonal coupling" =>
             rec(Recurrence(pmf; coupling = Diagonal(fill(0.8, S)))),
         "Recurrence, dense coupling" => rec(Recurrence(pmf; coupling = C)),
+        "Recurrence, coupling over time" =>
+            rec(Recurrence(TimeVarying(G); coupling = TimeVarying(CT))),
         "Recurrence, pools and a shift" => rec(
             Recurrence(pmf; modifiers = (pools..., CR.Transform(+, 0.5)))
         ),
