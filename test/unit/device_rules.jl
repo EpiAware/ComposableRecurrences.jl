@@ -1053,7 +1053,18 @@ end
         "per-stratum kernel" =>
             S -> Recurrence(PerStratum(repeat(pmf', S)); coupling = dense(S)),
         "time-varying kernel" => S -> Recurrence(TimeVarying(G)),
+        "pairwise kernel" => S -> Recurrence(Pairwise(pairs(S))),
+        "pairwise kernel over time" =>
+            S -> Recurrence(TimeVarying(Pairwise(pairs_over_time(S)))),
+        "routes" => S -> Recurrence(
+            Pairwise(dense(S) => pmf[1:(L - 1)], Matrix(0.3I, S, S) .+ 0.1 / S => pmf)
+        ),
     )
+    pairs(S) = [pmf[i] * (1 + 0.1 * sin(a + 2b)) / S for a in 1:S, b in 1:S, i in 1:L]
+    pairs_over_time(S) = [
+        pmf[i] * (1 + 0.1 * sin(a + 2b + t)) / S
+            for a in 1:S, b in 1:S, i in 1:L, t in 1:T
+    ]
     @testset "$name, $S strata" for (name, rec) in cases, S in (4, many)
         r = rec(S)
         h = fill(1.0, S, L)
