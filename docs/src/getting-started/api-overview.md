@@ -152,7 +152,6 @@ The output starts at `start`, and `vcat(history, y)` or `hcat(history, y)` [join
 ## [Shapes](@id overview-shapes)
 
 A shape is how a coefficient varies across strata and time.
-A plain array gives one set of numbers for every stratum and time, and a wrapper adds strata or time.
 [Slots and shapes](@ref explanation-slots) says which wrappers each slot takes, and [Nesting](@ref explanation-nesting) how they combine.
 In the three-town model, `PerStratum(pop)` gives each town its own population.
 
@@ -177,7 +176,6 @@ A route is one way values pass between strata, such as contact in the community 
 
 Kernels:
 
-- A `Pairwise` kernel, as an array or as routes, mixes the strata itself, so the coupling stays `LinearAlgebra.I`.
 - A `TimeVarying` kernel can be a vector with one kernel per step, each of any length.
   It can also be change points: `start => value` pairs, each value holding from its start time.
 - By default, column ``\tau`` of a time-varying kernel belongs to output time ``\tau``, [`ComposableRecurrences.Secondary()`](@ref ComposableRecurrences.Secondary).
