@@ -20,10 +20,8 @@ ComposableRecurrences._on_gpu(::AnyGPUArray) = true
 
 # == pressure on device arrays ==
 
-# Each step's pressures are one kernel, one stratum per index, after the
-# step's kernel convolutions and coupling as a recurrence's step makes them.
-# The reverse pass runs the recurrence's coupling and kernel pullbacks per
-# step, with its per-block copies of shared cotangents.
+# One kernel per step, one stratum per index. The reverse pass runs the
+# coupling and kernel pullbacks per step.
 const CR = ComposableRecurrences
 CR._device_ready(op::CR._Pressure) = CR._device_ready(op.r)
 function CR._pressure_run(
@@ -88,8 +86,8 @@ function CR.pullback!(grads, op::CR._Pressure, ::CR.Run, c::_DevicePressureCache
     CR._scatter_history!(h̄, H̄, h, D)
     return nothing
 end
-# The outputs move between the public layout and the buffer rows after the
-# history as whole arrays.
+# Whole-array copies: the scalar loops in src/operators/pressure.jl cannot
+# index device arrays.
 function CR._load_outputs!(H::AnyGPUArray, y::AbstractVector, D)
     view(H, (D + 1):(D + length(y)), 1) .= y
     return H
