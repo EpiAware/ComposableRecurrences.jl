@@ -1166,11 +1166,11 @@ function _convolve_back_body!(ks, acc, X̄, c, X, Ȳ, m, start)
     _strata_back!(ks, X̄, _own(acc.c̄), c, X, Ȳ, m, start)
     return nothing
 end
-# Each stratum writes only its own rows of a per-stratum time-varying
-# kernel's cotangent, so blocks share it rather than each holding a copy
-# of every stratum's (S × L × T).
+# Each stratum writes only its own rows of a per-stratum kernel's
+# cotangent, fixed (S × L) or time-varying (S × L × T), so blocks share it
+# rather than each holding a copy of every stratum's.
 _conv_slots(c̄, c) = c̄
-_conv_slots(c̄, c::TimeVarying{<:Any, <:PerStratum}) = _Owned(c̄)
+_conv_slots(c̄, c::Union{PerStratum, TimeVarying{<:Any, <:PerStratum}}) = _Owned(c̄)
 
 # One fused pass per lag: the kernel cotangent's dot product and the input
 # cotangent's update together, the reverse of `_convolve_series!`.
