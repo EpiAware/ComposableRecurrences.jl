@@ -8,6 +8,70 @@ using ComposableRecurrences
 const CR = ComposableRecurrences
 ```
 
+## [A first modifier](@id extending-pointwise)
+
+This modifier smooths each stratum exponentially:
+
+```math
+s_t = a \, s_{t-1} + (1 - a) \, v_t, \qquad v'_t = s_t,
+```
+
+where ``v_t`` is the value it receives, ``v'_t`` the value it passes on and ``s_t`` its state.
+It acts on each stratum alone, so it is pointwise and writes each entry from its own.
+
+```@example extending
+struct Smooth{A}
+    a::A
+end
+CR.blocks(::Smooth) = (1, 1)
+function CR.forward!(m::Smooth, ::CR.Init, s, history)
+    H = reshape(history, length(s), :)
+    s .= view(H, :, size(H, 2))
+    return nothing
+end
+function CR.forward!(m::Smooth, ::CR.Step, v, s, t)
+    for k in eachindex(v, s)
+        s[k] = m.a * s[k] + (1 - m.a) * v[k]
+        v[k] = s[k]
+    end
+    return nothing
+end
+
+Recurrence([0.5, 0.5]; modifiers = (Smooth(0.5),))(2.0; history = [1.0, 2.0], stop = 5)
+```
+
+It says so with `blocks(::Smooth) = (1, 1)`: `ispointwise` is read from `blocks`, so a modifier declares `blocks`, not `ispointwise`.
+Its state starts at the last value of the history.
+The field has a type parameter so that a dual number can take its place.
+
+It goes in the modifier tuple with the package's own.
+Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), it smooths the infections drawn from the pool.
+With ``f`` the smoothing and ``h`` the depletion draw, each step gives
+
+```math
+y_t = h\Big(f\big(\gamma_t \sum_{l} k_l \, y_{t-l},\ s_{t-1}\big)\Big),
+```
+
+where ``k_l`` is the kernel, ``\gamma_t`` the gain and ``y_t`` the output.
+More smoothing delays the peak.
+
+```@example extending
+seed = [1.0, 2.0, 3.0]
+N = 10_000.0
+pool = CR.Depletion(N; pools = (S = N - sum(seed),))
+model(a) = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1]; modifiers = (Smooth(a), pool))
+[argmax(model(a)(fill(1.8, 80); history = seed)) for a in (0.0, 0.5, 0.8)]
+```
+
+Without a `pullback!` the operator still takes its [rule](@ref adjoint-routing).
+
+```@example extending
+using ForwardDiff
+
+loss(a) = sum(model(a)(fill(1.8, 80); history = seed))
+ForwardDiff.derivative(loss, 0.5), CR.uses_adjoint(model(0.5), CR.Run())
+```
+
 ## [Roles](@id extending-roles)
 
 The second argument of `forward!` and the third of `pullback!` is a singleton that selects the role by dispatch.
@@ -17,12 +81,8 @@ A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is a function
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
 | modifier step | `forward!(m, Step(), v, s, t)` updates `v` and `s` | `pullback!(grads, m, Step(), v, s, t)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
-| blockwise modifier group step | `forward!(m, Step(), v::Tuple, s::Tuple, t, g)` updates the views in `v` and `s` | `pullback!(grads, m, Step(), v, s, t, g)` | `piece`; `v` and `s` are tuples of views holding the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
 | initial state | `forward!(m, Init(), s, history)` writes `s`; a pointwise modifier writes `s[k]` from stratum `k` only | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
 | coupling | `forward!(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | `piece`; `q` holds the cotangent of `q`; add into `p` |
-| depletion form | `forward!(form, Step(), v, s, N)` writes the drawn values into `v` and the pools after the draw into `s` | `pullback!(grads, form, Step(), v, s, N)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s`, add that of `N` into `N`, indexed as `v` is, and those of the form's own parameters into `piece` |
-| modifier trace | `forward!(m, ComposableRecurrences.Trace(), r, v, s, v′, s′, t)` writes `r`: for a pointwise modifier a tuple of vectors, one per trace value, indexed as `v`; for any other the step's column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t)` | `piece`; `trace` holds the cotangent of `r`, in its shape; add into `v`, `s`, `v′` and `s′` |
-| blockwise modifier group trace | `forward!(m, ComposableRecurrences.Trace(), r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)` writes the one-entry views in `r` | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t, g)` | `piece`; `trace` is a tuple of views holding the cotangents of `r`; add into the views in `v`, `s`, `v′` and `s′` |
 
 The arguments mean the same in every role:
 
@@ -76,69 +136,6 @@ Call `add_param!` for every parameter, even with a `nothing` mirror.
 A `Recent` parameter still sends its cotangent to the outputs it read.
 
 A type without a `pullback!` still takes the rule when the [local step](@ref adjoint-local-step) can rebuild it.
-
-## [A first modifier](@id extending-pointwise)
-
-This modifier smooths each stratum exponentially:
-
-```math
-s_t = a \, s_{t-1} + (1 - a) \, v_t, \qquad v'_t = s_t,
-```
-
-where ``v_t`` is the value it receives, ``v'_t`` the value it passes on and ``s_t`` its state.
-It acts on each stratum alone, so it is pointwise and writes each entry from its own.
-It says so with `blocks(::Smooth) = (1, 1)`: `ispointwise` is read from `blocks`, so a modifier declares `blocks`, not `ispointwise`.
-Its state starts at the last value of the history.
-The field has a type parameter so that a dual number can take its place.
-
-```@example extending
-struct Smooth{A}
-    a::A
-end
-CR.blocks(::Smooth) = (1, 1)
-function CR.forward!(m::Smooth, ::CR.Init, s, history)
-    H = reshape(history, length(s), :)
-    s .= view(H, :, size(H, 2))
-    return nothing
-end
-function CR.forward!(m::Smooth, ::CR.Step, v, s, t)
-    for k in eachindex(v, s)
-        s[k] = m.a * s[k] + (1 - m.a) * v[k]
-        v[k] = s[k]
-    end
-    return nothing
-end
-
-Recurrence([0.5, 0.5]; modifiers = (Smooth(0.5),))(2.0; history = [1.0, 2.0], stop = 5)
-```
-
-It goes in the modifier tuple with the package's own.
-Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), it smooths the infections drawn from the pool.
-With ``f`` the smoothing and ``h`` the depletion draw, each step gives
-
-```math
-y_t = h\Big(f\big(\gamma_t \sum_{l} k_l \, y_{t-l},\ s_{t-1}\big)\Big),
-```
-
-where ``k_l`` is the kernel, ``\gamma_t`` the gain and ``y_t`` the output.
-More smoothing delays the peak.
-
-```@example extending
-seed = [1.0, 2.0, 3.0]
-N = 10_000.0
-pool = CR.Depletion(N; pools = (S = N - sum(seed),))
-model(a) = Recurrence([0.1, 0.3, 0.3, 0.2, 0.1]; modifiers = (Smooth(a), pool))
-[argmax(model(a)(fill(1.8, 80); history = seed)) for a in (0.0, 0.5, 0.8)]
-```
-
-Without a `pullback!` the operator still takes its [rule](@ref adjoint-routing).
-
-```@example extending
-using ForwardDiff
-
-loss(a) = sum(model(a)(fill(1.8, 80); history = seed))
-ForwardDiff.derivative(loss, 0.5), CR.uses_adjoint(model(0.5), CR.Run())
-```
 
 ## [Its pullback](@id extending-pullback)
 
@@ -330,6 +327,11 @@ Recurrence([0.5, 0.5]; modifiers = (ToMean(0.5),))(1.0; history = [1.0 2.0; 3.0 
 A modifier whose step acts on fixed groups of strata, each with a fixed number of values and state entries, is blockwise.
 [`blocks`](@ref ComposableRecurrences.blocks) gives the values and state entries of each group.
 The step takes them as tuples of one-entry views, read and written as `x[]`.
+
+| Type | `forward!` | `pullback!` | `grads` |
+|---|---|---|---|
+| blockwise modifier group step | `forward!(m, Step(), v::Tuple, s::Tuple, t, g)` updates the views in `v` and `s` | `pullback!(grads, m, Step(), v, s, t, g)` | `piece`; `v` and `s` are tuples of views holding the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
+
 This one keeps a running total and a step count per stratum, and adds their mean to the value:
 
 ```math
@@ -361,6 +363,12 @@ A call with `record = (:trace,)` returns `(; y, trace)`, with `trace.modifiers` 
 By default a modifier's [trace](@ref ComposableRecurrences.Trace) is its state after each step, and a modifier whose state never changes records nothing.
 A modifier declares that its state never changes with `ComposableRecurrences.isstateless(::MyModifier) = true`.
 A modifier can record another series instead: a function of the step's values and state before it, `v` and `s`, and after it, `v′` and `s′`, written into `r` by `forward!`.
+
+| Type | `forward!` | `pullback!` | `grads` |
+|---|---|---|---|
+| modifier trace | `forward!(m, ComposableRecurrences.Trace(), r, v, s, v′, s′, t)` writes `r`: for a pointwise modifier a tuple of vectors, one per trace value, indexed as `v`; for any other the step's column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t)` | `piece`; `trace` holds the cotangent of `r`, in its shape; add into `v`, `s`, `v′` and `s′` |
+| blockwise modifier group trace | `forward!(m, ComposableRecurrences.Trace(), r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)` writes the one-entry views in `r` | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t, g)` | `piece`; `trace` is a tuple of views holding the cotangents of `r`; add into the views in `v`, `s`, `v′` and `s′` |
+
 The smoothing modifier above records its smoothed value and what it leaves of the value it receives,
 
 ```math
@@ -407,6 +415,11 @@ One whose trace is not linear in the step's outputs computes them with the step'
 
 A depletion form draws value `v` from pool `s` with population `N`; its parameters, such as the exponent of [`Hazard`](@ref ComposableRecurrences.Hazard), are its fields.
 It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion) as a draw, which takes from the first pool.
+
+| Type | `forward!` | `pullback!` | `grads` |
+|---|---|---|---|
+| depletion form | `forward!(form, Step(), v, s, N)` writes the drawn values into `v` and the pools after the draw into `s` | `pullback!(grads, form, Step(), v, s, N)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s`, add that of `N` into `N`, indexed as `v` is, and those of the form's own parameters into `piece` |
+
 This one takes what is asked, up to the pool:
 
 ```math
