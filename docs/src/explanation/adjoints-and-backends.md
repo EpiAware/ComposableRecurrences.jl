@@ -308,6 +308,7 @@ A run that returns its modifiers' traces takes the rule too: each stratum's or g
 A `Redistribute` step runs as kernels, one index per stratum, and each origin writes only its own column of the kernel's cotangent, so nothing is copied.
 An intensity read from a parameter may share a cotangent between origins, such as a scale's, and blocks of origins add into their own copies of it.
 The rule covers `window_sums` too: each sum is one index of a kernel, and in the reverse pass each time adds the cotangents of the windows it falls in.
+A convolution's transpose takes the rule when the convolution does, as it runs the convolution's bodies with their inputs and outputs swapped; a series extended past its end (`tail`) takes a cotangent too.
 Routes reverse one route at a time on the calling task: each route's coupling as a dense coupling's pressure does, then its kernel, one stratum per kernel index, as each stratum writes only its own entries.
 A pairwise kernel reverses one sender per kernel index, as every stratum reads a sender's window.
 The sender's index loops over the strata and writes only its own column of the buffer's cotangent and its own pairs of the kernel's, so nothing is copied.

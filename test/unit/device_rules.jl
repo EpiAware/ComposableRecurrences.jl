@@ -430,6 +430,54 @@ end
     end
 end
 
+@testitem "JLArrays: the rule passes of a convolution's transpose match the CPU" setup = [DeviceRules] begin
+    # The transpose runs the convolution's bodies, so it takes the rule when
+    # the convolution does. A series extended past its end (`tail`) has its
+    # own cotangent; a kernel over time read by input time covers only the
+    # series, so it takes no tail.
+    function transposed_case(kernel, S, dev; start = 1, tail = true)
+        x = inputs(S)
+        t = tail ? repeat(x[:, end], 1, L - 1) : nothing
+        op = transpose(Convolution(kernel))
+        move(a) = dev && a !== nothing ? JLArray(a) : a
+        op = dev ? adapt(JLArray, op) : op
+        return op, (move(x), move(t), start, nothing)
+    end
+    _zero(a) = a === nothing ? nothing : zero(a)
+    _host(a) = a === nothing ? nothing : Array(a)
+    function passes(op, args)
+        y, cache = CR._run_forward(op, args...)
+        W = reshape(cos.(1:length(y)), size(y))
+        Ȳ = y isa JLArray ? JLArray(W) : W
+        x̄, t̄ = zero(args[1]), _zero(args[2])
+        piece = CR._zero_mirror(op)
+        grads = (; piece, y = Ȳ, args = (x̄, t̄, nothing, nothing))
+        CR._run_pullback!(grads, op, cache)
+        return Array(y), Array(x̄), _host(t̄), piece
+    end
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        cases = [
+            "a fixed kernel" => dev -> transposed_case(pmf, S, dev),
+            "a kernel per stratum" =>
+                dev -> transposed_case(PerStratum(repeat(pmf', S)), S, dev),
+            "a kernel over time" =>
+                dev -> transposed_case(tv_kernel(), S, dev; tail = false),
+            "a kernel over time by output" =>
+                dev -> transposed_case(by_output(tv_kernel()), S, dev; start = 2),
+        ]
+        @testset "$name, $S strata" for (name, case) in cases
+            (op0, args0), (op1, args1) = case(false), case(true)
+            @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
+            y0, x̄0, t̄0, p̄0 = passes(op0, args0)
+            y1, x̄1, t̄1, p̄1 = passes(op1, args1)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test t̄1 == t̄0 || t̄1 ≈ t̄0
+            @test agree(p̄1, p̄0)
+        end
+    end
+end
+
 @testitem "JLArrays: the rule passes of built-in modifiers match the CPU" setup = [DeviceRules] begin
     # A `Transform` without a `derivative` takes its derivative with dual
     # numbers, which needs ForwardDiff.
