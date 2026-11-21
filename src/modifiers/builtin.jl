@@ -177,7 +177,7 @@ function _zero_state!(s, params::Pair...)
     return nothing
 end
 
-# == Depletion forms ==
+# == Hazard ==
 
 @doc raw"""
 The hazard depletion form: the value is drawn from the pool as a hazard, so
@@ -241,6 +241,42 @@ struct Hazard{A, W, I, O}
     end
 end
 
+function forward!(form::Hazard, ::Step, v, s, N)
+    α = _alpha(form)
+    for k in eachindex(v, s)
+        x = _hazard(v[k], s[k], N, α)
+        e, em = _exp_neg(x)
+        v[k], s[k] = -s[k] * em, s[k] * e
+    end
+    return nothing
+end
+
+function pullback!(grads, form::Hazard, ::Step, v, s, N)
+    α = _alpha(form)
+    ᾱs = cotangent(grads.piece, :α)
+    for k in eachindex(v, s)
+        ȳ, s̄′ = grads.v[k], grads.s[k]
+        r = s[k] / N
+        h = _power_m1(r, α)
+        x = v[k] / N * h
+        e, em = _exp_neg(x)
+        x̄ = s[k] * e * (ȳ - s̄′)
+        s̄ = -ȳ * em + s̄′ * e
+        α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
+        ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : _times_log(α, r, x̄ * x)
+        grads.v[k], grads.s[k] = x̄ * h / N, s̄
+        grads.N[k] += -x̄ * α * x / N
+        add_cotangent!(ᾱs, ᾱ)
+    end
+    return nothing
+end
+
+@implements PieceInterface{(:pullback,)} Hazard [
+    Arguments(; piece = Hazard(), role = Step(), args = ([2.0], [80.0], 100.0)),
+]
+
+# == Floor ==
+
 @doc raw"""
 The floored depletion form: the value is scaled by the share of the pool
 left, with a floor.
@@ -292,6 +328,49 @@ struct Floor{A, W, I, O}
         return new{A, W, I, O}(α, weights, into, overflow)
     end
 end
+
+const _DEPLETION_FLOOR = 1.0e-6
+
+function forward!(form::Floor, ::Step, v, s, N)
+    α = _alpha(form)
+    for k in eachindex(v, s)
+        r = s[k] / N
+        f = max(_floor_power(max(r, zero(r)), α), oftype(r, _DEPLETION_FLOOR))
+        y = f * v[k]
+        v[k], s[k] = y, s[k] - y
+    end
+    return nothing
+end
+
+function pullback!(grads, form::Floor, ::Step, v, s, N)
+    α = _alpha(form)
+    ᾱs = cotangent(grads.piece, :α)
+    for k in eachindex(v, s)
+        ȳ, s̄′ = grads.v[k], grads.s[k]
+        r = s[k] / N
+        p = _floor_power(max(r, zero(r)), α)
+        fl = oftype(p, _DEPLETION_FLOOR)
+        ḡ = ȳ - s̄′
+        if p > fl
+            f̄ = ḡ * v[k]
+            ᾱ = _primal_value(r) <= 0 ? zero(f̄ * p) : _times_log(α, r, f̄ * p)
+            grads.v[k], grads.s[k] = ḡ * p, s̄′ + f̄ * α * _power_m1(r, α) / N
+            grads.N[k] += -f̄ * α * p / N
+            add_cotangent!(ᾱs, ᾱ)
+        else
+            grads.v[k] = ḡ * fl
+        end
+    end
+    return nothing
+end
+
+@implements PieceInterface{(:pullback,)} Floor [
+    Arguments(;
+        piece = Floor(1.5), role = Step(), args = ([2.0], [80.0], 100.0)
+    ),
+]
+
+# == Depletion forms: shared ==
 
 # Where what a draw leaves goes: nowhere, to the group's second value or
 # to a queue that joins its value at the next step.
@@ -441,16 +520,6 @@ _times_log(::Bool, r, c) = zero(c)
 @inline _hazard(v, s, N, α) = v / N * _share_power(s / N, α)
 @inline _hazard(v, s, N, α::Bool) = α ? v / N : v / N * inv(s / N)
 
-function forward!(form::Hazard, ::Step, v, s, N)
-    α = _alpha(form)
-    for k in eachindex(v, s)
-        x = _hazard(v[k], s[k], N, α)
-        e, em = _exp_neg(x)
-        v[k], s[k] = -s[k] * em, s[k] * e
-    end
-    return nothing
-end
-
 # `expm1` below `1/2` keeps digits `1 - e^{-x}` would lose. A traced number
 # would fix the branch when its trace is recorded, or reject it, so takes both.
 _exp_neg(x) = (exp(-x), expm1(-x))
@@ -468,61 +537,6 @@ end
 # its cotangent there, and so does the power. With `e = 0` an empty share is
 # swapped for one, which leaves the value unchanged; a NaN share is kept.
 _pool_power(r, e) = ifelse(r <= 0, ifelse(iszero(e), one(r), r), r)^e
-
-function pullback!(grads, form::Hazard, ::Step, v, s, N)
-    α = _alpha(form)
-    ᾱs = cotangent(grads.piece, :α)
-    for k in eachindex(v, s)
-        ȳ, s̄′ = grads.v[k], grads.s[k]
-        r = s[k] / N
-        h = _power_m1(r, α)
-        x = v[k] / N * h
-        e, em = _exp_neg(x)
-        x̄ = s[k] * e * (ȳ - s̄′)
-        s̄ = -ȳ * em + s̄′ * e
-        α == 1 || (s̄ += e * (ȳ - s̄′) * (α - 1) * x)
-        ᾱ = _primal_value(r) <= 0 ? zero(x̄ * x) : _times_log(α, r, x̄ * x)
-        grads.v[k], grads.s[k] = x̄ * h / N, s̄
-        grads.N[k] += -x̄ * α * x / N
-        add_cotangent!(ᾱs, ᾱ)
-    end
-    return nothing
-end
-
-const _DEPLETION_FLOOR = 1.0e-6
-
-function forward!(form::Floor, ::Step, v, s, N)
-    α = _alpha(form)
-    for k in eachindex(v, s)
-        r = s[k] / N
-        f = max(_floor_power(max(r, zero(r)), α), oftype(r, _DEPLETION_FLOOR))
-        y = f * v[k]
-        v[k], s[k] = y, s[k] - y
-    end
-    return nothing
-end
-
-function pullback!(grads, form::Floor, ::Step, v, s, N)
-    α = _alpha(form)
-    ᾱs = cotangent(grads.piece, :α)
-    for k in eachindex(v, s)
-        ȳ, s̄′ = grads.v[k], grads.s[k]
-        r = s[k] / N
-        p = _floor_power(max(r, zero(r)), α)
-        fl = oftype(p, _DEPLETION_FLOOR)
-        ḡ = ȳ - s̄′
-        if p > fl
-            f̄ = ḡ * v[k]
-            ᾱ = _primal_value(r) <= 0 ? zero(f̄ * p) : _times_log(α, r, f̄ * p)
-            grads.v[k], grads.s[k] = ḡ * p, s̄′ + f̄ * α * _power_m1(r, α) / N
-            grads.N[k] += -f̄ * α * p / N
-            add_cotangent!(ᾱs, ᾱ)
-        else
-            grads.v[k] = ḡ * fl
-        end
-    end
-    return nothing
-end
 
 # == Redistribute ==
 
@@ -1207,6 +1221,13 @@ function _movement_back_body!(b, K̄, Ē, K, E, v̄, s̄, v, t)
     return nothing
 end
 
+@implements PieceInterface{(:nstate, :pullback)} Redistribute [
+    Arguments(;
+        piece = Redistribute([0.98 0.06; 0.02 0.94]),
+        role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
+    ),
+]
+
 # == Linear steps ==
 
 # The step keeps no state, so its state stays at the default zeros.
@@ -1251,26 +1272,9 @@ function pullback!(grads, m::_LinearStep, ::Step, v, s, t)
     return nothing
 end
 
-@implements PieceInterface{(:pullback,)} Hazard [
-    Arguments(; piece = Hazard(), role = Step(), args = ([2.0], [80.0], 100.0)),
-]
-
-@implements PieceInterface{(:pullback,)} Floor [
-    Arguments(;
-        piece = Floor(1.5), role = Step(), args = ([2.0], [80.0], 100.0)
-    ),
-]
-
 @implements PieceInterface{(:nstate, :pullback)} _LinearStep [
     Arguments(;
         piece = _LinearStep([0.9 0.3; 0.2 1.1]),
-        role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
-    ),
-]
-
-@implements PieceInterface{(:nstate, :pullback)} Redistribute [
-    Arguments(;
-        piece = Redistribute([0.98 0.06; 0.02 0.94]),
         role = Step(), args = ([2.0, 3.0], [0.0, 0.0], 1)
     ),
 ]
