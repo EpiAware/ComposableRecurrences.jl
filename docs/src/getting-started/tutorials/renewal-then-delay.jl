@@ -77,7 +77,7 @@ end
 # v_t = R_t \sum_{l=1}^{L} g_l \, I_{t-l}, \qquad
 # I_t = \begin{cases}
 #   S_{t-1} \big(1 - e^{-v_t / N}\big) & \text{hazard form,} \\
-#   v_t \max\big(S_{t-1} / N,\ 10^{-6}\big) & \text{floored form,}
+#   v_t \max\big(\max(S_{t-1} / N,\ 0),\ 10^{-6}\big) & \text{floored form,}
 # \end{cases} \qquad
 # S_t = S_{t-1} - I_t,
 # ```
