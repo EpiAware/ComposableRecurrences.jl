@@ -62,8 +62,9 @@ A modifier with a [`Derived`](@ref ComposableRecurrences.Derived) parameter whos
 An operator whose kernel is a `Derived` with such a map takes plain AD for the same reason.
 
 The [local step](@ref adjoint-local-step) rebuilds a component with dual numbers in place of its float parameters.
+For a coupling or a whole-step modifier, one pass of dual numbers seeds up to 24 inputs, so its limit of 24 in the table is one pass per step and its limit of 48 is two.
+A pointwise modifier's reads take passes of up to 12, so its limit of 24 is two passes.
 The `Recurrence` constructor checks the rebuild once and stores the result in the field `rebuilds`.
-Each limit on a coupling's strata and scalars is where its local step needs one more pass of dual numbers per step.
 
 The `Recurrence` constructor logs an `@info` when one of these components sends the operator to plain AD, naming the component and the reason.
 It logs each message once per session, whatever the number types.
@@ -107,7 +108,7 @@ The local step's dual numbers, and those of a `Transform` without a `derivative`
 So at a tie, such as `x > 0 ? y / x : zero(x)` at `x = 0`, the local step takes the branch the step takes.
 
 ForwardDiff and the backends have derivative rules of their own for some functions, and such a rule picks the side of the function's kink.
-So the local step and plain AD can differ there, as for `abs` at zero and, on Mooncake, `clamp` at a bound.
+The local step and plain AD can pick different sides, as for `abs` at zero and, on Mooncake, `clamp` at a bound.
 
 ## [Backends](@id adjoint-backends)
 
