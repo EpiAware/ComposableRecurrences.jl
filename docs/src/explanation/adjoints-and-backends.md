@@ -62,7 +62,8 @@ A modifier with a [`Derived`](@ref ComposableRecurrences.Derived) parameter whos
 An operator whose kernel is a `Derived` with such a map takes plain AD for the same reason.
 
 The [local step](@ref adjoint-local-step) rebuilds a component with dual numbers in place of its float parameters.
-One pass of dual numbers seeds up to 24 inputs, so the limit of 24 in the table is one pass per step and the limit of 48 is two.
+For a coupling or a whole-step modifier, one pass of dual numbers seeds up to 24 inputs, so its limit of 24 in the table is one pass per step and its limit of 48 is two.
+A pointwise modifier's reads take passes of up to 12, so its limit of 24 is two passes.
 The `Recurrence` constructor checks the rebuild once and stores the result in the field `rebuilds`.
 
 The `Recurrence` constructor logs an `@info` when one of these components sends the operator to plain AD, naming the component and the reason.
