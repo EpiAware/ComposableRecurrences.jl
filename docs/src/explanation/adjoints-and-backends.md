@@ -266,7 +266,7 @@ The package's own rules run on device arrays for:
     An `Allocate` with imports takes the rule when its pattern is a matrix on the device, fixed or over time, and its spill, if it has one, takes the rule too.
     A `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
     A `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time or read from a parameter, such as recent outputs.
-    A modifier the package does not define takes the rule when it runs per stratum and its parameters are scalars.
+    A modifier the package does not define takes the rule when it runs per stratum or on fixed groups of strata and its parameters are scalars.
     An `Init` of its own reverses once per call on host copies of the state and the history, unless it is written only for device states.
 - a recurrence over routes (a `Pairwise` of couplings and kernels) whose couplings are matrices on the device and whose kernels are fixed.
   A sparse route coupling becomes a dense matrix on the device.
@@ -279,6 +279,7 @@ A computed kernel's reverse pass walks its cohorts again in blocks, and each blo
 With strata the blocks are blocks of strata, so a per-stratum coefficient's cotangent is not copied either.
 `kernel_weights` takes the rule the same way.
 A run that returns its modifiers' traces takes the rule too: each stratum's or group's trace pullback is one index of a kernel, and groups that share a parameter add into stacked copies of its cotangent, as their steps do.
+A modifier type the package does not define with scalar parameters reverses one stratum or fixed group per kernel index, through its `pullback!` or, without one, its local derivative.
 A `Redistribute` step runs as kernels, one index per stratum, and each origin writes only its own column of the kernel's cotangent, so nothing is copied.
 An intensity read from a parameter may share a cotangent between origins, such as a scale's, and blocks of origins add into their own copies of it.
 The rule covers `window_sums` too: each sum is one index of a kernel, and in the reverse pass each time adds the cotangents of the windows it falls in.
@@ -293,7 +294,7 @@ Other calls on device arrays take plain AD, as their reverse passes still index 
 - a kernel given by change points;
 - routes with a coupling that is not a matrix, such as a scaled identity beside a matrix, or with a time-varying kernel;
 - a `Redistribute` whose moves are a time-varying array;
-- a modifier type the package does not define that works on groups or the whole step, holds an array, or has an `Init` written only for device states.
+- a modifier type the package does not define that works on the whole step, holds an array, has a `pullback!` for the whole step, or has an `Init` written only for device states.
 
 What is checked:
 
