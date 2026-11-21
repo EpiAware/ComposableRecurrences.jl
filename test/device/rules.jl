@@ -81,6 +81,11 @@ function _rule_cases(S)
     G = pmf .* (1 .+ 0.1 .* sin.((1:L) .+ (1:T)'))
     GS = [pmf[i] * (1 + 0.1 * sin(a + i + t)) for a in 1:S, i in 1:L, t in 1:T]
     C = Matrix(0.5I, S, S) .+ 0.5 / S
+    # Ragged columns, held flat as a device holds them; by output time a
+    # recurrence's columns may be empty.
+    ragged(ns) = CR._Ragged([pmf[1:n] .* (1 + 0.1 * sin(n)) for n in ns])
+    by_input = ragged([min(L, T - τ + 1) for τ in 1:T])
+    by_output = ragged([mod(τ, L + 1) for τ in 1:T])
     flow = CR.Flow(:S => 0, 0.1; form = CR.Share())
     pools = (
         CR.Depletion(200.0, CR.Hazard(), flow),
@@ -162,6 +167,9 @@ function _rule_cases(S)
             conv(TimeVarying(PerStratum(GS))),
         "Convolution, per-stratum time-varying kernel by output" =>
             conv(TimeVarying(PerStratum(GS), CR.Primary())),
+        "Convolution, ragged kernel" => conv(TimeVarying(by_input)),
+        "Convolution, ragged kernel by output" =>
+            conv(TimeVarying(by_input, CR.Primary())),
         "Convolution, gain per stratum and time, add per time" =>
             scaled(gain, add),
         "Convolution, scalar gain, add per stratum and time" =>
@@ -185,6 +193,8 @@ function _rule_cases(S)
         "Recurrence, time-varying kernel" => rec(Recurrence(TimeVarying(G))),
         "Recurrence, per-stratum time-varying kernel" =>
             rec(Recurrence(TimeVarying(PerStratum(GS)))),
+        "Recurrence, ragged kernel by output" =>
+            rec(Recurrence(TimeVarying(by_output, CR.Primary())); start = L + 1),
         "Recurrence, two pools" => stepped(two_pools),
         "Recurrence, two draws on one pool" => stepped(two_draws),
         "Recurrence, a queue" => stepped(queued),
