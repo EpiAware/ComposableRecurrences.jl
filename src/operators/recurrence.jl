@@ -1,3 +1,5 @@
+# == Recurrence: type and construction ==
+
 @doc raw"""
 A recurrence over strata whose kernel starts at lag 1, stepped from a window
 of its own past values.
@@ -217,6 +219,8 @@ end
 # fold into one kernel, are replaced by it.
 _fold(kernel, coupling) = (kernel, coupling)
 
+# == State ==
+
 @doc raw"""
 The state a [`Recurrence`](@ref) call with `record = (:state,)` returns
 with its output, passed back as `state` to resume.
@@ -280,6 +284,8 @@ function _check_pairwise_coupling(::_PairwiseKernel, coupling)
         coupling, "a Pairwise kernel already mixes strata, so its coupling"
     )
 end
+
+# == Kernel shapes and strata checks ==
 
 # The kernel shapes: a bare array is lags only, strata and time are added
 # by wrappers.
@@ -370,6 +376,8 @@ function _check_kernel_strata(k::Pairwise, S)
     )
     return nothing
 end
+
+# == Kernel reads ==
 
 # Fixed kernels are reversed once per call so each step is one `dot` of
 # the kernel with a contiguous, oldest-first window.
@@ -560,6 +568,8 @@ end
 _kwork(g, S, L) = L
 _kwork(g::_PairwiseKernel, S, L) = S * L
 
+# == The buffer: history, output and layout ==
+
 # Only the `D` history rows start at zero; each later row is written by its
 # step before any step reads it.
 function _buffer(h, ::Type{Tp}, D, T, S) where {Tp}
@@ -672,6 +682,8 @@ function _transpose!(x::Vector, m, n)
     end
     return x
 end
+
+# == A call: history, state, records and routing ==
 
 # Without a history the run starts from zeros, with the strata of a
 # strata × time input.
@@ -835,6 +847,8 @@ _forward_record(rec, ::Val{false}) = _recording(rec, Val(:trace))
 end
 _trace_op(::Val{false}, r) = r
 _trace_op(::Val{true}, r) = _WithTrace(r)
+
+# == Rule or plain AD: routing and the local step ==
 
 # A call that records its state routes through the rules too: a recurrence
 # whose output is `(y, state)`.
@@ -1235,6 +1249,8 @@ function _primal(w::_WithState, gain, add, h, s0, τ0, stop)
     return Y, _state(Y, H, states, h, τ0)
 end
 
+# == Resuming: the returned state and its checks ==
+
 # Read from `Y` and `h` rather than the buffer, which a strata output may have
 # taken over (`_output`).
 function _state(Y, H, states, h, τ0)
@@ -1273,6 +1289,8 @@ _check_states(modifiers, s0, S) = foreach(eachindex(modifiers), modifiers, s0) d
         )
     )
 end
+
+# == The run: buffer loop and step ==
 
 # Checks the call, then runs the buffer loop at the promoted eltype.
 function _recur(
@@ -1483,6 +1501,8 @@ _pressures(C, pr) = copy(pr.X)
 _output_layout(q, h::AbstractVector) = vec(q)
 _output_layout(q, h) = q
 
+# == Step loops ==
+
 # Time outermost: interleaving strata overlaps their waits on their own last
 # values; stratum outermost measured slower despite contiguous columns.
 function _series_body!(
@@ -1654,6 +1674,8 @@ function _run(
     end
 end
 
+# == Strata-major runs ==
+
 # A plain call returns only the output. Independent strata may run
 # strata-major (`_strata_major`); AD never does (see `_untraced`).
 function _run(
@@ -1790,6 +1812,8 @@ function _run(
         ) : _sink_trace(rec, pr, h)
     return Y, H, states, cache
 end
+
+# == exponential_history ==
 
 @doc raw"""
 Return a geometric history of `L` steps that grows by a factor ``e^{r}``
