@@ -117,3 +117,12 @@ reports ≈ delay(joined)[(length(seed) + 1):end]
 ```
 
 Pass the seed as history when the reports should cover the run only, and join it in front when they should cover the seed times too.
+
+## [Output number type](@id explanation-eltype)
+
+The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of every input and field.
+So Float32 inputs give a Float32 output, and dual numbers pass through any slot.
+With integer and `Bool` inputs and fields alone and no modifiers, the output keeps that integer type promoted with `Int`.
+So a signed or `Bool` running total has the eltype `cumsum` gives.
+Otherwise it is the float type.
+A user coupling whose pressure is not an integer needs a float input.

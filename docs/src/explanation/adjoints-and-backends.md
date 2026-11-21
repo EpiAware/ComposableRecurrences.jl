@@ -62,7 +62,7 @@ A modifier with a [`Derived`](@ref ComposableRecurrences.Derived) parameter whos
 An operator whose kernel is a `Derived` with such a map takes plain AD for the same reason.
 
 The [local step](@ref adjoint-local-step) rebuilds a part with dual numbers in place of its float parameters.
-The `Recurrence` constructor checks the rebuild once and stores the result.
+The `Recurrence` constructor checks the rebuild once and stores the result in the field `rebuilds`.
 Each limit on a coupling's strata and scalars is where its local step needs one more pass of dual numbers per step.
 
 The `Recurrence` constructor logs an `@info` when one of these parts sends the operator to plain AD, naming the part and the reason.
@@ -78,7 +78,7 @@ Without it, a call with a part that takes the local step uses plain AD instead, 
 The gradient is the same, but slower.
 An initial state without its own `pullback!` still throws an `ArgumentError` that says to load ForwardDiff.
 
-A `Recurrence` built before ForwardDiff loads checks its parts at each call rather than once at construction, so it takes the local step once ForwardDiff is loaded.
+A `Recurrence` built before ForwardDiff loads stores `nothing` in `rebuilds` and checks its parts at each call that takes the rule, so it takes the local step once ForwardDiff is loaded.
 
 #### Types it can rebuild
 
