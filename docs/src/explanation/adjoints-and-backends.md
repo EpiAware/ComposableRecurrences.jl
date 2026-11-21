@@ -287,7 +287,9 @@ A convolution's transpose takes the rule when the convolution does, as it runs t
 Routes reverse one route at a time on the calling task: each route's coupling as a dense coupling's pressure does, then its kernel, one stratum per kernel index, as each stratum writes only its own entries.
 A pairwise kernel reverses one sender per kernel index, as every stratum reads a sender's window.
 The sender's index loops over the strata and writes only its own column of the buffer's cotangent and its own pairs of the kernel's, so nothing is copied.
-A coupling over time reverses each step's slice as a dense coupling does, as two products, and writes only that slice of its cotangent, so nothing is copied.
+A coupling over time reverses each step's slice as two products, and writes only that slice of its cotangent, so nothing is copied.
+A fixed dense coupling's step reverses in the same kernel as the kernels' step, one stratum per index, from a transposed copy of the coupling made once per call.
+Each stratum records its step's cotangent, and the coupling's cotangent is one product of those records after the loop.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:
 
