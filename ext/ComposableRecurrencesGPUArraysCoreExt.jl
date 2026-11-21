@@ -18,8 +18,7 @@ function ComposableRecurrences._resolve(
 end
 ComposableRecurrences._on_gpu(::AnyGPUArray) = true
 
-# A device buffer's rows back in the public layout in one pass: indexing the
-# rows would copy them before the transpose copies them again.
+# Transpose a view of the rows, so they are copied once.
 function ComposableRecurrences._public(H::AnyGPUArray, rows, h::AbstractMatrix)
     return permutedims(view(H, rows, :))
 end
