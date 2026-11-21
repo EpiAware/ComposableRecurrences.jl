@@ -200,6 +200,16 @@ An executor sets how an operator's loops over strata or output times run.
 On arrays that live on a GPU, `Serial` and `Threaded` both run as `Parallel` on the arrays' own backend, as host threads cannot index them.
 The older name [`Device(backend)`](@ref ComposableRecurrences.Device) makes the same executor as `Parallel(backend)`.
 
+Starting and joining tasks costs tens of microseconds, so `Threaded` runs a loop in order when its work is below `min_work`, 500 000 multiply-adds by default.
+The work counts each kind of loop so that one `min_work` sets where each breaks even; the [`Threaded`](@ref ComposableRecurrences.Threaded) docstring gives the counts.
+Raise `min_work` when threads slow a model down, and lower it when they speed up loops below the default:
+
+```julia
+with(EXECUTOR => Threaded(; min_work = 1_000_000)) do
+    r(R; history = seed)
+end
+```
+
 The threaded executor runs its chunks as Julia tasks rather than on the KernelAbstractions CPU backend, which compiles kernels through OpenCL:
 
 - on that backend a loop body follows the rules of a GPU kernel, and an error inside it loses its type;
