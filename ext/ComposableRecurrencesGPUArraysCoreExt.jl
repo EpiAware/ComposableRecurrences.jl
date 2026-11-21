@@ -18,17 +18,29 @@ function ComposableRecurrences._resolve(
 end
 ComposableRecurrences._on_gpu(::AnyGPUArray) = true
 
-# A user modifier with an `Init` of its own reverses it on the host, which
-# cannot index device arrays, so a call with one keeps plain AD; the host
-# method decides the rest. The probe state is built as the run builds its
-# states, so a method on the state's type is seen.
+# A user modifier's `Init` reverses once per call, on host copies: its
+# dual-number pullback runs stratum by stratum there, its scalar parameters'
+# cotangents are host `Ref`s, and the history's cotangent is copied back.
+function ComposableRecurrences._init_strata_back!(
+        m̄, h̄, m, s̄::AnyGPUArray, s, history
+    )
+    h̄h = h̄ === nothing ? nothing : zeros(eltype(h̄), size(h̄))
+    hh = history === nothing ? nothing : Array(history)
+    ComposableRecurrences._init_strata_back!(m̄, h̄h, m, Array(s̄), Array(s), hh)
+    h̄ === nothing || (h̄ .+= copyto!(similar(h̄), h̄h))
+    return nothing
+end
+# An `Init` written only for device states would not run on those host
+# copies, so a call with one keeps plain AD; the host method decides the
+# rest. The probe state is built as the run builds its states.
 function ComposableRecurrences._parts_fit(r, h::AnyGPUArray, tlast = 2)
     fit = @invoke ComposableRecurrences._parts_fit(r, h::Any, tlast)
-    return any(m -> _host_init(m, h), r.modifiers) ? :none : fit
+    return any(m -> _device_only_init(m, h), r.modifiers) ? :none : fit
 end
-function _host_init(m, h)
-    ComposableRecurrences._builtin_modifier(m) && return false
-    return !ComposableRecurrences._default_init(m, similar(h, 0), h)
+function _device_only_init(m, h)
+    ComposableRecurrences._default_init(m, similar(h, 0), h) && return false
+    host = Matrix{eltype(h)}(undef, 0, 0)
+    return ComposableRecurrences._default_init(m, Vector{eltype(h)}(), host)
 end
 
 # A fixed kernel's pullback over every stratum on device arrays, as a
