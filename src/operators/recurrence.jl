@@ -381,7 +381,9 @@ function _check_kernel_strata(k::Pairwise, S)
 end
 
 # Fixed kernels are reversed once per call so each step is one `dot` of
-# the kernel with a contiguous, oldest-first window.
+# the kernel with a contiguous, oldest-first window. A host vector of one
+# lag is its own reverse, so it is returned without a copy.
+_oldest_first(g::Vector) = length(g) == 1 ? g : _reverse_dim(g, 1)
 _oldest_first(g::AbstractVector) = _reverse_dim(g, 1)
 _oldest_first(g::PerStratum) = PerStratum(_reverse_dim(g.x, 2))
 function _oldest_first(g::Pairwise)
@@ -1268,6 +1270,8 @@ _with_times(Y::AbstractMatrix, n) = (size(Y, 1), n)
 
 _tape(x::AbstractArray) = copy(x)
 _tape(x) = x
+# A kernel the run reads as given, such as one lag, is copied too.
+_tape_kernel(kernel, given) = kernel === given ? _tape(kernel) : kernel
 
 # A resumed call skips `Init`, so it runs the checks `Init` would: each
 # modifier's `nstate` entries, and its fields and parts against the strata.
@@ -1794,7 +1798,8 @@ function _run(
     # gradient.
     cache = keep ?
         (;
-            r, kernel, gain = _tape(gain), add, h = _tape(h), s0, τ0, L, D, S,
+            r, kernel = _tape_kernel(kernel, r.kernel), gain = _tape(gain), add,
+            h = _tape(h), s0, τ0, L, D, S,
             T, H, pr, rec, init, states,
         ) : _sink_trace(rec, pr, h)
     return Y, H, states, cache
