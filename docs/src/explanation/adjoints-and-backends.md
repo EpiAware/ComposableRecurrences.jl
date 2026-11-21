@@ -272,7 +272,7 @@ The package's own rules run on device arrays for:
 
 Their forward pass and pullback run as kernels, and AD backends see only the rule, so they never trace a kernel.
 Each block of strata adds the cotangents it shares with other blocks, such as the kernel's, into its own copy, and the copies are summed after the loop.
-A per-stratum time-varying kernel's cotangent (S × L × T) is not copied, as each stratum writes only its own rows.
+A per-stratum kernel's cotangent, fixed (S × L) or time-varying (S × L × T), is not copied, as each stratum writes only its own rows.
 The cotangent of a modifier's `PerStratum` parameter in a vector step is not copied either, as each stratum or group writes only its own entries.
 A computed kernel's reverse pass walks its cohorts again in blocks, and each block adds into its own copy of the coefficients' cotangents, as cohorts share them.
 With strata the blocks are blocks of strata, so a per-stratum coefficient's cotangent is not copied either.
