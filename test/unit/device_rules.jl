@@ -362,6 +362,10 @@ end
             ("convolution by output", false) => dev -> convolution_case(
                 ragged(by_input_lengths(); by_output = true), S, dev
             ),
+            # Columns by output time may be empty.
+            ("convolution by output, empty columns", false) => dev -> convolution_case(
+                ragged(by_output_lengths(); by_output = true), S, dev
+            ),
             # Read by output time, it starts after its history, so its
             # output is shorter.
             ("recurrence by output", true) => dev -> recurrence_case(
