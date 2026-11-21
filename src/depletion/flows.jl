@@ -153,6 +153,19 @@ struct Flow{D, F <: _FlowForm, E, P}
     end
 end
 
+# Literal ends, as in `Flow(:S => :V, r)`, reach the type by constant
+# propagation, so a `Depletion` of such flows infers.
+Base.@constprop :aggressive function Flow(pools::Pair, demand; form = Hazard())
+    return Flow(_end(pools.first), _end(pools.second), demand, form)
+end
+function Flow(pools, demand; form = Hazard())
+    throw(
+        ArgumentError(
+            "a flow joins pools given as from => to, got " * _describe(pools)
+        )
+    )
+end
+
 # The checks on a flow's ends, form and demand that read no demand entries;
 # returns the demand.
 function _check_flow(from, to, demand, form)
@@ -222,19 +235,6 @@ end
         ArgumentError(
             "a flow's form is Hazard(), Share(), Truncate() or " *
                 "Truncate(κ), got $(_describe(form))"
-        )
-    )
-end
-
-# Literal ends, as in `Flow(:S => :V, r)`, reach the type by constant
-# propagation, so a `Depletion` of such flows infers.
-Base.@constprop :aggressive function Flow(pools::Pair, demand; form = Hazard())
-    return Flow(_end(pools.first), _end(pools.second), demand, form)
-end
-function Flow(pools, demand; form = Hazard())
-    throw(
-        ArgumentError(
-            "a flow joins pools given as from => to, got " * _describe(pools)
         )
     )
 end
