@@ -279,11 +279,27 @@ maximum(abs, extended(R; history = seed) .- loop_renewal(R, seed, gi, K, pop, ι
 
 ## Gradients
 
-ForwardDiff gives the gradient of all reports with respect to every town's reproduction number on every day.
+The gradient of all reports with respect to every town's reproduction number on every day comes from any backend through DifferentiationInterface.
+Mooncake and Enzyme differentiate through the package's reverse [rule](@ref adjoint-routing), while ForwardDiff differentiates the forward code.
+Enzyme needs runtime activity here because the depletion holds the global array `pop`; the [Enzyme extension page](@ref extension-enzyme) says when.
 
 ```@example overview
+using ADTypes: AutoEnzyme, AutoForwardDiff, AutoMooncake
+import DifferentiationInterface as DI
+import Enzyme, Mooncake
+
 reports_of(R) = delay(renewal(R; history = seed); gain = 0.4, history = seed)
-∂R = ForwardDiff.gradient(R -> sum(reports_of(R)), R)
+loss(R) = sum(reports_of(R))
+enzyme = AutoEnzyme(;
+    mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+    function_annotation = Enzyme.Const,
+)
+backends = (AutoForwardDiff(), AutoMooncake(; config = nothing), enzyme)
+∂R, ∂R_mooncake, ∂R_enzyme = (DI.gradient(loss, b, R) for b in backends)
+isapprox(∂R_mooncake, ∂R; atol = 1.0e-8) && isapprox(∂R_enzyme, ∂R; atol = 1.0e-8)
+```
+
+```@example overview
 round.(vec(sum(∂R; dims = 2)); digits = 1)
 ```
 
