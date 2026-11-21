@@ -89,6 +89,36 @@ function CR.forward!(::_DevStart, ::CR.Step, v, s, t)
     return nothing
 end
 
+# A user modifier on pairs of strata with a scalar parameter, whose step
+# reverses one pair per kernel index through its `pullback!`, or through its
+# local derivative without one.
+struct _DevPairs{A}
+    a::A
+end
+struct _DevPairsLocal{A}
+    a::A
+end
+for P in (_DevPairs, _DevPairsLocal)
+    @eval begin
+        CR.blocks(::$P) = (2, 2)
+        function CR.forward!(m::$P, ::CR.Step, v::Tuple, s::Tuple, t, g)
+            v1, v2, s1, s2 = v[1][], v[2][], s[1][], s[2][]
+            v[1][], v[2][] = v1 * m.a, v2 + 0.1 * s1
+            s[1][], s[2][] = 0.5 * s1 + v1, 0.5 * s2 + v2
+            return nothing
+        end
+    end
+end
+CR.uses_adjoint(::_DevPairs, ::CR.Step) = true
+function CR.pullback!(grads, m::_DevPairs, ::CR.Step, v::Tuple, s::Tuple, t, g)
+    v̄1, v̄2 = grads.v[1][], grads.v[2][]
+    s̄1, s̄2 = grads.s[1][], grads.s[2][]
+    CR.add_cotangent!(CR.cotangent(grads.piece, :a), v̄1 * v[1][])
+    grads.v[1][], grads.v[2][] = v̄1 * m.a + s̄1, v̄2 + s̄2
+    grads.s[1][], grads.s[2][] = 0.1 * v̄2 + 0.5 * s̄1, 0.5 * s̄2
+    return nothing
+end
+
 # The rule cases, each an operator and its rule arguments on the host, for
 # `S` strata.
 function _rule_cases(S)
@@ -267,6 +297,16 @@ function _rule_cases(S)
         "Window sums, time first" =>
             (CR._WindowSums([4, 11, 7, 30], T, 1), (permutedims(x),)),
     ]
+    # Pairs of strata need an even number of strata; the unit tests run more
+    # pairs than kernel blocks.
+    iseven(S) && append!(
+        cases, [
+            "Recurrence, a user modifier on pairs with a pullback" =>
+                stepped(_DevPairs(0.9)),
+            "Recurrence, a user modifier on pairs without a pullback" =>
+                stepped(_DevPairsLocal(0.9)),
+        ]
+    )
     return cases, x
 end
 

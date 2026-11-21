@@ -915,7 +915,23 @@ end
             end
         end
     end
+    # One step reverses through its `pullback!`, the other through its local
+    # derivative.
+    CR.uses_adjoint(::DevTracedPairs, ::CR.Step) = true
     CR.ntrace(::DevTracedPairs, S) = S ÷ 2
+    # The same pairs with a `pullback!` for the whole step, which indexes the
+    # device arrays from the host, so the call keeps plain AD.
+    struct DevVectorPairs{A}
+        a::A
+    end
+    CR.blocks(::DevVectorPairs) = (2, 2)
+    function CR.forward!(m::DevVectorPairs, ::CR.Step, v::Tuple, s::Tuple, t, g)
+        v[1][] *= m.a
+        return nothing
+    end
+    function CR.pullback!(grads, m::DevVectorPairs, ::CR.Step, v, s, t)
+        return nothing
+    end
     function CR.forward!(
             m::DevTracedPairs, ::CR.Trace, r::Tuple, v::Tuple, s::Tuple,
             v′::Tuple, s′::Tuple, t, g
@@ -948,8 +964,8 @@ end
         CR._run_pullback!((; piece, y = (Ȳ, tr̄), args = (x̄, rest...)), w, c)
         return Array(y), map(Array, Ts), Array(x̄), piece
     end
-    # A user modifier keeps plain AD on a device, so its rule passes are
-    # checked here directly.
+    # A user modifier on fixed groups takes the rule on a device, through
+    # its own `pullback!` or, without one, its local derivative.
     many = 2 * (CR._KERNEL_BLOCKS + 1)
     cases = (
         "pools per stratum" => (pools, :rule),
@@ -961,9 +977,11 @@ end
         "pools and a matrix of moves" => (
             S -> (pools(S)..., CR.Redistribute(moves(S))), :rule,
         ),
-        "a user modifier's own trace" => (S -> (DevTracedPairs(0.9),), :plain),
-        "a user modifier's default trace" => (S -> (DevPairs(0.9),), :plain),
+        "a user modifier's own trace" => (S -> (DevTracedPairs(0.9),), :rule),
+        "a user modifier's default trace" => (S -> (DevPairs(0.9),), :rule),
     )
+    op, args = modified_case((DevVectorPairs(0.9),), 4, true)
+    @test (@inferred CR._route_val(op, args...)) === Val(:plain)
     @testset "$name, $S strata" for (name, (ms, how)) in cases, S in (4, many)
         op, args = modified_case(ms(S), S, true)
         @test CR._route_val(CR._WithTrace(op), args...) === Val(how)
