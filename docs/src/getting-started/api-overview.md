@@ -104,7 +104,8 @@ delay([10.0, 20.0, 30.0])
 The keyword `method` sets how a convolution sums its lags: [`Direct()`](@ref ComposableRecurrences.Direct) sums them one by one, and [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) uses a fast Fourier transform.
 By default a convolution takes the transform for a kernel of at least 300 lags over at least 1000 steps.
 
-An operator, modifier or shape wrapper prints as one line with its size and parts, such as `Convolution(7 lags)` for `delay`.
+An operator, modifier or shape wrapper displays in the REPL as one line with its size and parts, such as `Convolution(7 lags)` for `delay`.
+`repr` and `string` keep the constructor form.
 
 ## [Calls](@id overview-calls)
 
