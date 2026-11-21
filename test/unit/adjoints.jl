@@ -2312,60 +2312,44 @@ end
     @test CR._modifier_adjoint(ByT([a, a])) === :none
 end
 
-@testitem "Adjoint: the read and array steps' helpers, called directly" setup = [AdjointCheck] begin
+@testitem "Adjoint: the read and array steps through the rule" setup = [AdjointCheck] begin
     using ComposableRecurrences
     using LinearAlgebra: mul!
-    # Each helper's contract on its own: the read step against ForwardDiff,
-    # the rebuilds of named tuples, the cotangent of one read, the check
-    # that each array stays read, and the coupling step with its buffers.
-    struct ByTime{A}
+    # A modifier that reads its arrays at the step's time, beside a named
+    # tuple holding a float, an integer and an array and a tuple holding a
+    # symbol, takes the read step. A coupling holding a matrix of 4, 25 or 36
+    # entries takes the coupling step, in one pass of dual numbers or in two
+    # with 6 or 18 inputs left for the narrowest lane. Each runs the rule's
+    # pullback against ForwardDiff.
+    struct ByTime{A, N, P}
         a::A
+        nt::N
+        tp::P
     end
     CR.blocks(::ByTime) = (1, 1)
     function CR.forward!(m::ByTime, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
-            v[k], s[k] = v[k] * m.a[t], s[k] + v[k]
+            w = m.a[t] + m.nt.b * m.nt.x[k] / m.nt.n + m.tp[1][t]
+            v[k], s[k] = v[k] * w, s[k] + v[k]
         end
         return nothing
     end
-    a = [0.9, 1.1, 1.3]
-    m̄ = (; a = zeros(3))
-    @test collect(CR._read_pullback(ByTime(a), m̄, 0.3, 0.7, 2.0, 1.0, 2, 1)) ≈
-        [0.3 * a[2] + 0.7, 0.7]
-    @test m̄.a ≈ [0.0, 0.6, 0.0]
-    @test CR._rebuild_reads((; b = 1.0, n = 2), (5.0,), nothing, 1) ==
-        ((; b = 5.0, n = 2), (), 1)
-    y, o = CR._rebuild_views((; b = 1.0, x = [1.0, 2.0]), [5.0, 6.0, 7.0], 0)
-    @test y.b == 5.0
-    @test y.x == [6.0, 7.0]
-    @test o == 3
-    x̄ = zeros(2)
-    @test CR._add_read!(x̄, [1.0, 2.0], 1, 2, 0.5, 1) == 2
-    @test x̄ == [0.0, 0.5]
-    @test CR._add_read!((x̄,), ([1.0, 2.0],), 2, 1, 0.5, 1) == 2
-    @test x̄ == [0.0, 0.5]
-    @test CR._reads_kept(1.0, 2.0)
-    @test CR._reads_kept(:a, :a)
-    @test CR._reads_kept((1.0, :a), (2.0, :a))
+    args(S) = recargs(fill(1.1, S, 4), nothing, fill(0.5, S, 2))
+    m = ByTime(
+        [0.9, 1.1, 1.3, 1.2], (; b = 0.2, n = 2, x = [0.4, 0.6]),
+        ([0.1, 0.2, 0.3, 0.1], :tag)
+    )
+    @test pullback_matches(Recurrence([0.3, 0.2]; modifiers = (m,)), args(2)...)
+    # No other check sees a `Transform` take the read step, as its own
+    # pullback runs instead.
     @test !CR._array_params(CR.Transform(exp))
     struct Mix{M}
         M::M
     end
     CR.forward!(C::Mix, ::CR.Pressure, q, p, t) = (mul!(q, C.M, p); nothing)
-    C, p, q̄ = Mix([0.5 0.1; 0.2 0.4]), [1.0, 2.0], [0.3, 0.7]
-    p̄, C̄ = zeros(2), (; M = zeros(2, 2))
-    CR._local_pressure!(p̄, C̄, C, q̄, p, 1, CR._array_pressure(C, Float64))
-    @test p̄ ≈ transpose(C.M) * q̄
-    @test C̄.M ≈ q̄ * transpose(p)
-    # Past one pass, the inputs left after whole passes take the narrowest
-    # lane that covers them: 30 and 42 inputs, 6 and 18 in the last pass.
-    for S in (5, 6)
+    for S in (2, 5, 6)
         C = Mix([0.1 * sin(i + 2j) for i in 1:S, j in 1:S])
-        p, q̄ = collect(1.0:S), [cos(k) for k in 1:S]
-        p̄, C̄ = zeros(S), (; M = zeros(S, S))
-        CR._local_pressure!(p̄, C̄, C, q̄, p, 1, CR._array_pressure(C, Float64))
-        @test p̄ ≈ transpose(C.M) * q̄
-        @test C̄.M ≈ q̄ * transpose(p)
+        @test pullback_matches(Recurrence([0.3, 0.2]; coupling = C), args(S)...)
     end
 end
 
@@ -2395,6 +2379,14 @@ end
             @test pullback_matches(Recurrence([0.3, 0.2]; coupling = C), args(S)...)
         end
     end
+    # Called without the reverse pass's buffers, the step makes its own; no
+    # reverse pass calls it so.
+    C, p, q̄ = ScaledMix(0.5 .* rand(rng, 3, 3), 0.7), rand(rng, 3), randn(rng, 3)
+    C̄, p̄ = zero_mirror(C), zeros(3)
+    CR._pressure_back!(p̄, C̄, C, q̄, p, 1)
+    @test p̄ ≈ C.a .* (transpose(C.M) * q̄)
+    @test C̄.M ≈ C.a .* (q̄ * transpose(p))
+    @test C̄.a[] ≈ sum(q̄ .* (C.M * p))
     # Through a recurrence; with 3 strata the 12 inputs fit one pass.
     r = Recurrence([0.3, 0.2]; coupling = Mix(0.5 .* rand(rng, 3, 3)))
     @test r.rebuilds === true
