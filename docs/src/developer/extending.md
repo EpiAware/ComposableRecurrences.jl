@@ -44,8 +44,7 @@ It says so with `blocks(::Smooth) = (1, 1)`: `ispointwise` is read from `blocks`
 Its state starts at the last value of the history.
 The field has a type parameter so that a dual number can take its place.
 
-It goes in the modifier tuple with the package's own.
-Placed before [`Depletion`](@ref ComposableRecurrences.Depletion), it smooths the infections drawn from the pool.
+It goes in the modifier tuple beside the built-in modifiers, and placed before [`Depletion`](@ref ComposableRecurrences.Depletion) it smooths the infections drawn from the pool.
 With ``f`` the smoothing and ``h`` the depletion draw, each step gives
 
 ```math
@@ -78,11 +77,15 @@ The second argument of `forward!` and the third of `pullback!` is a singleton th
 For a step, an initial state, a coupling's mixing or a modifier's trace, both write their outputs in place and return `nothing`, and a method that returns anything else is an error.
 A modifier's trace ([`Trace()`](@ref ComposableRecurrences.Trace)) is a function of the step's inputs and outputs, written after the step rather than computed in it.
 
+`pullback!` receives the named tuple `grads`.
+Its field `grads.piece` is the mirror: the cotangents of the type's own fields, laid out as [The gradient mirror](@ref extending-mirror) describes.
+Its other fields hold the cotangents of the role's arguments.
+
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
-| modifier step | `forward!(m, Step(), v, s, t)` updates `v` and `s` | `pullback!(grads, m, Step(), v, s, t)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
-| initial state | `forward!(m, Init(), s, history)` writes `s`; a pointwise modifier writes `s[k]` from stratum `k` only | `pullback!(grads, m, Init(), s, history)` | `piece`; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
-| coupling | `forward!(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | `piece`; `q` holds the cotangent of `q`; add into `p` |
+| modifier step | `forward!(m, Step(), v, s, t)` updates `v` and `s` | `pullback!(grads, m, Step(), v, s, t)` | the mirror; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
+| initial state | `forward!(m, Init(), s, history)` writes `s`; a pointwise modifier writes `s[k]` from stratum `k` only | `pullback!(grads, m, Init(), s, history)` | the mirror; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
+| coupling | `forward!(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | the mirror; `q` holds the cotangent of `q`; add into `p` |
 
 The arguments mean the same in every role:
 
@@ -122,15 +125,12 @@ So a step writes only its own stratum's slots, and never to the type's fields.
 | struct with no fields | `(;)` |
 
 The whole mirror, or any entry, is `nothing` when the backend holds it constant.
+Read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent), which returns `nothing` for a field the backend holds constant, and add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), which skips `nothing`.
+For a modifier parameter use [`param`](@ref ComposableRecurrences.param) and [`add_param!`](@ref ComposableRecurrences.add_param!), which accept every parameter form, including [`Derived`](@ref ComposableRecurrences.Derived) and [`Recent`](@ref ComposableRecurrences.Recent).
 Under [`Threaded`](@ref ComposableRecurrences.Threaded):
 
 - the reverse pass gives each chunk of strata a zeroed copy of these mirrors and sums the copies after the loop;
 - a mirror with an entry of another kind, such as an integer or a `Ref` that is not of a number, runs that loop on one task.
-
-So use the helpers:
-
-- read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent), and add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), which skips `nothing`;
-- read a modifier parameter with [`param`](@ref ComposableRecurrences.param), and add its cotangent with [`add_param!`](@ref ComposableRecurrences.add_param!); both accept every parameter form, including [`Derived`](@ref ComposableRecurrences.Derived) and [`Recent`](@ref ComposableRecurrences.Recent).
 
 Call `add_param!` for every parameter, even with a `nothing` mirror.
 A `Recent` parameter still sends its cotangent to the outputs it read.
@@ -330,7 +330,7 @@ The step takes them as tuples of one-entry views, read and written as `x[]`.
 
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
-| blockwise modifier group step | `forward!(m, Step(), v::Tuple, s::Tuple, t, g)` updates the views in `v` and `s` | `pullback!(grads, m, Step(), v, s, t, g)` | `piece`; `v` and `s` are tuples of views holding the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
+| blockwise modifier group step | `forward!(m, Step(), v::Tuple, s::Tuple, t, g)` updates the views in `v` and `s` | `pullback!(grads, m, Step(), v, s, t, g)` | the mirror; `v` and `s` are tuples of views holding the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
 
 This one keeps a running total and a step count per stratum, and adds their mean to the value:
 
@@ -366,8 +366,8 @@ A modifier can record another series instead: a function of the step's values an
 
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
-| modifier trace | `forward!(m, ComposableRecurrences.Trace(), r, v, s, v′, s′, t)` writes `r`: for a pointwise modifier a tuple of vectors, one per trace value, indexed as `v`; for any other the step's column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t)` | `piece`; `trace` holds the cotangent of `r`, in its shape; add into `v`, `s`, `v′` and `s′` |
-| blockwise modifier group trace | `forward!(m, ComposableRecurrences.Trace(), r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)` writes the one-entry views in `r` | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t, g)` | `piece`; `trace` is a tuple of views holding the cotangents of `r`; add into the views in `v`, `s`, `v′` and `s′` |
+| modifier trace | `forward!(m, ComposableRecurrences.Trace(), r, v, s, v′, s′, t)` writes `r`: for a pointwise modifier a tuple of vectors, one per trace value, indexed as `v`; for any other the step's column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t)` | the mirror; `trace` holds the cotangent of `r`, in its shape; add into `v`, `s`, `v′` and `s′` |
+| blockwise modifier group trace | `forward!(m, ComposableRecurrences.Trace(), r::Tuple, v::Tuple, s::Tuple, v′::Tuple, s′::Tuple, t, g)` writes the one-entry views in `r` | `pullback!(grads, m, ComposableRecurrences.Trace(), v, s, t, g)` | the mirror; `trace` is a tuple of views holding the cotangents of `r`; add into the views in `v`, `s`, `v′` and `s′` |
 
 The smoothing modifier above records its smoothed value and what it leaves of the value it receives,
 
@@ -418,7 +418,7 @@ It is passed to [`Depletion`](@ref ComposableRecurrences.Depletion) as a draw, w
 
 | Type | `forward!` | `pullback!` | `grads` |
 |---|---|---|---|
-| depletion form | `forward!(form, Step(), v, s, N)` writes the drawn values into `v` and the pools after the draw into `s` | `pullback!(grads, form, Step(), v, s, N)` | `piece`; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s`, add that of `N` into `N`, indexed as `v` is, and those of the form's own parameters into `piece` |
+| depletion form | `forward!(form, Step(), v, s, N)` writes the drawn values into `v` and the pools after the draw into `s` | `pullback!(grads, form, Step(), v, s, N)` | the mirror; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s`, add that of `N` into `N`, indexed as `v` is, and those of the form's own parameters into the mirror |
 
 This one takes what is asked, up to the pool:
 
@@ -458,7 +458,7 @@ Recurrence([0.5, 0.5]; modifiers = (d,))(2.0; history = [1.0, 2.0], stop = 8)
 
 ## [Checking a new type](@id extending-checks)
 
-First test `forward!` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), with one `Arguments(; piece, role, args)` per role the type has.
+First test `forward!` against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), with one `Arguments` per role the type has, each holding the component, the role and the role's arguments.
 Here `args` are the arguments after the role:
 
 - `(s, history)` for `Init()`;
