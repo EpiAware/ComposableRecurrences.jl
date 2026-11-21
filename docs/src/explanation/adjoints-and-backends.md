@@ -290,7 +290,7 @@ The package's own rules run on device arrays for:
   - a kernel that is fixed, time-varying as a dense array or as ragged columns, computed, or one per pair of strata (`Pairwise`), fixed or over time;
   - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device, fixed or over time (a `TimeVarying` array);
   - modifiers that are `Transform`s, `Depletion`s, `Allocate`s and `Redistribute`s.
-    An `Allocate` with imports takes the rule when its pattern is a matrix on the device and its spill, if it has one, takes the rule too.
+    An `Allocate` with imports takes the rule when its pattern is a matrix on the device, fixed or over time, and its spill, if it has one, takes the rule too.
     A `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
     A `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time or read from a parameter, such as recent outputs.
     A modifier the package does not define takes the rule when it runs per stratum, its parameters are scalars and it has no `Init` of its own.
@@ -318,7 +318,6 @@ Other calls on device arrays take plain AD, as their reverse passes still index 
 - a kernel given by change points;
 - routes with a coupling that is not a matrix, such as a scaled identity beside a matrix, or with a time-varying kernel;
 - a `Redistribute` whose moves are a time-varying array;
-- an `Allocate` whose import pattern varies over time;
 - a modifier type the package does not define that works on groups or the whole step, holds an array, or has an `Init` of its own.
 
 What is checked:

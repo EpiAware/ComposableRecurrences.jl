@@ -109,12 +109,16 @@
         h = S ÷ 2
         return CR.Allocate([1:h, (h + 1):S], PerStratum(fill(1.0, 2)))
     end
-    # Grouped totals that import by a pattern, with a fraction the groups
-    # share or one per group, and a spill within the first group.
-    function imported(S; fraction = 0.2, spill = true)
+    # Grouped totals that import by a pattern, fixed or over time, with a
+    # fraction the groups share or one per group, and a spill within the
+    # first group.
+    function imported(S; fraction = 0.2, spill = true, over_time = false)
         h = S ÷ 2
         P = zeros(S, S)
         P[1, S], P[2, S], P[S, 1] = 0.6, 0.4, 1.0
+        if over_time
+            P = TimeVarying(P .* reshape(1 .+ 0.1 .* sin.(1:T), 1, 1, T))
+        end
         M = Matrix(1.0I, S, S)
         M[1:2, 1:2] .= [0.9 0.1; 0.1 0.9]
         spills = spill ? (; spill = CR.Redistribute(M)) : (;)
@@ -505,6 +509,8 @@ end
             "grouped totals importing with a fraction per group" => (
                 imported(S; fraction = PerStratum([0.2, 0.1]), spill = false),
             ),
+            "grouped totals importing by a pattern over time" =>
+                (imported(S; over_time = true),),
             # Whole steps that move between strata, as kernels.
             "movement of a kernel and an intensity" => (movement(S),),
             "movement that leaks, and a pool" => (
