@@ -153,6 +153,16 @@
     agree(::Nothing, ::Nothing) = true
 end
 
+@testitem "JLArrays: a device buffer's rows come back in the public layout" setup = [DeviceRules] begin
+    # One transpose of a view of the rows, as the host's layout has them.
+    D, S = 3, 4
+    H = reshape(collect(1.0:((D + T) * S)), D + T, S)
+    rows = (D + 1):(D + T)
+    out = CR._public(JLArray(H), rows, JLArray(zeros(S, D)))
+    @test out isa JLArray
+    @test Array(out) == permutedims(H[rows, :])
+end
+
 @testitem "JLArrays: the rule passes of a fixed convolution and of a recurrence match the CPU" setup = [DeviceRules] begin
     # More strata than blocks, so the blocks' copies of the shared kernel
     # cotangent are summed.

@@ -18,6 +18,12 @@ function ComposableRecurrences._resolve(
 end
 ComposableRecurrences._on_gpu(::AnyGPUArray) = true
 
+# A device buffer's rows back in the public layout in one pass: indexing the
+# rows would copy them before the transpose copies them again.
+function ComposableRecurrences._public(H::AnyGPUArray, rows, h::AbstractMatrix)
+    return permutedims(view(H, rows, :))
+end
+
 # A user modifier's `Init` reverses once per call, on host copies: its
 # dual-number pullback runs stratum by stratum there, its scalar parameters'
 # cotangents are host `Ref`s, and the history's cotangent is copied back.
