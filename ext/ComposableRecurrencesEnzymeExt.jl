@@ -287,9 +287,9 @@ function EnzymeRules.reverse(
 end
 
 # A reverse pass takes the rule for a wide call whose kernel is long against
-# its strata (`_wide_rule`); forward mode keeps plain AD. As with
-# `_untraced`, Julia 1.11 runs the call as it is, so there every wide call
-# keeps plain AD.
+# its strata (`_wide_rule`); forward mode has no rule, so it keeps plain AD.
+# Julia 1.11 runs a call that returns a `Bool` without its rule, so there
+# `_wide_rule()` stays `false` and every wide call keeps plain AD.
 function EnzymeRules.augmented_primal(
         config::EnzymeRules.RevConfig, ::Const{typeof(_wide_rule)}, ::Type{<:Const}
     )

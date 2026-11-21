@@ -782,8 +782,9 @@ end
 
 # A user coupling holding a 5 by 5 matrix seeds 30 inputs, past one pass of
 # dual numbers, so its calls take the wide route: the rule on Mooncake, and
-# on Enzyme only from 10 lags per stratum (Julia 1.12 and later).
-@testitem "A wide call takes the rule on Enzyme from 10 lags per stratum" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
+# on Enzyme only from `_WIDE_RULE_LAGS` lags per stratum (Julia 1.12 and
+# later).
+@testitem "A wide call takes the rule on Enzyme from a long kernel" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
     using ComposableRecurrences
     using ComposableRecurrences: ComposableRecurrences as CR
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
@@ -802,10 +803,11 @@ end
                 mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
                 function_annotation = Enzyme.Const
             ),
-            L -> L >= 10 * S && VERSION >= v"1.12",
+            L -> L >= CR._WIDE_RULE_LAGS * S && VERSION >= v"1.12",
         ),
     )
-    for L in (49, 50), (backend, fires) in backends
+    Lw = CR._WIDE_RULE_LAGS * S
+    for L in (Lw - 1, Lw), (backend, fires) in backends
         g = fill(0.5 / L, L)
         h = fill(0.3, S, L)
         function f(θ)
@@ -814,8 +816,8 @@ end
             return sum(W .* r(reshape(θ[(S^2 + 1):end], S, T); history = h))
         end
         θ = [0.5 .+ 0.1 .* cos.(1:(S^2)); 1.0 .+ 0.1 .* sin.(1:(S * T))]
-        @test CR._fit(Recurrence(g; coupling = WideMix(ones(S, S))), ones(S, T), nothing, h) ===
-            :wide
+        rw = Recurrence(g; coupling = WideMix(ones(S, S)))
+        @test CR._fit(rw, ones(S, T), nothing, h) === :wide
         n0 = CR._PULLBACK_CALLS[]
         @test gradient(f, backend, θ) ≈ gradient(f, AutoForwardDiff(), θ)
         @test (CR._PULLBACK_CALLS[] > n0) == fires(L)
