@@ -151,10 +151,10 @@ _device_modifiers(::Tuple{}) = true
 function _device_modifiers(ms::Tuple)
     return _device_modifier(first(ms)) && _device_modifiers(Base.tail(ms))
 end
-# A user modifier takes the rule when it runs per stratum with scalar
-# parameters. One with its own `Init` keeps plain AD on device arrays (see
-# `_parts_fit` in the GPUArraysCore extension).
-_device_modifier(m) = _strata_loop(m) && _scalar_params(m)
+# A user modifier takes the rule when it runs per stratum or on fixed groups
+# with scalar parameters. One with its own `Init` keeps plain AD on device
+# arrays (see `_parts_fit` in the GPUArraysCore extension).
+_device_modifier(m) = (_strata_loop(m) || _blocks(m) isa Val) && _scalar_params(m)
 _device_modifier(m::Transform) = _strata_loop(m)
 # Built-in group steps reverse in blocks, as their forward steps run.
 _device_modifier(m::Union{Depletion, Allocate{<:Any, Nothing}}) = true
