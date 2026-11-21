@@ -42,7 +42,7 @@ function ComposableRecurrences._kernel_back!(
 end
 
 # A pairwise kernel's pullback on device arrays, one sender per kernel
-# index; the host loops cannot index them.
+# index.
 function ComposableRecurrences._kernel_back!(
         kbuf, ḡ, g::_OldestFirstPairwise, p̄::AnyGPUArray, H, H̄, t, τ, L
     )

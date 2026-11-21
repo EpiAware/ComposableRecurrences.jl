@@ -689,10 +689,8 @@ function _kernel_back!(kbuf, ḡ, g::_OldestFirstPairwise, p̄, H, H̄, t, τ, L
     end
     return nothing
 end
-# On a device, one sender per kernel index: every stratum reads sender
-# `b`'s window, so its index loops over them and writes only its own column
-# of `H̄` and its own pairs of the kernel's cotangent, adding the strata in
-# the host's order.
+# One sender per kernel index: each writes only its own `H̄` column and
+# kernel pairs, so the strata add in host order.
 function _device_pairwise_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
     _each!(
         _pairwise_sender_back!, Serial(), p̄, size(H, 2), typemax(Int),
