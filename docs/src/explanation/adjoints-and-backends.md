@@ -62,7 +62,7 @@ A modifier with a [`Derived`](@ref ComposableRecurrences.Derived) parameter whos
 An operator whose kernel is a `Derived` with such a map takes plain AD for the same reason.
 
 The [local step](@ref adjoint-local-step) rebuilds a part with dual numbers in place of its float parameters.
-The `Recurrence` constructor checks the rebuild once and stores the result.
+The `Recurrence` constructor checks the rebuild once and stores the result in the field `rebuilds`.
 Each limit on a coupling's strata and scalars is where its local step needs one more pass of dual numbers per step.
 
 The `Recurrence` constructor logs an `@info` when one of these parts sends the operator to plain AD, naming the part and the reason.
@@ -78,16 +78,11 @@ Without it, a call with a part that takes the local step uses plain AD instead, 
 The gradient is the same, but slower.
 An initial state without its own `pullback!` still throws an `ArgumentError` that says to load ForwardDiff.
 
-A `Recurrence` built before ForwardDiff loads checks its parts at each call rather than once at construction, so it takes the local step once ForwardDiff is loaded.
+A `Recurrence` built before ForwardDiff loads stores `nothing` in `rebuilds` and checks its parts at each call that takes the rule, so it takes the local step once ForwardDiff is loaded.
 
 #### Types it can rebuild
 
 The local step rebuilds a type with dual numbers through `ConstructionBase.constructorof`, from its fields in order.
-For that:
-
-- give each float field a type parameter, as `struct Smooth{A}; a::A; end`, so that it can hold a dual number;
-- let the constructor keep its arguments as given.
-
 These send the operator to plain AD:
 
 - a float field typed abstractly or as `Float64`;
@@ -105,41 +100,6 @@ So the step must read it at its own `k` and `t`, as `param(m.κ, k, t)`:
 
 - a step that indexes the array sends the operator to plain AD;
 - a step that reads another stratum or time gets the wrong entry, so it needs a `pullback!`.
-
-A blockwise modifier's local step does the same for each group.
-It seeds the group's values, its state and the entries its parameters read at group `g`, as `param(m.a, g, t)`.
-So its dual numbers are as wide as one group, whatever the number of strata.
-
-#### Other float arrays
-
-What the local step seeds:
-
-- a pointwise modifier: the entries of its other float arrays that a step reads, as `m.a[t]`;
-- a whole-step modifier: the step's values and state, and every scalar and array entry of its parameters;
-- a whole-step modifier whose step reads fewer entries of a strided float array outside `PerStratum` and `TimeVarying` than it holds, as `m.total[t]`: only the entries read, as for a pointwise modifier;
-- a coupling: every entry of its float arrays;
-- a `Diagonal` or sparse matrix: nothing, as a step may read its fields rather than its entries.
-
-How the reads are counted:
-
-- for a pointwise modifier, the `Recurrence` constructor runs one step at the first stratum and time;
-- for a whole-step modifier, each call runs one step at each of the first two times;
-- a whole-step modifier that reads a different number of entries at each, as a step that sums every entry up to `t`, seeds every entry instead.
-
-The seeded entries set the passes of dual numbers:
-
-- up to four reads take one pass;
-- more run once more with room for 8 or 12;
-- past 12, the step runs in passes of 12.
-
-A step that reads more at a later time than when counted still gets the right gradient, in more passes.
-
-The limits:
-
-- a pointwise modifier with more than 24 reads takes plain AD, which is then faster, and the constructor says so;
-- a coupling or whole-step modifier whose entries need a second pass takes the rule on Mooncake and plain AD on Enzyme, where the rule is slower than plain AD;
-- past two passes it takes plain AD on every backend;
-- a coupling over more strata than the route table allows needs a `pullback!` to take the rule.
 
 #### Ties and kinks
 
@@ -199,6 +159,16 @@ An executor sets how an operator's loops over strata or output times run.
 [`Threaded`](@ref ComposableRecurrences.Threaded) splits a loop across CPU threads, and [`Parallel`](@ref ComposableRecurrences.Parallel) runs it as a kernel on a KernelAbstractions backend, such as a GPU.
 On arrays that live on a GPU, `Serial` and `Threaded` both run as `Parallel` on the arrays' own backend, as host threads cannot index them.
 The older name [`Device(backend)`](@ref ComposableRecurrences.Device) makes the same executor as `Parallel(backend)`.
+
+Starting and joining tasks costs tens of microseconds, so `Threaded` runs a loop in order when its work is below `min_work`, 500 000 multiply-adds by default.
+The work counts each kind of loop so that one `min_work` sets where each breaks even; the [`Threaded`](@ref ComposableRecurrences.Threaded) docstring gives the counts.
+Raise `min_work` when threads slow a model down, and lower it when they speed up loops below the default:
+
+```julia
+with(EXECUTOR => Threaded(; min_work = 1_000_000)) do
+    r(R; history = seed)
+end
+```
 
 The threaded executor runs its chunks as Julia tasks rather than on the KernelAbstractions CPU backend, which compiles kernels through OpenCL:
 
@@ -308,6 +278,7 @@ A run that returns its modifiers' traces takes the rule too: each stratum's or g
 A `Redistribute` step runs as kernels, one index per stratum, and each origin writes only its own column of the kernel's cotangent, so nothing is copied.
 An intensity read from a parameter may share a cotangent between origins, such as a scale's, and blocks of origins add into their own copies of it.
 The rule covers `window_sums` too: each sum is one index of a kernel, and in the reverse pass each time adds the cotangents of the windows it falls in.
+A convolution's transpose takes the rule when the convolution does, as it runs the convolution's bodies with their inputs and outputs swapped; a series extended past its end (`tail`) takes a cotangent too.
 Routes reverse one route at a time on the calling task: each route's coupling as a dense coupling's pressure does, then its kernel, one stratum per kernel index, as each stratum writes only its own entries.
 A pairwise kernel reverses one sender per kernel index, as every stratum reads a sender's window.
 The sender's index loops over the strata and writes only its own column of the buffer's cotangent and its own pairs of the kernel's, so nothing is copied.

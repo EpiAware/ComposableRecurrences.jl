@@ -46,7 +46,7 @@ place of ``k_{i,l}(t)``, so each output keeps the kernel of the time it was
 produced; its seed must sit at times from 1.
 A [`Pairwise`](@ref) `S × S × L` kernel (or `TimeVarying(Pairwise(A))`)
 weights every pair of strata and already mixes them, so its coupling is `I`.
-A `Pairwise(C₁ => k₁, C₂ => k₂)` kernel sums routes, each a kernel with its
+A `Pairwise(K₁ => k₁, K₂ => k₂)` kernel sums routes, each a kernel with its
 own coupling, so its coupling is `I` too; the keyword constructor folds
 routes that have a cheaper equivalent form.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
@@ -98,20 +98,11 @@ Only a kernel takes `Primary()` indexing; the constructor rejects it in
 the coupling or a modifier.
 The output is length `stop - start + 1` for a single series or `S` rows of
 it; the history sets which, and the number of strata.
-The buffer eltype promotes [`ComposableRecurrences.param_eltype`](@ref) of
-every input and field, so Float32 inputs give a Float32 output and
-dual numbers pass through any slot.
-With integer and `Bool` inputs and fields alone and no modifiers, the
-output keeps that integer type promoted with `Int`, so a signed or `Bool`
-running total has the eltype `cumsum` gives.
-Otherwise it is the float type.
-A user coupling whose pressure is not an integer needs a float input.
+The output number type follows the inputs and fields; see
+[Output number type](@ref explanation-eltype).
 The constructor checks once whether the local step can rebuild every
-part it differentiates and stores the result in the field `rebuilds`; a
-part it cannot rebuild sends the operator to
-[plain AD](@ref adjoint-routing).
-Built before the local step's dual numbers are loaded, it stores `nothing`
-and each call that takes the rule checks instead.
+part it differentiates and stores the result in the field `rebuilds`; see
+[Rules and plain AD](@ref adjoint-routing).
 
 # Arguments
 - `kernel`: the kernel, lag 1 first, or a kernel of
@@ -1801,8 +1792,8 @@ function _run(
 end
 
 @doc raw"""
-A geometric history of `L` steps that grows by a factor ``e^{r}`` each step
-and ends at `I0`, to seed a [`Recurrence`](@ref).
+Return a geometric history of `L` steps that grows by a factor ``e^{r}``
+each step and ends at `I0`, to seed a [`Recurrence`](@ref).
 
 For one series, and for stratum ``i`` of ``S``, it is
 

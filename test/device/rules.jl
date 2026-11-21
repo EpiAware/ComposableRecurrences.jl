@@ -51,7 +51,9 @@ function _rule_passes(op0, args0, A)
     args = map(move, args0)
     y, cache = CR._run_forward(op, args...)
     x̄ = zero(args[1])
-    rest = map(a -> op isa Convolution ? _mirror(a) : nothing, Base.tail(args))
+    # A transpose's tail takes a cotangent too.
+    takes = op isa Union{Convolution, CR._TransposedConvolution}
+    rest = map(a -> takes ? _mirror(a) : nothing, Base.tail(args))
     piece = CR._zero_mirror(op)
     grads = (; piece, y = _cotangent_of(y, move), args = (x̄, rest...))
     CR._run_pullback!(grads, op, cache)
@@ -81,11 +83,11 @@ function _rule_cases(S)
     G = pmf .* (1 .+ 0.1 .* sin.((1:L) .+ (1:T)'))
     GS = [pmf[i] * (1 + 0.1 * sin(a + i + t)) for a in 1:S, i in 1:L, t in 1:T]
     C = Matrix(0.5I, S, S) .+ 0.5 / S
-    # A coupling over time.
     CT = [
         (a == b ? 0.5 : 0.5 / S) * (1 + 0.1 * sin(a + b + t))
             for a in 1:S, b in 1:S, t in 1:T
     ]
+    tail = repeat(x[:, end], 1, L - 1)
     # Ragged columns, held flat as a device holds them; by output time a
     # recurrence's columns may be empty.
     ragged(ns) = CR._Ragged([pmf[1:n] .* (1 + 0.1 * sin(n)) for n in ns])
@@ -233,6 +235,14 @@ function _rule_cases(S)
         "Convolution, survival per stratum" => conv(computed(stratified)),
         "Recurrence, kernel shortened by a mapped hazard" =>
             rec(Recurrence(computed(mapped); coupling = C); start = L + 1),
+        # The transposes of a fixed kernel and of one over time by output,
+        # each over a series extended past its end.
+        "Convolution transpose, fixed kernel" =>
+            (transpose(Convolution(pmf)), (x, tail, 1, nothing)),
+        "Convolution transpose, kernel over time by output" => (
+            transpose(Convolution(TimeVarying(G, CR.Primary()))),
+            (x, tail, 2, nothing),
+        ),
         # Ends that go back, so a time falls in two windows.
         "Window sums, time last" =>
             (CR._WindowSums([4, 11, 7, 30], T, 2), (x,)),
