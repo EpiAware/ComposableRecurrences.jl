@@ -18,6 +18,11 @@ function ComposableRecurrences._resolve(
 end
 ComposableRecurrences._on_gpu(::AnyGPUArray) = true
 
+# Transpose a view of the rows, so they are copied once.
+function ComposableRecurrences._public(H::AnyGPUArray, rows, h::AbstractMatrix)
+    return permutedims(view(H, rows, :))
+end
+
 # The construction and call checks rebuild a part from its parameters at
 # stratum 1 and time 1, once: on a device that is one read from the host.
 const _DeviceParam = Union{
