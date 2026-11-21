@@ -96,28 +96,9 @@ flows, ``v' = \Phi_t(v)``.
 The state then holds what flowed into each pool at the step, where a
 negative count adds nothing.
 
-| model | parts |
-|:----- |:------ |
-| a population with births and deaths | a `TimeVarying` `N`, `Hazard()`, then the births as a count `Flow(0 => :S, b; form = Truncate())` and the deaths as one out of `:S` |
-| leaky protection at relative susceptibility ``\sigma`` | `Hazard(; weights = (S = 1, V = σ))`, then the doses as `Flow(:S => :V, d; form = Truncate())` |
-| beds that a share ``\delta`` leaves each step | `Flow(:O => 0, δ; form = Share())`, then `Truncate(; into = :O)`, with `N` the beds |
-| an allowance granted ``b_t`` at each period start | `Flow(0 => :B, TimeVarying(b); form = Truncate())`, then `Truncate()` |
-| the same without carry over | as above, with `Flow(:B => 0, starts; form = Share())` before the grant |
-
-The step reads `N` at its own time, and a pool is not rescaled when `N`
-changes: arrivals enter it only through the flows.
-Here `starts` is a `TimeVarying` share of one at each period start and
-zero otherwise, and a lifetime allowance is a starting pool alone.
-A second pool gives
-[leaky, all-or-nothing and waning protection](@ref tutorial-vaccination);
-a delay
-from dose to protection is a [`Convolution`](@ref) of the doses before the
-call.
-A share ``\delta`` leaving the beds is a geometric length of stay, with
-survival ``(1 - \delta)^k`` after ``k`` steps; for another stay, convolve the
-admissions with its survival, as a [`ComposableRecurrences.Primary`](@ref)
-indexed [`TimeVarying`](@ref) kernel for cohorts, and bound the sum with
-`Transform(clamp, lo, hi)` or a `Depletion` that fills a pool.
+[Depletion in practice](@ref explanation-depletion-examples) builds
+births and deaths, leaky protection, beds, allowances and a ward from
+these parts.
 A `Depletion` holds the fields `pools` (each pool's starting value,
 `nothing` for its default) and `pieces`: the draws, each with `N` and its
 pools named by position, and the flows given one after another as one
@@ -184,127 +165,6 @@ round.(y; digits = 3)
  11.087
  10.29
   8.287
-```
-
-A herd of 100 with 3 births a step: `N` grows by the births, and the births
-enter the pool as a count from outside after the draw.
-
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-births = fill(3.0, 8)
-N = TimeVarying(100.0 .+ cumsum(births))
-herd = CR.Depletion(
-    N, CR.Hazard(), CR.Flow(0 => :S, TimeVarying(births); form = CR.Truncate());
-    pools = (S = 90.0,)
-)
-r = Recurrence([0.5, 0.5]; modifiers = (herd,))
-y = r(fill(1.5, 8); history = [5.0, 5.0])
-round.(y; digits = 3)
-
-# output
-
-8-element Vector{Float64}:
- 6.32
- 6.672
- 7.099
- 6.951
- 6.563
- 5.876
- 5.085
- 4.261
-```
-
-Leaky vaccination: 5 doses a step move susceptibles into a pool drawn at
-a third of the rate, and the protection wanes back at rate 0.1.
-
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-leaky = CR.Depletion(
-    1000.0, CR.Hazard(; weights = (S = 1, V = 0.3)),
-    CR.Flow(:S => :V, 5.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.1);
-    pools = (:S, :V)
-)
-r = Recurrence([0.3, 0.5, 0.2]; modifiers = (leaky,))
-y = r(fill(2.0, 6); history = [5.0])
-round.(y; digits = 3)
-
-# output
-
-6-element Vector{Float64}:
-  2.996
-  6.73
-  8.846
- 12.779
- 18.196
- 25.151
-```
-
-Ten beds, a tenth of patients leaving each step before the admissions:
-demand above the free beds goes to the community stratum.
-
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-beds = CR.Depletion(
-    10.0, CR.Flow(:O => 0, 0.1; form = CR.Share()),
-    CR.Truncate(; into = :O, overflow = :stratum); pools = (O = 0.0,)
-)
-demand = [4.0 3.0 5.0 6.0 2.0; 0.0 0.0 0.0 0.0 0.0]
-r = Recurrence([0.0]; modifiers = (beds,))
-y = r(; history = zeros(2, 1), add = demand)
-round.(y; digits = 3)
-
-# output
-
-2×5 Matrix{Float64}:
- 4.0  3.0  4.06  1.0  1.0
- 0.0  0.0  0.94  5.0  1.0
-```
-
-A budget of 5 doses a week: the 1.5 doses left in the first week carry
-over to the second.
-
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-grants = TimeVarying([rem(t - 1, 7) == 0 ? 5.0 : 0.0 for t in 1:14])
-doses = CR.Depletion(
-    CR.Flow(0 => :B, grants; form = CR.Truncate()),
-    CR.Truncate(; overflow = :stratum); pools = (:B,)
-)
-demand = [fill(0.5, 1, 7) fill(2.0, 1, 7); zeros(1, 14)]
-r = Recurrence([0.0]; modifiers = (doses,))
-y = r(; history = zeros(2, 1), add = demand)
-y[1, :]'
-
-# output
-
-1×14 adjoint(::Vector{Float64}) with eltype Float64:
- 0.5  0.5  0.5  0.5  0.5  0.5  0.5  2.0  2.0  2.0  0.5  0.0  0.0  0.0
-```
-
-A ward without a draw: suspected patients are confirmed or ruled out, and
-confirmed patients are discharged, each at a hazard rate.
-
-```jldoctest
-using ComposableRecurrences
-CR = ComposableRecurrences
-ward = CR.Depletion(
-    CR.Flow(:suspected => :confirmed, 0.3), CR.Flow(:suspected => 0, 0.4),
-    CR.Flow(:confirmed => 0, 0.1); pools = (:suspected, :confirmed)
-)
-admitted = [fill(10.0, 1, 4); zeros(1, 4)]
-r = Recurrence([1.0]; modifiers = (ward,))
-y = r(; history = zeros(2, 1), add = admitted)
-round.(y; digits = 3)
-
-# output
-
-2×4 Matrix{Float64}:
- 4.966  7.432  8.656   9.264
- 2.157  5.181  8.449  11.67
 ```
 """
 struct Depletion{I <: NamedTuple, C <: Tuple}
