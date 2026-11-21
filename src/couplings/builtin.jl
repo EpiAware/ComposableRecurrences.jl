@@ -314,9 +314,14 @@ end
 # On a device, step `t`'s slice reverses as a dense coupling does, as two
 # products.
 function _device_tv_coupling_back!(grads, C, p, t)
+    X = C.x
     X̄ = _array_mirror(cotangent(grads.piece, :x))
+    X̄ isa AbstractArray && size(X̄) != size(X) && throw(
+        DimensionMismatch("mirror is $(size(X̄)), coupling is $(size(X))")
+    )
+    checkbounds(X, :, :, t)
     X̄t = X̄ isa AbstractArray ? view(X̄, :, :, t) : X̄
-    _device_coupling_back!(grads.p, X̄t, view(C.x, :, :, t), grads.q, p)
+    _device_coupling_back!(grads.p, X̄t, view(X, :, :, t), grads.q, p)
     return nothing
 end
 

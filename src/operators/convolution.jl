@@ -1,5 +1,5 @@
 @doc raw"""
-How a [`Convolution`](@ref) computes its lag sum
+The method a [`Convolution`](@ref) uses to compute its lag sum
 ```math
 \sum_{l=0}^{L-1} k_{i,l}\, x_{t-l,i}.
 ```

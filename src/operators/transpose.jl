@@ -174,3 +174,7 @@ function _check_transpose(kernel, x, tail, start, stop)
     Tp = float(param_eltype((kernel, x, tail)))
     return Tp, S, n, stop, last
 end
+
+# Its forward pass and pullback run the convolution's bodies, so it takes
+# the rule on a device when the convolution does.
+_device_ready(t::_TransposedConvolution) = _device_ready(t.c)
