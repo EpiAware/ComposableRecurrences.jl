@@ -2,7 +2,7 @@
 
 These tools check a new modifier, coupling or depletion form, and time the package.
 
-A new type's `forward!` is [checked](@ref extending-checks) against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), and its `pullback!` against ForwardDiff and plain AD.
+A new type's [`forward!`](@ref ComposableRecurrences.forward!) is [checked](@ref extending-checks) against [`PieceInterface`](@ref ComposableRecurrences.PieceInterface), and its [`pullback!`](@ref ComposableRecurrences.pullback!) against ForwardDiff and plain AD.
 
 ## [Comparing with plain automatic differentiation](@id compare-plain-ad)
 
@@ -121,7 +121,7 @@ The `handrule` arm runs on Mooncake reverse only, since on any other target it i
 A test item in `test/ad/handrules.jl` checks that each of these rules is a Mooncake primitive and that its gradient matches `ForwardDiff` on the case's hand loop.
 
 `--executor` and `--threads` time the operators under an executor.
-`--threads=1,2,4` runs each target once per thread count, and `--executor=threaded` runs the `rule` arm under `Threaded()` (the default is `serial`).
+`--threads=1,2,4` runs each target once per thread count, and `--executor=threaded` runs the `rule` arm under [`Threaded()`](@ref ComposableRecurrences.Threaded) (the default is `serial`).
 Each run writes `<tier>-<run>.tsv` and `<tier>-<run>.log`, where `<run>` is the target with the thread count and any executor other than serial appended, such as `primal_t4` or `primal_Threaded_t4`.
 
 ```bash
@@ -131,7 +131,7 @@ task -t benchmark/Taskfile.yml matrix -- --tier=realistic --targets=primal \
 ```
 
 The report adds an executor table with each threaded run's speed-up over the serial one-thread run of the same target.
-Run the serial one-thread run into the same directory first; without it the report says so and leaves the table out.
+Write the serial one-thread run to the same directory first, or the report leaves the table out and says why.
 Serial runs on more than one thread are labelled `<target> @ t<n>` and stay out of the executor table.
 Under the `Threaded()` [executor](@ref executors), ForwardDiff gradients run threaded, and Mooncake and Enzyme thread only a rule's forward and reverse passes.
 Each row records the load average when its cell started, so a busy machine shows in the results.
@@ -147,7 +147,7 @@ The tolerances are:
 - The ForwardDiff job checks each reference against central differences to a relative `1e-5`, so a wrong reference cannot pass every backend.
   Each entry may also differ by the rounding of its central difference, `100 eps |f| / h` for a step `h`.
   Each entry is tried at a step relative to it and at a step of at least `cbrt(eps())`; a wrong reference misses by far more.
-- The rule testers that `test_adjoint` runs use a relative and absolute `1e-8`, or `1e-3` in single precision, where their finite differences lose more.
+- The rule testers that [`test_adjoint`](@ref ComposableRecurrences.test_adjoint) runs use a relative and absolute `1e-8`, or `1e-3` in single precision, where their finite differences lose more.
 A scenario is a name, a scalar loss of a flat parameter vector and its starting value, added to `_SCENARIOS`.
 
 ```julia
@@ -185,7 +185,7 @@ Run them with `julia --project=test test/runtests.jl usecase_only`.
 
 The `Threads` workflow runs the tests with four threads, so `Threaded` loops run on separate threads.
 On Julia 1.11 it runs the whole unit suite; on the current release it runs only the items tagged `:threads`, as the `Test` workflow runs the rest there.
-Tag an item `:threads` when it uses `Threaded`, `EXECUTOR` or `Threads`, so it runs with four threads on the current release too.
+Tag an item `:threads` when it uses `Threaded`, [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) or `Threads`, so it runs with four threads on the current release too.
 A quality check in `test/package/test_tags.jl` fails on an item that uses them without the tag.
 To do the same locally, add `--threads=4` to a [subset run](@ref developer-faq), such as `julia --threads=4 --project=test test/runtests.jl threads_only`.
 
