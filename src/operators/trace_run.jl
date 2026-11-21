@@ -13,6 +13,7 @@ uses_adjoint(w::_WithTrace, ::Run) = uses_adjoint(w.op, Run())
 _type_adjoint(w::_WithTrace) = _type_adjoint(w.op)
 _device_ready(w::_WithTrace) = _device_ready(w.op)
 _fit(w::_WithTrace, args...) = _fit(w.op, args...)
+_long_kernel(w::_WithTrace, args...) = _long_kernel(w.op, args...)
 
 function _run_forward(w::_WithTrace, gain, add, h, s0, τ0, stop)
     y, cache = _run_forward(w.op, gain, add, h, s0, τ0, stop, Val(:traced))

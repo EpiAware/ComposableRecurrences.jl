@@ -287,7 +287,7 @@ The package's own rules run on device arrays for:
   - time-varying as a dense array (a `TimeVarying` matrix or `PerStratum` array) or as ragged columns;
   - computed from coefficients (a `Survival` or a `Derived` kernel);
 - a recurrence with:
-  - a kernel that is fixed, time-varying as a dense array or as ragged columns, or computed;
+  - a kernel that is fixed, time-varying as a dense array or as ragged columns, computed, or one per pair of strata (`Pairwise`), fixed or over time;
   - an identity, scalar or `Diagonal` coupling, or a dense matrix on the device, fixed or over time (a `TimeVarying` array);
   - modifiers that are `Transform`s, `Depletion`s, `Allocate`s and `Redistribute`s.
     An `Allocate` with imports takes the rule when its pattern is a matrix on the device and its spill, if it has one, takes the rule too.
@@ -309,6 +309,8 @@ A `Redistribute` step runs as kernels, one index per stratum, and each origin wr
 An intensity read from a parameter may share a cotangent between origins, such as a scale's, and blocks of origins add into their own copies of it.
 The rule covers `window_sums` too: each sum is one index of a kernel, and in the reverse pass each time adds the cotangents of the windows it falls in.
 Routes reverse one route at a time on the calling task: each route's coupling as a dense coupling's pressure does, then its kernel, one stratum per kernel index, as each stratum writes only its own entries.
+A pairwise kernel reverses one sender per kernel index, as every stratum reads a sender's window.
+The sender's index loops over the strata and writes only its own column of the buffer's cotangent and its own pairs of the kernel's, so nothing is copied.
 A coupling over time reverses each step's slice as a dense coupling does, as two products, and writes only that slice of its cotangent, so nothing is copied.
 
 Other calls on device arrays take plain AD, as their reverse passes still index the arrays from the host:

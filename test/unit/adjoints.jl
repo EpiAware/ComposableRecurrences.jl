@@ -2429,6 +2429,18 @@ end
             @test CR._fit(op, args(S)...) === fit
         end
     end
+    # On Enzyme a wide call takes the rule from `_WIDE_RULE_LAGS` lags per
+    # stratum; outside a reverse pass the switch is off.
+    @test CR._wide_rule() === false
+    Lw = CR._WIDE_RULE_LAGS * 5
+    for (L, long) in ((Lw - 1, false), (Lw, true))
+        rL = Recurrence(fill(0.01, L); coupling = Mix(0.5 .* rand(rng, 5, 5)))
+        @test CR._fit(rL, args(5)...) === :wide
+        for op in (rL, CR._WithState(rL), CR._WithTrace(CR._WithState(rL)))
+            @test CR._long_kernel(op, args(5)...) === long
+        end
+    end
+    @test CR._long_kernel(CR.Convolution([0.5, 0.5]), ones(3)) === false
     # A coupling whose arrays sit in a named tuple and a tuple, beside a
     # scalar and an integer.
     struct NTMix{N, P}
