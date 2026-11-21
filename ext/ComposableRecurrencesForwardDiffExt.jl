@@ -710,6 +710,9 @@ _init_eltype(h) = eltype(h)
 function _init_strata!(::Val{N}, m̄, h̄, m, s̄, history, ::Type{T}, Q, L) where {N, T}
     D = Dual{typeof(ForwardDiff.Tag(_init_jacobian, T)), T, N}
     sd = Vector{D}(undef, length(s̄))
+    if _splits_init(h̄, m, length(s̄), L)
+        _init_split!(m̄, h̄, m, sd, s̄, history, T, Q, L) && return nothing
+    end
     for k in eachindex(s̄)
         iszero(s̄[k]) && continue
         θk = map(T, _param_tuple(m, (k, 1)))
@@ -741,6 +744,110 @@ function _init_pass!(m̄, h̄, m, sd::Vector{D}, s̄k, θk, history, k, Q, L, o)
     end
     return nothing
 end
+# == Init derivative over every stratum at once ==
+
+# From this many strata the history rows are seeded together. Every
+# stratum must read the same scalars, as one rebuild of the modifier then
+# serves them all.
+const _INIT_SPLIT = 24
+function _splits_init(h̄, m, S, L)
+    (h̄ === nothing || L == 0 || S < _INIT_SPLIT) && return false
+    θ = _param_tuple(m, (1, 1))
+    return all(k -> isequal(_param_tuple(m, (k, 1)), θ), 2:S)
+end
+# Seeds the rows of every stratum with a cotangent at once, after passes
+# that prove no such row reaches another stratum's state: in each, the
+# rows whose index has bit `b` equal to `v` are seeded with weights of
+# their own, and every other row's state must have zero partials. Any two
+# strata differ in some bit, so each pair is tested both ways, with
+# `2 ceil(log2(S))` passes for each width of history columns. Returns
+# `false` without adding anything if a row reaches another stratum, so
+# the stratum-by-stratum passes name it.
+function _init_split!(m̄, h̄, m, sd::Vector{D}, s̄, history, ::Type{T}, Q, L) where {D, T}
+    N, S = ForwardDiff.npartials(D), length(sd)
+    θ = map(T, _param_tuple(m, (1, 1)))
+    on = _HasCotangent(s̄)
+    m0 = first(_rebuild_scalar(m, map(x -> _dual_at(D, x, 0), θ)))
+    for o in 0:N:(L - 1), b in 0:(8 * sizeof(Int) - leading_zeros(S - 1) - 1), v in 0:1
+        seeded = _BitSet(on, b, v)
+        forward!(m0, Init(), sd, _SetDuals{D}(history, S, -o, seeded, _split_weight))
+        _set_kept(sd, seeded, min(N, L - o)) || return false
+    end
+    for o in 0:N:(Q + L - 1)
+        θd = ntuple(i -> _dual_at(D, θ[i], i <= Q ? i - o : 0), Val(length(θ)))
+        md = first(_rebuild_scalar(m, θd))
+        forward!(md, Init(), sd, _SetDuals{D}(history, S, Q - o, on, _unit_weight))
+        for k in eachindex(sd)
+            on(k) || continue
+            s̄k, y = s̄[k], ForwardDiff.partials(sd[k])
+            if o < Q
+                g = ntuple(
+                    i -> i <= Q && 0 < i - o <= N ? s̄k * y[i - o] : zero(s̄k),
+                    Val(length(θ))
+                )
+                _add_scalar!(m̄, m, g, (k, 1))
+            end
+            for c in max(1, o - Q + 1):min(L, o - Q + N)
+                h̄[k + (c - 1) * S] += s̄k * y[Q + c - o]
+            end
+        end
+    end
+    return true
+end
+# Whether row `r` has a cotangent, and whether it also has bit `b` of
+# `r - 1` equal to `v`.
+struct _HasCotangent{V}
+    s̄::V
+end
+(f::_HasCotangent)(r) = !iszero(@inbounds f.s̄[r])
+struct _BitSet{F}
+    on::F
+    b::Int
+    v::Int
+end
+(f::_BitSet)(r) = f.on(r) && ((r - 1) >> f.b) & 1 == f.v
+# A weight in [1, 2) for row `r`, distinct across rows, so the partials of
+# two seeded rows that reach one state do not cancel as equal and
+# opposite unit seeds would.
+_split_weight(r) = 1 + mod(r * 0.6180339887498949, 1)
+_unit_weight(r) = true
+# Whether every unseeded stratum's state has zero partials in `1:n`.
+function _set_kept(sd, seeded, n)
+    for j in eachindex(sd)
+        seeded(j) && continue
+        p = ForwardDiff.partials(sd[j])
+        for i in 1:n
+            iszero(@inbounds p[i]) || return false
+        end
+    end
+    return true
+end
+# The history as the Init reads it, strata × time, with the entry in
+# column `c` of each row `r` for which `seeded(r)` holds given partial
+# `off + c`, of value `weight(r)`, and every other entry none.
+struct _SetDuals{D, M, A <: AbstractArray, F, W} <: AbstractArray{D, M}
+    h::A
+    S::Int
+    off::Int
+    seeded::F
+    weight::W
+end
+function _SetDuals{D}(
+        h::AbstractArray{<:Any, M}, S, off, seeded::F, weight::W
+    ) where {D, M, F, W}
+    return _SetDuals{D, M, typeof(h), F, W}(h, S, off, seeded, weight)
+end
+Base.size(w::_SetDuals) = size(w.h)
+Base.IndexStyle(::Type{<:_SetDuals}) = IndexLinear()
+function Base.getindex(w::_SetDuals{Dual{G, T, N}}, i::Int) where {G, T, N}
+    c, r = divrem(i - 1, w.S)
+    j = w.seeded(r + 1) ? w.off + c + 1 : 0
+    s = j == 0 ? zero(T) : T(w.weight(r + 1))
+    return Dual{G, T, N}(
+        w.h[i], ForwardDiff.Partials(ntuple(q -> q == j ? s : zero(T), Val(N)))
+    )
+end
+
 # Whether no stratum's state but `k`'s depends on the seeded history row
 # `k`, whose column `c` has partial `off + c`: an Init that writes another
 # stratum's state from it breaks the pointwise contract, and taking its
