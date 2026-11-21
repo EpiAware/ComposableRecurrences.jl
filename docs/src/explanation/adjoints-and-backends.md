@@ -165,6 +165,8 @@ The work counts each kind of loop so that one `min_work` sets where each breaks 
 Raise `min_work` when threads slow a model down, and lower it when they speed up loops below the default:
 
 ```julia
+using Base.ScopedValues: with
+using ComposableRecurrences: EXECUTOR, Threaded
 with(EXECUTOR => Threaded(; min_work = 1_000_000)) do
     r(R; history = seed)
 end
