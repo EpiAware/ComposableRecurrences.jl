@@ -49,6 +49,16 @@
         ]
         return TimeVarying(PerStratum(G))
     end
+    # A kernel as ragged columns, of lengths `ns`, held as one flat vector and
+    # its offsets, as a device holds one. `by_output` columns are read by
+    # output time, so a recurrence's may be empty.
+    function ragged(ns; by_output = false)
+        ks = [pmf[1:n] .* (1 + 0.1 * sin(τ)) for (τ, n) in enumerate(ns)]
+        g = CR._Ragged(ks)
+        return by_output ? TimeVarying(g, CR.Primary()) : TimeVarying(g)
+    end
+    by_input_lengths() = [min(L, T - τ + 1) for τ in 1:T]
+    by_output_lengths() = [mod(τ, L + 1) for τ in 1:T]
 
     # A recurrence with modifiers `ms`, as `recurrence_case` builds one.
     function modified_case(ms, S, dev)
@@ -340,6 +350,43 @@ end
         pullback_bytes(case...)
         @test pullback_bytes(case...) < bound
     end
+end
+
+@testitem "JLArrays: the rule passes of ragged kernels match the CPU" setup = [DeviceRules] begin
+    # More strata than blocks, so the blocks' copies of the kernel's
+    # cotangent are summed.
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        cases = [
+            ("convolution", false) =>
+                dev -> convolution_case(ragged(by_input_lengths()), S, dev),
+            ("convolution by output", false) => dev -> convolution_case(
+                ragged(by_input_lengths(); by_output = true), S, dev
+            ),
+            # Read by output time, it starts after its history, so its
+            # output is shorter.
+            ("recurrence by output", true) => dev -> recurrence_case(
+                I, S, dev; start = L + 1,
+                kernel = ragged(by_output_lengths(); by_output = true)
+            ),
+        ]
+        @testset "$name, $S strata" for ((name, shorter), case) in cases
+            op0, args0 = case(false)
+            op1, args1 = case(true)
+            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
+            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false; shorter)
+            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true; shorter)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test agree(p̄1, p̄0)
+        end
+    end
+    # Columns given as a list adapt to the flat form and take the rule.
+    S = 4
+    ks = [pmf[1:n] for n in by_input_lengths()]
+    op = adapt(JLArray, Convolution(TimeVarying(ks)))
+    @test op.kernel.x isa CR._Ragged
+    args = (JLArray(inputs(S)), true, nothing, nothing, 1, nothing)
+    @test CR._route_val(op, args...) === Val(:rule)
 end
 
 @testitem "JLArrays: the rule passes of pairwise kernels match the CPU" setup = [DeviceRules] begin

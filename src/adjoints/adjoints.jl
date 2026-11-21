@@ -182,11 +182,13 @@ _on_gpu(x) = false
 # Whether operator `op`'s reverse pass runs on a device; each operator file
 # says so for the operators it can.
 _device_ready(op) = false
-# Change-point and ragged kernels are excluded: their pullbacks read columns
+# A ragged kernel's columns are one flat vector and its offsets on a device
+# (a list of columns adapts to that), which its kernels index as a dense
+# kernel's. Change-point kernels are excluded: their pullbacks read segments
 # on the host.
 const _DeviceKernel = Union{
     AbstractVector, PerStratum,
-    TimeVarying{<:Any, <:Union{AbstractMatrix, PerStratum}},
+    TimeVarying{<:Any, <:Union{AbstractMatrix, PerStratum, _Ragged}},
 }
 _type_adjoint(op) = uses_adjoint(op, Run())
 _route(::Val{:plain}, op, args::Vararg{Any, N}) where {N} = _hooked_plain(op, args...)

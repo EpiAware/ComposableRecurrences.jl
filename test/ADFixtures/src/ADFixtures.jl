@@ -249,6 +249,24 @@ end
 _heterogeneity_hazard(w, θ) = _heterogeneity(w, θ, ComposableRecurrences.Hazard())
 _heterogeneity_floor(w, θ) = _heterogeneity(w, θ, ComposableRecurrences.Floor())
 
+# A modifier whose type is chosen at run time: the branch reads a value the
+# compiler cannot fold, so the modifier enters `modifiers = (dep,)` as a
+# `Union` of two depletion types. The `Union` is what is under test: the run
+# takes the `Hazard` branch, and the `Floor` branch's gradients are those of
+# the floored depletion scenario. The branch stays in the function that makes
+# the call, as a function barrier on such a modifier crashes Enzyme reverse's
+# compiler, which would end its job rather than fail the scenario.
+const FLOOR_CHOSEN = Ref(false)
+function _chosen_at_run_time(w, θ)
+    logh, logR = _unpack(θ, (S, L), (S, T))
+    N = sum(POP)
+    dep = FLOOR_CHOSEN[] ? depletion(N; form = ComposableRecurrences.Floor()) :
+        depletion(N)
+    r = Recurrence(G0; coupling = K0, modifiers = (dep,))
+    y = w(r)(exp.(logR); history = exp.(logh))
+    return sum(WS .* log.(y))
+end
+
 # A scalar modifier field, a Float32 kernel and Float64 history.
 const G0F = Float32.(G0)
 function _scalar_field_mixed(w, θ)
@@ -1487,6 +1505,10 @@ const _SCENARIOS = [
     (
         "Recurrence floored depletion with a differentiated heterogeneity",
         _heterogeneity_floor, () -> _flat([1.3], fill(log(5.0), S, L), LOGR),
+    ),
+    (
+        "Recurrence modifier chosen at run time", _chosen_at_run_time,
+        () -> _flat(fill(log(5.0), S, L), LOGR),
     ),
     (
         "Recurrence scalar modifier field, mixed eltypes", _scalar_field_mixed,
@@ -2991,10 +3013,22 @@ Per-backend broken scenario names (`Dict{String, Set{String}}`): the
 scenarios expected to fail on a backend, by backend name.
 
 `Reactant` lists the scenarios that do not run under Reactant, forward or
-reverse; `test/reactant/` reads it.
+reverse; `test/reactant/` reads it. `Enzyme reverse` lists the scenario
+whose modifier is chosen at run time, and its twin, which fail there with an
+upstream bug.
 """
 function backend_broken_scenarios()
-    return Dict("Reactant" => Set(reduce(vcat, values(REACTANT_BROKEN))))
+    return Dict(
+        "Reactant" => Set(reduce(vcat, values(REACTANT_BROKEN))),
+        # Enzyme boxes a `Union`-typed active struct in a `RefValue` when it
+        # is put in a tuple passed to another call, an upstream bug.
+        "Enzyme reverse" => Set(
+            [
+                "Recurrence modifier chosen at run time",
+                "NoAdjoint Recurrence modifier chosen at run time",
+            ]
+        ),
+    )
 end
 
 # The scenarios that do not compile, or compile to wrong values, under
