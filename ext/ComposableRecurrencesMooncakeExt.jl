@@ -271,9 +271,10 @@ _zero_output(y) = Mooncake.zero_fcodual(y)
 
 # The rule also covers a call whose local coupling derivative needs a
 # second pass of dual numbers (25 to 48 strata and scalars). It beats plain
-# AD there on Mooncake, at most 0.81 of its time for a dense coupling, but
-# not on Enzyme, 1.58 at 26 strata, so only this extension makes `_ad_wide`
-# a rule primitive.
+# AD there on Mooncake, at most 0.81 of its time for a dense coupling. On
+# Enzyme it does only for a kernel long against the strata (1.58 at 26
+# strata), so Enzyme takes it there alone (`_wide_rule`) and this extension
+# makes `_ad_wide` a rule primitive.
 Mooncake.@is_primitive(
     Mooncake.DefaultCtx, Mooncake.ReverseMode, Tuple{typeof(_ad_wide), Vararg}
 )

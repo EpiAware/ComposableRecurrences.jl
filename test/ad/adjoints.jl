@@ -780,6 +780,48 @@ end
     end
 end
 
+# A user coupling holding a 5 by 5 matrix seeds 30 inputs, past one pass of
+# dual numbers, so its calls take the wide route: the rule on Mooncake, and
+# on Enzyme only from 10 lags per stratum (Julia 1.12 and later).
+@testitem "A wide call takes the rule on Enzyme from 10 lags per stratum" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [JobBackends] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: ComposableRecurrences as CR
+    using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
+    using DifferentiationInterface: gradient
+    import Mooncake, Enzyme, ForwardDiff
+    struct WideMix{M}
+        M::M
+    end
+    CR.forward!(C::WideMix, ::CR.Pressure, q, p, t) = (q .= C.M * p; nothing)
+    S, T = 5, 8
+    W = [cos(k + t) for k in 1:S, t in 1:T]
+    backends = job_backends(
+        :mooncake_reverse => (AutoMooncake(; config = nothing), L -> true),
+        :enzyme_reverse => (
+            AutoEnzyme(;
+                mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+                function_annotation = Enzyme.Const
+            ),
+            L -> L >= 10 * S && VERSION >= v"1.12",
+        ),
+    )
+    for L in (49, 50), (backend, fires) in backends
+        g = fill(0.5 / L, L)
+        h = fill(0.3, S, L)
+        function f(θ)
+            C = WideMix(0.1 .* reshape(θ[1:(S^2)], S, S))
+            r = Recurrence(g; coupling = C)
+            return sum(W .* r(reshape(θ[(S^2 + 1):end], S, T); history = h))
+        end
+        θ = [0.5 .+ 0.1 .* cos.(1:(S^2)); 1.0 .+ 0.1 .* sin.(1:(S * T))]
+        @test CR._fit(Recurrence(g; coupling = WideMix(ones(S, S))), ones(S, T), nothing, h) ===
+            :wide
+        n0 = CR._PULLBACK_CALLS[]
+        @test gradient(f, backend, θ) ≈ gradient(f, AutoForwardDiff(), θ)
+        @test (CR._PULLBACK_CALLS[] > n0) == fires(L)
+    end
+end
+
 @testitem "Transform: the rule runs unless the map has float fields" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] setup = [AdjointCases, JobBackends] begin
     using ADTypes: AutoMooncake, AutoEnzyme, AutoForwardDiff
     using DifferentiationInterface: gradient

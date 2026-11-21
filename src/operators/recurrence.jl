@@ -1068,6 +1068,13 @@ function _check_now(r::Recurrence)
     return _check_rebuilds(parts) !== false
 end
 _fit(w::_WithState, args...) = _fit(w.r, args...)
+# A kernel of at least `_WIDE_RULE_LAGS` lags per stratum, from which a wide
+# call's rule is faster than plain AD on Enzyme (`_wide_rule`).
+const _WIDE_RULE_LAGS = 10
+function _long_kernel(r::Recurrence, gain, add, h, args...)
+    return _nlags(r.kernel) >= _WIDE_RULE_LAGS * _nstrata(h)
+end
+_long_kernel(w::_WithState, args...) = _long_kernel(w.r, args...)
 # The parts of `r` whose reverse pass takes a local derivative, each with why
 # it needs the dual-number extension.
 function _dual_whys(kernel, C, ms)

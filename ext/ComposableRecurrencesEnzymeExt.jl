@@ -12,7 +12,7 @@ using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
     _fft_convolve_back!, _fft_convolve_terms!, _flat_groups, _is_leaf,
     _keep_inputs, _leaf_paths, _note_missing_duals, _plain_hook, _probe_step_reads, _rebuild_leaves,
     _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
-    _spawn_blocks, _spawn_chunks, _untraced
+    _spawn_blocks, _spawn_chunks, _untraced, _wide_rule
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
 using LinearAlgebra: Adjoint, Diagonal, Transpose
@@ -282,6 +282,22 @@ function EnzymeRules.augmented_primal(
 end
 function EnzymeRules.reverse(
         ::EnzymeRules.RevConfig, ::Const{typeof(_untraced)}, ::Type{<:Const}, tape
+    )
+    return ()
+end
+
+# A reverse pass takes the rule for a wide call whose kernel is long against
+# its strata (`_wide_rule`); forward mode keeps plain AD. As with
+# `_untraced`, Julia 1.11 runs the call as it is, so there every wide call
+# keeps plain AD.
+function EnzymeRules.augmented_primal(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_wide_rule)}, ::Type{<:Const}
+    )
+    primal = EnzymeRules.needs_primal(config) ? true : nothing
+    return EnzymeRules.AugmentedReturn(primal, nothing, nothing)
+end
+function EnzymeRules.reverse(
+        ::EnzymeRules.RevConfig, ::Const{typeof(_wide_rule)}, ::Type{<:Const}, tape
     )
     return ()
 end
