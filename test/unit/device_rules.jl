@@ -772,7 +772,8 @@ end
     using ForwardDiff
     # A user modifier per stratum that passes the value through and asks for
     # a buffer deeper than the kernel, one that shrinks the value by a
-    # scalar, and one that starts its state from its own `Init`.
+    # scalar, and one that starts its state from its own `Init`, read from
+    # the history.
     struct DevDeep
         w::Int
     end
@@ -793,7 +794,10 @@ end
         end
         return nothing
     end
-    CR.forward!(m::DevStart, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
+    function CR.forward!(m::DevStart, ::CR.Init, s, history)
+        s .= m.N .* (1 .+ 0.1 .* view(history, :, size(history, 2)))
+        return nothing
+    end
     function CR.forward!(m::DevStart, ::CR.Step, v, s, t)
         for k in eachindex(v, s)
             v[k], s[k] = min(v[k], s[k]), s[k] - min(v[k], s[k])
@@ -826,14 +830,34 @@ end
             @test agree(p̄1, p̄0)
         end
     end
-    # An `Init` of its own reverses on the host, so on a device the call
-    # keeps plain AD; on the host it takes the rule.
-    op, args = modified_case((DevStart(50.0),), 4, true)
-    @test CR._fit(op, args...) === :none
-    op, args = modified_case((DevStart(50.0),), 4, false)
-    @test CR._fit(op, args...) === :one
-    # The same when its `Init` is defined only for device states, with a
-    # history that is a view.
+    # An `Init` of its own, here reading the history, reverses on host
+    # copies and takes the rule; every cotangent, the history's too, is the
+    # host's.
+    function all_cotangents(op, args)
+        y, cache = CR._run_forward(op, args...)
+        W = cos.(0.1 .* reshape(1:length(y), size(y)))
+        Ȳ = y isa JLArray ? JLArray(W) : W
+        rest = map(a -> a isa AbstractArray ? zero(a) : nothing, Base.tail(args))
+        piece = CR._zero_mirror(op)
+        grads = (; piece, y = Ȳ, args = (zero(args[1]), rest...))
+        CR._run_pullback!(grads, op, cache)
+        host(a) = a isa AbstractArray ? Array(a) : a
+        return Array(y), map(host, grads.args), piece
+    end
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        (op0, args0) = modified_case((DevStart(50.0),), S, false)
+        (op1, args1) = modified_case((DevStart(50.0),), S, true)
+        @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
+        @test CR._fit(op1, args1...) === :one
+        y0, ḡ0, p̄0 = all_cotangents(op0, args0)
+        y1, ḡ1, p̄1 = all_cotangents(op1, args1)
+        @test y1 ≈ y0
+        @test all(map((a, b) -> a === b || a ≈ b, ḡ1, ḡ0))
+        @test agree(p̄1, p̄0)
+    end
+    # One whose `Init` is defined only for device states would not run on
+    # the host copies, so it keeps plain AD, also with a history that is a
+    # view.
     struct DevStartOn{A}
         N::A
     end

@@ -152,8 +152,8 @@ function _device_modifiers(ms::Tuple)
     return _device_modifier(first(ms)) && _device_modifiers(Base.tail(ms))
 end
 # A user modifier takes the rule when it runs per stratum or on fixed groups
-# with scalar parameters. One with its own `Init` keeps plain AD on device
-# arrays (see `_parts_fit` in the GPUArraysCore extension).
+# with scalar parameters; an `Init` of its own reverses on host copies (see
+# `_init_strata_back!` in the GPUArraysCore extension).
 _device_modifier(m) = (_strata_loop(m) || _blocks(m) isa Val) && _scalar_params(m)
 _device_modifier(m::Transform) = _strata_loop(m)
 # Built-in group steps reverse in blocks, as their forward steps run.
@@ -166,9 +166,6 @@ function _device_modifier(m::Allocate{<:Any, <:_AllocateImports})
 end
 _device_spill(::Nothing) = true
 _device_spill(r::Redistribute) = _device_modifier(r)
-# The modifiers the package defines, whose `Init` pullbacks run on a device.
-_builtin_modifier(m) = false
-_builtin_modifier(::Union{Transform, Depletion, Allocate, Redistribute}) = true
 # A whole step on the calling task, whose loops run as kernels. Each origin
 # or stratum writes only its own entries of the moves' cotangent, so the
 # step reverses without per-block copies; an intensity read from a
