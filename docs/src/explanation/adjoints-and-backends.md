@@ -45,12 +45,12 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | pointwise modifier with other float arrays, or views of them, that its step indexes, at most 24 entries a step | rule, local ForwardDiff step |
 | pointwise modifier with a `Diagonal`, sparse or other structured float array, or a depletion form with any array parameter | plain AD |
 | whole-step modifier (neither pointwise nor blockwise) with float scalars and float arrays, its values, state and parameters at most 24, counting only the entries a step reads for one that reads fewer than its arrays hold | rule, local ForwardDiff step |
-| the same with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
+| the same with 25 to 48 | rule on Mooncake; on Enzyme the rule with at least 10 kernel lags per stratum on Julia 1.12 or later, else plain AD |
 | the same with more than 48 | plain AD |
 | blockwise modifier with float scalars and `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through `param` at its group | rule, local ForwardDiff step per group |
 | blockwise modifier with other float arrays | plain AD |
 | coupling with float scalars and float arrays, strata plus scalars and array entries at most 24 | rule, local ForwardDiff step |
-| the same coupling with 25 to 48 | rule on Mooncake, plain AD on Enzyme |
+| the same coupling with 25 to 48 | rule on Mooncake; on Enzyme the rule with at least 10 kernel lags per stratum on Julia 1.12 or later, else plain AD |
 | the same coupling with more than 48 | plain AD |
 | coupling with a `Diagonal`, sparse or other structured float array | plain AD |
 | coupling, or whole-step modifier with no state of its own, declared linear with [`islinear`](@ref ComposableRecurrences.islinear) | rule, the matrix its `forward!` gives, built once per call outside the rule |
