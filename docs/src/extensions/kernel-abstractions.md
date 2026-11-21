@@ -1,6 +1,7 @@
-# [KernelAbstractions extension](@id extension-kernel-abstractions)
+# [Adapt + KernelAbstractions extension](@id extension-kernel-abstractions)
 
-`ComposableRecurrencesKernelAbstractionsExt` is loaded automatically when KernelAbstractions is available alongside ComposableRecurrences; KernelAbstractions loads Adapt, its second trigger.
+Loading Adapt and KernelAbstractions with ComposableRecurrences loads `ComposableRecurrencesKernelAbstractionsExt`.
+KernelAbstractions loads Adapt itself, so loading KernelAbstractions is enough.
 
 It runs each loop of the [`Parallel`](@ref ComposableRecurrences.Parallel) executor as one kernel.
 Each kernel thread runs its loop body serially, so the kernel receives plain data only, whichever executor the call was made under.
