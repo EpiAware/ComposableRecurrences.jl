@@ -42,7 +42,7 @@ function ComposableRecurrences._kernel_back!(
 end
 
 # A pairwise kernel's pullback on device arrays, one sender per kernel
-# index; the host loops cannot index them.
+# index.
 function ComposableRecurrences._kernel_back!(
         kbuf, ḡ, g::_OldestFirstPairwise, p̄::AnyGPUArray, H, H̄, t, τ, L
     )
@@ -76,6 +76,15 @@ function ComposableRecurrences.pullback!(
         v::AnyGPUArray, s, t
     )
     return ComposableRecurrences._device_imports_pullback!(grads, m, v, s, t)
+end
+
+# A coupling over time on the device reverses each step's slice as two
+# products; the host loops cannot index it.
+function ComposableRecurrences.pullback!(
+        grads, C::TimeVarying{Secondary, <:AnyGPUArray{<:Any, 3}}, ::Pressure,
+        q, p, t
+    )
+    return ComposableRecurrences._device_tv_coupling_back!(grads, C, p, t)
 end
 
 # Device arrays reverse by indexing with a reversed range, one gather,
