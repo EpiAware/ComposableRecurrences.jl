@@ -153,6 +153,19 @@
     agree(::Nothing, ::Nothing) = true
 end
 
+@testitem "JLArrays: a device buffer's rows come back in the public layout" setup = [DeviceRules] begin
+    D, S = 3, 4
+    H = reshape(collect(1.0:((D + T) * S)), D + T, S)
+    ext = Base.get_extension(CR, :ComposableRecurrencesGPUArraysCoreExt)
+    @testset "rows $(typeof(rows))" for rows in ((D + 1):(D + T), [D + 1, D + 3])
+        args = (JLArray(H), rows, JLArray(zeros(S, D)))
+        @test which(CR._public, typeof.(args)).module === ext
+        out = CR._public(args...)
+        @test out isa JLArray
+        @test Array(out) == permutedims(H[rows, :])
+    end
+end
+
 @testitem "JLArrays: the rule passes of a fixed convolution and of a recurrence match the CPU" setup = [DeviceRules] begin
     # More strata than blocks, so the blocks' copies of the shared kernel
     # cotangent are summed.
