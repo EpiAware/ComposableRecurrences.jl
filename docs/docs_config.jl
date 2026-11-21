@@ -179,6 +179,11 @@ const INDEX_REWRITES = Pair{String, String}[
     # The performance summary's link, to the benchmarks page section.
     "](https://composablerecurrences.epiaware.org/stable/benchmarks/over-time/#benchmarks-hand-written)" =>
         "](@ref benchmarks-hand-written)",
+    # The GPU and trimming links, as in-site references.
+    "](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/#gpu-arrays)" =>
+        "](@ref gpu-arrays)",
+    "](https://composablerecurrences.epiaware.org/stable/developer/extending/#trimming)" =>
+        "](@ref trimming)",
     # The README's model block prints nothing on the home page.
     "reports = delay(infections; gain = 0.4, history = seed)" =>
         "reports = delay(infections; gain = 0.4, history = seed)\nnothing # hide",

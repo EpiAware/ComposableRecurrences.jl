@@ -5,6 +5,8 @@ A convolution weights the past values of another series, such as reported cases 
 [`Recurrence`](@ref) and [`Convolution`](@ref) are the two operators.
 Couplings link strata, such as towns, and modifiers add behaviour such as finite pools to each step.
 Every operator is differentiable.
+Operators run on CPU threads and on [GPU arrays](@ref gpu-arrays) through [executors](@ref executors).
+On Julia 1.12 and later, a forward run compiles into a [trimmed executable](@ref trimming) with `juliac`.
 
 ## Where to start
 

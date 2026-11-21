@@ -20,6 +20,8 @@ Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-sta
 - Both are usually hand-written loops, rewritten for each model.
   `Recurrence` and `Convolution` express them as two operators, for one series or for many strata, such as towns, run side by side.
 - Mixing between strata, finite pools and caps are added by passing couplings and modifiers to an operator.
+- Operators run on CPU threads and on [GPU arrays](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/#gpu-arrays) through KernelAbstractions.jl.
+  On Julia 1.12 and later, a forward run compiles into a [trimmed executable](https://composablerecurrences.epiaware.org/stable/developer/extending/#trimming) with `juliac`.
 - The aim is to be as fast as hand-written code with hand-written gradients.
   Against a hand-written loop of each documented model, the package's Mooncake and Enzyme gradients are a median 4.1× and 2.4× faster than the same backend on the loop, comparing minimum times.
   The forward run and ForwardDiff gradient run at a median 1.2× and 1.1× the loop's speed, and are slower on several models.
