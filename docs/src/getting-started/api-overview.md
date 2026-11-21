@@ -238,6 +238,26 @@ The recurrence keeps the masses on lags 1 to 14, 0.957 of the delay, and drops t
 
 `Gamma` comes from the Distributions.jl package, and a continuous delay such as it needs CensoredDistributions.jl loaded.
 A type works as a delay when it has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method, which gives its masses on lags `0` to `lags - 1`.
+
+A delay type of its own, with masses ``p (1 - p)^l`` on whole units, and the masses of `step` units summed for a lag:
+
+```jldoctest
+using ComposableRecurrences
+struct GeometricDelay
+    p::Float64
+end
+function ComposableRecurrences.delay_masses(d::GeometricDelay, lags; step = 1)
+    q = (1 - d.p)^step
+    return map(l -> (1 - q) * q^l, 0:(lags - 1))
+end
+Convolution(GeometricDelay(0.5); lags = 3).kernel,
+Recurrence(GeometricDelay(0.5); lags = 3, step = 2).kernel
+
+# output
+
+([0.5, 0.25, 0.125], [0.1875, 0.046875])
+```
+
 With [Distributions.jl](@ref extension-distributions) loaded, discrete distributions have masses.
 With [CensoredDistributions.jl](@ref extension-censored-distributions) loaded, continuous distributions have them too.
 A convolution's kernel starts at lag 0, so it keeps the delay's mass on lag 0.

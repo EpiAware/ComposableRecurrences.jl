@@ -41,6 +41,22 @@ round.(cap_last(gain; history = seed)[end-2:end]; digits = 2)
 
 Imported infections have the same choice: through `add` they are drawn from the pool, and through a [`Transform(+, b)`](@ref ComposableRecurrences.Transform) after a `Depletion` they do not deplete it.
 
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+# Imports added after the depletion, so not drawn from the pool.
+imports = CR.Transform(+, TimeVarying([1.0, 0.0, 2.0]))
+mods = (CR.Depletion(50.0, CR.Floor()), imports)
+Recurrence([1.0]; modifiers = mods)(1.0; history = [2.0], stop = 3)
+
+# output
+
+3-element Vector{Float64}:
+ 3.0
+ 2.88
+ 4.598912
+```
+
 ## [State](@id explanation-modifier-state)
 
 Each modifier keeps its own state ``s^{(n)}_t`` from step to step, such as the remaining pool of a [`Depletion`](@ref ComposableRecurrences.Depletion).
