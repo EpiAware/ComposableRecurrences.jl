@@ -166,6 +166,19 @@ function pullback!(grads, form::_SoftTruncate, ::Step, v, s, N)
     return nothing
 end
 
+# What a count `a` moves out of a pool holding `s`, and the
+# cotangents `(ā, s̄, κ̄)` from that of the move; `κ̄` is the softness's.
+_moved(::_HardTruncate, a, s) = _removal(a, s)
+_moved(form::_SoftTruncate, a, s) = _soft_min(form.κ, a, _pool_left(s))
+function _moved_back(::_HardTruncate, a, s, m̄)
+    ā, s̄ = _removal_pullback(a, s, m̄)
+    return ā, s̄, zero(m̄)
+end
+function _moved_back(form::_SoftTruncate, a, s, m̄)
+    ā, c̄, κ̄ = _soft_min_back(form.κ, a, _pool_left(s), m̄)
+    return ā, ifelse(s > 0, c̄, zero(c̄)), κ̄
+end
+
 # Smooth minimum `m g(m / M)` with `g(r) = (1 + r^(1/κ))^(-κ)`. The exact
 # minimum is `_removal`: it takes `a` on a tie and returns a NaN.
 _soft_min(::Nothing, a, b) = _removal(a, b)

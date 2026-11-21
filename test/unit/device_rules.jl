@@ -354,6 +354,13 @@ end
         pullback_bytes(case...)
         @test pullback_bytes(case...) < bound
     end
+    # A fixed kernel per stratum shares its cotangent too: its pullback
+    # allocates about what a vector kernel's does, where a copy of every
+    # stratum's rows per block allocates over six times as much.
+    fixed, shared = convolution_case(PerStratum(repeat(pmf', S)), S, true),
+        convolution_case(pmf, S, true)
+    pullback_bytes(fixed...), pullback_bytes(shared...)
+    @test pullback_bytes(fixed...) < 2 * pullback_bytes(shared...)
 end
 
 @testitem "JLArrays: the rule passes of ragged kernels match the CPU" setup = [DeviceRules] begin
