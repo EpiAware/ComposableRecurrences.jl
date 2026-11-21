@@ -4,15 +4,15 @@
 
 ## [Rules and plain AD](@id adjoint-routing)
 
-Each operator call takes one of two routes:
+Each operator call is differentiated in one of two ways:
 
 - the rule, a reverse pass written for the operator, which the [Mooncake](@ref extension-mooncake) and [Enzyme](@ref extension-enzyme) extensions register;
-- plain AD, where the backend differentiates the operator's forward loop.
+- plain automatic differentiation (AD), where the backend differentiates the operator's forward loop.
 
 A call takes the rule when [`uses_adjoint(op, Run())`](@ref ComposableRecurrences.uses_adjoint) is `true` and every float it holds is a `Float16`, `Float32` or `Float64`.
 These floats may sit in an `Array`, a view or reshape of one, a sparse matrix or a `Diagonal`.
 Dual numbers, tracked values, `BigFloat`, abstractly typed fields and other array types take plain AD.
-The route is read from types, apart from the rebuild check and the [strata](@ref overview-step) limit below.
+The choice between the rule and plain AD depends only on these types, except for two checks described below: whether the local step can rebuild each component, and the number of [strata](@ref overview-step).
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
 It runs the step of the [API overview](@ref api-overview) backwards in time.
@@ -35,10 +35,10 @@ where ``s_t`` is the modifiers' state and ``M^{*}_t`` their `pullback!` methods 
 ``\bar y_t`` holds the cotangent of the output plus what later steps added to it.
 The coupling's `pullback!` for [`Pressure()`](@ref ComposableRecurrences.Pressure) gives ``\bar p_t`` and ``\bar K_t``.
 The last line is for a kernel shared by every stratum.
-`uses_adjoint` finds a part's `pullback!` from its methods, so writing the method is enough; a method of `uses_adjoint` overrides it.
-A part without one is differentiated inside the rule with a local ForwardDiff step where that is cheap; otherwise the whole operator takes plain AD.
+`uses_adjoint` finds a component's `pullback!` from its methods, so writing the method is enough; a method of `uses_adjoint` overrides it.
+A component without one is differentiated inside the rule with a local ForwardDiff step where that is cheap; otherwise the whole operator takes plain AD.
 
-| Part without a `pullback!` | Route |
+| Component without a `pullback!` | Rule or plain AD |
 |---|---|
 | pointwise modifier or depletion form with only scalar float parameters | rule, local ForwardDiff step |
 | pointwise modifier with `PerStratum`, `TimeVarying` or `TimeVarying(PerStratum(x))` parameters read through [`param`](@ref ComposableRecurrences.param) | rule, local ForwardDiff step |
@@ -54,18 +54,18 @@ A part without one is differentiated inside the rule with a local ForwardDiff st
 | the same coupling with more than 48 | plain AD |
 | coupling with a `Diagonal`, sparse or other structured float array | plain AD |
 | coupling, or whole-step modifier with no state of its own, declared linear with [`islinear`](@ref ComposableRecurrences.islinear) | rule, the matrix its `forward!` gives, built once per call outside the rule |
-| [`Pairwise`](@ref) route coupling | as a coupling, the widest route coupling setting the call's route |
+| [`Pairwise`](@ref) route coupling | as a coupling, the widest route coupling setting whether the call takes the rule |
 | [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
-| part that the local step cannot rebuild from its parameters | plain AD |
+| component that the local step cannot rebuild from its parameters | plain AD |
 
 A modifier with a [`Derived`](@ref ComposableRecurrences.Derived) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
 An operator whose kernel is a `Derived` with such a map takes plain AD for the same reason.
 
-The [local step](@ref adjoint-local-step) rebuilds a part with dual numbers in place of its float parameters.
+The [local step](@ref adjoint-local-step) rebuilds a component with dual numbers in place of its float parameters.
 The `Recurrence` constructor checks the rebuild once and stores the result in the field `rebuilds`.
 Each limit on a coupling's strata and scalars is where its local step needs one more pass of dual numbers per step.
 
-The `Recurrence` constructor logs an `@info` when one of these parts sends the operator to plain AD, naming the part and the reason.
+The `Recurrence` constructor logs an `@info` when one of these components sends the operator to plain AD, naming the component and the reason.
 It logs each message once per session, whatever the number types.
 A call sent to plain AD by its number of strata, or by its float or array types, logs nothing.
 
@@ -74,11 +74,11 @@ A call sent to plain AD by its number of strata, or by its float or array types,
 #### ForwardDiff
 
 The local step needs `using ForwardDiff`, which the package loads only as an [extension](@ref extension-forwarddiff).
-Without it, a call with a part that takes the local step uses plain AD instead, and logs once which part and what to load.
+Without it, a call with a component that takes the local step uses plain AD instead, and logs once which component and what to load.
 The gradient is the same, but slower.
 An initial state without its own `pullback!` still throws an `ArgumentError` that says to load ForwardDiff.
 
-A `Recurrence` built before ForwardDiff loads stores `nothing` in `rebuilds` and checks its parts at each call that takes the rule, so it takes the local step once ForwardDiff is loaded.
+A `Recurrence` built before ForwardDiff loads stores `nothing` in `rebuilds` and checks its components at each call that takes the rule, so it takes the local step once ForwardDiff is loaded.
 
 #### Types it can rebuild
 
@@ -121,21 +121,21 @@ So the local step and plain AD can differ there, as for `abs` at zero and, on Mo
 | Enzyme reverse | when the call takes the rule | otherwise |
 | [Reactant](@ref extension-reactant) (Enzyme reverse inside its `@compile`) | never | always, on the traced program |
 
-Forward-mode backends run the same forward code on both routes, so a rule only changes the cost of reverse mode.
+Forward-mode backends run the same forward code with the rule or plain AD, so a rule only changes the cost of reverse mode.
 The targets are ForwardDiff, Mooncake and Enzyme.
-The AD tests also run ReverseDiff, which is not a target; the README's coverage badges include it because those tests run.
+The AD tests also run ReverseDiff, which is not a target, so it appears in the README's coverage badges.
 
 Reactant traces a call into one compiled program and Enzyme differentiates that program, so the package's rules never run under it.
 DifferentiationInterface has no Reactant extension, so Reactant is not one of the AD jobs.
 Its own suite, `test/reactant/`, compiles every scenario of the AD registry forward and in reverse and checks each against ForwardDiff, entry by entry.
 The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) gives each scenario's result.
 The scenarios that do not run are listed in the registry under the `Reactant` backend, grouped by cause.
-Most are parts built from traced values, such as sparse couplings and delay distributions, or user modifiers that branch with `if` on traced values.
+Most are components built from traced values, such as sparse couplings and delay distributions, or user modifiers that branch with `if` on traced values.
 A model that does not run under Reactant runs as it is on the other backends, so Enzyme reverse is the fallback for its gradient.
 
 ## [Which rules are kept](@id rule-policy)
 
-A rule is kept only where it beats plain AD, its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin, by about 10% in reverse mode on Mooncake or Enzyme; it then runs on both, unless the route table above splits by backend.
+A rule is kept only where it beats plain AD, its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin, by about 10% in reverse mode on Mooncake or Enzyme; it then runs on both, unless the table above splits by backend.
 The [rule timings](@ref rule-timings) are each rule's time over its twin's, at `T` 200 and `L` 20 where a benchmark case covers it.
 
 `NoAdjoint` turns off the operator's rules, so its call is differentiated as the forward loop, with two deliberate exceptions inside the call.
@@ -143,9 +143,9 @@ The [rule timings](@ref rule-timings) are each rule's time over its twin's, at `
 - Under Mooncake, two BLAS overlays stay: a convolution adds each lag with `axpy!`, which Mooncake differentiates with its own rule.
   Without them Mooncake's plain AD of a convolution is 1.3 to 3.1 times slower.
 - Under Enzyme, a sparse route coupling's pressure is differentiated by the coupling's own `pullback!`.
-  Plain AD reaches it under `NoAdjoint`, and in the default route when `Pairwise` routes with a route coupling without a `pullback!` take plain AD on Enzyme; without the rule that default route is 3 to 4 times slower.
+  Plain AD reaches it under `NoAdjoint`, and by default when `Pairwise` routes with a route coupling without a `pullback!` take plain AD on Enzyme; without the rule that default is 3 to 4 times slower.
 
-Rules for building parts before the call, the masses of a chain of delays and the movement of `Redistribute(K, ε)`, are not the operator's and stay too.
+Rules for building components before the call, the masses of a chain of delays and the movement of `Redistribute(K, ε)`, are not the operator's and stay too.
 
 ## [Checking a rule](@id adjoint-checks)
 
@@ -165,6 +165,8 @@ The work counts each kind of loop so that one `min_work` sets where each breaks 
 Raise `min_work` when threads slow a model down, and lower it when they speed up loops below the default:
 
 ```julia
+using Base.ScopedValues: with
+using ComposableRecurrences: EXECUTOR, Threaded
 with(EXECUTOR => Threaded(; min_work = 1_000_000)) do
     r(R; history = seed)
 end
@@ -199,7 +201,7 @@ In the reverse pass:
   - modifiers with a vector step;
   - parameters that read across strata.
 
-The `Parallel(backend)` row was checked on JLArrays only, which run kernels on the CPU.
+The `Parallel(backend)` row is tested on JLArrays only, which run kernels on the CPU.
 
 ### [GPU arrays](@id gpu-arrays)
 
