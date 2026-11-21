@@ -1,3 +1,5 @@
+# == The rule: pullback! and the reverse pass ==
+
 # The rule of a `Recurrence`. Each step's core `v = gain ⊙ x + add` has a
 # local pullback; the work is sending the pressure's cotangent back through
 # the coupling and kernel into the buffer's cotangent `H̄`.
@@ -129,6 +131,8 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     return nothing
 end
 
+# == Which calls take the rule on device arrays ==
+
 _slots(x̄) = x̄
 _slots(x̄::AbstractMatrix) = _Owned(x̄)
 # Takes the rule on device arrays (`_device_gate`): a fixed or dense
@@ -190,6 +194,8 @@ _device_intensity(E::AbstractMatrix) = _dense_moves(E)
 _dense_moves(M) = false
 _dense_moves(::DenseArray) = true
 _dense_moves(M::Union{Base.ReshapedArray, SubArray}) = _dense_moves(parent(M))
+
+# == Mirrors and their slots per block ==
 
 _kernel_slots(ḡ, kernel) = _Owned(ḡ)
 _kernel_slots(ḡ, kernel::TimeVarying) = ḡ
@@ -263,6 +269,8 @@ end
     leaves = (:(_unown(getfield(x, $i))) for i in 1:length(K))
     return :(NamedTuple{$K}(($(leaves...),)))
 end
+
+# == A series and a carried cotangent ==
 
 # Each stratum's step writes only its own slots and the block's accumulator.
 function _series_back!(
@@ -355,6 +363,8 @@ _stratum_buffer(kb::AbstractMatrix, ::AbstractVector, k) = view(kb, :, k)
 _stratum_buffer(kb::AbstractMatrix, ::PerStratum, k) = view(kb, k, :)
 _stratum_buffer(::Nothing, g, k) = nothing
 
+# == One step back: values, gain, add and core ==
+
 # Stratum `k`'s output cotangent at step `t` back through the pointwise
 # modifiers, then `_gain_add_back!`.
 @inline function _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D, k)
@@ -409,6 +419,8 @@ end
 end
 _coef_back!(C̄, C::UniformScaling, v, k) = add_cotangent!(cotangent(C̄, :λ), v)
 _coef_back!(C̄, C::Diagonal, v, k) = @inbounds add_cotangent!(cotangent(C̄, :diag), v, k)
+
+# == Step loops back ==
 
 # Each stratum writes only its own slots for the pointwise modifiers, and for
 # the kernel unless it is pairwise, so those loops run in executor blocks.
@@ -480,6 +492,8 @@ function _kernels_body!(ks, acc, kbuf, kernel, p̄, H, H̄, t, τ, L)
     return nothing
 end
 
+# == Seeding the buffer's cotangent ==
+
 # Only an integer output has no cotangent, and then nothing else does. A
 # method, not an early return: where `Ȳ` may be `nothing` by type (`Enzyme`
 # under runtime activity), that branch slowed the reverse pass by about 8%.
@@ -531,6 +545,8 @@ function _seed_states!(s̄s, s̄end)
     foreach((a, b) -> b === nothing || (a .+= b), s̄s, s̄end)
     return s̄s
 end
+
+# == Mirrors, stages and local passes ==
 
 # One mirror per modifier.
 _mirrors(::Nothing, ms) = map(_ -> nothing, ms)
@@ -588,6 +604,8 @@ _local_step_duals(::Val{false}, m̄, m, H, S) = nothing
 _local_step_duals(::Val{true}, m̄, m, H, S) = _step_duals(m̄, m, eltype(H), S)
 _finish_pass!(m̄, m, R, ::Nothing, τ0) = nothing
 
+# == Coupling pullback ==
+
 # The coupling's pullback at step `t`: overwrite `p̄` with the cotangent of
 # the kernel convolutions and add the coupling's own cotangent into `C̄`.
 function _coupling_back!(p̄, C̄, C::_PointwiseCoupling, q̄, pr, t, τ, pbufs)
@@ -633,6 +651,8 @@ function _coupling_back_at(C̄, C::Diagonal, q̄k, pr, t, k)
     @inbounds add_cotangent!(cotangent(C̄, :diag), q̄k * pr.P[k, t], k)
     return @inbounds C.diag[k] * q̄k
 end
+
+# == Kernel pullback ==
 
 # A buffer for the kernel cotangent in the oldest-first order the forward
 # pass reads a reversed fixed kernel in, or `nothing`.
@@ -812,6 +832,8 @@ function _kernel_finish!(ḡ::NamedTuple, kbuf::Array{<:Any, 3})
     end
     return nothing
 end
+
+# == History and shared cotangents ==
 
 # The buffer's first `D` rows back into the last `D` history columns; the
 # zero-padded rows of a short history have no cotangent.
