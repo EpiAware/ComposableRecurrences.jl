@@ -199,8 +199,17 @@ function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
 end
 _fit(op, args...) = :one
 
-# Plain AD unless a backend extension makes it a rule primitive.
-_ad_wide(op, args::Vararg{Any, N}) where {N} = _hooked_plain(op, args...)
+# Plain AD, unless a backend extension makes it a rule primitive or its
+# reverse pass takes the rule for a long kernel (`_wide_rule`,
+# `_long_kernel`).
+function _ad_wide(op, args::Vararg{Any, N}) where {N}
+    _wide_rule() && _long_kernel(op, args...) && return _ad(op, args...)
+    return _hooked_plain(op, args...)
+end
+# A backend extension makes this `true` in its reverse pass. Inference must
+# not see the constant, or it folds the branch away.
+_wide_rule() = Base.inferencebarrier(false)::Bool
+_long_kernel(op, args...) = false
 
 # An operator with a keyword `forward` adds methods for its positional form.
 _run_forward(op, args...) = forward(op, Run(), args...)

@@ -1068,6 +1068,17 @@ function _check_now(r::Recurrence)
     return _check_rebuilds(parts) !== false
 end
 _fit(w::_WithState, args...) = _fit(w.r, args...)
+# A kernel of at least `_WIDE_RULE_LAGS` lags per stratum, for which a wide
+# call takes the rule where a backend's reverse pass allows it
+# (`_wide_rule`). On a 5 by 5 user coupling the rule measured 0.51-0.65 of
+# plain AD's time at 10 to 12 lags per stratum and level at 8. With 4 or
+# fewer it was slower on most wide calls (1.03-1.64), though a whole-step
+# modifier measured 0.85 at 3.
+const _WIDE_RULE_LAGS = 10
+function _long_kernel(r::Recurrence, gain, add, h, args...)
+    return _nlags(r.kernel) >= _WIDE_RULE_LAGS * _nstrata(h)
+end
+_long_kernel(w::_WithState, args...) = _long_kernel(w.r, args...)
 # The parts of `r` whose reverse pass takes a local derivative, each with why
 # it needs the dual-number extension.
 function _dual_whys(kernel, C, ms)
