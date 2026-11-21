@@ -200,13 +200,14 @@ function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
 end
 _fit(op, args...) = :one
 
-# Plain AD, unless Mooncake makes it a primitive or Enzyme's reverse pass
-# takes the rule for a long kernel (`_wide_rule`, `_long_kernel`).
+# Plain AD, unless a backend extension makes it a rule primitive or its
+# reverse pass takes the rule for a long kernel (`_wide_rule`,
+# `_long_kernel`).
 function _ad_wide(op, args::Vararg{Any, N}) where {N}
     _wide_rule() && _long_kernel(op, args...) && return _ad(op, args...)
     return _hooked_plain(op, args...)
 end
-# The Enzyme extension makes this `true` in a reverse pass. Inference must
+# A backend extension makes this `true` in its reverse pass. Inference must
 # not see the constant, or it folds the branch away.
 _wide_rule() = Base.inferencebarrier(false)::Bool
 _long_kernel(op, args...) = false
