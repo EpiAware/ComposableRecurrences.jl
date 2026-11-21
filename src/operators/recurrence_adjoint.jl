@@ -137,6 +137,11 @@ _slots(x̄::AbstractMatrix) = _Owned(x̄)
 function _device_ready(r::Recurrence{<:_DeviceKernel})
     return _device_coupling(r.coupling) && _device_modifiers(r.modifiers)
 end
+# A pairwise kernel reverses one sender per kernel index
+# (`_device_pairwise_back!`).
+function _device_ready(r::Recurrence{<:Union{Pairwise, TimeVarying{<:Any, <:Pairwise}}})
+    return _device_coupling(r.coupling) && _device_modifiers(r.modifiers)
+end
 _device_coupling(C) = false
 _device_coupling(::Union{UniformScaling, Diagonal}) = true
 _device_coupling(C::AbstractMatrix) = _on_gpu(C)
@@ -678,6 +683,34 @@ function _kernel_back!(kbuf, ḡ, g::_OldestFirstPairwise, p̄, H, H̄, t, τ, L
     for a in eachindex(p̄), b in axes(H, 2)
         kb = kbuf === nothing ? nothing : view(kbuf, :, b, a)
         _window_back!(kb, view(g.x, :, b, a), p̄[a], H, H̄, t, L, b)
+    end
+    return nothing
+end
+# On a device, one sender per kernel index: every stratum reads sender
+# `b`'s window, so its index loops over them and writes only its own column
+# of `H̄` and its own pairs of the kernel's cotangent, adding the strata in
+# the host's order.
+function _device_pairwise_back!(kbuf, ḡ, g, p̄, H, H̄, t, τ, L)
+    _each!(
+        _pairwise_sender_back!, Serial(), p̄, size(H, 2), typemax(Int),
+        kbuf, ḡ, g, p̄, H, H̄, t, τ, L
+    )
+    return nothing
+end
+function _pairwise_sender_back!(
+        b, kbuf, ḡ, g::_OldestFirstPairwise, p̄, H, H̄, t, τ, L
+    )
+    for a in eachindex(p̄)
+        kb = kbuf === nothing ? nothing : view(kbuf, :, b, a)
+        @inbounds _window_back!(kb, view(g.x, :, b, a), p̄[a], H, H̄, t, L, b)
+    end
+    return nothing
+end
+function _pairwise_sender_back!(
+        b, kbuf, ḡ, g::TimeVarying{<:Any, <:Pairwise}, p̄, H, H̄, t, τ, L
+    )
+    for a in eachindex(p̄)
+        @inbounds _tv_back!(ḡ, g, p̄[a], H, H̄, t, τ, L, a, b:b)
     end
     return nothing
 end

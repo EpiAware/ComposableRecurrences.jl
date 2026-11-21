@@ -86,6 +86,12 @@ function _rule_cases(S)
     ragged(ns) = CR._Ragged([pmf[1:n] .* (1 + 0.1 * sin(n)) for n in ns])
     by_input = ragged([min(L, T - τ + 1) for τ in 1:T])
     by_output = ragged([mod(τ, L + 1) for τ in 1:T])
+    # A kernel per pair of strata, fixed and over time.
+    PP = [pmf[i] * (1 + 0.1 * sin(a + 2b)) / S for a in 1:S, b in 1:S, i in 1:L]
+    PT = [
+        pmf[i] * (1 + 0.1 * sin(a + 2b + t)) / S
+            for a in 1:S, b in 1:S, i in 1:L, t in 1:T
+    ]
     flow = CR.Flow(:S => 0, 0.1; form = CR.Share())
     pools = (
         CR.Depletion(200.0, CR.Hazard(), flow),
@@ -195,6 +201,9 @@ function _rule_cases(S)
             rec(Recurrence(TimeVarying(PerStratum(GS)))),
         "Recurrence, ragged kernel by output" =>
             rec(Recurrence(TimeVarying(by_output, CR.Primary())); start = L + 1),
+        "Recurrence, pairwise kernel" => rec(Recurrence(Pairwise(PP))),
+        "Recurrence, pairwise kernel over time" =>
+            rec(Recurrence(TimeVarying(Pairwise(PT)))),
         "Recurrence, two pools" => stepped(two_pools),
         "Recurrence, two draws on one pool" => stepped(two_draws),
         "Recurrence, a queue" => stepped(queued),

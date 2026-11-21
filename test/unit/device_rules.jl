@@ -362,6 +362,10 @@ end
             ("convolution by output", false) => dev -> convolution_case(
                 ragged(by_input_lengths(); by_output = true), S, dev
             ),
+            # Columns by output time may be empty.
+            ("convolution by output, empty columns", false) => dev -> convolution_case(
+                ragged(by_output_lengths(); by_output = true), S, dev
+            ),
             # Read by output time, it starts after its history, so its
             # output is shorter.
             ("recurrence by output", true) => dev -> recurrence_case(
@@ -387,6 +391,43 @@ end
     @test op.kernel.x isa CR._Ragged
     args = (JLArray(inputs(S)), true, nothing, nothing, 1, nothing)
     @test CR._route_val(op, args...) === Val(:rule)
+end
+
+@testitem "JLArrays: the rule passes of pairwise kernels match the CPU" setup = [DeviceRules] begin
+    # A kernel per pair of strata, fixed or over time, read by input or by
+    # output time. More strata than blocks covers the sender loop at size.
+    function fixed(S)
+        P = [pmf[i] * (1 + 0.1 * sin(a + 2b)) / S for a in 1:S, b in 1:S, i in 1:L]
+        return Pairwise(P)
+    end
+    function over_time(S; by_output = false)
+        P = [
+            pmf[i] * (1 + 0.1 * sin(a + 2b + t)) / S
+                for a in 1:S, b in 1:S, i in 1:L, t in 1:T
+        ]
+        return by_output ? TimeVarying(Pairwise(P), CR.Primary()) :
+            TimeVarying(Pairwise(P))
+    end
+    for S in (4, CR._KERNEL_BLOCKS + 1)
+        cases = [
+            ("fixed", false) => dev -> recurrence_case(I, S, dev; kernel = fixed(S)),
+            ("over time", false) =>
+                dev -> recurrence_case(I, S, dev; kernel = over_time(S)),
+            ("over time, by output", true) => dev -> recurrence_case(
+                I, S, dev; start = L + 1, kernel = over_time(S; by_output = true)
+            ),
+        ]
+        @testset "$name, $S strata" for ((name, shorter), case) in cases
+            (op0, args0), (op1, args1) = case(false), case(true)
+            @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
+            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
+            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false; shorter)
+            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true; shorter)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test agree(p̄1, p̄0)
+        end
+    end
 end
 
 @testitem "JLArrays: the rule passes of built-in modifiers match the CPU" setup = [DeviceRules] begin
