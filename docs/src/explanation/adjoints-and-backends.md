@@ -266,7 +266,7 @@ The package's own rules run on device arrays for:
     An `Allocate` with imports takes the rule when its pattern is a matrix on the device, fixed or over time, and its spill, if it has one, takes the rule too.
     A `Depletion` may have flows, a floor, several pools, several draws on one pool or a queue.
     A `Redistribute` moves by a matrix, or by a kernel and an intensity per origin and time or read from a parameter, such as recent outputs.
-    A modifier the package does not define takes the rule when it runs per stratum and its parameters are scalars.
+    A modifier the package does not define takes the rule when it runs per stratum or on fixed groups of strata and its parameters are scalars.
     An `Init` of its own reverses once per call on host copies of the state and the history, unless it is written only for device states.
 - a recurrence over routes (a `Pairwise` of couplings and kernels) whose couplings are matrices on the device and whose kernels are fixed.
   A sparse route coupling becomes a dense matrix on the device.
