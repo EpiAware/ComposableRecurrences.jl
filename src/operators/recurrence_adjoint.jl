@@ -419,6 +419,7 @@ function _steps_back!(
     p̄ = _zeros(H, Tp, S)
     q̄ = _zeros(H, Tp, S)
     pbufs = _pressure_buffers(_own(acc.C̄), coupling, Tp)
+    cbufs = _coupling_steps(_own(acc.C̄), coupling, kernel, H, pr)
     for (ts, g, j) in Iterators.reverse(_kernel_runs(kernel, τ0, T))
         kb = _run_buffer(kbuf, kernel, j)
         for t in reverse(_run_steps(ts, T))
@@ -437,11 +438,27 @@ function _steps_back!(
                     q̄, v̄, pr, gain, coupling, t, τ
                 )
             end
-            _step_coupling_back!(accs, p̄, coupling, q̄, pr, t, τ, pbufs)
-            _kernels_back!(accs, kb, g, p̄, H, H̄, t + D - L, τ, L)
+            _coupling_kernels_back!(
+                accs, kb, g, p̄, coupling, q̄, pr, H, H̄, t, τ, D, L, pbufs, cbufs
+            )
             _flush!(ms)
         end
     end
+    _coupling_steps_done!(_own(acc.C̄), pr, cbufs)
+    return nothing
+end
+
+# The coupling's pullback at step `t`, then the kernels'. The GPUArraysCore
+# extension runs both in one kernel per step for a dense coupling on device
+# arrays, with the buffers `_coupling_steps` makes once per call and the
+# coupling's cotangent added after the loop (`_coupling_steps_done!`).
+_coupling_steps(C̄, C, kernel, H, pr) = nothing
+_coupling_steps_done!(C̄, pr, ::Nothing) = nothing
+@inline function _coupling_kernels_back!(
+        accs, kb, g, p̄, C, q̄, pr, H, H̄, t, τ, D, L, pbufs, ::Nothing
+    )
+    _step_coupling_back!(accs, p̄, C, q̄, pr, t, τ, pbufs)
+    _kernels_back!(accs, kb, g, p̄, H, H̄, t + D - L, τ, L)
     return nothing
 end
 
