@@ -7,7 +7,7 @@ using ComposableRecurrences: ComposableRecurrences, Allocate,
     _InKernel, _RowAt, _Movement, _OldestFirstPairwise, _PIECEWISE_DEVICE,
     _Piecewise, _Ragged, _RouteBuffers, _RouteKernels, _Routes,
     _TransposedConvolution, Serial, _kernel_args, _Owned, _ArrayStack,
-    _ScalarStack, Survival, _KernelWeights, _WalkScratch
+    _ScalarStack, Survival, _KernelWeights, _WalkScratch, _Pressure
 using Adapt: Adapt, adapt
 using ConstructionBase: constructorof, getfields
 using KernelAbstractions: @index, @kernel
@@ -48,7 +48,7 @@ const _Adapted = Union{
     Redistribute, Transform, Derived, Recurrence, _AllocateImports,
     _Movement, Convolution, Flow, _DrawFrom, _DrawInto, _Routes,
     _RouteKernels, _RouteBuffers, _TransposedConvolution, Recent, Survival,
-    _KernelWeights, _WalkScratch,
+    _KernelWeights, _WalkScratch, _Pressure,
 }
 function Adapt.adapt_structure(to, x::_Adapted)
     return constructorof(typeof(x))(map(f -> adapt(to, f), Tuple(getfields(x)))...)

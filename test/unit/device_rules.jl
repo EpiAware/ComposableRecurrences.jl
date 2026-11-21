@@ -1009,6 +1009,50 @@ end
     end
 end
 
+@testitem "JLArrays: pressure and its rule passes match the CPU" setup = [DeviceRules] begin
+    # Each step's pressures are one kernel on the device, and the reverse
+    # pass runs the recurrence's coupling and kernel pullbacks per step, at
+    # a few strata and at more strata than kernel blocks.
+    many = CR._KERNEL_BLOCKS + 1
+    G = pmf .* (1 .+ 0.1 .* sin.((1:L) .+ (1:T)'))
+    function passes(op, y, h, dev)
+        out, cache = CR._run_forward(op, y, h, 1)
+        W = cotangent_like(Array(out))
+        Ȳ = dev ? JLArray(W) : W
+        piece = CR._zero_mirror(op)
+        grads = (; piece, y = Ȳ, args = (zero(y), zero(h), nothing))
+        CR._run_pullback!(grads, op, cache)
+        return Array(out), Array(grads.args[1]), Array(grads.args[2]), piece
+    end
+    cases = (
+        "identity" => S -> Recurrence(pmf),
+        "scalar" => S -> Recurrence(pmf; coupling = 0.8I),
+        "diagonal" => S -> Recurrence(pmf; coupling = Diagonal(fill(0.8, S))),
+        "dense" => S -> Recurrence(pmf; coupling = dense(S)),
+        "per-stratum kernel" =>
+            S -> Recurrence(PerStratum(repeat(pmf', S)); coupling = dense(S)),
+        "time-varying kernel" => S -> Recurrence(TimeVarying(G)),
+    )
+    @testset "$name, $S strata" for (name, rec) in cases, S in (4, many)
+        r = rec(S)
+        h = fill(1.0, S, L)
+        y = r(inputs(S); history = h)
+        rd = adapt(JLArray, r)
+        yd, hd = JLArray(y), JLArray(h)
+        q1 = CR.pressure(rd, yd; history = hd)
+        @test q1 isa JLArray
+        @test Array(q1) ≈ CR.pressure(r, y; history = h)
+        op1 = CR._Pressure(rd)
+        @test (@inferred CR._route_val(op1, yd, hd, 1)) === Val(:rule)
+        o0, ȳ0, h̄0, p̄0 = passes(CR._Pressure(r), y, h, false)
+        o1, ȳ1, h̄1, p̄1 = passes(op1, yd, hd, true)
+        @test o1 ≈ o0
+        @test ȳ1 ≈ ȳ0
+        @test h̄1 ≈ h̄0
+        @test agree(p̄1, p̄0)
+    end
+end
+
 @testitem "JLArrays: the rule passes of window sums match the CPU" setup = [DeviceRules] begin
     # Ends past the series and ends that go back, so a window is empty and a
     # time falls in two windows.

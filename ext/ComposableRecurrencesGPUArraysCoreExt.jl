@@ -18,6 +18,95 @@ function ComposableRecurrences._resolve(
 end
 ComposableRecurrences._on_gpu(::AnyGPUArray) = true
 
+# == pressure on device arrays ==
+
+# Each step's pressures are one kernel, one stratum per index, after the
+# step's kernel convolutions and coupling as a recurrence's step makes them.
+# The reverse pass runs the recurrence's coupling and kernel pullbacks per
+# step, with its per-block copies of shared cotangents.
+const CR = ComposableRecurrences
+CR._device_ready(op::CR._Pressure) = CR._device_ready(op.r)
+function CR._pressure_run(
+        ::Type{Tp}, r, y::AnyGPUArray, h, τ0, L, D, S, T, keep::Val
+    ) where {Tp}
+    coupling = r.coupling
+    kernel = CR._kept_kernel(keep, CR._run_kernel(Tp, r.kernel, h, S))
+    H = CR._load_history!(CR._buffer(h, Tp, D, T, S), h, D)
+    CR._load_outputs!(H, y, D)
+    out = CR._zeros(h, Tp, S, T)
+    P = keep isa Val{true} ? CR._zeros(h, Tp, S, T) : nothing
+    p, q = CR._zeros(h, Tp, S), CR._zeros(h, Tp, S)
+    ex = Serial()
+    for (ts, g, _) in CR._kernel_runs(kernel, τ0, T), t in CR._run_steps(ts, T)
+        τ = τ0 + t - 1
+        CR._step_prepare!(ex, p, q, coupling, g, H, t, τ, L, D)
+        CR._each!(
+            _pressure_out!, ex, H, S, typemax(Int),
+            out, P, coupling, g, p, q, H, t, τ, L, D
+        )
+    end
+    keep isa Val{true} || return out, nothing
+    return out, (; H, P, kernel, h, τ0, L, D, S, T)
+end
+function _pressure_out!(k, out, P, coupling, g, p, q, H, t, τ, L, D)
+    pk, qk = CR._step_pressure(coupling, g, p, q, H, t, τ, L, D, k)
+    @inbounds out[k, t] = qk
+    P === nothing || (@inbounds P[k, t] = pk)
+    return nothing
+end
+const _DevicePressureCache = NamedTuple{
+    (:H, :P, :kernel, :h, :τ0, :L, :D, :S, :T), <:Tuple{AnyGPUArray, Vararg{Any}},
+}
+function CR.pullback!(grads, op::CR._Pressure, ::CR.Run, c::_DevicePressureCache)
+    CR._count_pullback()
+    (; H, P, kernel, h, τ0, L, D, S, T) = c
+    coupling = op.r.coupling
+    r̄ = cotangent(grads.piece, :r)
+    ḡ, C̄ = cotangent(r̄, :kernel), cotangent(r̄, :coupling)
+    ȳ, h̄ = grads.args[1], grads.args[2]
+    Tp = eltype(H)
+    H̄ = CR._zeros(H, Tp, size(H)...)
+    kbuf = CR._kernel_buffer(ḡ, kernel, H, S, L)
+    pbufs = CR._pressure_buffers(C̄, coupling, Tp)
+    pr = (; P)
+    p̄, q̄ = CR._zeros(H, Tp, S), CR._zeros(H, Tp, S)
+    acc = (; C̄ = CR._coupling_slots(C̄, coupling), ḡ = CR._kernel_slots(ḡ, kernel))
+    work = CR._work(CR._StepLoop(), H, S * CR._kwork(kernel, S, L))
+    accs = CR._accumulators(Serial(), H, S, work, acc)
+    for (ts, g, j) in CR._kernel_runs(kernel, τ0, T)
+        kb = CR._run_buffer(kbuf, kernel, j)
+        for t in CR._run_steps(ts, T)
+            τ = τ0 + t - 1
+            q̄ .= view(grads.y, :, t)
+            CR._step_coupling_back!(accs, p̄, coupling, q̄, pr, t, τ, pbufs)
+            CR._kernels_back!(accs, kb, g, p̄, H, H̄, t + D - L, τ, L)
+        end
+    end
+    CR._reduce!(accs)
+    CR._kernel_finish!(ḡ, kbuf)
+    CR._gather_outputs!(ȳ, H̄, D)
+    CR._scatter_history!(h̄, H̄, h, D)
+    return nothing
+end
+# The outputs move between the public layout and the buffer rows after the
+# history as whole arrays.
+function CR._load_outputs!(H::AnyGPUArray, y::AbstractVector, D)
+    view(H, (D + 1):(D + length(y)), 1) .= y
+    return H
+end
+function CR._load_outputs!(H::AnyGPUArray, y::AbstractMatrix, D)
+    view(H, (D + 1):(D + size(y, 2)), :) .= transpose(y)
+    return H
+end
+function CR._gather_outputs!(ȳ::AbstractVector, H̄::AnyGPUArray, D)
+    ȳ .+= view(H̄, (D + 1):(D + length(ȳ)), 1)
+    return nothing
+end
+function CR._gather_outputs!(ȳ::AbstractMatrix, H̄::AnyGPUArray, D)
+    ȳ .+= transpose(view(H̄, (D + 1):(D + size(ȳ, 2)), :))
+    return nothing
+end
+
 # A user modifier's `Init` reverses once per call, on host copies: its
 # dual-number pullback runs stratum by stratum there, its scalar parameters'
 # cotangents are host `Ref`s, and the history's cotangent is copied back.
