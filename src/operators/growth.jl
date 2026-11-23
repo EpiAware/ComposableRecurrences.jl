@@ -1,4 +1,9 @@
 # The growth rate of a renewal from its reproduction number.
+#
+# Newton's method finds the root on primal values, from a start left of the
+# root (Jensen's inequality), so the iterates rise to it. One Newton step from
+# the root in the callers' number types then carries the implicit-function
+# derivative, as Newton's map has zero slope at its root.
 
 @doc raw"""
 Return the growth rate per step ``r`` of a renewal with reproduction number
@@ -13,19 +18,8 @@ where ``g_l`` is `g[l]`, the weight on lag ``l``, as in a
 It gives the rate that [`ComposableRecurrences.exponential_history`](@ref)
 needs for a seed that grows as the renewal does.
 
-The root is found by Newton's method from ``r_0 = \log(R G) / \bar l``, with
-``G = \sum_l g_l`` and ``\bar l`` the mean lag, which lies left of the root,
-so the iterates rise to it.
-The derivative is not taken through the iterations: one Newton step from the
-root carries the implicit-function derivative,
-
-```math
-\frac{\partial r}{\partial R} = \frac{A}{R B}, \qquad
-\frac{\partial r}{\partial g_l} = \frac{e^{-r l}}{B}, \qquad
-A = \sum_l g_l e^{-r l}, \quad B = \sum_l l\, g_l e^{-r l},
-```
-
-so every automatic differentiation backend gets it without a rule.
+The derivative in `R` and `g` is exact under every automatic
+differentiation backend, without a rule.
 
 # Arguments
 - `R`: the reproduction number, positive.
@@ -52,19 +46,18 @@ function growth_rate(R::Real, g::AbstractVector{<:Real})
     return r + (R * A - 1) / (R * B)
 end
 
-# The two sums of the Euler–Lotka equation at `r`, in the number types of
-# `R` and `g`.
-function _growth_sums(R, g, r)
-    A = B = zero(promote_type(typeof(R), eltype(g), typeof(r)))
+# The two sums of the Euler–Lotka equation at `r`, of `f` of each weight.
+function _growth_sums(R, g, r, f = identity)
+    A = B = zero(promote_type(typeof(R), typeof(f(first(g))), typeof(r)))
     for (l, w) in pairs(g)
-        e = w * exp(-r * l)
+        e = f(w) * exp(-r * l)
         A += e
         B += l * e
     end
     return A, B
 end
 
-# The root on primal values; its derivative is carried by the step above.
+# The root on primal values; automatic differentiation does not trace it.
 function _growth_root(R, g)
     R > 0 || throw(ArgumentError("R must be positive, got $R"))
     G = M = zero(float(_primal_value(first(g))))
@@ -77,15 +70,10 @@ function _growth_root(R, g)
     G > 0 || throw(ArgumentError("g must have a positive sum"))
     r = log(R * G) / (M / G)
     for _ in 1:50
-        A = B = zero(r)
-        for (l, w) in pairs(g)
-            e = _primal_value(w) * exp(-r * l)
-            A += e
-            B += l * e
-        end
+        A, B = _growth_sums(R, g, r, _primal_value)
         step = (R * A - 1) / (R * B)
         r += step
         abs(step) <= 1.0e-12 * max(1, abs(r)) && return r
     end
-    return r
+    throw(ArgumentError("growth_rate did not converge in 50 steps for R = $R"))
 end

@@ -32,4 +32,6 @@ end
     ∇ = ForwardDiff.gradient(θ -> CR.growth_rate(θ[1], view(θ, 2:length(θ))), θ)
     @test ∇[1] ≈ A / (R * B)
     @test ∇[2:end] ≈ E ./ B
+    # A dual R with a plain kernel takes the same step.
+    @test ForwardDiff.derivative(R -> CR.growth_rate(R, g), R) ≈ A / (R * B)
 end
