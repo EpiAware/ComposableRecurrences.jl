@@ -33,8 +33,6 @@ const PENDING_SENTENCE_LENGTH = (
     "docs/src/developer/extending.md",
     "docs/src/developer/testing.md",
     "docs/src/explanation/adjoints-and-backends.md",
-    "docs/src/extensions/enzyme.md",
-    "docs/src/extensions/reactant.md",
 )
 const PENDING_CODE_LENGTH = (
     "README.md",
