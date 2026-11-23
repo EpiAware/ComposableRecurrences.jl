@@ -126,7 +126,9 @@ end
 
 # The series' cotangent `Ā` from the convolution's forward body, then the
 # kernel's from its reverse body; a kernel may take both in one pass.
-_transposed_back!(ex, Ā, k̄, kernel, Z̄, A, o, start) = _transposed_split!(ex, Ā, k̄, kernel, Z̄, A, o, start)
+function _transposed_back!(ex, Ā, k̄, kernel, Z̄, A, o, start)
+    return _transposed_split!(ex, Ā, k̄, kernel, Z̄, A, o, start)
+end
 function _transposed_split!(ex, Ā, k̄, kernel, Z̄, A, o, start)
     _convolve!(ex, Ā, kernel, Z̄, o, start)
     k̄ === nothing || _convolve_back!(ex, zero(Z̄), k̄, kernel, Z̄, A, o, start)
