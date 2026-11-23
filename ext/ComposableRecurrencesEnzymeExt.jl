@@ -11,7 +11,7 @@ using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
     _check_parts, _check_secondary,
     _convolve_masses!, _convolve_masses_back!, _current, _fft_convolve!,
     _fft_convolve_back!, _fft_convolve_terms!, _flat_groups, _is_leaf,
-    _keep_inputs, _leaf_paths, _note_missing_duals, _plain_hook, _probe_step_reads, _rebuild_leaves,
+    _keep_inputs, _leaf_paths, _note_missing_duals, _offset, _plain_hook, _probe_step_reads, _rebuild_leaves,
     _route_forward!, _run_forward, _run_pullback!, _scan!, _scan_back!,
     _shared_shadow,
     _spawn_blocks, _spawn_chunks, _untraced, _wide_rule
@@ -532,7 +532,8 @@ _scan_sum(x, ::Nothing, name) = zero(x.val)
 _scan_sum(x, s, name) = convert(typeof(x.val), getfield(s, name))
 # The overwritten outputs of stratum `k`, after a joined history's `o`
 # times, pass no cotangent on.
-function _scan_zero!(ȳ, k, S, o)
+function _scan_zero!(ȳ, k, S, o′)
+    o = _offset(o′)
     @inbounds for j in (o * S + k):S:length(ȳ)
         ȳ[j] = zero(eltype(ȳ))
     end

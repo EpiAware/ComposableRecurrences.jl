@@ -2011,8 +2011,10 @@ _one_stratum(h) = false
 # run. With `joined` the history fills the output's first `o` times.
 @inline function _scan_call(route, r, (gain, add, h, s0, τ0), stop, joined)
     (; stop) = _checked_call(r, gain, add, h, s0, τ0, stop)
-    o = joined ? size(h, ndims(h)) : 0
-    return _scan_route(route, r.kernel, r.coupling, gain, add, h, τ0, stop, o)
+    k, C = r.kernel, r.coupling
+    o = size(h, ndims(h))
+    joined && return _scan_route(route, k, C, gain, add, h, τ0, stop, o)
+    return _scan_route(route, k, C, gain, add, h, τ0, stop, nothing)
 end
 # One reverse-mode extension makes `_scan_rule` a rule primitive, the
 # operator's pullback; the other puts its rule on each stratum's `_scan!`.
@@ -2054,21 +2056,27 @@ function _scan_seed(h::AbstractMatrix, ::Type{Tp}, k) where {Tp}
 end
 
 # The scan's output, with the history in its first `o` times when the call
-# joins it (`o` is then the history's length, and zero otherwise).
-function _scan(c, gain, add, h::AbstractVector, τ0, stop, o, step! = _scan!)
+# joins it (`o` is then the history's length). Without a join `o` is
+# `nothing`, a zero known from the type, so the default call compiles as if
+# the offset were not there.
+_offset(::Nothing) = 0
+_offset(o::Integer) = o
+function _scan(c, gain, add, h::AbstractVector, τ0, stop, o′, step! = _scan!)
+    o = _offset(o′)
     Tp = _scan_eltype(c, gain, add, h)
     y = Vector{Tp}(undef, o + stop - τ0 + 1)
     o > 0 && _copy_times!(y, h, 0)
-    step!(y, c, gain, add, _scan_seed(h, Tp, 1), τ0, 1, 1, o)
+    step!(y, c, gain, add, _scan_seed(h, Tp, 1), τ0, 1, 1, o′)
     return y
 end
-function _scan(c, gain, add, h::AbstractMatrix, τ0, stop, o, step! = _scan!)
+function _scan(c, gain, add, h::AbstractMatrix, τ0, stop, o′, step! = _scan!)
+    o = _offset(o′)
     Tp = _scan_eltype(c, gain, add, h)
     S = size(h, 1)
     y = Matrix{Tp}(undef, S, o + stop - τ0 + 1)
     o > 0 && _copy_times!(y, h, 0)
     for k in 1:S
-        step!(y, c, gain, add, _scan_seed(h, Tp, k), τ0, k, S, o)
+        step!(y, c, gain, add, _scan_seed(h, Tp, k), τ0, k, S, o′)
     end
     return y
 end
@@ -2084,7 +2092,8 @@ end
 function _scan!(y, c, gain, add, v, τ0, k, S, o)
     return _scan_steps!(y, c, gain, add, v, τ0, k, S, o)
 end
-function _scan_steps!(y, c, gain, add, v, τ0, k, S, o)
+function _scan_steps!(y, c, gain, add, v, τ0, k, S, o′)
+    o = _offset(o′)
     n = length(y) ÷ S - o
     j = 1
     @inbounds while j < n

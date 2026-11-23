@@ -905,7 +905,7 @@ function pullback!(grads, op::_Scan, ::Run, cache)
         _scan_seed_back!(h̄, sums.v̄, k)
     end
     # A joined history's times pass their cotangents straight back.
-    o > 0 && h̄ !== nothing && _add_times!(h̄, grads.y)
+    _offset(o) > 0 && h̄ !== nothing && _add_times!(h̄, grads.y)
     k̄ === nothing || (k̄[1] += λ * c̄)
     λ̄ === nothing || (λ̄[] += g * c̄)
     ḡain isa Base.RefValue && (ḡain[] += ḡ)
@@ -918,7 +918,8 @@ end
 # adds into the array cotangents of the gain and add input (or skips
 # `nothing`), and returns the sums a scalar of each takes, `Σ_t γ_t e_t` and
 # the seed's cotangent.
-function _scan_back!(ḡain, ādd, ȳ, y, c, gain, v, τ0, k, S, o)
+function _scan_back!(ḡain, ādd, ȳ, y, c, gain, v, τ0, k, S, o′)
+    o = _offset(o′)
     Tp = eltype(y)
     n = length(y) ÷ S - o
     c̄ = ḡ = ā = w = zero(Tp)
