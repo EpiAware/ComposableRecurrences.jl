@@ -27,3 +27,5 @@ true
 | A new modifier type holding arrays fails inside a kernel | Add an `Adapt.adapt_structure` method |
 
 Executors are compared in [Executors](@ref executors); device arrays need the [GPUArrays extension](@ref extension-gpuarrays).
+
+All extensions are listed in the [overview](@ref extensions-overview).

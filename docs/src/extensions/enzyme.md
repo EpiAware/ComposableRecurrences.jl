@@ -31,3 +31,5 @@ round.(gradient(loss, backend, fill(1.1, 4)); digits = 3)
 | Julia 1.12 and later: forward mode crashes in the garbage collector after repeated gradients | Use reverse mode, or `Enzyme.gradient(Enzyme.Forward, f, θ; chunk = Val(1))` | [#321](https://github.com/EpiAware/ComposableRecurrences.jl/issues/321) |
 
 Enzyme's place among the other backends is in [Backends](@ref adjoint-backends).
+
+All extensions are listed in the [overview](@ref extensions-overview).

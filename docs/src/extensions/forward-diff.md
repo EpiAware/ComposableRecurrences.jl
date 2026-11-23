@@ -1,7 +1,7 @@
 # [ForwardDiff extension](@id extension-forwarddiff)
 
-Loading ForwardDiff gives each coupling, modifier and initial state without its own [`pullback!`](@ref ComposableRecurrences.pullback!) a dual-number [local step](@ref adjoint-routing) in the reverse-mode rules.
-Without it, a gradient through such a component falls back to plain AD, which is [slower](@ref adjoint-local-step).
+Loading ForwardDiff gives each coupling and modifier without its own [`pullback!`](@ref ComposableRecurrences.pullback!) a dual-number [local step](@ref adjoint-routing) in the reverse-mode rules.
+Without it, a gradient through such a coupling or modifier falls back to plain AD, which is [slower](@ref adjoint-local-step).
 ForwardDiff gradients themselves use plain AD:
 
 ```jldoctest
@@ -21,4 +21,8 @@ round.(ForwardDiff.gradient(loss, fill(1.1, 4)); digits = 3)
 
 ## Known issues
 
-None known.
+| Symptom | Workaround |
+|---|---|
+| `ArgumentError: ... needs ForwardDiff` from a reverse gradient through an `Init` without a `pullback!` | `using ForwardDiff`, or give the `Init` a `pullback!` |
+
+All extensions are listed in the [overview](@ref extensions-overview).

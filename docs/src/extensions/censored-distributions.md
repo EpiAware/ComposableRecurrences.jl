@@ -20,3 +20,5 @@ true
 | Symptom | Workaround |
 |---|---|
 | Need another censoring choice | Build the masses with CensoredDistributions and pass the vector |
+
+All extensions are listed in the [overview](@ref extensions-overview).

@@ -24,3 +24,5 @@ true
 | Only a fixed kernel on `Float32` or `Float64` arrays runs with it | Other kernels and types use the direct method |
 
 The reverse pass runs inside the package's own rule, so no AD backend needs FFT rules.
+
+All extensions are listed in the [overview](@ref extensions-overview).

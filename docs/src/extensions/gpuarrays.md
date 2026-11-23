@@ -19,7 +19,7 @@ round.(Array(y); digits = 3)
  0.72  0.616  0.512  0.445
 ```
 
-AD backends do not differentiate device arrays, so take forward-mode derivatives with dual numbers built on the device.
+Mooncake and Enzyme fail on JLArrays and are untested on a GPU, so take forward-mode derivatives with dual numbers built on the device.
 Here, the gradient of the total over the two kernel weights:
 
 ```jldoctest gpu
@@ -46,3 +46,5 @@ round.(Tuple(partials(sum(rg(R; history = h)))); digits = 3)
 | Enzyme or Mooncake fail on JLArrays; untested on a GPU | Use dual numbers, as above |
 
 What runs on a device, and which rules cover it, is in [GPU arrays](@ref gpu-arrays).
+
+All extensions are listed in the [overview](@ref extensions-overview).

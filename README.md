@@ -88,6 +88,7 @@ reports = delay(infections; gain = 0.4, history = seed)
 ## Where to learn more
 
 - [Developer documentation](https://composablerecurrences.epiaware.org/stable/developer/), including how to add your own modifiers and couplings
+- [Extensions](https://composablerecurrences.epiaware.org/stable/extensions/overview/): what each optional package adds when loaded
 - [GitHub Repository](https://github.com/EpiAware/ComposableRecurrences.jl)
 
 <!-- standard-sections:start -->

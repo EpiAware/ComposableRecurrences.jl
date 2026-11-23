@@ -32,3 +32,5 @@ dR = (Reactant.@compile raise = true raise_first = true grad(R))(R)
 A traced call ignores the set [executor](@ref executors), and Enzyme differentiates the traced program rather than the package's rules.
 The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) records which scenarios compile and match.
 How Reactant compares with other backends is in [Backends](@ref adjoint-backends).
+
+All extensions are listed in the [overview](@ref extensions-overview).
