@@ -47,15 +47,75 @@ function window_sums(
     return _WindowSums(ends, size(x, dims), Int(dims))(x)
 end
 
+@doc raw"""
+Sum `x` along dimension `dims` over windows given by their first and last
+times, which may leave gaps between them or overlap,
+
+```math
+s_v = \sum_{t = a_v}^{b_v} x_t,
+```
+
+with ``a_v`` = `starts[v]` and ``b_v`` = `stops[v]`, each window cut to the
+times `1:n` of `x` along `dims`.
+A matrix gives its sums in place of dimension `dims`.
+It is differentiable in `x`, with a reverse pass that adds each window's
+cotangent to its times, so a time in more than one window takes each of
+their cotangents.
+
+# Arguments
+- `x`: a vector, or a matrix with time along `dims`.
+- `starts`: the first time of each window.
+- `stops`: the last time of each window; one before its start gives an
+  empty window, whose sum is zero.
+- `dims`: the dimension of `x` that is time; the last by default.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+daily = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+# A gap after the first window, then two windows that share day 5.
+CR.window_sums(daily, [1, 4, 5], [2, 5, 7])
+
+# output
+
+3-element Vector{Float64}:
+  3.0
+  9.0
+ 11.0
+```
+"""
+function window_sums(
+        x::AbstractVecOrMat, starts::AbstractVector{<:Integer},
+        stops::AbstractVector{<:Integer}; dims::Integer = ndims(x)
+    )
+    1 <= dims <= ndims(x) || throw(
+        ArgumentError(
+            "dims ($dims) must be a dimension of x, which has $(ndims(x))"
+        )
+    )
+    length(starts) == length(stops) || throw(
+        ArgumentError(
+            "starts and stops give the windows' first and last times, so " *
+                "they have the same length; got $(length(starts)) and " *
+                "$(length(stops))"
+        )
+    )
+    return _WindowSums(stops, size(x, dims), Int(dims), starts)(x)
+end
+
 # == _WindowSums ==
 
-# `window_sums` as an operator of its own. It holds the ends as given, so a
-# backend that traces the call has no loop to trace before the rule.
-struct _WindowSums{E <: AbstractVector{<:Integer}} <: AbstractOperator
+# `window_sums` as an operator of its own. It holds the ends as given, and
+# the starts when the windows are not consecutive, so a backend that traces
+# the call has no loop to trace before the rule.
+struct _WindowSums{E <: AbstractVector{<:Integer}, A} <: AbstractOperator
     ends::E
     n::Int
     dims::Int
+    starts::A
 end
+_WindowSums(ends, n, dims) = _WindowSums(ends, n, dims, nothing)
 uses_adjoint(::_WindowSums, ::Run) = true
 function _run_forward(op::_WindowSums, x)
     w = _windows(op)
@@ -63,8 +123,17 @@ function _run_forward(op::_WindowSums, x)
 end
 
 # Window `v` covers times `lo[v] + 1` to `hi[v]`, empty when
-# `hi[v] <= lo[v]`.
-function _windows(op::_WindowSums)
+# `hi[v] <= lo[v]`. Consecutive windows start after the end before them.
+function _windows(op::_WindowSums{E, <:AbstractVector}) where {E}
+    hi = Vector{Int}(undef, length(op.ends))
+    lo = similar(hi)
+    for (v, (a, e)) in enumerate(zip(op.starts, op.ends))
+        hi[v] = clamp(Int(e), 0, op.n)
+        lo[v] = clamp(Int(a) - 1, 0, op.n)
+    end
+    return (; lo, hi)
+end
+function _windows(op::_WindowSums{E, Nothing}) where {E}
     hi = Vector{Int}(undef, length(op.ends))
     lo = similar(hi)
     prev = 0
