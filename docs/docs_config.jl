@@ -172,7 +172,7 @@ const INDEX_REWRITES = Pair{String, String}[
     # The README's figure, relative to the site root.
     "](docs/src/assets/" => "](assets/",
     # The tagline's links, as in-site references.
-    "](https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/)" =>
+    "](https://composablerecurrences.epiaware.org/stable/explanation/api-overview/)" =>
         "](@ref api-overview)",
     "](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/)" =>
         "](@ref adjoints-backends)",
@@ -182,8 +182,11 @@ const INDEX_REWRITES = Pair{String, String}[
     # The GPU and trimming links, as in-site references.
     "](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/#gpu-arrays)" =>
         "](@ref gpu-arrays)",
-    "](https://composablerecurrences.epiaware.org/stable/developer/extending/#trimming)" =>
+    "](https://composablerecurrences.epiaware.org/stable/developer/extending-performance/#trimming)" =>
         "](@ref trimming)",
+    # The extensions overview, as an in-site reference.
+    "](https://composablerecurrences.epiaware.org/stable/getting-started/#extensions-overview)" =>
+        "](@ref extensions-overview)",
     # The README's model block prints nothing on the home page.
     "reports = delay(infections; gain = 0.4, history = seed)" =>
         "reports = delay(infections; gain = 0.4, history = seed)\nnothing # hide",
@@ -245,7 +248,6 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # in the nav; the kit itself writes no tutorial page.
 const PACKAGE_TUTORIALS = [
     "Three towns, step by step" => "getting-started/three-towns.md",
-    "API overview" => "getting-started/api-overview.md",
     "Time units" => "getting-started/time-units.md",
     "Infectious disease models" =>
         "domain-guides/infectious-disease-models.md",
@@ -278,7 +280,8 @@ const PACKAGE_TUTORIALS = [
 const PACKAGE_SECTIONS = Pair{String, Any}[
     # Here rather than under "Benchmarks", whose entries the kit fixes.
     "Performance summary" => "performance/summary.md",
-    "Explanation" => [
+    "How it works" => [
+        "API overview" => "explanation/api-overview.md",
         "Operators" => "explanation/operators.md",
         "Shapes and couplings" => "explanation/shapes-and-couplings.md",
         "Modifiers" => "explanation/modifiers.md",
@@ -298,6 +301,14 @@ const PACKAGE_SECTIONS = Pair{String, Any}[
 # own to write, at those exact paths.
 const DEVELOPMENT_EXTEND_PAGE = "Extending" => [
     "Writing new types" => "developer/extending.md",
+    "Parameters and gradients" => "developer/extending-parameters.md",
+    "Couplings" => "developer/extending-couplings.md",
+    "Steps across strata" => "developer/extending-steps.md",
+    "Traces" => "developer/extending-traces.md",
+    "Depletion forms" => "developer/extending-forms.md",
+    "Extension API" => "developer/extending-api.md",
+    "Rules for every type" => "developer/extending-rules.md",
+    "Performance and trimming" => "developer/extending-performance.md",
     "Testing and benchmarking" => "developer/testing.md",
     "Case study: a backend model" =>
         "getting-started/tutorials/backend-case-study.md",

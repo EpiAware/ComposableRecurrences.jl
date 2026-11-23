@@ -96,7 +96,7 @@ where ``K_{ij}`` weights town ``j`` in town ``i``.
 ``N_j`` is the population of town ``j`` and ``d_{ij}`` the distance between towns ``i`` and ``j``.
 The gravity weight ``G_{ij}`` grows with the population of town ``j`` and falls with its distance, so larger and nearer towns contribute more.
 The weight ``G_{ii}`` of a town on itself is 0.
-The towns are [strata](@ref overview-step), and only town A is seeded.
+The towns are [strata](@ref explanation-step), and only town A is seeded.
 
 ```@example overview
 towns = ["A", "B", "C"]
