@@ -38,6 +38,7 @@ The rows for a [blockwise step](@ref extending-blockwise), a [trace](@ref extend
 | [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | a modifier's groups of strata | a tuple, or `nothing` |
 | [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` strata | `Int` |
+| [`param_rows(m, S)`](@ref ComposableRecurrences.param_rows) | how many rows a whole-step modifier's parameters have, or `nothing` to skip the check | an `Int` or `nothing` |
 | [`isstateless(m)`](@ref ComposableRecurrences.isstateless) | whether a modifier leaves its state unchanged, so it records no trace | `Bool` |
 | [`islinear(x)`](@ref ComposableRecurrences.islinear) | whether a coupling or whole-step modifier is a matrix, so a call runs that matrix in its place | `Bool` |
 | [`param(x, k, t)`](@ref ComposableRecurrences.param) | reads a parameter for stratum `k` at time `t` | a value |
