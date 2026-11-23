@@ -2049,6 +2049,19 @@ push!(
     ),
 )
 
+# The growth rate of a renewal from its reproduction number and generation
+# interval. It is a solve with no rule: every backend takes plain AD through
+# one Newton step from the root, which carries the implicit derivative.
+function _growth_rate(w, θ)
+    logR, g = _unpack(θ, (1,), (L,))
+    return ComposableRecurrences.growth_rate(exp(only(logR)), g)^2
+end
+
+push!(
+    _SCENARIOS,
+    ("Growth rate from a reproduction number", _growth_rate, () -> _flat([log(1.6)], G0)),
+)
+
 """
     supports(features...)
 
@@ -2139,6 +2152,7 @@ const _PROBES = Dict{Symbol, Function}(
 # that uses a new feature, named by a public or internal name that came
 # with it, e.g. `"..." => (:Transform,)`.
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
+    "Growth rate from a reproduction number" => (:growth_rate,),
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
     "Recurrence grouped totals with imports and a spill (Allocate)" =>
         (:_AllocateImports,),
@@ -3102,14 +3116,15 @@ parameters, more than two passes; over five steps it seeds 39, within two.
 """
 function backend_plain_scenarios()
     coupling = "Recurrence user coupling across 30 strata"
+    growth = "Growth rate from a reproduction number"
     supports(:_reads_fewer) && return Dict(
-        "Enzyme reverse" => Set([coupling]), "Mooncake reverse" => Set{String}()
+        "Enzyme reverse" => Set([coupling, growth]), "Mooncake reverse" => Set([growth])
     )
     occupancy = "Recurrence whole-step modifier branching at a tie (occupancy)"
     short = "Recurrence whole-step modifier branching at a tie over five steps (occupancy)"
     return Dict(
-        "Enzyme reverse" => Set([coupling, occupancy, short]),
-        "Mooncake reverse" => Set([occupancy]),
+        "Enzyme reverse" => Set([coupling, occupancy, short, growth]),
+        "Mooncake reverse" => Set([occupancy, growth]),
     )
 end
 

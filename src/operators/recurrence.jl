@@ -1834,6 +1834,8 @@ oldest first, so ``h_L = I_0``.
 - `I0`: the value at the last step; a vector gives one per stratum.
 - `r`: the rate per step; with a vector `I0`, a scalar or one per
   stratum.
+  [`ComposableRecurrences.growth_rate`](@ref) gives it from a
+  reproduction number and generation interval.
 - `L`: the number of steps, at least 1, usually the kernel length.
 
 # Examples
