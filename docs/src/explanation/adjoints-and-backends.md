@@ -1,5 +1,8 @@
 # [Adjoints and backends](@id adjoints-backends)
 
+This page covers how gradients of an operator call are computed, which AD backends are supported, and where a call's loops run.
+It sits under the [API overview](@ref api-overview), which maps every part of the package.
+
 [Forward mode](@ref ad-backends) costs one pass per parameter, so it suits a model with few parameters, and reverse mode one with many.
 
 ## [Rules and plain AD](@id adjoint-routing)
@@ -12,12 +15,10 @@ Each operator call is differentiated in one of two ways:
 A call takes the rule when [`uses_adjoint(op, Run())`](@ref ComposableRecurrences.uses_adjoint) is `true` and every float it holds is a `Float16`, `Float32` or `Float64`.
 These floats may sit in an `Array`, a view or reshape of one, a sparse matrix or a `Diagonal`.
 Dual numbers, tracked values, `BigFloat`, abstractly typed fields and other array types take plain AD.
-The choice between the rule and plain AD depends only on these types, except for two checks described below: whether the local step can rebuild each component, and the number of [strata](@ref overview-step).
+The choice between the rule and plain AD depends only on these types, except for two checks described below: whether the local step can rebuild each component, and the number of [strata](@ref explanation-step).
 
 The rule of a [`Recurrence`](@ref) calls the [`pullback!`](@ref ComposableRecurrences.pullback!) of its coupling and modifiers.
-It runs the step of the [API overview](@ref api-overview) backwards in time.
-That step computes ``p_t = \sum_{l} k_l \, y_{t-l}`` from the kernel ``k``, then ``v_t = \gamma_t \odot K_t \, p_t + a_t`` from the gain ``\gamma_t``, the coupling ``K_t`` and the `add` ``a_t``.
-The modifiers then map ``v_t`` to the output ``y_t``.
+It runs [the step](@ref explanation-step) backwards in time, with the symbols defined there.
 With ``\bar x`` the cotangent of ``x``, each step from `stop` down to `start` computes
 
 ```math

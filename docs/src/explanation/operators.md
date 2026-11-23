@@ -1,14 +1,111 @@
 # [Operators](@id explanation-operators)
 
+This page covers the two operators, how they are built and called, and how a call reads time.
+It sits under the [API overview](@ref api-overview), which maps every part of the package.
+
 ```@example operators
 using ComposableRecurrences
 using ComposableRecurrences: exponential_history, Depletion
 ```
 
+## [A step](@id explanation-step)
+
+[`Recurrence`](@ref) and [`Convolution`](@ref) compute their outputs one step at a time.
+Time is the integer step ``t``, counted from 1, and the model sets its [time unit](@ref time-units).
+A model can run several series side by side, such as one per town.
+Each series is a stratum, and together they are the strata.
+
+At each step, a recurrence:
+
+- takes a weighted sum of each stratum's recent outputs, with weights on each lag from its kernel;
+- mixes these sums between strata with the coupling, a matrix of weights between strata;
+- scales the result by the gain, such as the reproduction number, and adds `add`;
+- passes the value through its modifiers in turn, such as a draw from a finite pool, each keeping its own state.
+
+A convolution takes a weighted sum of an input series, from the current step back, scales it by the gain and adds `add`.
+It has no coupling and no modifiers.
+
+![One recurrence step and one convolution output](../assets/recurrence-step.svg)
+
+A call runs from step `start` to step `stop`.
+For each step ``t`` of that range, a recurrence computes
+
+```math
+\begin{aligned}
+p_t &= \sum_{l=1}^{L} k_l \, y_{t-l} \\
+v_t &= \gamma_t \odot K_t \, p_t + a_t \\
+y_t &= M_m \circ \dots \circ M_1 (v_t)
+\end{aligned}
+```
+
+and a convolution computes
+
+```math
+y_t = \gamma_t \odot \sum_{l=0}^{L-1} k_l \, x_{t-l} + a_t ,
+```
+
+where ``y_t`` is the output, one entry per stratum, ``x_t`` the input of a convolution and ``p_t`` the weighted sum of past outputs.
+The kernel has weight ``k_l`` on lag ``l`` over ``L`` lags, ``K_t`` is the coupling, ``\gamma_t`` the gain and ``a_t`` the `add` input.
+The value before the modifiers ``M_1, \dots, M_m``, which act in order, is ``v_t``, and ``\odot`` multiplies element by element.
+For a recurrence the `history` holds the outputs before `start`, and for a convolution the inputs before time 1.
+[Where the coupling acts](@ref explanation-coupling) writes the step stratum by stratum, and [Order](@ref explanation-modifier-order) writes the modifiers' part.
+
+## [Building an operator](@id explanation-build)
+
+Each operator is built once from a kernel and then called like a function.
+
+```@example operators
+delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
+delay([10.0, 20.0, 30.0])
+```
+
+| Name | What it does |
+|:--|:--|
+| [`Recurrence(kernel; lags, step, coupling, modifiers)`](@ref Recurrence) | computes each value from its own last ``L`` values; `kernel[1]` weights lag 1 |
+| [`Convolution(kernel; lags, step, method)`](@ref Convolution) | computes each value from the current and past inputs; `kernel[1]` weights lag 0 |
+
+`lags` and `step` apply when the kernel is a [delay distribution](@ref explanation-delays).
+The keyword `method` sets how a convolution sums its lags: [`Direct()`](@ref ComposableRecurrences.Direct) sums them one by one, and [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) uses a fast Fourier transform.
+By default a convolution takes the transform for a kernel of at least 300 lags over at least 1000 steps.
+
+An operator, modifier or shape wrapper displays in the REPL as one line with its size and parts, such as `Convolution(7 lags)` for `delay`.
+`repr` and `string` keep the constructor form.
+
+## [Calls](@id explanation-calls)
+
+A recurrence takes its gain first, and a convolution takes its input first and its gain as a keyword.
+In the table, `renewal` is a `Recurrence` and `delay` a `Convolution`.
+
+| Call | What it does | Returns |
+|:--|:--|:--|
+| [`renewal(gain; history, add, start, stop)`](@ref Recurrence) | runs the recurrence from step `start` to step `stop` | a vector for one stratum, or strata × time |
+| [`delay(x; gain, add, history, start, stop)`](@ref Convolution) | weights the input `x` by the kernel from step `start` to step `stop` | an array shaped like `x` |
+| [`ComposableRecurrences.contributions(delay, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum, such as the reports at each time split by delay | lags × time, or strata × lags × time |
+| [`delay'(x; tail, start, stop)`](@ref Base.transpose(::Convolution)) | the transpose of `delay`: the sum that reads `x` forward from each time, with `tail` the values after the end of `x` | an array shaped like `x` |
+| [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` at each time ``t``, recomputed from outputs `y`; `y` divided by it is the gain as run, such as the [reproduction number](@ref tutorial-reproduction-number) | shaped like `y` |
+| [`ComposableRecurrences.window_sums(y, ends; dims)`](@ref ComposableRecurrences.window_sums) | the sums of `y` over consecutive windows along `dims` that end at the times `ends`, the first from time 1, such as daily counts binned to report days | one entry per window in place of `dims` |
+| [`renewal(gain; history, record = (:state,))`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(; y, state)` |
+| [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from time `state.t` | `y`, or `(; y, state)` with `record = (:state,)` |
+| [`renewal(gain; history, record = (:trace,))`](@ref Recurrence) | runs the recurrence and records what each modifier did and the pressure at each step | `(; y, trace)` |
+| [`exponential_history(I0, rate, L)`](@ref ComposableRecurrences.exponential_history) | a history of `L` steps growing by a factor `exp(rate)` per step, ending at `I0` | a vector, or strata × `L` |
+
+The keyword `stop` defaults to the common length of the time-indexed inputs, and inputs of different lengths without a `stop` are an error.
+Without a gain, a recurrence takes a gain of 1.
+A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per step, and the pressure of each step in `trace.pressure`, shaped like `y`.
+
+The transpose sums forward in time from each ``t``.
+For a reporting delay ``w_l`` over ``L_w`` lags and data up to time ``T``, the share of the infections at time ``t`` reported by ``T`` is
+
+```math
+c_t = \sum_{l=0}^{\min(L_w, T - t + 1) - 1} w_l ,
+```
+
+and `delay'(ones(T))` returns ``c_1, \dots, c_T``.
+For a delay whose weights sum to 1, it is 1 up to ``T - L_w + 1`` and falls to ``w_0`` at ``T``.
+
 ## [A recurrence is a convolution of its own outputs](@id explanation-lag-origin)
 
-A recurrence reads its own past outputs, and a convolution reads an input series.
-So a recurrence with kernel ``k`` is a convolution of its outputs with ``k`` shifted by one lag, times the gain ``\gamma_t``:
+A recurrence reads its own past outputs, so a recurrence with kernel ``k`` is a convolution of its outputs with ``k`` shifted by one lag, times the gain ``\gamma_t``:
 
 ```math
 y_t = \gamma_t \sum_{l=1}^{L} k_l \, y_{t-l} = \gamma_t \sum_{l=0}^{L} \tilde k_l \, y_{t-l},
@@ -126,3 +223,25 @@ With integer and `Bool` inputs and fields alone and no modifiers, the output kee
 So a signed or `Bool` running total has the eltype `cumsum` gives.
 Otherwise it is the float type.
 A user coupling whose pressure is not an integer needs a float input.
+
+## [Time-series processes](@id explanation-time-series)
+
+A time-series process, such as a random walk or an autoregression, builds a series from innovations ``\epsilon_t``.
+Each is a recurrence or a convolution: a recurrence takes the innovations as `add`, and a convolution as its input.
+As a latent process, one that is not observed, it can drive a gain, such as the reproduction number through its logarithm.
+
+```@example operators
+ϵ = [0.5, -0.25, 0.125, 0.25, -0.5]
+Recurrence([1.0])(; history = [0.0], add = ϵ)
+```
+
+| Process | Maths | Code |
+|:--|:--|:--|
+| Random walk | ``z_t = z_{t-1} + \epsilon_t`` | `Recurrence([1.0])(; history = [z0], add = ϵ)` |
+| Autoregression, AR(p) | ``z_t = \sum_{l=1}^{p} \phi_l z_{t-l} + \epsilon_t`` | `Recurrence(φ)(; history, add = ϵ)` |
+| Autoregression with a coefficient that changes over time | ``z_t = \phi_t z_{t-1} + \epsilon_t`` | `Recurrence(TimeVarying(reshape(φ, 1, :)))(; history, add = ϵ)` |
+| Moving average, MA(q) | ``z_t = \epsilon_t + \sum_{l=1}^{q} \theta_l \epsilon_{t-l}`` | `Convolution(vcat(1, θ))(ϵ)` |
+
+These calls have no gain, and the run is as long as `ϵ`.
+`reshape(φ, 1, :)` makes a kernel of one lag with a column per step.
+A recurrence's own weighted sum ``p_t`` is a convolution of its outputs too, as [above](@ref explanation-lag-origin) shows.

@@ -15,7 +15,7 @@ On Julia 1.12 and later, a forward run compiles into a [trimmed executable](@ref
 - Is your data weekly or monthly? See [Time units](@ref time-units).
 - Have a model in mind? Each tutorial in this section builds one, starting with [Renewal then delay](@ref tutorial-renewal-delay).
 - Coming from epidemiology? [Infectious disease models](@ref infectious-disease-models) maps renewal processes, delays and occupancy to the package.
-- Want to know how it works? The Explanation pages start with [Operators](@ref explanation-operators).
+- Want to know how it works? The How it works pages start with the [API overview](@ref api-overview).
 - Want to write your own modifier or coupling? See the [Developer documentation](@ref developer).
 - Want the full interface? See the [Public API](@ref public-api).
 

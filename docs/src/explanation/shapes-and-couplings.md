@@ -1,5 +1,8 @@
 # [Shapes and couplings](@id explanation-shapes-couplings)
 
+This page covers how coefficients vary across strata and time, the shapes of data, delay distributions as kernels, and how a coupling mixes strata.
+It sits under the [API overview](@ref api-overview), which maps every part of the package.
+
 ```@example shapes
 using ComposableRecurrences
 using LinearAlgebra: I
@@ -27,7 +30,7 @@ The name is that of an array's shape, its size along each axis.
 
 - A plain array has only the slot's own axes, so one set of numbers serves every stratum and time.
   These are the lags for a kernel, `S × S` for a coupling and one value for a modifier parameter.
-- A [wrapper](@ref overview-shapes) adds axes: [`PerStratum`](@ref) a leading strata axis, [`Pairwise`](@ref) leading `S × S` axes and [`TimeVarying`](@ref) a trailing time axis.
+- A [wrapper](@ref explanation-wrappers) adds axes: [`PerStratum`](@ref) a leading strata axis, [`Pairwise`](@ref) leading `S × S` axes and [`TimeVarying`](@ref) a trailing time axis.
 
 Slot and shape are separate because one slot takes many shapes.
 The kernel slot of a `Recurrence` holds one kernel for every stratum, one per stratum or one per step.
@@ -43,7 +46,7 @@ per_step = Recurrence(TimeVarying([g .* (1 + 0.05t) for t in 1:10]))
 [r(x; history = h)[:, end] for r in (shared, per_stratum, per_step)]
 ```
 
-Data are not slots and are not wrapped; their shapes are in the [API overview](@ref overview-shapes).
+Data are not slots and are not wrapped; their shapes are in [Data shapes](@ref explanation-data-shapes).
 Each slot accepts its own set of wrappers.
 
 | Slot | Bare | [`PerStratum`](@ref) | [`TimeVarying`](@ref) | [`Pairwise`](@ref) | `Pairwise` routes | [`Derived`](@ref ComposableRecurrences.Derived) | [`Recent`](@ref ComposableRecurrences.Recent) |
@@ -54,6 +57,52 @@ Each slot accepts its own set of wrappers.
 | modifier parameter | one value | yes | yes | no | no | yes | yes |
 
 [`Primary`](@ref ComposableRecurrences.Primary) indexing is for kernels only; anywhere else it is an `ArgumentError`.
+
+## [Wrappers](@id explanation-wrappers)
+
+A route is one way values pass between strata, such as contact in the community or at funerals, with its own kernel and coupling.
+
+| Name | What it means |
+|:--|:--|
+| vector | one kernel, the weights on each lag, shared by every stratum |
+| [`PerStratum(x)`](@ref PerStratum) | one kernel or parameter for each stratum, with the strata as the first index |
+| [`Pairwise(A)`](@ref Pairwise) | one kernel for each pair of strata, indexed by receiving stratum, giving stratum and lag |
+| [`Pairwise(K₁ => k₁, K₂ => k₂)`](@ref Pairwise) | a sum of routes, each a coupling and a kernel |
+| [`TimeVarying(x)`](@ref TimeVarying) | a kernel, coupling or parameter that changes over time, with time as the last index |
+| [`TimeVarying(P, Primary())`](@ref ComposableRecurrences.Primary) | a time-varying kernel whose column ``\tau`` belongs to input time ``\tau`` |
+| [`Derived(f, args...)`](@ref ComposableRecurrences.Derived) | a parameter computed by `f` from other parameters, or a cohort kernel computed inside the operator, `TimeVarying(Derived(f, args...), Primary())` |
+| [`Survival(h)`](@ref ComposableRecurrences.Survival) | each cohort's survival through a computed kernel's lags against a hazard `h`, as in `TimeVarying(S * (1 - Survival(TimeVarying(h))), Primary())` |
+| [`Recent(n)`](@ref ComposableRecurrences.Recent) | a parameter that sums the recurrence's own last `n` outputs, for each stratum and time |
+
+A `TimeVarying` kernel can be a vector with one kernel per step, each of any length.
+It can also be change points: `start => value` pairs, each value holding from its start time.
+
+- By default, column ``\tau`` of a time-varying kernel belongs to output time ``\tau``, [`ComposableRecurrences.Secondary()`](@ref ComposableRecurrences.Secondary).
+  It holds the weights the output at ``\tau`` puts on earlier times, such as the delays of the reports at ``\tau``.
+- With [`Primary()`](@ref ComposableRecurrences.Primary), column ``\tau`` belongs to input time ``\tau``.
+  It holds how the value at ``\tau`` spreads over later times, such as the delays of the infections at ``\tau``.
+  For a recurrence, the value at ``\tau`` is its own output.
+
+`Derived(exp, TimeVarying(x))` is the exponential of a parameter that changes over time.
+`Recent(7)` sums the last seven outputs, and `β * Recent(7)` scales that sum.
+Most wrappers hold the stored array without copying it.
+A bare vector where a single value is expected is an error that names the wrapper to use.
+
+## [Data shapes](@id explanation-data-shapes)
+
+Inputs, outputs and histories are strata × time arrays, or a vector for a single series.
+The call's `gain` and `add` take three shapes:
+
+| Shape | What it means |
+|:--|:--|
+| scalar | one value for every stratum and time |
+| length-`T` vector | one value per time, shared by every stratum |
+| `S × T` matrix | one value per stratum and time |
+
+A bare vector is always read as time.
+So a value per stratum that is constant over time is `repeat(ρ, 1, T)`, with `ρ` a vector of `S` values.
+For a convolution without `add`, the same is `ρ .* c(x)`, which scales row `i` of the output by `ρ[i]`.
+In a recurrence, a receiving stratum's susceptibility can instead go in the rows of the coupling, as [Where the coupling acts](@ref explanation-coupling) shows.
 
 ## [Nesting](@id explanation-nesting)
 
@@ -84,11 +133,69 @@ Every modifier reads a parameter through [`param`](@ref ComposableRecurrences.pa
 So a new wrapper or parameter form works with every modifier that reads through `param`.
 A parameter's cotangent goes back through [`add_param!`](@ref ComposableRecurrences.add_param!), which also takes every form.
 
+## [Delay distributions as kernels](@id explanation-delays)
+
+A delay distribution, such as a gamma generation interval, can stand in for a kernel.
+The operator turns it into masses: the probability that the delay falls on each whole lag.
+`Gamma` comes from the Distributions.jl package, and a continuous delay such as it needs CensoredDistributions.jl loaded.
+
+```@example shapes
+using Distributions, CensoredDistributions
+Recurrence(Gamma(2.0, 2.5); lags = 15)
+masses = ComposableRecurrences.delay_masses(Gamma(2.0, 2.5), 15)
+round(masses[1]; digits = 3), round(sum(masses[2:end]); digits = 3)
+```
+
+The recurrence keeps the masses on lags 1 to 14, 0.957 of the delay, and drops the mass of 0.022 on lag 0.
+A convolution's kernel starts at lag 0, so it keeps the delay's mass on lag 0.
+A recurrence's kernel [starts at lag 1](@ref explanation-lag-origin), so it drops that mass.
+So `Convolution(d; lags = 4)` has 4 kernel entries and `Recurrence(d; lags = 4)` has 3.
+The keyword `step` is the width of one lag in the delay's unit, 1 by default.
+A model with a weekly [time unit](@ref time-units) and delays in days takes `step = 7`.
+
+With [Distributions.jl](@ref extension-distributions) loaded, discrete distributions have masses.
+With [CensoredDistributions.jl](@ref extension-censored-distributions) loaded, continuous distributions have them too.
+Any other type works as a delay when it has a [`delay_masses`](@ref ComposableRecurrences.delay_masses) method, which gives its masses on lags `0` to `lags - 1`.
+Here is a delay type with masses ``p (1 - p)^l`` on whole units, and the masses of `step` units summed for a lag:
+
+```jldoctest
+using ComposableRecurrences
+struct GeometricDelay
+    p::Float64
+end
+function ComposableRecurrences.delay_masses(d::GeometricDelay, lags; step = 1)
+    q = (1 - d.p)^step
+    return map(l -> (1 - q) * q^l, 0:(lags - 1))
+end
+Convolution(GeometricDelay(0.5); lags = 3).kernel,
+Recurrence(GeometricDelay(0.5); lags = 3, step = 2).kernel
+
+# output
+
+([0.5, 0.25, 0.125], [0.1875, 0.046875])
+```
+
+Delays take the same wrappers as arrays:
+
+| Kernel | Holds |
+|:--|:--|
+| `d` | one delay |
+| `(d₁, d₂)` | a [chain of delays](@ref time-units-chained), one after another |
+| `PerStratum(ds)` | a vector of delays, one per stratum |
+| `Pairwise(D)` | a matrix of delays, with `D[i, j]` the delay of stratum `j` in stratum `i` |
+| `TimeVarying(ds, indexing)` | a vector of delays, one per step |
+| `Pairwise(K₁ => d₁, K₂ => d₂)` | delays or arrays as route kernels |
+
+The argument `indexing` is `Primary()`, or left out for the default, as for any [time-varying kernel](@ref explanation-wrappers).
+`TimeVarying` also takes `PerStratum` or `Pairwise` of delays, with time last.
+`Pairwise` kernels work with `Recurrence` only.
+A chain may also hold mass vectors, and it is itself a delay, so it fits wherever `d` does.
+
 ## [Where the coupling acts](@id explanation-coupling)
 
 The coupling mixes the strata after the kernel and before the gain.
 It has no lag of its own: it mixes each stratum's kernel-weighted past at the current step.
-For ``S`` strata, the [step](@ref overview-step) before the modifiers is, stratum by stratum,
+For ``S`` strata, the [step](@ref explanation-step) before the modifiers is, stratum by stratum,
 
 ```math
 v_{t,i} = \gamma_{t,i} \sum_{j=1}^{S} K_{ij} \sum_{l=1}^{L} k_{j,l} \, y_{t-l,j} + a_{t,i},
@@ -116,6 +223,31 @@ by_kernel = Recurrence(PerStratum(σ .* k'); coupling = K)(gain; history = h)
 by_columns = Recurrence(k; coupling = K .* σ')(gain; history = h)
 by_kernel ≈ by_columns
 ```
+
+A receiver's susceptibility ``\rho_i`` in the gain gives the same run as in the rows of the coupling:
+
+```jldoctest
+using ComposableRecurrences
+ρ, T = [1.0, 2.0], 3
+h = ones(2, 1)
+by_gain = Recurrence([0.5])(repeat(ρ, 1, T); history = h)
+by_rows = Recurrence([0.5]; coupling = ρ .* [1 0; 0 1])(; history = h, stop = T)
+by_gain == by_rows
+
+# output
+
+true
+```
+
+The coupling can be any of these:
+
+| Coupling | What it does |
+|:--|:--|
+| `LinearAlgebra.I`, the identity matrix | no mixing |
+| `λ * LinearAlgebra.I`, the identity times a number `λ` | every sum scaled by `λ` |
+| strata × strata matrix, dense, `Diagonal` or sparse | mixing such as contact or travel |
+| [`TimeVarying(K)`](@ref TimeVarying), with `K` strata × strata × time | mixing that changes over time |
+| a type you write | a [new coupling](@ref explanation-own-coupling) |
 
 ## [Coupling or pairwise kernel](@id explanation-pairwise)
 

@@ -48,7 +48,7 @@ supertype of it, needs the method.
 
 A delay on continuous time has masses only once a censoring choice turns it
 into one on whole steps, so a method for it belongs with that choice.
-A [package extension](@ref overview-delays) adds one that double interval
+A [package extension](@ref explanation-delays) adds one that double interval
 censors the delay.
 
 # Arguments

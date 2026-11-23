@@ -2,7 +2,7 @@
 #
 # ## Introduction
 #
-# A model can run several [strata](@ref overview-step) side by side, one per place, mixed within each step.
+# A model can run several [strata](@ref explanation-step) side by side, one per place, mixed within each step.
 # Strata can also be types, as for the case types of a [branching process](@ref tutorial-branching).
 
 # ## Packages used
@@ -261,5 +261,5 @@ performance_plot("spatial strata")
 
 # ## Learning more
 #
-# - [API overview](@ref api-overview): every operator, coupling and modifier.
+# - [API overview](@ref api-overview): a map of every operator, coupling and modifier.
 # - [Public API](@ref public-api): every public name with its docstring.

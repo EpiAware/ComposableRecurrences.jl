@@ -2,7 +2,7 @@
 
 Loading Distributions with ComposableRecurrences loads `ComposableRecurrencesDistributionsExt`.
 It adds [`delay_masses`](@ref ComposableRecurrences.delay_masses) for discrete distributions, summing the masses of the `step` whole units in each lag.
-So [`Recurrence`](@ref) and [`Convolution`](@ref) take [kernels of them](@ref overview-delays) with the number of lags, as they take any type with a `delay_masses` method.
+So [`Recurrence`](@ref) and [`Convolution`](@ref) take [kernels of them](@ref explanation-delays) with the number of lags, as they take any type with a `delay_masses` method.
 A continuous distribution takes its masses from the [CensoredDistributions extension](@ref extension-censored-distributions), and is an error that names it until that loads.
 
 A Poisson delay with mean 1.5 days, cut at 4 lags, applied to doubling counts:
