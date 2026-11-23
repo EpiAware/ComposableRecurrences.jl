@@ -182,16 +182,21 @@ end
         @test wrong[] == 0
     end
     # Without a step output, as in a single step's pullback, it is
-    # recomputed.
-    m̄ = (;
+    # recomputed, giving the local derivative's cotangents.
+    mirror() = (;
         f = (;), θ = (; r = (; x = zeros(S)), p = (; x = zeros(S))),
         derivative = nothing,
     )
+    m̄, m̄0 = mirror(), mirror()
     calls[] = 0
-    CR._step_back((; piece = m̄, v = 1.0, s = 0.0), m, 0.3, 0.0, 1, 2)
+    out = CR._step_back((; piece = m̄, v = 1.0, s = 0.0), m, 0.3, 0.0, 1, 2)
     @test calls[] == 1
     @test wrong[] == 0
-    @test CR._user_derivative(m.derivative) === df
+    m0 = CR.Transform(nb, θ)
+    @test all(out .≈ CR._step_back((; piece = m̄0, v = 1.0, s = 0.0), m0, 0.3, 0.0, 1, 2))
+    @test m̄.θ.r.x ≈ m̄0.θ.r.x && m̄.θ.p.x ≈ m̄0.θ.p.x
+    # It shows the derivative it was given.
+    @test occursin("derivative df", repr(MIME"text/plain"(), m))
 end
 
 @testitem "Transform: Float32 and no allocation in the pullback" begin

@@ -32,9 +32,10 @@ local forward-mode derivative of `f`.
 `derivative(v, θ)` returns
 ``(\partial f / \partial v, \partial f / \partial \theta)``, the second
 shaped as ``\theta_{t,i}``.
-A `derivative` with a method of three arguments is called as
-`derivative(v, θ, y)` instead, with the step's output ``y = f(v, \theta)``
-(and `θ` `nothing` without parameters), returning the same pair.
+A `derivative` with any method that takes three arguments, a catch-all or
+varargs one included, is called as `derivative(v, θ, y)` instead, with the
+step's output ``y = f(v, \theta)`` (and `θ` `nothing` without parameters),
+returning the same pair.
 The reverse pass of a [`Recurrence`](@ref) passes ``y`` from the forward
 pass, so a derivative written in terms of the value need not recompute it.
 Values captured by `f` (a closure, or a callable struct with float fields)
