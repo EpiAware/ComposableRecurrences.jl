@@ -40,31 +40,19 @@ step starts from.
 A split flow names its sources as a tuple, `(i_1, …, i_n) => to`, with
 ``n \ge 2``.
 With ``w_j`` the pool ``i_j`` before the step's flows and
-``W = \sum_j w_j``, source ``j``'s share of the count is
+``W = \sum_j w_j``, source ``j``'s share is
 
 ```math
 c_j = b\, \frac{w_j}{W},
 ```
 
-or, when ``W \le 0``, ``c_1 = b`` and ``c_j = 0`` for the others.
-A source may hold less than its share at the point the flow runs, after
-the rates, shares and earlier counts.
-With ``y_j`` what source ``j`` holds then, the part it cannot cover,
-``u_j = \max(c_j - y_j, 0)``, passes to the other sources, in proportion
-to their ``w``, or to the first other source when theirs sum to zero or
-less.
-With two sources each takes the other's ``u`` whole.
-Source ``i`` then loses
-
-```math
-m_i = \min\big(c_i + \textstyle\sum_{j \ne i} u_j\, q_{ij},\ \max(y_i, 0)\big),
-```
-
-with ``q_{ij}`` the part of ``u_j`` passed to ``i``, and `to` gains
-``\sum_i m_i``.
-As for a `Truncate()` count, each source is floored at zero, a negative
-count adds to the sources and moves nothing into `to`, and the
-derivative through ``\min`` and ``\max`` takes the active branch.
+or, when ``W \le 0``, all of ``b`` for the first source.
+A source that holds less than its share when the flow runs passes the
+part it cannot cover, ``\max(c_j - y_j, 0)`` with ``y_j`` what it holds,
+to the other sources in proportion to their ``w``, or to the first other
+source when theirs sum to zero or less.
+Each source then loses its share and what it was passed, capped as a
+`Truncate()` count is, and `to` gains what they lose.
 `Split()` is a form for flows only, not a depletion form.
 
 # Examples
@@ -188,13 +176,13 @@ waning.form, transfers.to
 ```
 """
 struct Flow{D, F <: _FlowForm, E, P, G}
-    "The pool the flow leaves, by name or position, or a split's pools."
+    "The pool the flow leaves, by name or position; a tuple for `Split()`."
     from::E
-    "The pool it enters, by name or position, or `0` when it leaves."
+    "The one pool it enters, by name or position, or `0` when it leaves."
     to::G
     "The rate, share or count, a parameter."
     demand::D
-    "How the demand moves: `Hazard()`, `Share()` or `Truncate`."
+    "How the demand moves: `Hazard()`, `Share()`, `Truncate` or `Split()`."
     form::F
     Base.@constprop :aggressive function Flow(
             from, to, demand, form::F
@@ -250,6 +238,11 @@ function _check_flow_parts(from, to, demand, form)
         )
     )
     form isa _FlowForm || _bad_flow_form(form)
+    to isa Tuple && throw(
+        ArgumentError(
+            "a flow enters one pool, or 0 to leave, got to = $(repr(to))"
+        )
+    )
     _check_split(from, to, form)
     from isa Integer && iszero(from) && !(form isa Truncate) && throw(
         ArgumentError(
@@ -384,12 +377,25 @@ function _placed(f::Flow{<:Any, <:Any, <:Any, P}, ::Val{names}) where {P, names}
     from, to = _positions(Val(P), Val(names))
     from === nothing && _unknown_pool(_first_unknown(P[1], names), names, f)
     to === nothing && _unknown_pool(P[2], names, f)
+    _check_split_placed(from, to, f)
     return Flow(_Placed(), typeof(from), Val((from, to)), f.demand, f.form)
 end
 # An end's position among `names`: `0` outside, `nothing` for a name that is
 # not a pool or a position past the last.
 _end_position(x::Int, names) = x == 0 || x <= length(names) ? x : nothing
 _end_position(x::Symbol, names) = findfirst(==(x), names)
+# A split's sources as positions: a name and a position for one pool are
+# the same source, which the check on the ends as written cannot see.
+_check_split_placed(from, to, f) = nothing
+function _check_split_placed(from::Tuple, to, f)
+    allunique(from) && !(to in from) && return nothing
+    throw(
+        ArgumentError(
+            "Flow($(repr(_from(f))) => $(repr(_to(f)))) names one pool twice, " *
+                "as sources or as a source and where it enters"
+        )
+    )
+end
 # The end to name in an error: a split's first unknown source.
 _first_unknown(x, names) = x
 function _first_unknown(x::Tuple, names)
@@ -714,7 +720,7 @@ function _split_back(b, w::NTuple{n}, y::NTuple{n}, m̄) where {n}
     ȳ = ntuple(
         j -> ȳ0[j] - ifelse(_uncovered(c[j], y[j]), ū[j], zero(ū[j])), Val(n)
     )
-    if W > 0
+    if _primal_value(W) > 0
         b̄ = sum(ntuple(j -> c̄[j] * w[j], Val(n))) / W
         W̄ = -sum(ntuple(j -> c̄[j] * c[j], Val(n))) / W
         w̄ = ntuple(j -> w̄q[j] + c̄[j] * b / W + W̄, Val(n))
@@ -737,7 +743,7 @@ function _passed_back(d̄, u, w::NTuple{n}, W) where {n}
     w̄ = ntuple(_ -> zero(first(d̄)), Val(n))
     for j in 1:n
         Q = W - w[j]
-        Q > 0 || continue
+        _primal_value(Q) > 0 || continue
         Q̄ = zero(Q)
         for i in 1:n
             i == j && continue

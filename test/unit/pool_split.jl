@@ -1,10 +1,7 @@
-@testitem "Split flows: BVD's discharge split and its overshoot" begin
+@testitem "Split flows: a pool short of its share passes the rest on" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    # BVD's two discharge drains, each a count off the pools `u` and `c` the
-    # step starts from: its share, plus the part of the other pool's share
-    # that pool cannot cover after the hazard `h`, the abscond rate `κ` and
-    # the admissions `A`.
+    # The two count drains a split replaces, written out by hand as the reference.
     share_c(b, u, c) = u + c > 0 ? b * c / (u + c) : zero(b)
     left_u(u, A, h, κ, o) = u * (1 - κ - h) + A - o
     left_c(u, c, h, o) = c + h * u - o
@@ -140,14 +137,20 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     f = CR.Flow((:u, :c) => 0, 1.0; form = CR.Split())
-    @test f.from == (:u, :c)
-    @test f.form === CR.Split()
     @test_throws "has form Split()" CR.Flow((:u, :c) => 0, 1.0; form = CR.Truncate())
     @test_throws "a tuple of pools" CR.Flow(:u => 0, 1.0; form = CR.Split())
     @test_throws "two or more" CR.Flow((:u,) => 0, 1.0; form = CR.Split())
     @test_throws "not 0" CR.Flow((0, 1) => 2, 1.0; form = CR.Split())
     @test_throws "different pools" CR.Flow((1, 1) => 0, 1.0; form = CR.Split())
     @test_throws "does not draw from" CR.Flow((1, 2) => 2, 1.0; form = CR.Split())
+    @test_throws "enters one pool" CR.Flow((1, 2) => (3, 4), 1.0; form = CR.Split())
+    # A name and a position for one pool are found once the pools are known.
+    @test_throws "names one pool twice" CR.Depletion(
+        CR.Flow((:u, 1) => 0, 1.0; form = CR.Split()); pools = (:u, :c)
+    )
+    @test_throws "names one pool twice" CR.Depletion(
+        CR.Flow((:u, :c) => 1, 1.0; form = CR.Split()); pools = (:u, :c, :d)
+    )
     @test_throws "names pool :x" CR.Depletion(
         CR.Flow((:u, :x) => 0, 1.0; form = CR.Split()); pools = (:u, :c)
     )
