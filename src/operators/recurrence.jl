@@ -54,6 +54,8 @@ routes that have a cheaper equivalent form.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
 struct with `forward!` on [`ComposableRecurrences.Pressure`](@ref).
+A bare `S × S × T` array is read as `TimeVarying`: its third axis is time,
+not lags.
 Modifiers are structs with `forward!` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 

@@ -94,9 +94,9 @@ x̄.x
 """
 function add_param! end
 
-# A parameter as `Transform` and `Redistribute` store it: a bare strata ×
-# time matrix is wrapped as `TimeVarying(PerStratum(x))`, the one reading
-# its shape has.
+# A matrix has one reading as a parameter, strata × time, so it is wrapped
+# here; a vector has two, so `_check_param` rejects it.
+# Only the top-level entries of a tuple are wrapped.
 _as_param(x) = x
 _as_param(x::AbstractMatrix{<:Real}) = TimeVarying(PerStratum(x))
 _as_params(θ::Union{Tuple, NamedTuple}) = map(_as_param, θ)
@@ -676,7 +676,7 @@ end
 # Julia 1.11 carries the literal `leak` through only with aggressive constant
 # propagation.
 Base.@constprop :aggressive function Redistribute(K, ε; leak::Bool = false)
-    return Redistribute(_kernel_movement(K, _as_param(ε)); leak)
+    return Redistribute(_kernel_movement(K, ε); leak)
 end
 function ConstructionBase.constructorof(::Type{<:Redistribute{L}}) where {L}
     return Redistribute{L}

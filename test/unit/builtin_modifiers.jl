@@ -1269,10 +1269,11 @@ end
     CR = ComposableRecurrences
     R, h = fill(1.1, 2, 6), ones(2, 2)
     # A modifier parameter's matrix is strata × time.
-    rate = [0.1 * (k + t) for k in 1:2, t in 1:6]
+    rate = [0.1 * k + 0.01 * t for k in 1:2, t in 1:6]
     bare = CR.Transform(+, rate)
     wrapped = CR.Transform(+, TimeVarying(PerStratum(rate)))
     @test typeof(bare) == typeof(wrapped)
+    @test all(CR.param(bare.θ, k, t) == rate[k, t] for k in 1:2, t in 1:6)
     @test Recurrence([0.5]; modifiers = (bare,))(R; history = h) ==
         Recurrence([0.5]; modifiers = (wrapped,))(R; history = h)
     # As are the matrices in a tuple of parameters and in clamp's bounds.
@@ -1280,11 +1281,6 @@ end
     @test pair.θ[1] isa TimeVarying
     bounds = CR.Transform(clamp, 0.0, fill(2.0, 2, 6))
     @test bounds.θ[2] isa TimeVarying
-    # And Redistribute's intensity.
-    K = [0.0 1.0; 1.0 0.0]
-    ε = fill(0.1, 2, 6)
-    @test typeof(CR.Redistribute(K, ε)) ==
-        typeof(CR.Redistribute(K, TimeVarying(PerStratum(ε))))
     # A coupling's third axis is time.
     C2 = cat([0.9 0.1; 0.2 0.8], [0.8 0.2; 0.3 0.7]; dims = 3)
     C = C2[:, :, [1, 2, 1, 2, 1, 2]]
