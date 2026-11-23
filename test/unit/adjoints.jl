@@ -359,7 +359,7 @@ end
     P = rand(prng, S, S)
     PT = 0.5 .+ rand(prng, S, S, T)
     Ks = rand(prng, S, S) ./ 2 + 0.3I
-    Ms = CR._kernel_movement(Ks, [0.3, 0.2, 0.1])
+    Ms = CR.Redistribute(Ks, [0.3, 0.2, 0.1]).M
     spill = CR.Redistribute(Ms)
     sparse_spill = CR.Redistribute(sparse(Ms))
     for mods in (
@@ -449,7 +449,7 @@ end
     groups = [1:2, 3:5]
     P = rand(rng, S, S)
     K = rand(rng, S, S) ./ 2 + 0.2I
-    M = CR._kernel_movement(K, fill(0.2, S))
+    M = CR.Redistribute(K, fill(0.2, S)).M
     imports = (PerStratum([0.3, 0.5]), P)
     m = CR.Allocate(groups, PerStratum([6.0, 4.0]); imports, spill = CR.Redistribute(M))
     # One step: the pullback given the state after the step, and given a

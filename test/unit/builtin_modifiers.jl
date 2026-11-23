@@ -318,13 +318,13 @@ end
     CR = ComposableRecurrences
     K = [0.0 0.3 0.1; 0.2 0.5 0.5; 0.4 0.2 0.0]
     E = [0.1 0.2; 0.3 0.05; 0.15 0.25]
-    M = CR._kernel_movement(K, E)
+    M = CR.Redistribute(K, E).M
     # Read from the kernel and the intensity, it equals the dense matrix of
     # each time's intensity, and its columns sum to one.
     @test size(M.x) == (3, 3, 2)
     slice(t) = [M.x[p, q, t] for p in 1:3, q in 1:3]
     for t in 1:2
-        @test slice(t) ≈ CR._kernel_movement(K, E[:, t])
+        @test slice(t) ≈ CR.Redistribute(K, E[:, t]).M
         @test vec(sum(slice(t); dims = 1)) ≈ ones(3)
     end
     v, s̄0, v̄0 = [4.0, 2.0, 1.0], [0.3, -0.2, 0.5], [0.7, 0.1, -0.4]
@@ -368,19 +368,19 @@ end
     # Its columns sum to one by construction, so Init does not check them.
     r = Recurrence([0.5]; modifiers = (CR.Redistribute(M),))
     @test size(@inferred(r(ones(3, 2); history = ones(3, 1)))) == (3, 2)
-    @test_throws DimensionMismatch CR._kernel_movement(K, ones(2, 2))
+    @test_throws DimensionMismatch CR.Redistribute(K, ones(2, 2)).M
     # The parameter forms the kernel-and-intensity Redistribute took: a
     # PerStratum vector and strata × time matrix read as what they hold, and
     # any other parameter at each origin and time.
     entries(X) = [X.x[p, q, t] for p in 1:3, q in 1:3, t in 1:2]
-    @test CR._kernel_movement(K, PerStratum(E[:, 1])) == CR._kernel_movement(K, E[:, 1])
-    @test entries(CR._kernel_movement(K, TimeVarying(PerStratum(E)))) == entries(M)
-    D = CR._kernel_movement(K, Derived(exp, TimeVarying(PerStratum(log.(E)))))
+    @test CR.Redistribute(K, PerStratum(E[:, 1])).M == CR.Redistribute(K, E[:, 1]).M
+    @test entries(CR.Redistribute(K, TimeVarying(PerStratum(E))).M) == entries(M)
+    D = CR.Redistribute(K, Derived(exp, TimeVarying(PerStratum(log.(E))))).M
     @test entries(D) ≈ entries(M)
-    @test entries(CR._kernel_movement(K, TimeVarying([0.1, 0.2]))) ≈
-        entries(CR._kernel_movement(K, [0.1 0.2; 0.1 0.2; 0.1 0.2]))
-    @test_throws "ε is one value" CR._kernel_movement(K, "fast")
-    @test_throws "S × S kernel matrix" CR._kernel_movement([0.1, 0.2], 0.1)
+    @test entries(CR.Redistribute(K, TimeVarying([0.1, 0.2])).M) ≈
+        entries(CR.Redistribute(K, [0.1 0.2; 0.1 0.2; 0.1 0.2]).M)
+    @test_throws "ε is one value" CR.Redistribute(K, "fast").M
+    @test_throws "S × S kernel matrix" CR.Redistribute([0.1, 0.2], 0.1).M
     # A parameter's strata are checked when the run starts.
     r3 = Recurrence([0.5]; modifiers = (CR.Redistribute(K, D.x.E),))
     @test size(r3(ones(3, 2); history = ones(3, 1))) == (3, 2)
