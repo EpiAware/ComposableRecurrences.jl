@@ -27,7 +27,7 @@ Its other fields hold the cotangents of the role's arguments.
 The rows for a [blockwise step](@ref extending-blockwise), a [trace](@ref extending-trace-own) and a [form](@ref extending-form-pullback) are on their pages; the arguments mean the same in every role:
 
 - `t` is the absolute time, counted from 1 as `start` and `stop` are.
-- `v` holds one value per [stratum](@ref overview-step), indexed by stratum, and `s` is the modifier's state after the previous step, with [`nstate`](@ref ComposableRecurrences.nstate) entries.
+- `v` holds one value per [stratum](@ref explanation-step), indexed by stratum, and `s` is the modifier's state after the previous step, with [`nstate`](@ref ComposableRecurrences.nstate) entries.
 - `history` is the call's `history` as given: a vector for one series, else strata × time.
   Without an `Init` method the state starts at zero, and no `Init` pullback is needed.
 

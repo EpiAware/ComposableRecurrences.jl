@@ -40,7 +40,6 @@ const PENDING_CODE_LENGTH = (
     "docs/src/developer/extending-performance.md",
     "docs/src/developer/testing.md",
     "docs/src/explanation/adjoints-and-backends.md",
-    "docs/src/getting-started/api-overview.md",
     "docs/src/getting-started/three-towns.md",
     "docs/src/getting-started/time-units.md",
     "docs/src/getting-started/tutorials/backend-case-study.jl",
@@ -160,6 +159,30 @@ const ONE_HOME = (
     "extending-roles" => (
         "docs/src/developer/extending-api.md",
         ("is the second argument of `forward!` and the third of `pullback!`",),
+    ),
+    "explanation-step" => (
+        "docs/src/explanation/operators.md",
+        (raw"p_t &= \sum_{l=1}^{L} k_l", raw"v_t &= \gamma_t \odot K_t"),
+    ),
+    "explanation-calls" => (
+        "docs/src/explanation/operators.md",
+        ("delay'(ones(T))",),
+    ),
+    "explanation-time-series" => (
+        "docs/src/explanation/operators.md",
+        (raw"z_t = z_{t-1} + \epsilon_t",),
+    ),
+    "explanation-data-shapes" => (
+        "docs/src/explanation/shapes-and-couplings.md",
+        ("A bare vector is always read as time",),
+    ),
+    "explanation-delays" => (
+        "docs/src/explanation/shapes-and-couplings.md",
+        ("masses of `step` units summed",),
+    ),
+    "explanation-depletion-forms" => (
+        "docs/src/explanation/modifiers.md",
+        ("heterogeneity exponent",),
     ),
 )
 
