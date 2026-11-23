@@ -16,7 +16,7 @@ Each table maps model features to the code that builds them, with the tutorial t
 | Log reproduction number as a latent process | ``\log R_t = \phi \log R_{t-1} + \epsilon_t`` | `Recurrence([φ])(; history, add = ϵ)` | [Latent processes driving R_t](@ref tutorial-latent-rt) |
 | Behavioural response to incidence | – | [`Transform`](@ref ComposableRecurrences.Transform), before `Depletion` | [Latent processes driving R_t](@ref tutorial-latent-rt) |
 
-Random walks and autoregressions are [recurrences](@ref overview-time-series), and moving averages are convolutions.
+Random walks and autoregressions are [recurrences](@ref explanation-time-series), and moving averages are convolutions.
 
 ## [Susceptible depletion and vaccination](@id domain-depletion)
 
