@@ -58,9 +58,7 @@ s_v = \sum_{t = a_v}^{b_v} x_t,
 with ``a_v`` = `starts[v]` and ``b_v`` = `stops[v]`, each window cut to the
 times `1:n` of `x` along `dims`.
 A matrix gives its sums in place of dimension `dims`.
-It is differentiable in `x`, with a reverse pass that adds each window's
-cotangent to its times, so a time in more than one window takes each of
-their cotangents.
+It is differentiable in `x`.
 
 # Arguments
 - `x`: a vector, or a matrix with time along `dims`.
@@ -123,27 +121,22 @@ function _run_forward(op::_WindowSums, x)
 end
 
 # Window `v` covers times `lo[v] + 1` to `hi[v]`, empty when
-# `hi[v] <= lo[v]`. Consecutive windows start after the end before them.
-function _windows(op::_WindowSums{E, <:AbstractVector}) where {E}
-    hi = Vector{Int}(undef, length(op.ends))
-    lo = similar(hi)
-    for (v, (a, e)) in enumerate(zip(op.starts, op.ends))
-        hi[v] = clamp(Int(e), 0, op.n)
-        lo[v] = clamp(Int(a) - 1, 0, op.n)
-    end
-    return (; lo, hi)
-end
-function _windows(op::_WindowSums{E, Nothing}) where {E}
+# `hi[v] <= lo[v]`.
+function _windows(op::_WindowSums)
     hi = Vector{Int}(undef, length(op.ends))
     lo = similar(hi)
     prev = 0
     for (v, e) in enumerate(op.ends)
         hi[v] = clamp(Int(e), 0, op.n)
-        lo[v] = clamp(prev, 0, op.n)
+        lo[v] = clamp(_window_before(op.starts, v, prev), 0, op.n)
         prev = hi[v]
     end
     return (; lo, hi)
 end
+# The time before window `v`: before its start when given, else the end of
+# the window before it, so consecutive windows start after that end.
+_window_before(::Nothing, v, prev) = prev
+_window_before(starts, v, prev) = Int(starts[v]) - 1
 
 function _window_sums(op::_WindowSums, (; lo, hi), x::AbstractVector)
     _on_gpu(x) && return _device_window_sums(op, lo, hi, x)
