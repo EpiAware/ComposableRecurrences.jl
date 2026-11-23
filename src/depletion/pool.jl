@@ -821,15 +821,6 @@ end
     return nothing
 end
 
-# The entries of one-entry views, and their write-back, as straight-line
-# code: past 32 entries `map` and `foreach` on a tuple do not unroll.
-@generated function _held(v::Tuple)
-    return Expr(:tuple, (:(v[$i][]) for i in 1:fieldcount(v))...)
-end
-@generated function _hold!(v::Tuple, x::Tuple)
-    body = (:(v[$i][] = x[$i]) for i in 1:fieldcount(v))
-    return Expr(:block, body..., :(return nothing))
-end
 
 # The pools and the queue in a group's state, `nothing` without a queue,
 # and the second value with an overflow into a stratum.

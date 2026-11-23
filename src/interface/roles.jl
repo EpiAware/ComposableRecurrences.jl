@@ -772,6 +772,15 @@ end
 @generated function _entries(x, ::Val{n}, G, g) where {n}
     return Expr(:tuple, (:(_At(_Shifted(x, $(i - 1) * G), g)) for i in 1:n)...)
 end
+# The entries of one-entry views, and their write-back, as straight-line
+# code: past 32 entries `map` and `foreach` on a tuple do not unroll.
+@generated function _held(v::Tuple)
+    return Expr(:tuple, (:(v[$i][]) for i in 1:fieldcount(v))...)
+end
+@generated function _hold!(v::Tuple, x::Tuple)
+    body = (:(v[$i][] = x[$i]) for i in 1:fieldcount(v))
+    return Expr(:block, body..., :(return nothing))
+end
 
 function _vector_step!(::Nothing, m, v, s, t)
     blocks(m) === (1, 1) && throw(
@@ -819,39 +828,22 @@ function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
     return nothing
 end
 function _group_back!(gs, acc, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
-    m̄ = _unown(acc)
-    if uses_adjoint(m, Step())
-        _groups_back!(gs, m̄, v̄, s̄, m, v, s, t, Val(B), G)
-    else
-        _groups_local_back!(gs, m̄, v̄, s̄, m, v, s, t, Val(B), G)
-    end
-    return nothing
-end
-# The modifier's own pullback on one-entry views of each group's entries.
-function _groups_back!(gs, m̄, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
     nv, ns = B
+    m̄ = _unown(acc)
     for g in gs
         gg = (;
             piece = m̄, v = _entries(v̄, Val(nv), G, g),
             s = _entries(s̄, Val(ns), G, g),
         )
         vg, sg = _entries(v, Val(nv), G, g), _entries(s, Val(ns), G, g)
-        _written(m, @inline pullback!(gg, m, Step(), vg, sg, t, g))
-    end
-    return nothing
-end
-# The local derivative of each group's step, on its gathered values.
-function _groups_local_back!(gs, m̄, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
-    nv, ns = B
-    for g in gs
-        gg = (;
-            piece = m̄, v = _gather(v̄, Val(nv), G, g),
-            s = _gather(s̄, Val(ns), G, g),
-        )
-        vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
-        v̄g, s̄g = _block_local_back(gg, m, vg, sg, t, g)
-        _scatter!(v̄, v̄g, G, g)
-        _scatter!(s̄, s̄g, G, g)
+        if uses_adjoint(m, Step())
+            _written(m, @inline pullback!(gg, m, Step(), vg, sg, t, g))
+        else
+            gl = (; piece = m̄, v = _held(gg.v), s = _held(gg.s))
+            v̄g, s̄g = _block_local_back(gl, m, _held(vg), _held(sg), t, g)
+            _hold!(gg.v, v̄g)
+            _hold!(gg.s, s̄g)
+        end
     end
     return nothing
 end
