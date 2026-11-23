@@ -1,7 +1,6 @@
 # [Couplings](@id extending-coupling)
 
-A new coupling mixes the strata in a way a matrix cannot hold, or holds wastefully, and runs wherever a built-in coupling does.
-It builds on [Writing new types](@ref extending); [Where the coupling acts](@ref explanation-coupling) says where the mixing sits in a step.
+A new coupling mixes strata where a matrix is wasteful, building on [Writing new types](@ref extending).
 
 ```@example extending-couplings
 using ComposableRecurrences
@@ -10,10 +9,7 @@ const CR = ComposableRecurrences
 
 ## [A coupling with a pullback](@id extending-coupling-pullback)
 
-A coupling has one role, [`Pressure()`](@ref ComposableRecurrences.Pressure).
-Its `forward!(C, Pressure(), q, p, t)` writes the pressure `q` on each stratum from each stratum's kernel-weighted past values `p`.
-Its `pullback!(grads, C, Pressure(), q, p, t)` is called with `q === nothing`, reads the cotangent `grads.q` and adds into `grads.p`.
-
+A coupling's role is [`Pressure()`](@ref ComposableRecurrences.Pressure): it writes the pressure `q` on each stratum from each stratum's kernel-weighted past `p`, and its pullback adds `grads.q` back into `grads.p`.
 This one sends a share ``a`` of every stratum's pressure to the first:
 
 ```math
@@ -21,7 +17,6 @@ q_i = (1 - a) \, p_i + a \, \delta_{i1} \sum_{j=1}^{S} p_j,
 ```
 
 where ``\delta_{i1}`` is 1 for the first stratum and 0 otherwise, and ``S`` is the number of strata.
-Its pullback also adds the cotangent of `share`.
 
 ```@example extending-couplings
 struct ToFirst{A}
@@ -75,7 +70,5 @@ r = Recurrence([0.5, 0.5]; coupling = Mixing(K))
 r(1.0; history = ones(2, 2), stop = 4)
 ```
 
-For a `forward!` written as a matrix product, as here, the gradient is then close to the built-in dense coupling's.
-For one written as scalar loops a hand-written `pullback!` is still faster, as the declared route differentiates those loops once per call.
-A coupling that is not linear, or that changes in time, needs a `pullback!` to be fast.
-[Specialising for speed](@ref specialising) shows a rank-one coupling that skips the dense product.
+A `forward!` written as a matrix product then has a gradient close to the built-in coupling's.
+One written as scalar loops, or a coupling that is not linear or changes in time, needs a `pullback!` to be fast.

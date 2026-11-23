@@ -1,14 +1,12 @@
 # [Rules for every type](@id extending-rules)
 
-A `forward!` and `pullback!` that keep these rules work with every number type, every executor and every gradient route.
-They hold for the types of all the pages that start at [Writing new types](@ref extending).
+Every `forward!` and `pullback!` keeps these rules, whichever page of [Writing new types](@ref extending) it follows.
 
 ## [Number types](@id extending-number-types)
 
 `forward!` must be generic in the element type of its arguments.
 A dual number, a `Float32` or a tracked value can arrive in `v`, `s` or a field.
-So do not annotate `Float64` or build `0.0`; use `zero(v)` and `oftype`.
-A field with a type parameter lets a dual number take its place.
+So do not annotate `Float64` or build `0.0`; use `zero(v)`, `oftype` and fields with type parameters.
 
 ## [Arguments of a pullback](@id extending-pullback-arguments)
 
@@ -30,5 +28,4 @@ A pointwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to `(1, 
 
 Under [`Threaded`](@ref ComposableRecurrences.Threaded) the steps of different strata can run at once.
 So a step writes only its own stratum's slots, and never to the type's fields.
-In the reverse pass each chunk of strata adds into a zeroed copy of the mirror, and the copies are summed after the loop.
-A mirror with an entry of another kind, such as an integer or a `Ref` that is not of a number, runs that loop on one task.
+A mirror with an entry that is not a float array or a `Ref` of a number runs the reverse loop on one task; [Executors](@ref executors) says how the others are split.

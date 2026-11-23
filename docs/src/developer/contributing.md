@@ -51,7 +51,7 @@ The reference page is `docs/src/explanation/operators.md`.
 2. Write plain expository prose: each sentence says one thing and follows from the last.
    Join short sentences about one thing with "and", "so" or "because".
    Do not write lists of fragments.
-3. Start with the content: no "This page lists" or "This tutorial gets", and no closing questions such as `Want X? See Y.`
+3. Start with the content: no "This page lists", "This page covers" or "This tutorial gets", and no closing questions such as `Want X? See Y.`
 4. Say each thing once per page; a summary points back and does not restate.
 5. State what is true now: no "was timed", "used to" or issue numbers.
    Measurement conditions go in table columns or one sentence.

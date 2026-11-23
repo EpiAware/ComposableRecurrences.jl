@@ -1,7 +1,6 @@
 # [Performance and trimming](@id extending-performance)
 
-A new type can run as fast as the built-in ones, specialise one combination of types, and compile into a trimmed executable.
-It builds on the types of the pages that start at [Writing new types](@ref extending).
+A new type can be made fast, specialised and trimmed, building on [Writing new types](@ref extending).
 
 ```@setup extending-performance
 using ComposableRecurrences
@@ -10,9 +9,8 @@ const CR = ComposableRecurrences
 
 ## [Fast methods](@id extending-fast)
 
-- Keep `forward!` and `pullback!` free of allocations: loop over `eachindex(v)` and write in place.
+- Keep `forward!` and `pullback!` free of allocations: loop with `eachindex` over the arrays you index, write in place, and add `@inbounds` only to such loops.
 - Use concrete field types through type parameters, so every call is type stable.
-- Loop with `eachindex` over the arrays you index, and add `@inbounds` only to such loops.
 
 The [benchmark matrix](@ref testing) times the gradient of a renewal with a stateless pointwise modifier, the saturation ``v \kappa / (\kappa + v)`` in `benchmark/docs_modifier.jl`, under Mooncake and Enzyme in reverse mode.
 It times plain AD of the whole operator, the rule with `forward!` only, and the rule with the `pullback!`.
@@ -50,14 +48,9 @@ On Julia 1.12 and later, `juliac --trim=safe` compiles an app into an executable
 The build fails on any call the compiler cannot resolve from the argument types.
 A build can pass and still fail when run, for example on a call the runtime makes, so the app is run as well as built.
 
-The app in `test/trim`:
-
-- runs the forward path of a renewal, a convolution, a depletion with flows, a transform with a derived parameter and a coupled renewal over several strata, and checks the outputs;
-- runs a loop split into tasks by [`Threaded`](@ref ComposableRecurrences.Threaded);
-- runs its operator calls serially, as a trimmed app cannot set [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) with `with` on Julia 1.12;
-- is built and run by the Trim workflow when `src` or the app changes.
-
-Gradients and the extensions are not trim-tested.
+The app in `test/trim` checks the forward path of each operator, a depletion with flows, a derived parameter and a [`Threaded`](@ref ComposableRecurrences.Threaded) loop.
+The Trim workflow builds and runs it when `src` or the app changes.
+Its operator calls run serially, as a trimmed app cannot set [`EXECUTOR`](@ref ComposableRecurrences.EXECUTOR) with `with` on Julia 1.12, and gradients and the extensions are not trim-tested.
 A new type used in a trimmed app needs concrete field types, and methods whose calls resolve from the argument types.
 
 To run the check locally, with JuliaC installed in a shared environment:
@@ -114,11 +107,4 @@ dense = Recurrence([0.5, 0.5]; coupling = u * w')(R; history = h)
 low ≈ dense
 ```
 
-The package specialises its own code the same way.
-These methods are internal and may change without notice; the list says where a contributor would add one:
-
-- one stratum's kernel convolution, `_kdot`, by the kernel's form (shared, per stratum, time varying with either indexing, pairwise) and by the buffer's array type;
-- independent strata, where the coupling is `I` or `Diagonal`, the kernel is not pairwise and every modifier is pointwise, run each block of strata over the whole series (`_independent` decides, `_series_body!` runs);
-- a fixed convolution's body, `_convolve_series!`, by the buffer's number type: one vectorised `axpy` per lag for IEEE floats, one dot per output for other numbers;
-- the output's copy into the public layout, `_public`, by the buffer's array type;
-- the route of a call, the rule or plain AD, by [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) and the number types.
+The package specialises its own internal code the same way, in `_kdot`, `_independent`, `_series_body!`, `_convolve_series!` and `_public`, which may change without notice.

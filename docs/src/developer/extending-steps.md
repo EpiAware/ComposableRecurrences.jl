@@ -1,19 +1,13 @@
 # [Steps across strata](@id extending-steps)
 
-A modifier whose step reads other strata, such as one that moves values between them, runs on whole vectors or on fixed groups of strata.
-It builds on the pointwise modifier of [Writing new types](@ref extending); [Scope](@ref explanation-modifier-scope) says how the built-in modifiers choose.
+A modifier whose step reads other strata runs on whole vectors or on groups, building on [Writing new types](@ref extending).
 
 ```@example extending-steps
 using ComposableRecurrences
 const CR = ComposableRecurrences
 ```
 
-[`blocks`](@ref ComposableRecurrences.blocks) sets the scope of a step:
-
-- `(1, 1)` for a pointwise step, which reads and writes each stratum on its own;
-- `(nv, ns)` for a blockwise step, on groups of `nv` values and `ns` state entries;
-- `nothing`, the default, for a step on whole vectors that may read every stratum.
-
+The trait [`blocks`](@ref ComposableRecurrences.blocks) sets the scope of a step: `(1, 1)` for a [pointwise](@ref extending-pointwise-rules) step, `(nv, ns)` for groups of `nv` values and `ns` state entries, and `nothing`, the default, for whole vectors.
 [`nstate`](@ref ComposableRecurrences.nstate) is read from `blocks`.
 
 ## [A vector step](@id extending-vector)
@@ -58,11 +52,8 @@ A vector step makes the strata wait for each other at every step, so [`Threaded`
 
 ## [A blockwise step](@id extending-blockwise)
 
-A blockwise step acts on one group `g` at a time, and takes its values and state entries as tuples of one-entry views, read and written as `x[]`.
-
-| Type | `forward!` | `pullback!` | `grads` |
-|---|---|---|---|
-| blockwise modifier group step | `forward!(m, Step(), v::Tuple, s::Tuple, t, g)` updates the views in `v` and `s` | `pullback!(grads, m, Step(), v, s, t, g)` | the mirror; `v` and `s` are tuples of views holding the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
+A blockwise step, `forward!(m, Step(), v::Tuple, s::Tuple, t, g)`, acts on one group `g` at a time, with its values and state entries as tuples of one-entry views, read and written as `x[]`.
+Its `pullback!(grads, m, Step(), v, s, t, g)` takes `grads.v` and `grads.s` as tuples of views in the same way.
 
 This one keeps a running total and a step count per stratum, and adds their mean to the value:
 

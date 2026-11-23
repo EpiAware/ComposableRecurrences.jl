@@ -1,9 +1,7 @@
 # [Writing new types](@id extending)
 
 A new modifier, coupling or depletion form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for each of its roles.
-A [`pullback!`](@ref ComposableRecurrences.pullback!) method is optional and gives it a hand-written gradient.
-One modifier built end to end shows each step: the type, its use in a model, its gradient and its checks.
-The [pages after this one](@ref extending-next) cover the other cases.
+One modifier built end to end shows each step, and the [pages after this one](@ref extending-next) cover the other cases.
 
 ```@example extending
 using ComposableRecurrences
@@ -47,8 +45,7 @@ Both write in place and return `nothing`.
 
 The modifier acts on each stratum alone, so it is pointwise.
 It says so with `blocks(::Smooth) = (1, 1)`: one value and one state entry per stratum.
-The field `a` has a type parameter so that a dual number can take its place.
-[Rules for every type](@ref extending-rules) lists what else a `forward!` must respect.
+[Rules for every type](@ref extending-rules) lists what else a `forward!` must respect, such as taking dual numbers.
 
 ## [In a model](@id extending-model)
 
@@ -73,8 +70,7 @@ model(a) = Recurrence(
 [argmax(model(a)(fill(1.8, 80); history = seed)) for a in (0.0, 0.5, 0.8)]
 ```
 
-The model is differentiable already.
-Without a `pullback!`, the operator's [rule](@ref adjoint-routing) differentiates the modifier's step locally with dual numbers.
+Without a `pullback!`, the model is still differentiable: the operator's [rule](@ref adjoint-routing) differentiates the modifier's step locally with dual numbers.
 
 ```@example extending
 using ForwardDiff
@@ -100,7 +96,7 @@ where a bar marks a cotangent, ``\bar g`` is the summed cotangent and ``s`` is t
 A `pullback!` takes the named tuple `grads` first, then the same arguments as `forward!`.
 Its entries `grads.v` and `grads.s` hold the cotangents of the new value and state, and the method overwrites them with those of the old.
 The entry `grads.piece` holds the cotangents of the type's own fields.
-The function [`cotangent`](@ref ComposableRecurrences.cotangent) reads the entry of the field `a`, and [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!) adds to it; both skip a field the backend holds constant.
+The function [`cotangent`](@ref ComposableRecurrences.cotangent) reads the entry of the field `a`, and [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!) adds to it.
 The `Init` pullback adds the state's cotangent into the last column of the history.
 
 ```@example extending
@@ -130,10 +126,7 @@ CR.pullback!(grads, Smooth(0.5), CR.Step(), [2.0], [1.0], 1)
 
 ## [Checking a new type](@id extending-checks)
 
-The test [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) checks `forward!` with one `Arguments` per role, each holding the type, the role and the arguments after the role.
-The optional checks `:pointwise` and `:nstate` test a pointwise step and the state length.
-The `:pullback` check compares each `pullback!` with the ForwardDiff Jacobian of `forward!` on the same inputs.
-[Checking your type](@ref overview-gradients) lists the arguments for every role.
+The test [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) checks `forward!` with one `Arguments` per role, and here also the optional checks in braces; [Checking your type](@ref overview-gradients) lists them all.
 
 ```@example extending
 using Interfaces: Interfaces, Arguments
@@ -165,11 +158,11 @@ gradient(abs2_loss(smooth), backend, [0.3]) ≈
 
 ## [Where next](@id extending-next)
 
-- [Parameters and gradients](@ref extending-parameters): a parameter per stratum or over time, and the layout of `grads.piece`.
-- [Couplings](@ref extending-coupling): a new way to mix strata, including a linear one.
-- [Steps across strata](@ref extending-steps): a modifier that reads other strata or acts on groups of them.
-- [Traces](@ref extending-trace): what a modifier records for a call with `record = (:trace,)`.
-- [Depletion forms](@ref extending-form): a new way for a pool to give up what a step asks for.
-- [Extension API](@ref overview-extending): every role, its arguments and the names for a new type.
-- [Rules for every type](@ref extending-rules): number types, threads and other cases a `forward!` must handle.
-- [Performance and trimming](@ref extending-performance): fast methods, specialising and trimmed executables.
+- [Parameters and gradients](@ref extending-parameters): parameters of any form, and `grads.piece`.
+- [Couplings](@ref extending-coupling): new ways to mix strata.
+- [Steps across strata](@ref extending-steps): steps that read other strata.
+- [Traces](@ref extending-trace): what a modifier records.
+- [Depletion forms](@ref extending-form): new ways for a pool to give.
+- [Extension API](@ref overview-extending): every role and name.
+- [Rules for every type](@ref extending-rules): number types, threads and pointwise steps.
+- [Performance and trimming](@ref extending-performance): speed and trimmed executables.

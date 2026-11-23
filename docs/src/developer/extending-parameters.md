@@ -1,7 +1,6 @@
 # [Parameters and gradients](@id extending-parameters)
 
-A modifier parameter read with [`param`](@ref ComposableRecurrences.param) can be one value, one per stratum, one per step or any other parameter form, and its gradient follows with [`add_param!`](@ref ComposableRecurrences.add_param!).
-It builds on the smoothing modifier of [Writing new types](@ref extending), and the layout of `grads.piece` below holds for every new type.
+A modifier parameter can take any form and still get its gradient, building on [Writing new types](@ref extending).
 
 ```@example extending-parameters
 using ComposableRecurrences
