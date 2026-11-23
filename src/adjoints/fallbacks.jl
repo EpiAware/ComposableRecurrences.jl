@@ -622,18 +622,24 @@ function _init_needs_duals(m)
     world = Base.get_world_counter()
     hit = @lock _DEFAULT_INIT_LOCK get(_INIT_DUALS, T, nothing)
     hit !== nothing && first(hit) == world && return last(hit)
-    own_init = _own_method(forward!, Tuple{T, Init, Any, Any}, 1)
-    own_back = _own_method(pullback!, Tuple{Any, T, Init, Any, Any}, 2)
+    own_init = _own_method(Tuple{typeof(forward!), T, Init, Any, Any}, 1)
+    own_back = _own_method(Tuple{typeof(pullback!), Any, T, Init, Any, Any}, 2)
     d = own_init && !own_back
     @lock _DEFAULT_INIT_LOCK _INIT_DUALS[T] = (world, d)
     return d
 end
-# Whether a method of `f` that could apply to `sig` types its argument `j`,
-# so it is not the generic fallback.
-function _own_method(f, sig, j)
-    return any(methods(f, sig)) do mt
-        Base.unwrap_unionall(mt.sig).parameters[j + 1] !== Any
+# Whether a method that could apply to the call signature `sig` types its
+# argument `j`, so it is not the generic fallback. The method table is read
+# directly, with each result's type asserted, so a trimmed build resolves it.
+function _own_method(sig, j)
+    ms = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
+    ms isa Vector || return false
+    for x in ms
+        m = (x::Core.MethodMatch).method
+        t = Base.unwrap_unionall(m.sig)::DataType
+        t.parameters[j + 1] === Any || return true
     end
+    return false
 end
 
 # Cached per signature with its world age, so a method defined later is still
