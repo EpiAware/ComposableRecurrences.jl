@@ -68,6 +68,7 @@ A recurrence `renewal` takes its gain first, and a convolution `delay` takes its
 | [`delay'(x; tail, start, stop)`](@ref Base.transpose(::Convolution)) | the transpose, which reads `x` forward from each time |
 | [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | ``K_t p_t`` recomputed from `y`; `y` over it is the gain as run |
 | [`ComposableRecurrences.window_sums(y, ends; dims)`](@ref ComposableRecurrences.window_sums) | the sums of `y` over windows ending at `ends` |
+| [`ComposableRecurrences.kernel_weights(TimeVarying(w, Primary()), n)`](@ref ComposableRecurrences.kernel_weights) | the weights a computed kernel `w` gives cohorts 1 to `n` |
 
 The keyword `stop` defaults to the common length of the time-indexed inputs, and inputs of different lengths without a `stop` are an error.
 Without a gain, a recurrence takes a gain of 1.

@@ -737,11 +737,16 @@ end
         typeof(grads.v), typeof(grads.s), typeof(v), typeof(s), param_eltype(m),
     )
     v̄r, s̄r = Base.RefValue{T}(grads.v), Base.RefValue{T}(grads.s)
-    g = (; piece = grads.piece, v = _At(v̄r, k), s = _At(s̄r, k))
+    g = _at_output(grads, (; piece = grads.piece, v = _At(v̄r, k), s = _At(s̄r, k)), k)
     _written(
         m, @inline pullback!(g, m, Step(), _At(Ref(v), k), _At(Ref(s), k), t)
     )
     return v̄r[], s̄r[]
+end
+# The step's output, where the reverse pass gives it, at stratum `k`.
+_at_output(grads, g, k) = g
+function _at_output(grads::NamedTuple{(:piece, :v, :s, :out)}, g, k)
+    return merge(g, (; out = _At(Ref(grads.out), k)))
 end
 # A slot for a scalar the step may write a value of the modifier's float type
 # into, such as a dual number from a parameter.
