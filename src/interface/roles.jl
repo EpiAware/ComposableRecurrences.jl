@@ -819,26 +819,39 @@ function _split_pullback!(::Val{B}, grads, m, v, s, t) where {B}
     return nothing
 end
 function _group_back!(gs, acc, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
-    nv, ns = B
     m̄ = _unown(acc)
+    if uses_adjoint(m, Step())
+        _groups_back!(gs, m̄, v̄, s̄, m, v, s, t, Val(B), G)
+    else
+        _groups_local_back!(gs, m̄, v̄, s̄, m, v, s, t, Val(B), G)
+    end
+    return nothing
+end
+# The modifier's own pullback on one-entry views of each group's entries.
+function _groups_back!(gs, m̄, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
+    nv, ns = B
     for g in gs
-        if uses_adjoint(m, Step())
-            gg = (;
-                piece = m̄, v = _entries(v̄, Val(nv), G, g),
-                s = _entries(s̄, Val(ns), G, g),
-            )
-            vg, sg = _entries(v, Val(nv), G, g), _entries(s, Val(ns), G, g)
-            _written(m, @inline pullback!(gg, m, Step(), vg, sg, t, g))
-        else
-            gg = (;
-                piece = m̄, v = _gather(v̄, Val(nv), G, g),
-                s = _gather(s̄, Val(ns), G, g),
-            )
-            vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
-            v̄g, s̄g = _block_local_back(gg, m, vg, sg, t, g)
-            _scatter!(v̄, v̄g, G, g)
-            _scatter!(s̄, s̄g, G, g)
-        end
+        gg = (;
+            piece = m̄, v = _entries(v̄, Val(nv), G, g),
+            s = _entries(s̄, Val(ns), G, g),
+        )
+        vg, sg = _entries(v, Val(nv), G, g), _entries(s, Val(ns), G, g)
+        _written(m, @inline pullback!(gg, m, Step(), vg, sg, t, g))
+    end
+    return nothing
+end
+# The local derivative of each group's step, on its gathered values.
+function _groups_local_back!(gs, m̄, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
+    nv, ns = B
+    for g in gs
+        gg = (;
+            piece = m̄, v = _gather(v̄, Val(nv), G, g),
+            s = _gather(s̄, Val(ns), G, g),
+        )
+        vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
+        v̄g, s̄g = _block_local_back(gg, m, vg, sg, t, g)
+        _scatter!(v̄, v̄g, G, g)
+        _scatter!(s̄, s̄g, G, g)
     end
     return nothing
 end

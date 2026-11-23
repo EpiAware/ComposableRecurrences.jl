@@ -795,9 +795,9 @@ end
 # == The group step ==
 
 # A group's step and its pullback, on tuples of one-entry views of the
-# group's values and state. They, the parts' steps and their helpers are
-# inlined, as their calls are (see `_vector_step!`): a call-site inline
-# reaches only the first method, and inner calls slow the reverse pass.
+# group's values and state. They and the parts' steps are marked `@inline`,
+# as a call-site inline reaches only the first method, and inner calls slow
+# the reverse pass.
 
 # Without a draw: the flows on the group's values.
 @inline function forward!(m::_Drawless, ::Step, v::Tuple, s::Tuple, t, g)
