@@ -1345,4 +1345,16 @@ end
     end
     # A resumed call has no seed to join.
     @test_throws ArgumentError r(R; state = out.state, include_history = true)
+    # A stated call without a trace joins the history to `y` alone.
+    s = r(R; history = h, record = (:state,), include_history = true)
+    @test s.y == vcat(h, out.y)
+    @test s.state.history == out.state.history
+    # Arrays other than `Array`, such as tracked or traced ones, are joined
+    # and padded with `cat`.
+    v = view([3.0, 4.0, 5.0], 2:3)
+    @test CR._join_history([1.0, 2.0], v) == [1.0, 2.0, 4.0, 5.0]
+    M = view([1.0 2.0; 3.0 4.0], :, 1:2)
+    @test CR._join_history(zeros(2, 1), M) == [0.0 1.0 2.0; 0.0 3.0 4.0]
+    @test CR._pad_front(v, 2) == [0.0, 0.0, 4.0, 5.0]
+    @test CR._pad_front(M, 1) == [0.0 1.0 2.0; 0.0 3.0 4.0]
 end

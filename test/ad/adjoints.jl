@@ -2571,9 +2571,9 @@ end
         end
     end
     # Strata, with a history of two times that is a reshaped view, so the
-    # history's columns and the strata's offsets are differentiated.
-    S = 3
-    for n in (1, 2)
+    # history's columns and the strata's offsets are differentiated. One
+    # stratum takes the scan, three the buffer run.
+    for S in (1, 3), n in (1, 2)
         function joined_strata(θ)
             r = Recurrence(n == 1 ? [0.9] : [0.6, 0.3])
             h = reshape(view(θ, 1:(2 * S)), S, 2)
