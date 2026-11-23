@@ -176,9 +176,13 @@ function Recurrence(
     )
     _check_no_step(step)
     _check_no_delays(kernel)
-    k, C = _fold(kernel, coupling)
+    k, C = _fold(kernel, _as_coupling(coupling))
     return Recurrence(k, C, Tuple(modifiers))
 end
+
+# A coupling is strata × strata, so a bare third axis can only be time.
+_as_coupling(C) = C
+_as_coupling(C::AbstractArray{<:Real, 3}) = TimeVarying(C)
 
 # The identity coupling is stored with an integer scale: reverse AD on Julia
 # 1.11 loses a scalar field's gradient beside a field wrapping a `Bool` in
@@ -315,9 +319,11 @@ end
 function _check_kernel_shape(k::AbstractArray)
     throw(
         ArgumentError(
-            "a kernel array is a vector of lag weights; wrap a strata × " *
-                "lags matrix as PerStratum(G) and a strata × strata × lags " *
-                "array as Pairwise(A); got $(_describe(k))"
+            "a kernel array is a vector of lag weights; a matrix could be " *
+                "strata × lags, PerStratum(G), or lags × time, " *
+                "TimeVarying(G), and a 3-dimensional array strata × lags × " *
+                "time, TimeVarying(PerStratum(G)), or strata × strata × " *
+                "lags, Pairwise(A), so wrap it as one; got $(_describe(k))"
         )
     )
 end
