@@ -40,7 +40,7 @@ y = (Reactant.@compile joined(R, h))(R, h)
 A traced call runs its own executor whatever [executor](@ref executors) is set, and Enzyme differentiates the traced program rather than using the hand-written gradients.
 The time loop compiles to one loop whose body is a step, so the program does not grow with the number of steps.
 
-From [`TRACED_MIN_STRATA`](@ref ComposableRecurrences.TRACED_MIN_STRATA) [strata](@ref explanation-step), each step runs them as one kernel, the [`Parallel`](@ref ComposableRecurrences.Parallel) executor's, so the program does not grow with the number of strata either.
+From [`TRACED_MIN_STRATA`](@ref ComposableRecurrences.TRACED_MIN_STRATA) [strata](@ref overview-step), each step runs them as one kernel, the [`Parallel`](@ref ComposableRecurrences.Parallel) executor's, so the program does not grow with the number of strata either.
 Fewer strata are written out, one block a stratum.
 The docstring of `TRACED_MIN_STRATA` gives its default, why, and when to change it; set it with `with`:
 
