@@ -101,7 +101,7 @@ public Derived, Recent, Depletion, Flow, Share, Redistribute,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Parallel, Device, EXECUTOR, param, add_param!, Direct, FFTMethod,
     delay_masses, pressure, Survival, convert_floats, islinear, isstateless,
-    window_sums, Trace, ntrace, add_cotangent!, param_rows
+    window_sums, Trace, ntrace, add_cotangent!, param_rows, kernel_weights
 
 # shapes: slot wrappers and shape and eltype helpers.
 # Time-varying, per-stratum and pairwise coefficients.
