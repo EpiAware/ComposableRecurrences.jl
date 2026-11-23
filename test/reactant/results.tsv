@@ -266,3 +266,5 @@ works	1.6e-16	8.1	196.8	11.4				conv_derived_kernel	forward	cases	cpu	400	0.0
 works	3.4e-16	13.7	440.9	2644.2				conv_derived_kernel	reverse	cases	cpu	400	0.0
 works	3.6e-16	2.2	13.8	8.8				rec_cp_strata_const	forward	cases	cpu	400	0.0
 works	4.8e-15	1.1	342.7	5788.6				rec_cp_strata_const	reverse	cases	cpu	400	0.0
+error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching growth_rate(::Reactant.TracedRNumber{Float64}, ::SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, true}) The function `growth_rate` exists, but no method is defined for this combination of argument types. Closest	Growth rate from a reproduction number	forward	registry	cpu	12	0.0
+error	NaN	NaN	NaN	NaN	MethodError	-	MethodError: no method matching growth_rate(::Reactant.TracedRNumber{Float64}, ::SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, Tuple{UnitRange{Int64}}, true}) The function `growth_rate` exists, but no method is defined for this combination of argument types. Closest	Growth rate from a reproduction number	reverse	registry	cpu	12	0.0

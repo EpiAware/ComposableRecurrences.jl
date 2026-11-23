@@ -3070,6 +3070,11 @@ const REACTANT_BROKEN = Dict(
         "Recurrence negative binomial generation interval per stratum",
         "Recurrence negative binomial generation interval per pair of strata",
     ],
+    # `growth_rate` takes `Real` arguments, and its Newton solve stops on a
+    # comparison of values, which a trace cannot drive.
+    "a Newton solve on traced values" => [
+        "Growth rate from a reproduction number",
+    ],
 )
 
 """
