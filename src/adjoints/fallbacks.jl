@@ -611,8 +611,11 @@ end
 
 # Whether `m` sets its own initial state but has no `pullback!` for `Init`,
 # so the pullback above would take the local derivative. Read from the
-# methods that could apply to its type, so a typed method counts too, and
-# cached per type as `_default_init` is below.
+# methods that could apply to its type, so a method typed on `m`'s type or a
+# supertype of it counts, and cached per type as `_default_init` is below.
+# A modifier without float parameters skips the local derivative when its
+# history is constant, but whether it is differentiated is not known from
+# the types, so that modifier is counted too.
 const _INIT_DUALS = Dict{Type, Tuple{UInt, Bool}}()
 function _init_needs_duals(m)
     T = typeof(m)

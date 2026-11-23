@@ -151,36 +151,38 @@ end
         end
     end
     # A pool that sets its own initial state, with a `pullback!` for its
-    # step; `Pool` has none for its `Init`, `PoolInit` has one.
-    for P in (:Pool, :PoolInit)
-        @eval begin
-            struct $P{T}
-                N::T
-            end
-            CR.blocks(::$P) = (1, 1)
-            CR.uses_adjoint(::$P, ::CR.Step) = true
-            CR.forward!(m::$P, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
-            function CR.forward!(m::$P, ::CR.Step, v, s, t)
-                for k in eachindex(v, s)
-                    x = v[k] / m.N
-                    v[k], s[k] = -s[k] * expm1(-x), s[k] * exp(-x)
-                end
-                return nothing
-            end
-            function CR.pullback!(grads, m::$P, ::CR.Step, v, s, t)
-                for k in eachindex(v, s)
-                    v̄, s̄ = grads.v[k], grads.s[k]
-                    x = v[k] / m.N
-                    e = exp(-x)
-                    x̄ = s[k] * e * (v̄ - s̄)
-                    CR.add_cotangent!(CR.cotangent(grads.piece, :N), -x̄ * x / m.N)
-                    grads.v[k], grads.s[k] = x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
-                end
-                return nothing
-            end
-        end
+    # step, its methods typed on a supertype. `Pool` has no `pullback!` for
+    # its `Init`; `PoolInit` has one, typed on its own supertype.
+    abstract type AbstractPool end
+    abstract type InitPool <: AbstractPool end
+    struct Pool{T} <: AbstractPool
+        N::T
     end
-    function CR.pullback!(grads, m::PoolInit, ::CR.Init, s, history)
+    struct PoolInit{T} <: InitPool
+        N::T
+    end
+    CR.blocks(::AbstractPool) = (1, 1)
+    CR.uses_adjoint(::AbstractPool, ::CR.Step) = true
+    CR.forward!(m::AbstractPool, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
+    function CR.forward!(m::AbstractPool, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            x = v[k] / m.N
+            v[k], s[k] = -s[k] * expm1(-x), s[k] * exp(-x)
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, m::AbstractPool, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v̄, s̄ = grads.v[k], grads.s[k]
+            x = v[k] / m.N
+            e = exp(-x)
+            x̄ = s[k] * e * (v̄ - s̄)
+            CR.add_cotangent!(CR.cotangent(grads.piece, :N), -x̄ * x / m.N)
+            grads.v[k], grads.s[k] = x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, m::InitPool, ::CR.Init, s, history)
         CR.add_cotangent!(CR.cotangent(grads.piece, :N), sum(grads.s))
         return nothing
     end
@@ -199,25 +201,33 @@ end
         occursin("Pool sets its own initial state", m) &&
             occursin("add `using ForwardDiff`", m)
     end
-    println("plain ", CR._PULLBACK_CALLS[] == n0, " ", isapprox(g, fd(f, θ); rtol = 1.0e-5), " ", noted)
+    println("plain rule skipped ", CR._PULLBACK_CALLS[] == n0)
+    println("plain gradient ", isapprox(g, fd(f, θ); rtol = 1.0e-5))
+    println("plain noted ", noted)
     # With a `pullback!` for its `Init`, the rule.
     fi = run(PoolInit)
     n0 = CR._PULLBACK_CALLS[]
     g = gradient(fi, backend, θ)
-    println("rule ", CR._PULLBACK_CALLS[] > n0, " ", isapprox(g, fd(fi, θ); rtol = 1.0e-5))
+    println("rule taken ", CR._PULLBACK_CALLS[] > n0)
+    println("rule gradient ", isapprox(g, fd(fi, θ); rtol = 1.0e-5))
     # With the dual-number extension, `Pool` takes the rule too.
     using ForwardDiff
     n0 = CR._PULLBACK_CALLS[]
     g = gradient(f, backend, θ)
-    println("duals ", CR._PULLBACK_CALLS[] > n0, " ", isapprox(g, fd(f, θ); rtol = 1.0e-5))
+    println("duals rule taken ", CR._PULLBACK_CALLS[] > n0)
+    println("duals gradient ", isapprox(g, fd(f, θ); rtol = 1.0e-5))
     """
     project = Base.active_project()
     cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
     lines = split(read(cmd, String), '\n'; keepempty = false)
     @test lines[1] == "false"
-    @test "plain true true true" in lines
-    @test "rule true true" in lines
-    @test "duals true true" in lines
+    @test "plain rule skipped true" in lines
+    @test "plain gradient true" in lines
+    @test "plain noted true" in lines
+    @test "rule taken true" in lines
+    @test "rule gradient true" in lines
+    @test "duals rule taken true" in lines
+    @test "duals gradient true" in lines
 end
 
 @testitem "Trace, Mooncake reverse: gradients through the traces of built-in modifiers and flows, the rule against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin
