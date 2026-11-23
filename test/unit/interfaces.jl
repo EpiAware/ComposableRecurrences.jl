@@ -359,6 +359,44 @@ end
     @test_throws DimensionMismatch eachindex(a, b, CR._At(Ref(0.0), 3))
 end
 
+@testitem "Interfaces: a group's one-entry views of the strata vectors" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    # Group `g` of `G` reads and writes entry `(i - 1) G + g` of each
+    # compartment `i`, at its own index `g`.
+    x = collect(1.0:12.0)
+    a = CR._At(CR._Shifted(x, 8), 2)
+    @test a[2] == 10.0
+    a[2] = -1.0
+    @test x[10] == -1.0
+    x = collect(1.0:12.0)
+    vs = CR._entries(x, Val(3), 4, 2)
+    @test map(getindex, vs) == CR._gather(x, Val(3), 4, 2) == (2.0, 6.0, 10.0)
+    @test all(v -> eachindex(v) == 2:2, vs)
+    # A blockwise Depletion's step on those views gives what its step on
+    # the gathered values gives: without a draw, with a queue, with an
+    # overflow into a stratum, and with flows after a weighted draw.
+    deps = (
+        CR.Depletion(
+            CR.Flow(:A => :B, 0.1), CR.Flow(:B => 0, 2.0; form = CR.Truncate());
+            pools = (:A, :B)
+        ),
+        CR.Depletion(5.0, CR.Truncate(; into = :O, overflow = :queue); pools = (:O,)),
+        CR.Depletion(5.0, CR.Truncate(; into = :O, overflow = :stratum); pools = (:O,)),
+        CR.Depletion(
+            100.0, CR.Hazard(; weights = (S = 1, V = 0.3)),
+            CR.Flow(:S => :V, 2.0; form = CR.Truncate()); pools = (:S, :V)
+        ),
+    )
+    G = 3
+    for m in deps
+        nv, ns = CR.blocks(m)
+        v = [1.0 + 0.5 * k for k in 1:(nv * G)]
+        s = [3.0 + k for k in 1:(ns * G)]
+        @test CR._groups_ok(Val((nv, ns)), m, (v, s, 1))
+    end
+end
+
 @testitem "Interfaces: a pointwise Init writes each stratum's state from that stratum" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences

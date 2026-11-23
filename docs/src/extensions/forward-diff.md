@@ -1,9 +1,22 @@
 # [ForwardDiff extension](@id extension-forwarddiff)
 
-Loading ForwardDiff with ComposableRecurrences, as with `using ForwardDiff`, loads `ComposableRecurrencesForwardDiffExt`.
+Loading ForwardDiff gives each coupling and modifier without its own [`pullback!`](@ref ComposableRecurrences.pullback!) a dual-number [local step](@ref adjoint-routing) in the reverse-mode rules.
+Without it, a gradient through such a coupling or modifier falls back to plain AD, which is [slower](@ref adjoint-local-step).
+ForwardDiff gradients themselves use plain AD:
 
-It holds the dual-number code of the [local step](@ref adjoint-routing).
-This is the default pullback of each coupling, modifier, depletion form and initial state without its own [`pullback!`](@ref ComposableRecurrences.pullback!), and the local derivative of a [`Transform`](@ref ComposableRecurrences.Transform) without a `derivative`.
-It also holds the [`Recurrence`](@ref) constructor's check that the local step can rebuild each component it differentiates.
-Without this extension, a gradient through a component that needs the local step uses plain AD instead, which is [slower](@ref adjoint-local-step).
-ForwardDiff gradients take [plain automatic differentiation (AD)](@ref adjoint-backends), so they do not use the local step.
+```jldoctest
+using ComposableRecurrences, ForwardDiff
+r = Recurrence([0.5, 0.3])
+loss(R) = sum(r(R; history = [1.0, 1.0]))
+round.(ForwardDiff.gradient(loss, fill(1.1, 4)); digits = 3)
+
+# output
+
+4-element Vector{Float64}:
+ 2.17
+ 1.615
+ 1.04
+ 0.613
+```
+
+All extensions are listed in the [overview](@ref extensions-overview).

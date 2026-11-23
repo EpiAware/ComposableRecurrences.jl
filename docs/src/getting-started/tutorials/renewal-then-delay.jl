@@ -140,5 +140,5 @@ performance_plot("renewal")
 # - [Vaccination](@ref tutorial-vaccination): this model with a protected pool of the vaccinated.
 # - [Imported cases](@ref tutorial-imports): this model with imports before and after depletion.
 # - [Clinical outcomes](@ref tutorial-clinical-outcomes): onsets, admissions and deaths as a chain of delays.
-# - [API overview](@ref api-overview): every operator, coupling and modifier.
+# - [API overview](@ref api-overview): a map of every operator, coupling and modifier.
 # - [Public API](@ref public-api): every public name with its docstring.
