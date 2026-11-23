@@ -184,6 +184,9 @@ const INDEX_REWRITES = Pair{String, String}[
         "](@ref gpu-arrays)",
     "](https://composablerecurrences.epiaware.org/stable/developer/extending/#trimming)" =>
         "](@ref trimming)",
+    # The extensions overview, as an in-site reference.
+    "](https://composablerecurrences.epiaware.org/stable/getting-started/#extensions-overview)" =>
+        "](@ref extensions-overview)",
     # The README's model block prints nothing on the home page.
     "reports = delay(infections; gain = 0.4, history = seed)" =>
         "reports = delay(infections; gain = 0.4, history = seed)\nnothing # hide",
