@@ -4,8 +4,8 @@ using ComposableRecurrences: ComposableRecurrences, Allocate, Pairwise,
     Parallel, PerStratum, Pressure, Secondary, Serial, Step, Threaded, TimeVarying,
     _AllocateImports, _FixedKernel, _OldestFirstPairwise, _Ragged, _Piecewise,
     _PIECEWISE_DEVICE, cotangent
-using GPUArrays: AbstractGPUArray, AbstractGPUSparseMatrixCSR, AnyGPUArray,
-    @allowscalar
+using GPUArrays: AbstractGPUArray, AbstractGPUSparseMatrix,
+    AbstractGPUSparseMatrixCSR, AnyGPUArray, csr_type, @allowscalar
 using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
 using SparseArrays: SparseMatrixCSC
@@ -14,15 +14,15 @@ const CR = ComposableRecurrences
 
 # Device arrays, and views and reshapes of them, run on their own backend
 # under the CPU executors: host threads cannot index them.
-function ComposableRecurrences._resolve(
+function CR._resolve(
         ::Union{Serial, Threaded}, x::AnyGPUArray
     )
     return Parallel(get_backend(x))
 end
-ComposableRecurrences._on_gpu(::AnyGPUArray) = true
+CR._on_gpu(::AnyGPUArray) = true
 
 # Transpose a view of the rows, so they are copied once.
-function ComposableRecurrences._public(H::AnyGPUArray, rows, h::AbstractMatrix)
+function CR._public(H::AnyGPUArray, rows, h::AbstractMatrix)
     return permutedims(view(H, rows, :))
 end
 
@@ -32,14 +32,12 @@ const _DeviceParam = Union{
     PerStratum{<:AnyGPUArray}, TimeVarying{<:Any, <:AnyGPUArray{<:Any, 1}},
     TimeVarying{<:Any, <:PerStratum{<:AnyGPUArray}},
 }
-function ComposableRecurrences._entry(x::_DeviceParam, at::Tuple)
-    return @allowscalar ComposableRecurrences.param(x, at...)
+function CR._entry(x::_DeviceParam, at::Tuple)
+    return @allowscalar CR.param(x, at...)
 end
 
 # == pressure on device arrays ==
 
-# One kernel per step, one stratum per index. The reverse pass runs the
-# coupling and kernel pullbacks per step.
 CR._device_ready(op::CR._Pressure) = CR._device_ready(op.r)
 function CR._pressure_run(
         ::Type{Tp}, r, y::AnyGPUArray, h, τ0, L, D, S, T, keep::Val
@@ -125,58 +123,58 @@ end
 # A user modifier's `Init` reverses once per call, on host copies: its
 # dual-number pullback runs stratum by stratum there, its scalar parameters'
 # cotangents are host `Ref`s, and the history's cotangent is copied back.
-function ComposableRecurrences._init_strata_back!(
+function CR._init_strata_back!(
         m̄, h̄, m, s̄::AnyGPUArray, s, history
     )
     h̄h = h̄ === nothing ? nothing : zeros(eltype(h̄), size(h̄))
     hh = history === nothing ? nothing : Array(history)
-    ComposableRecurrences._init_strata_back!(m̄, h̄h, m, Array(s̄), Array(s), hh)
+    CR._init_strata_back!(m̄, h̄h, m, Array(s̄), Array(s), hh)
     h̄ === nothing || (h̄ .+= copyto!(similar(h̄), h̄h))
     return nothing
 end
 # An `Init` written only for device states would not run on those host
 # copies, so a call with one keeps plain AD; the host method decides the
 # rest. The probe state is built as the run builds its states.
-function ComposableRecurrences._parts_fit(r, h::AnyGPUArray, tlast = 2)
-    fit = @invoke ComposableRecurrences._parts_fit(r, h::Any, tlast)
+function CR._parts_fit(r, h::AnyGPUArray, tlast = 2)
+    fit = @invoke CR._parts_fit(r, h::Any, tlast)
     return any(m -> _device_only_init(m, h), r.modifiers) ? :none : fit
 end
 function _device_only_init(m, h)
-    ComposableRecurrences._default_init(m, similar(h, 0), h) && return false
+    CR._default_init(m, similar(h, 0), h) && return false
     host = Matrix{eltype(h)}(undef, 0, 0)
-    return ComposableRecurrences._default_init(m, Vector{eltype(h)}(), host)
+    return CR._default_init(m, Vector{eltype(h)}(), host)
 end
 
 # A fixed kernel's pullback over every stratum on device arrays, as a
 # route's kernel runs it; the host loop cannot index them.
-function ComposableRecurrences._kernel_back!(
+function CR._kernel_back!(
         kbuf, ḡ, g::_FixedKernel, p̄::AnyGPUArray, H, H̄, t, τ, L
     )
-    return ComposableRecurrences._device_kernel_back!(
+    return CR._device_kernel_back!(
         kbuf, ḡ, g, p̄, H, H̄, t, τ, L
     )
 end
 
 # A pairwise kernel's pullback on device arrays, one sender per kernel
 # index.
-function ComposableRecurrences._kernel_back!(
+function CR._kernel_back!(
         kbuf, ḡ, g::_OldestFirstPairwise, p̄::AnyGPUArray, H, H̄, t, τ, L
     )
-    return ComposableRecurrences._device_pairwise_back!(
+    return CR._device_pairwise_back!(
         kbuf, ḡ, g, p̄, H, H̄, t, τ, L
     )
 end
-function ComposableRecurrences._kernel_back!(
+function CR._kernel_back!(
         kbuf, ḡ, g::TimeVarying{<:Any, <:Pairwise}, p̄::AnyGPUArray, H, H̄, t,
         τ, L
     )
-    return ComposableRecurrences._device_pairwise_back!(
+    return CR._device_pairwise_back!(
         kbuf, ḡ, g, p̄, H, H̄, t, τ, L
     )
 end
 # The oldest-first buffer of a fixed pairwise kernel adds into its
 # cotangent as one array operation.
-function ComposableRecurrences._kernel_finish!(
+function CR._kernel_finish!(
         ḡ::NamedTuple, kbuf::AnyGPUArray{<:Any, 3}
     )
     L = size(kbuf, 1)
@@ -187,24 +185,24 @@ end
 # An `Allocate` with imports on a device reverses each group as one kernel
 # index, as the host loop cannot index device arrays; the host method holds
 # no device code.
-function ComposableRecurrences.pullback!(
+function CR.pullback!(
         grads, m::Allocate{<:Any, <:_AllocateImports}, ::Step,
         v::AnyGPUArray, s, t
     )
-    return ComposableRecurrences._device_imports_pullback!(grads, m, v, s, t)
+    return CR._device_imports_pullback!(grads, m, v, s, t)
 end
 
 # A coupling over time on the device: see `_device_tv_coupling_back!`.
-function ComposableRecurrences.pullback!(
+function CR.pullback!(
         grads, C::TimeVarying{Secondary, <:AnyGPUArray{<:Any, 3}}, ::Pressure,
         q, p, t
     )
-    return ComposableRecurrences._device_tv_coupling_back!(grads, C, p, t)
+    return CR._device_tv_coupling_back!(grads, C, p, t)
 end
 
 # Device arrays reverse by indexing with a reversed range, one gather,
 # where `reverse` would index each entry from the host.
-function ComposableRecurrences._reverse_dim(x::AnyGPUArray, d)
+function CR._reverse_dim(x::AnyGPUArray, d)
     return x[ntuple(i -> i == d ? (size(x, i):-1:1) : Colon(), Val(ndims(x)))...]
 end
 
@@ -212,7 +210,7 @@ end
 # inputs and states inside kernels, so a float array among them must live on
 # the device too. Integer arrays, such as `Allocate`'s groups, are copied
 # where a loop needs them.
-function ComposableRecurrences._check_device(::AnyGPUArray, parts)
+function CR._check_device(::AnyGPUArray, parts)
     _piecewise_leaf(parts) && throw(ArgumentError(_PIECEWISE_DEVICE))
     _host_leaf(parts) && throw(
         ArgumentError(
@@ -245,7 +243,7 @@ end
 
 # The longest column of a ragged kernel whose offsets live on a device, as
 # one reduction there.
-function ComposableRecurrences._maxlen(g::_Ragged{<:AbstractVector, <:AnyGPUArray})
+function CR._maxlen(g::_Ragged{<:AbstractVector, <:AnyGPUArray})
     n = length(g.offsets)
     n <= 1 && return 0
     o = g.offsets
@@ -253,40 +251,38 @@ function ComposableRecurrences._maxlen(g::_Ragged{<:AbstractVector, <:AnyGPUArra
 end
 
 # Host index arrays a loop reads, copied to the device of `v`.
-function ComposableRecurrences._like(v::AnyGPUArray, x::Array)
+function CR._like(v::AnyGPUArray, x::Array)
     return copyto!(similar(v, eltype(x), size(x)), x)
 end
 # Columns on a device stack there.
-function ComposableRecurrences._like(ks::AbstractVector{<:AnyGPUArray}, x::Array)
-    return isempty(ks) ? x : ComposableRecurrences._like(first(ks), x)
+function CR._like(ks::AbstractVector{<:AnyGPUArray}, x::Array)
+    return isempty(ks) ? x : CR._like(first(ks), x)
 end
 
-# A dense coupling's step and the kernels' reverse run in one kernel per
-# step, one index per stratum, where the two products and the kernels' pass
-# took a launch each. Stratum `k` sums its entry of `p̄` from a transposed
-# copy of the coupling, so neighbouring indices read neighbouring entries,
-# records its `q̄` and steps its kernel back. The coupling's cotangent is one
-# product after the loop, `Q̄ Pᵀ`. Both buffers are made once per call.
+# A dense coupling's step and the kernels' reverse in one kernel per step,
+# where they took a launch each. The coupling is transposed once per call,
+# so neighbouring strata read neighbouring entries, and its cotangent is one
+# product after the loop, `Q̄ Pᵀ`.
 struct _FusedSteps{A, Q}
     Cᵀ::A
     Q̄::Q
 end
-function ComposableRecurrences._coupling_steps(
+function CR._coupling_steps(
         C̄, C::AnyGPUArray{<:Number, 2}, kernel, H::AnyGPUArray, pr
     )
-    C̄m = ComposableRecurrences._array_mirror(C̄)
+    C̄m = CR._array_mirror(C̄)
     Q̄ = C̄m isa AbstractMatrix ? fill!(similar(pr.P), false) : nothing
     return _FusedSteps(permutedims(C), Q̄)
 end
-function ComposableRecurrences._coupling_steps_done!(C̄, pr, f::_FusedSteps)
+function CR._coupling_steps_done!(C̄, pr, f::_FusedSteps)
     f.Q̄ === nothing && return nothing
-    mul!(ComposableRecurrences._array_mirror(C̄), f.Q̄, transpose(pr.P), true, true)
+    mul!(CR._array_mirror(C̄), f.Q̄, transpose(pr.P), true, true)
     return nothing
 end
-function ComposableRecurrences._coupling_kernels_back!(
+function CR._coupling_kernels_back!(
         accs, kb, g, p̄, C, q̄, pr, H, H̄, t, τ, D, L, pbufs, f::_FusedSteps
     )
-    ComposableRecurrences._reduce_blocks!(
+    CR._reduce_blocks!(
         _fused_back!, accs, length(p̄), kb, g, p̄, f.Cᵀ, f.Q̄, q̄, H, H̄, t,
         t + D - L, τ, L
     )
@@ -300,33 +296,33 @@ function _fused_back!(ks, acc, kb, g, p̄, Cᵀ, Q̄, q̄, H, H̄, t, j, τ, L)
         end
         @inbounds p̄[k] = s
         Q̄ === nothing || @inbounds(Q̄[k, t] = q̄[k])
-        ComposableRecurrences._kernel_back_at!(kb, acc.ḡ, g, s, H, H̄, j, τ, L, k)
+        CR._kernel_back_at!(kb, acc.ḡ, g, s, H, H̄, j, τ, L, k)
     end
     return nothing
 end
 
 # Couplings on a device mix the strata with one `mul!` (or broadcast) per
 # step. The coupling must live on the device of the pressures.
-function ComposableRecurrences.forward!(
+function CR.forward!(
         C::AbstractMatrix, ::Pressure, q::AnyGPUArray, p, t
     )
     mul!(q, C, p)
     return nothing
 end
-function ComposableRecurrences.forward!(
+function CR.forward!(
         C::Diagonal, ::Pressure, q::AnyGPUArray, p, t
     )
     q .= C.diag .* p
     return nothing
 end
-function ComposableRecurrences.forward!(
+function CR.forward!(
         C::TimeVarying{Secondary, <:AbstractArray{<:Any, 3}}, ::Pressure,
         q::AnyGPUArray, p, t
     )
     mul!(q, view(C.x, :, :, t), p)
     return nothing
 end
-function ComposableRecurrences.forward!(
+function CR.forward!(
         C::SparseMatrixCSC, ::Pressure, q::AnyGPUArray, p, t
     )
     throw(
@@ -338,8 +334,22 @@ function ComposableRecurrences.forward!(
 end
 
 # A device CSR coupling gives each stratum its own row, so the rows run as
-# one loop with no shared writes.
-function ComposableRecurrences.forward!(
+# one loop with no shared writes. Another device sparse form is converted
+# to CSR when the recurrence is built, through the array package's own
+# conversion.
+CR._stored_coupling(C::AbstractGPUSparseMatrixCSR) = C
+function CR._stored_coupling(C::AbstractGPUSparseMatrix)
+    T = typeof(C)
+    hasmethod(csr_type, Tuple{Type{T}}) || throw(
+        ArgumentError(
+            "a device sparse coupling runs in CSR form, and a $(nameof(T)) " *
+                "has no conversion to it on its device; pass the coupling " *
+                "as a CSR matrix"
+        )
+    )
+    return csr_type(T)(C)
+end
+function CR.forward!(
         C::AbstractGPUSparseMatrixCSR, ::Pressure, q::AnyGPUArray, p, t
     )
     n = length(q)

@@ -4,8 +4,9 @@ Loading a GPU array package, with KernelAbstractions, runs operator calls on its
 Every GPU array package loads GPUArrays, so `using CUDA, KernelAbstractions` is enough.
 Put every array the call reads on the device, e.g. with `Adapt.adapt(CuArray, r)`, and the call runs there under the default executor.
 Convert floats with [`convert_floats(Float32, r)`](@ref ComposableRecurrences.convert_floats) to run in `Float32`.
-A sparse coupling must be a device sparse matrix, ideally CSR, which runs one stratum's row per kernel index.
-Other sparse forms use the array package's own `mul!` and are untested ([#834](https://github.com/EpiAware/ComposableRecurrences.jl/issues/834)).
+A sparse coupling must be a device sparse matrix, which runs in CSR form, one stratum's row per kernel index.
+A CSC or other device sparse coupling is converted to CSR when the recurrence is built, through the array package's own conversion; a form it cannot convert is an error.
+A device sparse coupling takes plain AD rather than the rule ([#834](https://github.com/EpiAware/ComposableRecurrences.jl/issues/834)).
 JLArrays stands in for a GPU here; CUDA, AMDGPU and Metal arrays work the same way.
 
 ```jldoctest gpu
