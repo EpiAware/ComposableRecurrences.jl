@@ -19,9 +19,6 @@ round.(gradient(loss, backend, fill(1.1, 4)); digits = 3)
  0.613
 ```
 
-## Known issues
-
-None known.
 Mooncake's place among the other backends is in [Backends](@ref adjoint-backends).
 
 All extensions are listed in the [overview](@ref extensions-overview).

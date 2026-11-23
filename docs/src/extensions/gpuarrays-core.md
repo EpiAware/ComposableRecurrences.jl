@@ -1,7 +1,8 @@
 # [GPUArraysCore + KernelAbstractions extension](@id extension-gpuarrays-core)
 
 Loading a GPU array package, with KernelAbstractions, runs operator calls on its arrays as kernels on the device.
-Put the inputs, history and parameters on the device, and the call runs there under the default executor.
+Put every array the call reads on the device, e.g. with `Adapt.adapt(CuArray, r)`, and the call runs there under the default executor.
+Convert floats with [`convert_floats(Float32, r)`](@ref ComposableRecurrences.convert_floats) to run in `Float32`.
 JLArrays stands in for a GPU here; CUDA, AMDGPU and Metal arrays work the same way.
 
 ```jldoctest gpu
@@ -18,7 +19,7 @@ round.(Array(y); digits = 3)
  0.72  0.616  0.512  0.445
 ```
 
-Mooncake and Enzyme fail on JLArrays and are untested on a GPU, so take forward-mode derivatives with dual numbers built on the device.
+Mooncake and Enzyme fail on JLArrays and are untested on a GPU ([#835](https://github.com/EpiAware/ComposableRecurrences.jl/issues/835)), so take forward-mode derivatives with dual numbers built on the device.
 Here, the gradient of the total over the two kernel weights:
 
 ```jldoctest gpu
@@ -36,11 +37,7 @@ round.(Tuple(partials(sum(rg(R; history = h)))); digits = 3)
 
 | Symptom | Workaround |
 |---|---|
-| `ArgumentError` naming a host array | Move every array the call reads to the device, e.g. `Adapt.adapt(CuArray, r)` |
-| Runs in `Float64` and is slow | Convert with [`convert_floats(Float32, r)`](@ref ComposableRecurrences.convert_floats), from the [Functors extension](@ref extension-functors) |
-| Scalar-indexing error from a user coupling or modifier | Write its `forward!` with broadcasts and `mul!` |
 | `ForwardDiff.gradient` errors with scalar indexing | Build the duals directly, as above |
-| Enzyme or Mooncake fail on JLArrays; untested on a GPU | Use dual numbers, as above |
 
 What runs on a device, and which rules cover it, is in [GPU arrays](@ref gpu-arrays).
 A device sparse coupling needs the [GPUArrays extension](@ref extension-gpuarrays).

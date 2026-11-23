@@ -15,10 +15,6 @@ delay.kernel ≈ [pdf(censored, l) for l in 0:29]
 true
 ```
 
-## Known issues
-
-| Symptom | Workaround |
-|---|---|
-| Need another censoring choice | Build the masses with CensoredDistributions and pass the vector |
+For another censoring choice, build the masses with CensoredDistributions and pass the vector.
 
 All extensions are listed in the [overview](@ref extensions-overview).
