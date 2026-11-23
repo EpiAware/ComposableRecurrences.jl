@@ -402,7 +402,7 @@ arrays one entry at a time from the host.
 The default `0` launches every loop.
 Needs `KernelAbstractions` to be loaded.
 Under the default [`Serial`](@ref) executor, or [`Threaded`](@ref),
-operator calls on arrays that live on a GPU (with `GPUArraysCore` loaded)
+operator calls on arrays that live on a GPU (with GPUArrays loaded)
 run their strata loops with it without being asked.
 Every array a call reads must live on the device.
 Independent strata run as [one kernel per call](@ref gpu-arrays), and

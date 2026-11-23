@@ -156,7 +156,7 @@ end
 @testitem "JLArrays: a device buffer's rows come back in the public layout" setup = [DeviceRules] begin
     D, S = 3, 4
     H = reshape(collect(1.0:((D + T) * S)), D + T, S)
-    ext = Base.get_extension(CR, :ComposableRecurrencesGPUArraysCoreExt)
+    ext = Base.get_extension(CR, :ComposableRecurrencesGPUArraysExt)
     @testset "rows $(typeof(rows))" for rows in ((D + 1):(D + T), [D + 1, D + 3])
         args = (JLArray(H), rows, JLArray(zeros(S, D)))
         @test which(CR._public, typeof.(args)).module === ext
