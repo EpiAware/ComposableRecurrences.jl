@@ -172,7 +172,7 @@ const INDEX_REWRITES = Pair{String, String}[
     # The README's figure, relative to the site root.
     "](docs/src/assets/" => "](assets/",
     # The tagline's links, as in-site references.
-    "](https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/)" =>
+    "](https://composablerecurrences.epiaware.org/stable/explanation/api-overview/)" =>
         "](@ref api-overview)",
     "](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/)" =>
         "](@ref adjoints-backends)",
@@ -248,7 +248,6 @@ const HISTORY_REGRESSION_THRESHOLD = 1.1
 # in the nav; the kit itself writes no tutorial page.
 const PACKAGE_TUTORIALS = [
     "Three towns, step by step" => "getting-started/three-towns.md",
-    "API overview" => "getting-started/api-overview.md",
     "Time units" => "getting-started/time-units.md",
     "Infectious disease models" =>
         "domain-guides/infectious-disease-models.md",
@@ -281,7 +280,8 @@ const PACKAGE_TUTORIALS = [
 const PACKAGE_SECTIONS = Pair{String, Any}[
     # Here rather than under "Benchmarks", whose entries the kit fixes.
     "Performance summary" => "performance/summary.md",
-    "Explanation" => [
+    "How it works" => [
+        "API overview" => "explanation/api-overview.md",
         "Operators" => "explanation/operators.md",
         "Shapes and couplings" => "explanation/shapes-and-couplings.md",
         "Modifiers" => "explanation/modifiers.md",

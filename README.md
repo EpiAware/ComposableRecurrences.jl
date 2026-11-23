@@ -11,7 +11,7 @@
 <!-- badges:end -->
 [![Reactant](https://github.com/EpiAware/ComposableRecurrences.jl/actions/workflows/reactant.yaml/badge.svg?branch=main)](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md)
 
-Fast, [composable](https://composablerecurrences.epiaware.org/stable/getting-started/api-overview/) and [differentiable](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/) recurrences and convolutions in Julia.
+Fast, [composable](https://composablerecurrences.epiaware.org/stable/explanation/api-overview/) and [differentiable](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/) recurrences and convolutions in Julia.
 
 ## Why ComposableRecurrences?
 

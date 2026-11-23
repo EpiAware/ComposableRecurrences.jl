@@ -230,5 +230,5 @@ performance_plot("transform")
 
 # ## Learning more
 #
-# - [API overview](@ref api-overview): every operator, coupling and modifier.
+# - [API overview](@ref api-overview): a map of every operator, coupling and modifier.
 # - [Public API](@ref public-api): every public name with its docstring.

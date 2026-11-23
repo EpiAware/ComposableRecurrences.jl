@@ -237,6 +237,6 @@ performance_plot("occupancy")
 
 # ## Learning more
 #
-# - [API overview](@ref api-overview): every operator, coupling and modifier.
+# - [API overview](@ref api-overview): a map of every operator, coupling and modifier.
 # - [A blockwise step](@ref extending-blockwise): a step of your own that moves values between pools.
 # - [Public API](@ref public-api): every public name with its docstring.
