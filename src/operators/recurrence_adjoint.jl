@@ -593,10 +593,13 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k, y)
     )
     m = first(ms)
     return _series_stage_back!(
-        Val(_strata_loop(m)), m, first(m̄s), first(rec), first(s̄s), v̄, τ, t, k
+        Val(_strata_loop(m)), m, first(m̄s), rec, first(s̄s), v̄, τ, t, k, y
     )
 end
-function _series_stage_back!(::Val{true}, m, m̄, R, s̄, v̄, τ, t, k)
+# `rec` holds this modifier's records first, then those of the modifiers
+# after it, which give its output (see `_output_at`).
+function _series_stage_back!(::Val{true}, m, m̄, rec, s̄, v̄, τ, t, k, y)
+    R = first(rec)
     vk, sk = R.V[k, t], _state_at(R.S, k, t)
     v̄, s̄k, a, b = _trace_out(R, m, m̄, v̄, s̄[k], vk, sk, τ, t, k)
     g = _with_output(
@@ -609,7 +612,8 @@ function _series_stage_back!(::Val{true}, m, m̄, R, s̄, v̄, τ, t, k)
 end
 # A modifier with one value per group, as `_group_back!` reverses group `k`;
 # the series step takes it only with plain records, so no trace to add.
-function _series_stage_back!(::Val{false}, m, m̄, R, s̄, v̄, τ, t, k)
+function _series_stage_back!(::Val{false}, m, m̄, rec, s̄, v̄, τ, t, k, y)
+    R = first(rec)
     ns, G = _group_entries(m, s̄)
     sk = _group_state_at(R.S, Val(ns), G, k, t)
     gg = (; piece = m̄, v = (v̄,), s = _gather(s̄, Val(ns), G, k))
