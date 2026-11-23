@@ -256,6 +256,9 @@ it.
 `TimeVarying(Pairwise(A))`.
 Values and gradients equal those of the dense array that repeats each
 value over its segment.
+Inside a function Enzyme differentiates, build the pairs as
+`Pair.(starts, values)` or a comma-separated literal: Enzyme loses the
+values' derivatives through `vcat` of pair vectors, as in `[1 => a; pairs]`.
 
 The indexing sets which time a kernel's column belongs to, and is held as
 a type parameter so nothing branches on it:
