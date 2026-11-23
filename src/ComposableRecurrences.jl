@@ -158,8 +158,6 @@ include("operators/recurrence.jl")
 include("operators/trace_run.jl")
 # The analytic reverse pass of the recurrence.
 include("operators/recurrence_adjoint.jl")
-# A one-lag recurrence with no modifiers, run as a scan.
-include("operators/scan.jl")
 # The convolution operator and its reverse pass.
 include("operators/convolution.jl")
 # The transpose of a convolution, a sum that reads the series forward.

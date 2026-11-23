@@ -477,10 +477,10 @@ function EnzymeRules.reverse(
 end
 
 # One stratum's one-lag scan (`_scan!`) takes its own rule, without the
-# leaves and mirrors of the operators' rule: on a short scan that glue cost
-# more than the scan. The reverse pass is the package's `_scan_back!`. The
-# outputs are copied only when the caller overwrites them before the
-# reverse pass, since the cotangents of the coefficient and gain read them.
+# leaves and mirrors of the operators' rule; its reverse pass is the
+# package's `_scan_back!`. The outputs are copied only when the caller
+# overwrites them before the reverse pass, since the cotangents of the
+# coefficient and gain read them.
 const _ScanOut = Annotation{<:Array{<:_IEEEFloat}}
 function EnzymeRules.augmented_primal(
         config::EnzymeRules.RevConfig, ::Const{typeof(_scan!)},

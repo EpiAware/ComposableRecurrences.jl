@@ -880,3 +880,99 @@ function _shared_shadow(y::Vector{E}, c, H::Matrix{E}, D) where {E <: _IEEEFloat
     ȳ = Base.wrap(Array, memoryref(m, D + 1), (length(y),))
     return ȳ, merge(c, (; H̄, ȳ))
 end
+
+# == The one-lag scan's reverse pass ==
+
+# With `u_t` the cotangent of `y_t`, `u_t = ȳ_t + d_{t+1} u_{t+1}`; it is the
+# add input's, `e_t = u_t y_{t-1}` is the step coefficient's, and `d_1 u_1`
+# the seed's. The kernel and the coupling scale share `Σ_t γ_t e_t`.
+function pullback!(grads, op::_Scan, ::Run, cache)
+    _count_pullback()
+    (; y, gain, h, τ0, o) = cache
+    ḡain, ādd, h̄ = grads.args
+    k̄ = cotangent(grads.piece, :kernel)
+    λ̄ = cotangent(cotangent(grads.piece, :coupling), :λ)
+    λ, g = op.coupling.λ, only(op.kernel)
+    Tp = eltype(y)
+    S = _nstrata(h)
+    c̄ = ḡ = ā = zero(Tp)
+    for k in 1:S
+        sums = _scan_back!(
+            _array_slots(ḡain), _array_slots(ādd), grads.y, y, λ * g, gain,
+            _scan_seed(h, Tp, k), τ0, k, S, o
+        )
+        c̄, ḡ, ā = c̄ + sums.c̄, ḡ + sums.ḡ, ā + sums.ā
+        _scan_seed_back!(h̄, sums.v̄, k)
+    end
+    # A joined history's times pass their cotangents straight back.
+    o > 0 && h̄ !== nothing && _add_times!(h̄, grads.y)
+    k̄ === nothing || (k̄[1] += λ * c̄)
+    λ̄ === nothing || (λ̄[] += g * c̄)
+    ḡain isa Base.RefValue && (ḡain[] += ḡ)
+    ādd isa Base.RefValue && (ādd[] += ā)
+    return nothing
+end
+
+# Stratum `k`'s reverse scan, two steps at a time as the forward one, so the
+# carry `w = d_t u_t` has one multiply-add per two steps on its chain. It
+# adds into the array cotangents of the gain and add input (or skips
+# `nothing`), and returns the sums a scalar of each takes, `Σ_t γ_t e_t` and
+# the seed's cotangent.
+function _scan_back!(ḡain, ādd, ȳ, y, c, gain, v, τ0, k, S, o)
+    Tp = eltype(y)
+    n = length(y) ÷ S - o
+    c̄ = ḡ = ā = w = zero(Tp)
+    j = n
+    @inbounds while j > 1
+        t = τ0 + j - 1
+        γ₁, γ₂ = _at(gain, k, t - 1), _at(gain, k, t)
+        d₁, d₂ = c * γ₁, c * γ₂
+        ȳ₁, ȳ₂ = ȳ[(o + j - 2) * S + k], ȳ[(o + j - 1) * S + k]
+        u₂ = w + ȳ₂
+        u₁ = muladd(d₂, u₂, ȳ₁)
+        e₂ = u₂ * y[(o + j - 2) * S + k]
+        e₁ = u₁ * (j == 2 ? v : y[(o + j - 3) * S + k])
+        _add_slot!(ādd, u₂, k, t)
+        _add_slot!(ādd, u₁, k, t - 1)
+        _add_slot!(ḡain, c * e₂, k, t)
+        _add_slot!(ḡain, c * e₁, k, t - 1)
+        # Each sum takes one add per pair, so its chain is no longer than
+        # the carry's.
+        c̄ += muladd(γ₂, e₂, γ₁ * e₁)
+        ḡ += e₁ + e₂
+        ā += u₁ + u₂
+        w = muladd(d₁ * d₂, w, muladd(d₁, ȳ₁, d₁ * d₂ * ȳ₂))
+        j -= 2
+    end
+    @inbounds if j == 1
+        γ = _at(gain, k, τ0)
+        u = w + ȳ[o * S + k]
+        e = u * v
+        _add_slot!(ādd, u, k, τ0)
+        _add_slot!(ḡain, c * e, k, τ0)
+        c̄ += γ * e
+        ḡ += e
+        ā += u
+        w = c * γ * u
+    end
+    return (; c̄, ḡ = c * ḡ, ā, v̄ = w)
+end
+# A scalar's cotangent takes the returned sum, not a slot per step.
+_array_slots(x̄::Base.RefValue) = nothing
+_array_slots(x̄) = _slots(x̄)
+# The first times of `ȳ`, a joined history's, added into `h̄`.
+function _add_times!(h̄, ȳ)
+    for i in 1:length(h̄)
+        h̄[i] += ȳ[i]
+    end
+    return h̄
+end
+_scan_seed_back!(::Nothing, u, k) = nothing
+function _scan_seed_back!(h̄::AbstractVector, u, k)
+    isempty(h̄) || (h̄[end] += u)
+    return nothing
+end
+function _scan_seed_back!(h̄::AbstractMatrix, u, k)
+    size(h̄, 2) == 0 || (h̄[k, end] += u)
+    return nothing
+end
