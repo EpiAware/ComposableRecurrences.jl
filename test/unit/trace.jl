@@ -649,3 +649,65 @@ end
         @test Array(r) == [1.0, 2.0]
     end
 end
+
+@testitem "Recurrence: named modifiers key the trace, and record picks parts" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    pool = CR.Depletion(PerStratum([50.0, 60.0]))
+    imports = CR.Transform(+, TimeVarying(PerStratum(fill(0.1, 2, 6))))
+    K = [0.9 0.1; 0.2 0.8]
+    R, h = fill(1.1, 2, 6), ones(2, 2)
+    named = Recurrence([0.6, 0.3]; coupling = K, modifiers = (; pool, imports))
+    plain = Recurrence([0.6, 0.3]; coupling = K, modifiers = (pool, imports))
+    full = named(R; history = h, record = (:trace,))
+    ref = plain(R; history = h, record = (:trace,))
+    # A tuple of modifiers keeps a tuple of traces; names key them.
+    @test ref.trace.modifiers isa Tuple
+    @test keys(full.trace.modifiers) == (:pool, :imports)
+    @test full.trace.modifiers.pool == ref.trace.modifiers[1]
+    @test full.trace.modifiers.imports == ref.trace.modifiers[2]
+    @test first(full.trace.modifiers) == ref.trace.modifiers[1]
+    @test full.y == ref.y
+    # Some parts, with and without the state: those named match the full
+    # trace, the others are empty, and the type is the full trace's.
+    for record in (
+            (:pressure,), (:pool,), (:imports, :pressure), (:state, :pool),
+        )
+        out = named(R; history = h, record)
+        @test out.y == full.y
+        @test haskey(out, :state) == (:state in record)
+        @test typeof(out.trace) == typeof(full.trace)
+        for m in (:pool, :imports)
+            part = out.trace.modifiers[m]
+            @test part == (m in record ? full.trace.modifiers[m] : zeros(0, 0))
+        end
+        @test out.trace.pressure ==
+            (:pressure in record ? full.trace.pressure : zeros(2, 0))
+        # It infers from a literal in a function and from a `Val`.
+        call = @eval (r, R, h) -> r(R; history = h, record = $record)
+        @test typeof(@inferred call(named, R, h)) == typeof(out)
+        @test typeof(@inferred named(R; history = h, record = Val(record))) ==
+            typeof(out)
+        # Plain AD of the loop gives the same parts.
+        plain_ad = CR.NoAdjoint(named)(R; history = h, record)
+        @test plain_ad.y == out.y
+        @test plain_ad.trace == out.trace
+    end
+    # A tuple of modifiers can record the pressure alone, not one modifier.
+    @test plain(R; history = h, record = (:pressure,)).trace.pressure ==
+        ref.trace.pressure
+    @test_throws "Name the modifiers" plain(R; history = h, record = (:pool,))
+    @test_throws ArgumentError named(R; history = h, record = (:nope,))
+    @test_throws ArgumentError named(R; history = h, record = (:pool, :pool))
+    # A name `record` reads for another part is refused.
+    for name in (:pressure, :state, :trace)
+        @test_throws ArgumentError Recurrence(
+            [0.5]; modifiers = NamedTuple{(name,)}((imports,))
+        )
+    end
+    # A rebuild from the fields keeps the names.
+    rebuilt = CR.ConstructionBase.constructorof(typeof(named))(
+        named.kernel, named.coupling, named.modifiers, named.rebuilds
+    )
+    @test typeof(rebuilt) == typeof(named)
+end

@@ -167,7 +167,8 @@ end
 
 function _with_kernel(r::Recurrence, K)
     return Recurrence(
-        _Checked(), _dense_kernel(K), r.coupling, r.modifiers, r.rebuilds
+        _Checked(), _dense_kernel(K), r.coupling, r.modifiers, r.rebuilds,
+        _names(r)
     )
 end
 
