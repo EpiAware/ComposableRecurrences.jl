@@ -2598,16 +2598,15 @@ end
         @test (@allocated CR._local_step_back!(grads, m, v, s, 2)) == 0 skip = coverage
         @inferred CR._local_step_back!(grads, m, v, s, 2)
     end
-    # The lanes a step runs on, by their values' length: 4 inputs left take
-    # the 4-wide lane, 6 the 8-wide and 10 run every pass 24 wide.
-    for (S, used) in ((13, (1, 4)), (14, (2, 4)), (16, (4,)))
+    # Every pass runs on the one lane, sized to the strata, whatever is left
+    # after the whole passes.
+    for S in (13, 14, 16)
         m = Mixer(0.9, 0.1)
         m̄ = zero_mirror(m)
         b = CR._step_duals(m̄, m, Float64)
         grads = (; piece = m̄, v = ones(S), s = ones(S), pass = b)
         CR._local_step_back!(grads, m, ones(S), ones(S), 2)
-        @test [length(first(l)) for l in b.lanes] ==
-            [k in used ? S : 0 for k in eachindex(b.lanes)]
+        @test length(first(b.lane)) == S
     end
     # Through a recurrence the rule matches ForwardDiff over every leaf.
     for (ms, S) in (

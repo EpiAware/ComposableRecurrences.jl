@@ -231,8 +231,8 @@ end
 
 # `n` counts every read, so `n > lo + R` marks a step that read more than the
 # partials hold.
-const _READ_WIDTHS = (4, 8, 12)
-const _READ_CAP = 2 * last(_READ_WIDTHS)
+const _READ_WIDTH = 12
+const _READ_CAP = 2 * _READ_WIDTH
 mutable struct _Reads{R}
     n::Int
     lo::Int
@@ -352,7 +352,7 @@ const _LOCAL_PRESSURE_WIDE = 2 * _LOCAL_PRESSURE
 struct _ArrayPressure{T, L}
     θ::Vector{T}
     ḡ::Vector{T}
-    lanes::L
+    lane::L
 end
 
 # == Whole-step local derivative ==
@@ -365,7 +365,7 @@ struct _StepDuals{T, L}
     s̄::Vector{T}
     θ::Vector{T}
     ḡ::Vector{T}
-    lanes::L
+    lane::L
     # Whether the step seeds only the entries it reads (`_reads_fewer`),
     # and how many the last step read: the next step's width.
     readstep::Bool

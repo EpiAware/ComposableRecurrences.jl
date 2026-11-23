@@ -12,7 +12,7 @@ import ComposableRecurrences: _array_pressure, _buffer, _chain, _output, _check_
     _probe_reads, _read_pullback, _scalar_pullback, _transform_partials,
     _transform_seeds, _value_pullback, _block_local_back, _probe_step_reads,
     _check_read_rebuild
-using ComposableRecurrences: _ArrayPressure, _cpu_buffer, _Chained, _IEEEFloat, _INPLACE_BYTES, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTHS,
+using ComposableRecurrences: _ArrayPressure, _cpu_buffer, _Chained, _IEEEFloat, _INPLACE_BYTES, PerStratum, _StepDuals, _written, _LOCAL_PRESSURE, _READ_WIDTH,
     _ReadArray, _ReadSeed, _Reads, _TransformTag, _add_read!, _add_scalar!,
     _addparams!, _array_seeds, _nparams, _param_tuple, _params,
     _pressure_scalars, _rebuild, _rebuild_reads, _rebuild_scalar, _rebuild_views,
@@ -152,10 +152,8 @@ end
 # entry (`m.a[t]`): the value, the state and the scalars are seeded as
 # before, and each array is wrapped so that each entry the step reads is a
 # dual number with a partial of its own. The reads are recorded, and each
-# one's cotangent goes to its entry. The first pass has room for
-# `_READ_WIDTHS[1]` reads; a step that reads more runs once more with room
-# for all of them, and one that reads more than the last width runs once
-# per that many reads.
+# one's cotangent goes to its entry. Each pass has room for `_READ_WIDTH`
+# reads; a step that reads more runs once per that many reads.
 function _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
     x = (v, s, _param_tuple(m, (k, t))...)
     T = float(promote_type(map(typeof, x)..., param_eltype(m)))
@@ -163,16 +161,15 @@ function _read_pullback(m, m̄, v̄, s̄, v, s, t, k)
 end
 # `x` holds the value and the state, then the scalars.
 function _read_pullback(m, m̄, v̄, s̄, x::Tuple{T, T, Vararg{T}}, t, k) where {T}
-    R = first(_READ_WIDTHS)
+    R = _READ_WIDTH
     v′, s′, reads = _read_step(m, x, t, k, Val(R), 0)
     reads.n > R && return _read_wider(m, m̄, v̄, s̄, x, t, k, reads.n)
     return _read_grads(m, m̄, v̄, s̄, x, t, k, v′, s′, reads, true)
 end
-# A step that read `n` entries, more than the first pass holds: once more
-# with the smallest room that holds them, else in passes of the widest.
+# A step that read `n` entries, more than one pass holds: in passes of
+# `_READ_WIDTH`.
 function _read_wider(m, m̄, v̄, s̄, x, t, k, n)
-    _, R2, R = _READ_WIDTHS
-    n <= R2 && return _read_pass(m, m̄, v̄, s̄, x, t, k, Val(R2), 0)
+    R = _READ_WIDTH
     a, b = _read_pass(m, m̄, v̄, s̄, x, t, k, Val(R), 0)
     for lo in R:R:(n - 1)
         _read_pass(m, m̄, v̄, s̄, x, t, k, Val(R), lo)
@@ -247,26 +244,12 @@ _dual_buffers(bufs::Tuple, ::Type{D}, S) where {D} = _dual_buffers(Base.tail(buf
 # derivative of `q = C(p)` in `p` and the coupling's float scalars `θ`.
 # The `n = S + P` inputs are seeded `N` at a time, and each pass adds
 # `q̄ ⋅ ∂q/∂x` for its inputs, so no Jacobian is stored. Inputs beyond
-# `_LOCAL_PRESSURE` take whole passes of that width first; the rest take
-# one pass of the smallest of 4, 8, 12 and 24 that covers them. The rule
-# takes this route while one pass covers every input (`_LOCAL_PRESSURE`),
+# `_LOCAL_PRESSURE` take passes of that width. The rule takes this route while one pass covers every input (`_LOCAL_PRESSURE`),
 # and through `_ad_wide` while two do (`_LOCAL_PRESSURE_WIDE`).
 function _local_pressure!(p̄, C̄, C, q̄, p, t, θ::Tuple, bufs = nothing)
     n = length(p) + length(θ)
-    lo = _whole_passes(n)
-    lo > 0 && _local_pressure!(
-        Val(_LOCAL_PRESSURE), p̄, C̄, C, q̄, p, t, θ, bufs, 0, lo
-    )
-    r = n - lo
-    r <= 4 && return _local_pressure!(Val(4), p̄, C̄, C, q̄, p, t, θ, bufs, lo, n)
-    r <= 8 && return _local_pressure!(Val(8), p̄, C̄, C, q̄, p, t, θ, bufs, lo, n)
-    r <= 12 && return _local_pressure!(Val(12), p̄, C̄, C, q̄, p, t, θ, bufs, lo, n)
-    return _local_pressure!(
-        Val(_LOCAL_PRESSURE), p̄, C̄, C, q̄, p, t, θ, bufs, lo, n
-    )
+    return _local_pressure!(Val(_LOCAL_PRESSURE), p̄, C̄, C, q̄, p, t, θ, bufs, 0, n)
 end
-# The inputs before the last pass: whole passes of `_LOCAL_PRESSURE`.
-_whole_passes(n) = _LOCAL_PRESSURE * ((n - 1) ÷ _LOCAL_PRESSURE)
 # Passes of `N` over inputs `lo + 1` to `hi`.
 function _local_pressure!(
         ::Val{N}, p̄, C̄, C, q̄, p, t, θ::NTuple{P, Any}, bufs, lo, hi
@@ -306,29 +289,13 @@ _with_scalars(C, θ) = first(_rebuild_scalar(C, θ))
 function _array_pressure(C, Tp)
     T = float(promote_type(Tp, param_eltype(C)))
     θ = Vector{T}(_params(C))
-    lane(N) = (D -> (D[], D[], Vector{D}(undef, length(θ))))(_pressure_dual(T, N))
-    lanes = (lane(Val(4)), lane(Val(8)), lane(Val(12)), lane(Val(_LOCAL_PRESSURE)))
-    return _ArrayPressure(θ, zero(θ), lanes)
+    D = _pressure_dual(T, Val(_LOCAL_PRESSURE))
+    return _ArrayPressure(θ, zero(θ), (D[], D[], Vector{D}(undef, length(θ))))
 end
 function _local_pressure!(p̄, C̄, C, q̄, p, t, b::_ArrayPressure)
     n = length(p) + length(b.θ)
     fill!(b.ḡ, zero(eltype(b.ḡ)))
-    lo = _whole_passes(n)
-    lo > 0 && _array_pressure!(
-        Val(_LOCAL_PRESSURE), b.lanes[4], b, p̄, C̄, C, q̄, p, t, 0, lo
-    )
-    r = n - lo
-    if r <= 4
-        _array_pressure!(Val(4), b.lanes[1], b, p̄, C̄, C, q̄, p, t, lo, n)
-    elseif r <= 8
-        _array_pressure!(Val(8), b.lanes[2], b, p̄, C̄, C, q̄, p, t, lo, n)
-    elseif r <= 12
-        _array_pressure!(Val(12), b.lanes[3], b, p̄, C̄, C, q̄, p, t, lo, n)
-    else
-        _array_pressure!(
-            Val(_LOCAL_PRESSURE), b.lanes[4], b, p̄, C̄, C, q̄, p, t, lo, n
-        )
-    end
+    _array_pressure!(Val(_LOCAL_PRESSURE), b.lane, b, p̄, C̄, C, q̄, p, t, 0, n)
     _addparams!(C̄, C, b.ḡ, 0)
     return nothing
 end
@@ -376,11 +343,9 @@ function _step_duals(m̄, m, ::Type{Tp}, S = nothing) where {Tp}
     T = float(promote_type(Tp, param_eltype(m)))
     rd = S !== nothing && _array_seeds(m̄, m) && _reads_fewer(m, S)
     θ = _array_seeds(m̄, m) && !rd ? Vector{T}(_params(m)) : T[]
-    lane(::Val{N}) where {N} = (
-        D -> (D[], D[], Vector{D}(undef, length(θ)), _Reads{N}())
-    )(_step_dual(T, Val(N)))
-    lanes = (lane(Val(4)), lane(Val(8)), lane(Val(12)), lane(Val(_LOCAL_PRESSURE)))
-    return _StepDuals(T[], T[], θ, zero(θ), lanes, rd, Ref(0))
+    D = _step_dual(T, Val(_LOCAL_PRESSURE))
+    lane = (D[], D[], Vector{D}(undef, length(θ)), _Reads{_LOCAL_PRESSURE}())
+    return _StepDuals(T[], T[], θ, zero(θ), lane, rd, Ref(0))
 end
 # The float scalars a pass seeds: those of a differentiated modifier whose
 # parameters are all scalars, as a tuple, so its rebuild allocates nothing;
@@ -390,20 +355,9 @@ _step_scalars(m̄, m) = _scalar_params(m) ? _param_tuple(m) : ()
 function _local_step!(m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     b.readstep || return _local_step!(Val(false), m̄, m, v̄, s̄, v, s, t, b)
     θs = _param_tuple(m)
-    # The width covers the reads of the last step; a step that reads more
-    # runs more passes.
-    n = length(v) + length(s) + length(θs) + b.reads[]
-    n <= 4 && return _local_read_step!(Val(4), b.lanes[1], b, θs, m̄, m, v̄, s̄, v, s, t)
-    n <= 8 && return _local_read_step!(Val(8), b.lanes[2], b, θs, m̄, m, v̄, s̄, v, s, t)
-    n <= 12 && return _local_read_step!(Val(12), b.lanes[3], b, θs, m̄, m, v̄, s̄, v, s, t)
-    return _local_read_step!(Val(_LOCAL_PRESSURE), b.lanes[4], b, θs, m̄, m, v̄, s̄, v, s, t)
+    return _local_read_step!(Val(_LOCAL_PRESSURE), b.lane, b, θs, m̄, m, v̄, s̄, v, s, t)
 end
-# Inputs beyond `_LOCAL_PRESSURE` take whole passes of that width; when 8 or
-# fewer remain they take one pass of 4 or 8 after them. Otherwise every pass
-# is of 24, or one of 12 or fewer when that covers all the inputs. Unlike a
-# coupling's, a tail of 9 to 12 does not take the 12-wide lane: after whole
-# passes, that and splitting the passes over two calls ran slower than
-# keeping every pass 24 wide in one.
+# Every pass is `_LOCAL_PRESSURE` wide.
 function _local_step!(::Val{false}, m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     θs = _step_scalars(m̄, m)
     n = length(v) + length(s) + length(b.θ) + length(θs)
@@ -412,21 +366,7 @@ function _local_step!(::Val{false}, m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     fill!(v̄, zero(eltype(v̄)))
     fill!(s̄, zero(eltype(s̄)))
     fill!(b.ḡ, zero(eltype(b.ḡ)))
-    args = (b, θs, m̄, m, v̄, s̄, v, s, t)
-    lo = _whole_passes(n)
-    r = n - lo
-    if r <= 8
-        lo > 0 && _local_step!(Val(_LOCAL_PRESSURE), b.lanes[4], args..., 0, lo)
-        if r <= 4
-            _local_step!(Val(4), b.lanes[1], args..., lo, n)
-        else
-            _local_step!(Val(8), b.lanes[2], args..., lo, n)
-        end
-    elseif n <= 12
-        _local_step!(Val(12), b.lanes[3], args..., 0, n)
-    else
-        _local_step!(Val(_LOCAL_PRESSURE), b.lanes[4], args..., 0, n)
-    end
+    _local_step!(Val(_LOCAL_PRESSURE), b.lane, b, θs, m̄, m, v̄, s̄, v, s, t, 0, n)
     isempty(b.θ) || _addparams!(m̄, m, b.ḡ, 0)
     return nothing
 end
@@ -647,7 +587,7 @@ function _probe_reads(x)
     θ = _param_tuple(x, (1, 1))
     T = float(promote_type(map(typeof, θ)..., param_eltype(x)))
     M = length(θ) + 2
-    R = first(_READ_WIDTHS)
+    R = _READ_WIDTH
     D = ForwardDiff.Dual{typeof(ForwardDiff.Tag(_probe_reads, T)), T, M + R}
     θd = ntuple(i -> D(T(θ[i]), _unit(T, i + 2, Val(M + R))), length(θ))
     reads = _Reads{R}()
@@ -912,14 +852,13 @@ function _local_config(g, f, x)
 end
 
 # The dual-number buffers of a coupling's local derivative, made once per
-# reverse pass so a step allocates nothing: a pair of vectors for each
-# number of partials, sized on first use. A step whose dual type is not
-# among them allocates its own.
+# reverse pass so a step allocates nothing: a pair of vectors sized on first
+# use. A step whose dual type differs allocates its own.
 function _dual_pressure_buffers(C̄, C, Tp)
     _array_seeds(C̄, C) && return _array_pressure(C, Tp)
     T = float(promote_type(Tp, map(typeof, _pressure_scalars(C̄, C))...))
-    pair(N) = (D -> (D[], D[]))(_pressure_dual(T, N))
-    return (pair(Val(4)), pair(Val(8)), pair(Val(12)), pair(Val(_LOCAL_PRESSURE)))
+    D = _pressure_dual(T, Val(_LOCAL_PRESSURE))
+    return ((D[], D[]),)
 end
 
 # `Transform`'s seeds: a `ForwardDiff.Tag` orders this dual against any
