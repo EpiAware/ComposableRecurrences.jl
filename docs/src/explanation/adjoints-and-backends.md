@@ -1,7 +1,7 @@
 # [Adjoints and backends](@id adjoints-backends)
 
-This page covers how gradients of an operator call are computed, which AD backends are supported, and where a call's loops run.
-It sits under the [API overview](@ref api-overview), which maps every part of the package.
+Every operator call can be differentiated, and an executor sets where its loops run.
+The [API overview](@ref api-overview) shows where gradients and executors fit among the other parts.
 
 [Forward mode](@ref ad-backends) costs one pass per parameter, so it suits a model with few parameters, and reverse mode one with many.
 

@@ -1,7 +1,7 @@
 # [Modifiers](@id explanation-modifiers)
 
-This page covers the built-in modifiers, the depletion forms, and how modifiers order, keep state and read strata.
-It sits under the [API overview](@ref api-overview), which maps every part of the package.
+Modifiers change each step's value of a recurrence, in order, and each keeps its own state.
+The [API overview](@ref api-overview) shows where they fit among the other parts.
 
 ```@example modifiers
 using ComposableRecurrences

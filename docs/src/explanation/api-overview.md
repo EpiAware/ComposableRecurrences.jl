@@ -1,7 +1,7 @@
 # [API overview](@id api-overview)
 
-This page is a map of the package.
-It says what each part is, shows how the parts fit together in one small model, and points to the page that covers each part in full.
+Each part of the package has a short section here, with a link to the page that covers it in full.
+One small model shows how the parts fit together.
 
 Some public names are not exported, so `using ComposableRecurrences` does not bring them in.
 They are written here without the package prefix, and `using ComposableRecurrences: Depletion, Floor, Recent` loads them.

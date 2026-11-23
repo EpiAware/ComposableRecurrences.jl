@@ -1,7 +1,7 @@
 # [Shapes and couplings](@id explanation-shapes-couplings)
 
-This page covers how coefficients vary across strata and time, the shapes of data, delay distributions as kernels, and how a coupling mixes strata.
-It sits under the [API overview](@ref api-overview), which maps every part of the package.
+A shape sets how a kernel, coupling or modifier parameter varies across strata and time, and a coupling mixes the strata.
+The [API overview](@ref api-overview) shows where they fit among the other parts.
 
 ```@example shapes
 using ComposableRecurrences

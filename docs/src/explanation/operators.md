@@ -1,7 +1,7 @@
 # [Operators](@id explanation-operators)
 
-This page covers the two operators, how they are built and called, and how a call reads time.
-It sits under the [API overview](@ref api-overview), which maps every part of the package.
+A recurrence and a convolution are built once from a kernel and then called with data.
+The [API overview](@ref api-overview) shows where they fit among the other parts.
 
 ```@example operators
 using ComposableRecurrences
