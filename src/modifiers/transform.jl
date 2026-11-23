@@ -32,6 +32,11 @@ local forward-mode derivative of `f`.
 `derivative(v, θ)` returns
 ``(\partial f / \partial v, \partial f / \partial \theta)``, the second
 shaped as ``\theta_{t,i}``.
+A `derivative` with a method of three arguments is called as
+`derivative(v, θ, y)` instead, with the step's output ``y = f(v, \theta)``
+(and `θ` `nothing` without parameters), returning the same pair.
+The reverse pass of a [`Recurrence`](@ref) passes ``y`` from the forward
+pass, so a derivative written in terms of the value need not recompute it.
 Values captured by `f` (a closure, or a callable struct with float fields)
 are not in ``\theta``, so without `derivative` the AD backend
 differentiates the [`Recurrence`](@ref) holding such a map.
@@ -58,7 +63,9 @@ hand-written pullback for `+` and `clamp`.
 - `lo`, `hi`: with `clamp`, the lower and upper bounds, each a parameter.
 
 # Keyword Arguments
-- `derivative`: the derivative of `f`, or `nothing` for the local one.
+- `derivative`: the derivative of `f`, called as `derivative(v)`,
+  `derivative(v, θ)` or `derivative(v, θ, y)`, or `nothing` for the local
+  one.
 
 # Examples
 ```jldoctest
@@ -82,6 +89,30 @@ round.(y; digits = 3)
  0.945
  0.961
 ```
+
+Each partial derivative of `G` contains `G` itself, so its derivative can
+take the output:
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+G(s, θ) = (θ.p / (1 - (1 - θ.p) * s))^θ.r
+function dG(s, θ, y)
+    D = 1 - (1 - θ.p) * s
+    return y * θ.r * (1 - θ.p) / D,
+        (; r = y * log(θ.p / D), p = y * θ.r * (1 - s) / (θ.p * D))
+end
+q = CR.Transform(G, (; r = 0.5, p = 0.4); derivative = dG)
+y = Recurrence([1.0]; modifiers = (q,))(; history = [0.0], stop = 3)
+round.(y; digits = 3)
+
+# output
+
+3-element Vector{Float64}:
+ 0.632
+ 0.803
+ 0.879
+```
 """
 struct Transform{F, P, D}
     "The map, called as `f(v)` or `f(v, θ)`."
@@ -97,7 +128,8 @@ struct Transform{F, P, D}
 end
 
 function Transform(f, θ = nothing; derivative = nothing)
-    return Transform{typeof(f), typeof(θ), typeof(derivative)}(f, θ, derivative)
+    d = _output_form(derivative)
+    return Transform{typeof(f), typeof(θ), typeof(d)}(f, θ, d)
 end
 # The bounds are held as `θ = (lo, hi)`, and passed only as `lo, hi`.
 function Transform(::typeof(clamp), lo, hi)
@@ -110,8 +142,20 @@ end
 # `Adapt` and the dual-number rebuild construct it from its fields.
 ConstructionBase.constructorof(::Type{<:Transform}) = _transform
 function _transform(f, θ, derivative)
-    return Transform{typeof(f), typeof(θ), typeof(derivative)}(f, θ, derivative)
+    d = _output_form(derivative)
+    return Transform{typeof(f), typeof(θ), typeof(d)}(f, θ, d)
 end
+
+# A derivative that also takes the step's output, `derivative(v, θ, y)`, is
+# marked once here, so the reverse pass picks its form by dispatch.
+struct _WithOutput{D}
+    derivative::D
+end
+_output_form(d) = hasmethod(d, Tuple{Any, Any, Any}) ? _WithOutput(d) : d
+_output_form(::Nothing) = nothing
+_output_form(d::_WithOutput) = d
+_user_derivative(d) = d
+_user_derivative(d::_WithOutput) = d.derivative
 
 _check_theta(::Nothing) = nothing
 function _check_theta(θ::Union{Tuple, NamedTuple})
@@ -178,7 +222,8 @@ function pullback!(grads, m::Transform, ::Step, v, s, t)
     )
     v̄, θ̄ = grads.v, cotangent(grads.piece, :θ)
     for k in eachindex(v)
-        ∂v, ∂θ = _derivative(m.derivative, m.f, v[k], _theta_at(m.θ, k, t))
+        θk = _theta_at(m.θ, k, t)
+        ∂v, ∂θ = _derivative(m.derivative, m.f, v[k], θk, grads, k)
         _add_theta!(θ̄, m.θ, ∂θ, v̄[k], k, t)
         v̄[k] *= ∂v
     end
@@ -234,6 +279,18 @@ _add_theta!(θ̄, θ, ∂θ, ȳ, k, t) = add_param!(θ̄, θ, ȳ * ∂θ, k, t)
 # forward-mode derivative, one dual per scalar of `(v, θ)`.
 _derivative(df, f, v, θ) = θ === nothing ? (df(v), nothing) : df(v, θ)
 _derivative(::Nothing, f, v, θ) = _forward_derivative(f, v, θ)
+# The output form reads the step's output from `grads.out` where the
+# reverse pass passes it, and recomputes it where it does not.
+_derivative(df, f, v, θ, grads, k) = _derivative(df, f, v, θ)
+function _derivative(df::_WithOutput, f, v, θ, grads, k)
+    return df.derivative(v, θ, _step_output(grads, f, v, θ, k))
+end
+function _step_output(grads::NamedTuple{N}, f, v, θ, k) where {N}
+    return :out in N ? @inbounds(grads.out[k]) : _call(f, v, θ)
+end
+# Whether a modifier's step pullback reads its output, `grads.out`.
+_wants_output(m) = false
+_wants_output(::Transform{<:Any, <:Any, <:_WithOutput}) = true
 
 struct _TransformTag end
 
