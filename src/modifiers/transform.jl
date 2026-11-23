@@ -131,7 +131,10 @@ end
 blocks(::Transform) = (1, 1)
 isstateless(::Transform) = true
 uses_adjoint(m::Transform, ::Step) = _local_derivative(m)
-_needs_duals(m::Transform) = m.derivative === nothing && _local_derivative(m)
+function _needs_duals(m::Transform)
+    return (m.derivative === nothing && _local_derivative(m)) ||
+        _derived_duals(m.θ)
+end
 function _dual_why(::Transform)
     return "a `Transform` without a `derivative` takes its local derivative " *
         "with `ForwardDiff`; add `using ForwardDiff` for the faster rule"
@@ -263,7 +266,10 @@ _restructure(::NamedTuple{K}, x) where {K} = NamedTuple{K}(x)
 # The seeds and the partials of the map's output are in the dual-number
 # extension; an output without the seeds' tag is constant in `(v, θ)`.
 function _transform_seeds(xs...)
-    return _need_forwarddiff("`Transform` without a `derivative`")
+    return _need_forwarddiff(
+        "the local derivative of a `Transform` without a `derivative`, or " *
+            "of a `Derived` map,"
+    )
 end
 _transform_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))
 _transform_value(y::Real) = y

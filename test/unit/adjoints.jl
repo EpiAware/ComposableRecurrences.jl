@@ -1458,7 +1458,7 @@ end
         c::T
     end
     @test_throws msg("Rate") invoke(CR._local_form_pullback, two_args, nothing, Rate(0.7))
-    @test_throws r"^ArgumentError: `Transform` without a `derivative` needs `ForwardDiff`" invoke(
+    @test_throws r"^ArgumentError: the local derivative of a `Transform` without a `derivative`, or of a `Derived` map, needs `ForwardDiff`" invoke(
         CR._transform_seeds, Tuple{Vararg{Any}}, 1.0, 2.0
     )
     # The checks and buffers that need dual numbers say nothing, so the

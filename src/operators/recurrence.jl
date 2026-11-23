@@ -978,9 +978,9 @@ end
 # numbers included, log nothing more.
 const _PLAIN_NOTED = Set{String}()
 const _PLAIN_LOCK = ReentrantLock()
-function _note_plain(whys::Tuple)
+function _note_plain(whys::Tuple, what = "Recurrence")
     msg = string(
-        "Recurrence gradients use plain AD of the whole operator: ",
+        what, " gradients use plain AD of the whole operator: ",
         join(unique(whys), "; ")
     )
     new = @lock _PLAIN_LOCK (msg in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, msg); true))
@@ -1087,15 +1087,25 @@ _long_kernel(w::_WithState, args...) = _long_kernel(w.r, args...)
 # The parts of `r` whose reverse pass takes a local derivative, each with why
 # it needs the dual-number extension.
 function _dual_whys(kernel, C, ms)
-    Cp = _primary_adjoint(C) === :local ? (C,) : ()
+    Cp = _primary_adjoint(C) === :local || _derived_duals(C) ? (C,) : ()
     Ck = filter(K -> _coupling_adjoint(K) === :local, _kernel_couplings(kernel))
-    return map(_dual_why, (Cp..., Ck..., filter(_needs_duals, ms)...))
+    k = _derived_duals(kernel) ? (kernel,) : ()
+    return map(_dual_why, (k..., Cp..., Ck..., filter(_needs_duals, ms)...))
 end
-_needs_duals(m) = _modifier_adjoint(m) === :local || _local_modifier(m) !== ()
+function _needs_duals(m)
+    return _modifier_adjoint(m) === :local || _local_modifier(m) !== () ||
+        _derived_duals(m)
+end
 # Called by the reverse-mode rules of `_plain_hook`, so only a reverse pass
 # through plain AD logs, once, which parts need the dual-number extension.
 # A `NoAdjoint` call opted out of the rule, so it says nothing.
-_note_missing_duals(op) = nothing
+function _note_missing_duals(op)
+    _duals_loaded(nothing) || !_derived_duals(op) ||
+        _note_plain((_dual_why(op),), _operator_name(op))
+    return nothing
+end
+# The operator a note on plain AD names; each operator file adds its own.
+_operator_name(op) = "Operator"
 _note_missing_duals(w::_WithState) = _note_missing_duals(w.r)
 function _note_missing_duals(r::Recurrence)
     _duals_loaded(nothing) && return nothing
@@ -1104,13 +1114,20 @@ function _note_missing_duals(r::Recurrence)
     return nothing
 end
 function _dual_why(p)
+    _derived_duals(p) && return _derived_why(p)
     return "$(nameof(typeof(p))) has no `pullback!`, and its local " *
         "derivative needs `ForwardDiff`; add `using ForwardDiff` for the " *
         "faster rule"
 end
-function _dual_why(::Depletion)
+function _dual_why(m::Depletion)
+    _derived_duals(m) && return _derived_why(m)
     return "a Depletion form without a `pullback!` takes a local derivative, " *
         "which needs `ForwardDiff`; add `using ForwardDiff` for the faster rule"
+end
+function _derived_why(p)
+    return "$(nameof(typeof(p))) holds a Derived map whose partials are " *
+        "taken with dual numbers, which needs `ForwardDiff`; add " *
+        "`using ForwardDiff` for the faster rule"
 end
 function _coupling_fit(C, h)
     _coupling_adjoint(C) === :local || return :one
