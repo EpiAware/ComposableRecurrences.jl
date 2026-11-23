@@ -1235,27 +1235,30 @@ end
     using ComposableRecurrences, ForwardDiff, LinearAlgebra
     CR = ComposableRecurrences
     T = 7
-    w = cos.(1:(2 * T))
+    w = cos.(1:(3 * T))
     # Kernel, coupling scale, gain, seed and add input, through the rule's
-    # pullback against ForwardDiff of the buffer run.
+    # pullback against ForwardDiff of the buffer run, with and without the
+    # history joined in front.
     function args(θ, S)
         k, λ, n = θ[1], θ[2], S * T
         g, h, a = θ[3:(2 + n)], θ[(3 + n):(2 + n + S)], θ[(3 + n + S):end]
         S == 1 && return k, λ, g, h, a
         return k, λ, reshape(g, S, T), reshape(h, S, 1), reshape(a, S, T)
     end
-    for S in (1, 2)
+    for S in (1, 2), joined in (false, true)
         n = S * T
         θ = vcat(0.8, 1.2, 1 .+ 0.1 .* sin.(1:n), 0.3 .* (1:S), cos.(1:n))
         loss(y) = sum(w[1:length(y)] .* vec(y))
         function ref(θ)
             k, λ, g, h, a = args(θ, S)
             r = CR.NoAdjoint(Recurrence([k, 0.0]; coupling = λ * I))
-            return loss(r(g; history = h, add = a))
+            return loss(r(g; history = h, add = a, include_history = joined))
         end
         k, λ, g, h, a = args(θ, S)
         op = CR._Scan([k], λ * I)
-        y, cache = CR._run_forward(op, g, a, h, 1, T, 0)
+        o = joined ? size(h, ndims(h)) : 0
+        y, cache = CR._run_forward(op, g, a, h, 1, T, o)
+        @test size(y, ndims(y)) == T + o
         ȳ = reshape(w[1:length(y)], size(y))
         grads = (;
             y = ȳ, piece = (; kernel = [0.0], coupling = (; λ = Ref(0.0))),
@@ -1327,9 +1330,13 @@ end
         @test a == hcat(zeros(size(b, 1), 2), b)
     end
     @test j.trace.pressure == vcat(zeros(2), out.trace.pressure)
-    # A later start joins the history as given.
+    # A later start joins the history as given, and no history joins
+    # nothing.
     @test r(R; history = h, start = 3, include_history = true) ==
         vcat(h, r(R; history = h, start = 3))
+    for q in (r, Recurrence([0.9]))
+        @test q(R; include_history = true) == q(R)
+    end
     # A resumed call has no seed to join.
     @test_throws ArgumentError r(R; state = out.state, include_history = true)
 end

@@ -2571,4 +2571,29 @@ end
             @test DifferentiationInterface.gradient(joined, b, θ) ≈ ref
         end
     end
+    # Strata, with a history of two times that is a reshaped view, so the
+    # history's columns and the strata's offsets are differentiated.
+    S = 3
+    for n in (1, 2)
+        function joined_strata(θ)
+            r = Recurrence(n == 1 ? [0.9] : [0.6, 0.3])
+            h = reshape(view(θ, 1:(2 * S)), S, 2)
+            add = reshape(view(θ, (2 * S + 1):length(θ)), S, T)
+            y = r(1.0; history = h, add, include_history = true)
+            return weighted(vec(y))
+        end
+        function by_hand_strata(θ)
+            r = Recurrence(n == 1 ? [0.9] : [0.6, 0.3])
+            h = reshape(θ[1:(2 * S)], S, 2)
+            add = reshape(θ[(2 * S + 1):end], S, T)
+            return weighted(vec(cat(h, r(1.0; history = h, add); dims = 2)))
+        end
+        θ = vcat(0.1 .* (1:(2 * S)), 0.2 .* sin.(1:(S * T)))
+        ref = ForwardDiff.gradient(by_hand_strata, θ)
+        @test ForwardDiff.gradient(joined_strata, θ) ≈ ref
+        for b in backends
+            g = DifferentiationInterface.gradient(joined_strata, b, θ)
+            @test g ≈ ref
+        end
+    end
 end

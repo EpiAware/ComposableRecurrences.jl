@@ -131,18 +131,18 @@ R = fill(1.1, 2, 10)
 r = Recurrence(g; coupling = K)
 y = r(R; history = ones(2, 3))
 
-# The seed followed by the run, with the seed at times 1 to 3.
+# The seed followed by the run, with the seed at times 1 to 3: the seed's
+# 3 columns, then the run's 10.
 h = ones(2, 3)
-r(hcat(h, R); history = h, start = 4, include_history = true) ==
-    hcat(h, r(hcat(h, R); history = h, start = 4))
+whole = r(hcat(h, R); history = h, start = 4, include_history = true)
 
 # Resume from the returned state over the same inputs.
 fit = r(R; history = ones(2, 3), stop = 5, record = (:state,))
-y ≈ hcat(fit.y, r(R; state = fit.state))
+size(whole), y ≈ hcat(fit.y, r(R; state = fit.state))
 
 # output
 
-true
+((2, 13), true)
 ```
 """
 struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
@@ -747,8 +747,8 @@ Base.@constprop :aggressive @inline function _invoke(
         add = nothing, start = _start(state), stop = nothing, record = nothing,
         include_history::Bool = false
     )
-    args = _run_args(r, gain, history, state, add, start)
     include_history && _check_joinable(state)
+    args = _run_args(r, gain, history, state, add, start)
     rec = _record(record)
     traced, stated = _recording(rec, Val(:trace)), _recording(rec, Val(:state))
     return _routed(traced, stated, rec, r, route, args, stop, include_history)
