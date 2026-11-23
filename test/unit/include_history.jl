@@ -46,32 +46,31 @@
     @test_throws ArgumentError r(R; state = out.state, include_history = true)
 end
 
-@testitem "Recurrence: include_history gradients against the joined output" begin
+@testitem "Recurrence: include_history gradients against the joined run" begin
     using ComposableRecurrences, ForwardDiff, Mooncake, Enzyme
     using DifferentiationInterface, ADTypes
     CR = ComposableRecurrences
     T = 9
-    w = cos.(1:(T + 2))
     backends = (
         AutoMooncake(; config = nothing),
         AutoEnzyme(; mode = set_runtime_activity(Reverse)),
         AutoEnzyme(; mode = Reverse),
     )
     # The scan and the buffer run, each with a history that is a view of
-    # the parameters, as a sampled vector hands it over.
-    for kernel in ([0.9], [0.6, 0.3])
-        n = length(kernel)
-        r = Recurrence(kernel)
+    # the parameters, as a sampled vector hands it over. The operator and
+    # weights are built inside each loss, so Enzyme sees no captured array.
+    weighted(y) = sum(cos.(1:length(y)) .* y)
+    for n in (1, 2)
         function joined(θ)
+            r = Recurrence(n == 1 ? [0.9] : [0.6, 0.3])
             h = view(θ, 1:n)
-            y = r(1.0; history = h, add = view(θ, (n + 1):length(θ)),
-                include_history = true)
-            return sum(w[1:length(y)] .* y)
+            add = view(θ, (n + 1):length(θ))
+            return weighted(r(1.0; history = h, add, include_history = true))
         end
         function by_hand(θ)
+            r = Recurrence(n == 1 ? [0.9] : [0.6, 0.3])
             h = θ[1:n]
-            y = vcat(h, r(1.0; history = h, add = θ[(n + 1):end]))
-            return sum(w[1:length(y)] .* y)
+            return weighted(vcat(h, r(1.0; history = h, add = θ[(n + 1):end])))
         end
         θ = vcat(0.3 .* (1:n), 0.2 .* sin.(1:T))
         ref = ForwardDiff.gradient(by_hand, θ)
