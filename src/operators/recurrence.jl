@@ -206,7 +206,7 @@ function _check_modifier_name(name::Symbol)
     )
 end
 # The names `record` reads for the parts of a call other than modifiers.
-const _RECORD_PARTS = (:state, :trace, :pressure, :modifiers, :y)
+const _RECORD_PARTS = (:state, :trace, :pressure)
 # The modifiers' names as a `Val`, `Val(nothing)` when they have none.
 _names(::Recurrence{K, C, M, B, N}) where {K, C, M, B, N} = Val(N)
 
@@ -789,7 +789,7 @@ end
 function _routed(traced, stated, rec, r, route, args, stop, sel)
     op = _call_op(traced, stated, _linear_parts(route, r, args[3]), sel)
     out = adjoint_call(_reroute(route, op), args..., stop)
-    return _recorded(rec, traced, stated, out, _names(r), sel)
+    return _recorded(rec, traced, stated, out, _names(r))
 end
 
 # What a call records beside `y`, checked once: `nothing` unless `record`
@@ -886,32 +886,30 @@ _call_op(::Val{false}, ::Val{true}, r, sel) = _WithState(r)
 _call_op(::Val{true}, ::Val{true}, r, sel) = _WithTrace(_WithState(r), sel)
 # Without `record` the call returns `y`; with it, a named tuple of `y` and
 # what it names, in the order `y`, `state`, `trace`.
-_recorded(::Nothing, traced, stated, y, names, sel) = y
-function _recorded(
-        ::Union{Tuple, Val}, ::Val{false}, ::Val{false}, y, names, sel
-    )
+_recorded(::Nothing, traced, stated, y, names) = y
+function _recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{false}, y, names)
     return (; y)
 end
 function _recorded(
-        ::Union{Tuple, Val}, ::Val{false}, ::Val{true}, (y, state), names, sel
+        ::Union{Tuple, Val}, ::Val{false}, ::Val{true}, (y, state), names
     )
     return (; y, state)
 end
 function _recorded(
-        ::Union{Tuple, Val}, ::Val{true}, ::Val{false}, (y, trace), names, sel
+        ::Union{Tuple, Val}, ::Val{true}, ::Val{false}, (y, trace), names
     )
-    return (; y, trace = _user_trace(trace, names, sel))
+    return (; y, trace = _user_trace(trace, names))
 end
 function _recorded(
         ::Union{Tuple, Val}, ::Val{true}, ::Val{true}, ((y, state), trace),
-        names, sel
+        names
     )
-    return (; y, state, trace = _user_trace(trace, names, sel))
+    return (; y, state, trace = _user_trace(trace, names))
 end
 
 # The trace as a call returns it: the modifiers keyed by their names when
 # they have them. A part the call did not build is empty.
-function _user_trace(trace, names, sel)
+function _user_trace(trace, names)
     return (; modifiers = _named(trace.modifiers, names), trace.pressure)
 end
 _named(modifiers, ::Val{nothing}) = modifiers
@@ -936,10 +934,23 @@ Base.@constprop :aggressive function forward(
     op = _trace_op(_forward_record(_record(record, _names(r))), r)
     return _run_forward(op, _run_args(r, gain, history, state, add, start)..., stop)
 end
-# `forward` returns no state, so `:trace` is the one name it records.
+# `forward` returns no state, so `:trace` is the one name it records. It is
+# the operator's own entry point, so its trace is the rule's: every part,
+# with the modifiers' traces in a tuple; only a call names them or picks
+# parts.
 _forward_record(rec) = _forward_record(rec, _recording(rec, Val(:state)))
-_forward_record(rec, ::Val{false}) = _recording(rec, Val(:trace))
-@noinline function _forward_record(rec, ::Val{true})
+function _forward_record(rec, ::Val{false})
+    _only_trace(rec)
+    return _recording(rec, Val(:trace))
+end
+_forward_record(rec, ::Val{true}) = _forward_record_error(rec)
+_only_trace(::Nothing) = nothing
+_only_trace(::Val{R}) where {R} = _only_trace(R)
+function _only_trace(rec::Tuple)
+    all(==(:trace), rec) || _forward_record_error(rec)
+    return nothing
+end
+@noinline function _forward_record_error(rec)
     throw(
         ArgumentError(
             "forward(r, Run(); record) records :trace only, got $(repr(rec))"

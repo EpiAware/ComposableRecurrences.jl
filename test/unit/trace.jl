@@ -710,4 +710,40 @@ end
         named.kernel, named.coupling, named.modifiers, named.rebuilds
     )
     @test typeof(rebuilt) == typeof(named)
+    # `forward` records the whole trace only, as the rule builds it.
+    @test_throws "records :trace only" CR.forward(
+        named, CR.Run(), R; history = h, record = (:pressure,)
+    )
+    @test_throws "records :trace only" CR.forward(
+        named, CR.Run(), R; history = h, record = (:pool,)
+    )
+end
+
+@testitem "Recurrence: named modifiers through a computed kernel and a linear coupling" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    # A coupling declared linear, which the call rebuilds as a matrix.
+    struct LinearMix{M}
+        K::M
+    end
+    function CR.forward!(C::LinearMix, ::CR.Pressure, q, p, t)
+        q .= C.K * p
+        return nothing
+    end
+    CR.islinear(::LinearMix) = true
+    T = 6
+    pool = CR.Depletion(PerStratum([50.0, 60.0]))
+    K = [0.9 0.1; 0.2 0.8]
+    hazard = TimeVarying(fill(0.1, T))
+    survival = [0.5, 0.3, 0.2] * CR.Survival(hazard; from = 1)
+    computed = TimeVarying(survival, CR.Primary())
+    R, h = fill(1.1, 2, T), ones(2, 1)
+    for (kernel, coupling) in ((computed, K), ([0.6, 0.3], LinearMix(K)))
+        named = Recurrence(kernel; coupling, modifiers = (; pool))
+        plain = Recurrence(kernel; coupling, modifiers = (pool,))
+        out = named(R; history = h, start = 2, record = (:pool,))
+        ref = plain(R; history = h, start = 2, record = (:trace,))
+        @test keys(out.trace.modifiers) == (:pool,)
+        @test out.trace.modifiers.pool == ref.trace.modifiers[1]
+    end
 end

@@ -11,6 +11,7 @@ struct _WithTrace{O <: AbstractOperator, P} <: AbstractOperator
     op::O
     sel::P
 end
+# The whole trace, as `forward` records it.
 _WithTrace(op) = _WithTrace(op, _all_parts(Val(_nmodifiers(op))))
 _nmodifiers(r::Recurrence) = length(r.modifiers)
 _nmodifiers(w::_WithState) = _nmodifiers(w.r)
@@ -123,10 +124,8 @@ end
 
 # == Traces from the records ==
 
-# A step's outputs are the next modifier's inputs, or the buffer's row for the
-# last.
 # Only the parts a selection names are built; the others are empty.
-function _traces(r, c, sel = _all_parts(Val(length(r.modifiers))))
+function _traces(r, c, sel)
     (; H, rec, D, S, T, τ0) = c
     ms = _bind(r.modifiers, H, nothing, D - τ0 + 1)
     modifiers = _traces(ms, rec, c.states, first(sel), H, D, S, T, τ0)
@@ -141,9 +140,12 @@ function _pressure_trace(keep, r, c)
 end
 # An array like `x` with no columns, or with no rows or columns: the trace
 # of a part not built.
+_no_times(x::AbstractVector) = similar(x, 0)
 _no_times(x::AbstractMatrix) = similar(x, size(x, 1), 0)
 _no_times(::Nothing) = nothing
 _no_parts(x::AbstractMatrix) = similar(x, 0, 0)
+# A step's outputs are the next modifier's inputs, or the buffer's row for the
+# last.
 _traces(::Tuple{}, ::Tuple{}, ::Tuple{}, ::Tuple{}, H, D, S, T, τ0) = ()
 function _traces(
         ms::Tuple, rec::Tuple, finals::Tuple, picks::Tuple, H, D, S, T, τ0
@@ -176,11 +178,9 @@ function _selected_trace(tr, sel)
     modifiers = map(tr.modifiers, first(sel)) do x, keep
         keep ? x : _no_parts(x)
     end
-    pressure = last(sel) ? tr.pressure : _no_times_layout(tr.pressure)
+    pressure = last(sel) ? tr.pressure : _no_times(tr.pressure)
     return (; modifiers, pressure)
 end
-_no_times_layout(x::AbstractVector) = similar(x, 0)
-_no_times_layout(x::AbstractMatrix) = similar(x, size(x, 1), 0)
 function _trace_at!(out, m, R, rest, s′, H, D, t, τ0)
     v, s = view(R.V, :, t), _states_at(R.S, t)
     v′ = _outputs_at(rest, H, D, t)
