@@ -43,68 +43,69 @@ Navigation is generated into `docs/pages.jl`, which is not edited by hand.
 The standards tests check the banned words, one sentence per line, sentence length and code line length.
 The rest of the style sheet is for review.
 
-```text
-Reference page: docs/src/explanation/operators.md.
+The reference page is `docs/src/explanation/operators.md`.
 
-Language
-1. UK English. One sentence per line, at most 35 words; most 10-25.
-2. Plain expository prose: each sentence says one thing and follows from the
-   last. Join short sentences about one thing with "and", "so", "because".
-   No lists of fragments.
-3. Start with the content: no "This page lists/covers", "This tutorial gets",
-   and no closing questions ("Want X? See Y.").
-4. Say each thing once per page; a summary points back, it does not restate.
-5. State what is true now: no "was timed", "used to", or issue numbers.
+#### Language
+
+1. Write in UK English, one sentence per line, at most 35 words; most sentences have 10 to 25.
+2. Write plain expository prose: each sentence says one thing and follows from the last.
+   Join short sentences about one thing with "and", "so" or "because".
+   Do not write lists of fragments.
+3. Start with the content: no "This page lists", "This page covers" or "This tutorial gets", and no closing questions such as `Want X? See Y.`
+4. Say each thing once per page; a summary points back and does not restate.
+5. State what is true now: no "was timed", "used to" or issue numbers.
    Measurement conditions go in table columns or one sentence.
-6. Few adjectives; none of the banned words.
+6. Use few adjectives, and none of the banned words.
 7. Define a term in a sentence at its first use on a page, or link its home.
-   No private words (mirror, twin, whole-step, local step) used as known.
+   Do not use private words, such as mirror, twin, whole-step or local step, as if they were known.
 
-Format
-8. Headings in sentence case, no colons; # title, ## sections, ### for a
-   sub-step only.
-9. Tutorial: Introduction (2-3 sentences: what it models) > Packages used >
-   one ## per model > Performance (one sentence: the model timed) >
-   References (if cited) > Learning more.
-10. Model section: motivation sentence > display maths > "where X is ...,
-    Y the ... and Z the ..." (at most 3 symbols per sentence, never a run of
-    "X is ...") > "Here ..." with values > code > plot > result sentences
-    with numbers.
-11. Lists are full sentences ending in "."; Learning more items are
-    "- [Page](@ref id): what it adds."
-12. Link the first mention of a public name on each page as [`Name`](@ref);
-    later mentions are bare backticks.
-13. Code lines <= 80 characters in pages, tutorials and docstrings.
-14. Table cells <= about 15 words; long code goes below the table.
-15. Extension page: "Loading A with ComposableRecurrences loads `XExt`."
-    then what it adds; title = nav label + " extension".
-16. Docstring: summary sentence (types: noun phrase; functions: imperative)
-    > maths with a "where" sentence > arguments not obvious from the
-    signature > one doctest > link to the page that teaches the concept.
-    No manual signature line.
+#### Format
 
-Glossary (one meaning each)
-stratum/strata: series run side by side (towns, patches are examples).
-kernel: weights on lags. movement matrix: strata x strata weights.
-gain (gamma_t): multiplies the coupled sum (R_t for a renewal). add (a_t).
-pressure: the coupled weighted sum (not "force").
-value before the modifiers (v_t): "new infections before depletion" in
-  infection models (not "renewal value").
-pool: what a Depletion carries (not compartment, stock).
-depletion form: Hazard, Floor, Truncate, Share (not "variant").
-part: a draw or flow of a Depletion only.
-component: a coupling, modifier or form.
-rule: the package's reverse pass. plain AD: the backend differentiating the
-  forward code. Spell out "automatic differentiation (AD)" once per page.
-history: values before start. seed: a history built to start an outbreak.
-innovations (eps_t), not "noise".
+8. Write headings in sentence case, with no colons: `#` for the title, `##` for sections and `###` for a sub-step only.
+9. A tutorial has an introduction of two or three sentences on what it models, then Packages used, one `##` per model, Performance, References if cited, and Learning more.
+   Performance is one sentence naming the model timed.
+10. A model section has a motivation sentence, display maths, a "where" sentence, a "Here" sentence with values, code, a plot and result sentences with numbers.
+    The "where" sentence reads "where X is ..., Y the ... and Z the ...", with at most 3 symbols per sentence and never a run of "X is ...".
+11. List items are full sentences ending in a full stop.
+    Learning more items read `- [Page](@ref id): what it adds.`
+12. Link the first mention of a public name on each page as ``[`Name`](@ref)``; later mentions are bare backticks.
+13. Code lines are at most 80 characters in pages, tutorials and docstrings.
+14. Table cells hold at most about 15 words; long code goes below the table.
+15. An extension page starts `Loading A with ComposableRecurrences loads XExt.` and then says what it adds.
+    Its title is the nav label followed by " extension".
+16. A docstring has a summary sentence, maths with a "where" sentence, the arguments not obvious from the signature, one doctest and a link to the page that teaches the concept.
+    The summary of a type is a noun phrase, and that of a function is imperative.
+    It has no manual signature line.
 
-Symbols
-t time from 1; l lag; L length; i, j receiving and giving stratum;
-tau input (cohort) time; k_l kernel; g_l generation interval; w_l delay;
-K coupling; S_t susceptible pool; N population; rho reporting share;
-iota imports. S as a count of strata only in array shapes (S x T).
-```
+#### Glossary
+
+Each term has one meaning.
+
+- stratum, strata: series run side by side, such as towns or patches.
+- kernel: weights on lags.
+- movement matrix: strata × strata weights.
+- gain (``\gamma_t``): multiplies the coupled sum, such as ``R_t`` for a renewal.
+- add (``a_t``): the input added after the gain.
+- pressure: the coupled weighted sum, not `force`.
+- value before the modifiers (``v_t``): "new infections before depletion" in infection models, not `renewal value`.
+- pool: what a `Depletion` carries, not `compartment` or `stock`.
+- depletion form: `Hazard`, `Floor`, `Truncate` or `Share`, not `variant`.
+- part: a draw or flow of a `Depletion` only.
+- component: a coupling, modifier or form.
+- rule: the package's reverse pass.
+- plain AD: the backend differentiating the forward code; spell out "automatic differentiation (AD)" once per page.
+- history: values before `start`.
+- seed: a history built to start an outbreak.
+- innovations (``\epsilon_t``): not `noise`.
+
+#### Symbols
+
+- ``t`` is time from 1, ``l`` a lag and ``L`` a length.
+- ``i`` and ``j`` are the receiving and giving stratum, and ``\tau`` the input or cohort time.
+- ``k_l`` is a kernel, ``g_l`` a generation interval and ``w_l`` a delay.
+- ``K`` is a coupling, ``S_t`` the susceptible pool and ``N`` a population.
+- ``\rho`` is a reporting share and ``\iota`` the imports.
+- ``S`` is a count of strata only in array shapes, as in ``S \times T``.
 
 ### Maths before code
 
