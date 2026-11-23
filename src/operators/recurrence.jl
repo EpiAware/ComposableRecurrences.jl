@@ -1369,7 +1369,8 @@ _all_pointwise(ms::Tuple) = _strata_loop(first(ms)) && _all_pointwise(Base.tail(
 # Modifiers the series step runs stratum by stratum: pointwise ones, and a
 # blockwise one whose groups are single strata (`_group_series`). The latter
 # only on host arrays and with no trace written or read per stratum, as its
-# trace and device steps run on the whole vectors.
+# trace and device steps run on the whole vectors, and for one stratum: with
+# more, the vector step over all of them is as fast or faster.
 _all_series(::Tuple{}, rec, H) = true
 function _all_series(ms::Tuple, rec, H)
     return _series_ok(first(ms), _first(rec), H) &&
@@ -1377,7 +1378,7 @@ function _all_series(ms::Tuple, rec, H)
 end
 function _series_ok(m, R, H)
     return _strata_loop(m) ||
-        (_group_series(m) && _plain_record(R) && !_on_gpu(H))
+        (_group_series(m) && _plain_record(R) && !_on_gpu(H) && size(H, 2) == 1)
 end
 # A blockwise modifier with one value per group that the series step may run
 # through its group step; a modifier type opts in, as its group step and

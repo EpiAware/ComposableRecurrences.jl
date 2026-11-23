@@ -241,7 +241,7 @@ end
     )
 end
 
-@testitem "Blocks: a protected pool runs its strata in the series step" setup = [AdjointCheck] begin
+@testitem "Blocks: a protected pool runs one stratum in the series step" setup = [AdjointCheck] begin
     using ComposableRecurrences, LinearAlgebra, JLArrays
     using Base.ScopedValues: with
     pools(N) = CR.Depletion(
@@ -254,15 +254,16 @@ end
         d = pools(CR.PerStratum(fill(500.0, S)))
         r = Recurrence(g; modifiers = (d,))
         H = zeros(4, S)
-        # Each group is one stratum, so the strata run on their own, but not
-        # when the run writes the pools' trace or on a device buffer.
-        @test CR._independent(I, g, r.modifiers, nothing, H)
+        # Each group is one stratum, so one stratum runs on its own, but not
+        # several, nor when the run writes the pools' trace or on a device
+        # buffer.
+        @test CR._independent(I, g, r.modifiers, nothing, H) == (S == 1)
         sinks = CR._sinks(Val(:trace), H, Float64, r.modifiers, (zeros(2S),), S, 5)
         @test !CR._independent(I, g, r.modifiers, sinks, H)
         @test !CR._series_ok(d, nothing, JLArray(H))
         # The records a rule's forward run keeps take the series step too.
         rec = (CR._records(H, Float64, d, zeros(2S), S, 5),)
-        @test CR._independent(I, g, r.modifiers, rec, H)
+        @test CR._independent(I, g, r.modifiers, rec, H) == (S == 1)
         R = [1.3 + 0.1 * sin(k + t) for k in 1:S, t in 1:30]
         h = ones(S, 3)
         # A dense identity coupling takes the coupled step on the same values.
