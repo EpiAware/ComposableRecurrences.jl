@@ -53,7 +53,7 @@ A vector step makes the strata wait for each other at every step, so [`Threaded`
 ## [A blockwise step](@id extending-blockwise)
 
 A blockwise step, `forward!(m, Step(), v::Tuple, s::Tuple, t, g)`, acts on one group `g` at a time, with its values and state entries as tuples of one-entry views, read and written as `x[]`.
-Its `pullback!(grads, m, Step(), v, s, t, g)` takes `grads.v` and `grads.s` as tuples of views in the same way.
+Its `pullback!(grads, m, Step(), v, s, t, g)` takes `grads.v` and `grads.s` as tuples of views and overwrites them with the cotangents of `v` and `s`.
 
 This one keeps a running total and a step count per stratum, and adds their mean to the value:
 

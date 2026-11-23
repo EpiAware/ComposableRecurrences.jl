@@ -73,5 +73,6 @@ only(trace.modifiers)
 ```
 
 A blockwise modifier records its trace per group, with `g` after `t` and tuples of one-entry views, as its step does.
+Its `pullback!(grads, m, Trace(), v, s, t, g)` adds `grads.trace`, a tuple of views, into the views in `v`, `s`, `v′` and `s′`, and is given the values before the step.
 One whose trace is not linear in the step's outputs computes them with the step's `forward!`.
 `PieceInterface` checks that a trace leaves `v`, `s`, `v′` and `s′` unchanged.
