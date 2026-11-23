@@ -151,6 +151,17 @@
     agree(a::Union{Tuple, NamedTuple}, b::Union{Tuple, NamedTuple}) =
         all(map(agree, values(a), values(b)))
     agree(::Nothing, ::Nothing) = true
+    # The device's output and cotangents equal the host's.
+    function matches_host(op0, args0, op1, args1, S; shorter = false)
+        y0, x̄0, p̄0 = rule_cotangents(op0, args0, CR._zero_mirror(op0), S, false; shorter)
+        y1, x̄1, p̄1 = rule_cotangents(op1, args1, CR._zero_mirror(op1), S, true; shorter)
+        @test y1 ≈ y0
+        @test x̄1 ≈ x̄0
+        @test agree(p̄1, p̄0)
+        return nothing
+    end
+    # The route a call takes, which must be inferred.
+    inferred_route(op, args...) = @inferred CR._route_val(op, args...)
 end
 
 @testitem "JLArrays: a device buffer's rows come back in the public layout" setup = [DeviceRules] begin
@@ -258,13 +269,8 @@ end
         @testset "$name, $S strata" for (name, (host, device)) in cases
             op0, args0 = recurrence_case(I, S, false; kernel = host)
             op1, args1 = recurrence_case(I, S, true; kernel = device)
-            @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
-            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
-            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
-            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
-            @test y1 ≈ y0
-            @test x̄1 ≈ x̄0
-            @test agree(p̄1, p̄0)
+            @test inferred_route(op1, args1...) === Val(:rule)
+            matches_host(op0, args0, op1, args1, S)
         end
     end
     # A route coupling that is not a matrix on the device keeps plain AD.
@@ -272,11 +278,11 @@ end
     # route here is a matrix.
     mixed = Pairwise(dense(4) => short, 0.5I => pmf)
     op, args = recurrence_case(I, 4, true; kernel = mixed)
-    @test (@inferred CR._route_val(op, args...)) === Val(:plain)
+    @test inferred_route(op, args...) === Val(:plain)
     # A route whose kernel varies over time keeps plain AD too.
     over_time = Pairwise(dense(4) => short, dense(4) => tv_kernel())
     op, args = recurrence_case(I, 4, true; kernel = over_time)
-    @test (@inferred CR._route_val(op, args...)) === Val(:plain)
+    @test inferred_route(op, args...) === Val(:plain)
 end
 
 @testitem "JLArrays: the rule passes of a convolution with gain and add match the CPU" setup = [DeviceRules] begin
@@ -342,12 +348,7 @@ end
         @testset "$name, $S strata" for (name, case) in cases
             op0, args0 = case(false)
             op1, args1 = case(true)
-            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
-            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
-            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
-            @test y1 ≈ y0
-            @test x̄1 ≈ x̄0
-            @test agree(p̄1, p̄0)
+            matches_host(op0, args0, op1, args1, S)
         end
     end
     # The values above cannot show memory: blocks share a per-stratum
@@ -406,12 +407,7 @@ end
         @testset "$name, $S strata" for ((name, shorter), case) in cases
             op0, args0 = case(false)
             op1, args1 = case(true)
-            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
-            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false; shorter)
-            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true; shorter)
-            @test y1 ≈ y0
-            @test x̄1 ≈ x̄0
-            @test agree(p̄1, p̄0)
+            matches_host(op0, args0, op1, args1, S; shorter)
         end
     end
     # Columns given as a list adapt to the flat form and take the rule.
@@ -449,13 +445,8 @@ end
         ]
         @testset "$name, $S strata" for ((name, shorter), case) in cases
             (op0, args0), (op1, args1) = case(false), case(true)
-            @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
-            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
-            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false; shorter)
-            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true; shorter)
-            @test y1 ≈ y0
-            @test x̄1 ≈ x̄0
-            @test agree(p̄1, p̄0)
+            @test inferred_route(op1, args1...) === Val(:rule)
+            matches_host(op0, args0, op1, args1, S; shorter)
         end
     end
 end
@@ -478,13 +469,8 @@ end
         ]
         @testset "$name, $S strata" for (name, case) in cases
             (op0, args0), (op1, args1) = case(false), case(true)
-            @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
-            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
-            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
-            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
-            @test y1 ≈ y0
-            @test x̄1 ≈ x̄0
-            @test agree(p̄1, p̄0)
+            @test inferred_route(op1, args1...) === Val(:rule)
+            matches_host(op0, args0, op1, args1, S)
         end
     end
 end
@@ -526,7 +512,7 @@ end
         ]
         @testset "$name, $S strata" for (name, case) in cases
             (op0, args0), (op1, args1) = case(false), case(true)
-            @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
+            @test inferred_route(op1, args1...) === Val(:rule)
             y0, x̄0, t̄0, p̄0 = passes(op0, args0)
             y1, x̄1, t̄1, p̄1 = passes(op1, args1)
             @test y1 ≈ y0
@@ -626,12 +612,7 @@ end
         @testset "$name, $S strata" for (name, ms) in cases
             op0, args0 = modified_case(ms, S, false)
             op1, args1 = modified_case(ms, S, true)
-            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
-            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
-            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
-            @test y1 ≈ y0
-            @test x̄1 ≈ x̄0
-            @test agree(p̄1, p̄0)
+            matches_host(op0, args0, op1, args1, S)
         end
     end
     # The values above cannot show memory: per-stratum parameters' cotangents
@@ -760,12 +741,7 @@ end
         @test CR._route_val(op1, args1...) === Val(:rule)
         # On the host the call does not take the device route.
         @test !CR._device_gate(op0, args0...)
-        p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
-        y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false; shorter)
-        y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true; shorter)
-        @test y1 ≈ y0
-        @test x̄1 ≈ x̄0
-        @test agree(p̄1, p̄0)
+        matches_host(op0, args0, op1, args1, S; shorter)
     end
     # `kernel_weights` reads every weight of its cohorts, so its hazard
     # covers `n + L - 1` times.
@@ -874,14 +850,9 @@ end
         ]
         @testset "$name, $S strata" for (name, case) in cases
             (op0, args0), (op1, args1) = case(false), case(true)
-            @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
+            @test inferred_route(op1, args1...) === Val(:rule)
             @test CR._fit(op1, args1...) === :one
-            p̄0, p̄1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
-            y0, x̄0, p̄0 = rule_cotangents(op0, args0, p̄0, S, false)
-            y1, x̄1, p̄1 = rule_cotangents(op1, args1, p̄1, S, true)
-            @test y1 ≈ y0
-            @test x̄1 ≈ x̄0
-            @test agree(p̄1, p̄0)
+            matches_host(op0, args0, op1, args1, S)
         end
     end
     # An `Init` of its own, here reading the history, reverses on host
@@ -901,7 +872,7 @@ end
     for S in (4, CR._KERNEL_BLOCKS + 1)
         (op0, args0) = modified_case((DevStart(50.0),), S, false)
         (op1, args1) = modified_case((DevStart(50.0),), S, true)
-        @test (@inferred CR._route_val(op1, args1...)) === Val(:rule)
+        @test inferred_route(op1, args1...) === Val(:rule)
         @test CR._fit(op1, args1...) === :one
         y0, ḡ0, p̄0 = all_cotangents(op0, args0)
         y1, ḡ1, p̄1 = all_cotangents(op1, args1)
@@ -929,7 +900,7 @@ end
     # A modifier holding an array keeps plain AD on a device, as its
     # step may read the array from the host.
     op, args = modified_case((DevShrink(fill(0.1, 4)),), 4, true)
-    @test (@inferred CR._route_val(op, args...)) === Val(:plain)
+    @test inferred_route(op, args...) === Val(:plain)
     # One that reads a per-stratum parameter through `param` builds and runs
     # on the device: the construction and call checks read that parameter
     # once, at stratum 1, from the host.
@@ -1046,7 +1017,7 @@ end
         "a user modifier's default trace" => (S -> (DevPairs(0.9),), :rule),
     )
     op, args = modified_case((DevVectorPairs(0.9),), 4, true)
-    @test (@inferred CR._route_val(op, args...)) === Val(:plain)
+    @test inferred_route(op, args...) === Val(:plain)
     @testset "$name, $S strata" for (name, (ms, how)) in cases, S in (4, many)
         op, args = modified_case(ms(S), S, true)
         @test CR._route_val(CR._WithTrace(op), args...) === Val(how)
@@ -1119,7 +1090,7 @@ end
         @test q1 isa JLArray
         @test Array(q1) ≈ CR.pressure(r, y; history = h)
         op1 = CR._Pressure(rd)
-        @test (@inferred CR._route_val(op1, yd, hd, 1)) === Val(:rule)
+        @test inferred_route(op1, yd, hd, 1) === Val(:rule)
         o0, ȳ0, h̄0, p̄0 = passes(CR._Pressure(r), y, h, false)
         o1, ȳ1, h̄1, p̄1 = passes(op1, yd, hd, true)
         @test o1 ≈ o0
@@ -1141,7 +1112,7 @@ end
         op = CR._WindowSums(ends, size(x, dims), dims)
         x1 = JLArray(x)
         @test CR._route_val(op, x1) === Val(:rule)
-        @test (@inferred CR._route_val(op, x1)) === Val(:rule)
+        @test inferred_route(op, x1) === Val(:rule)
         y0, c0 = CR._run_forward(op, x)
         y1, c1 = CR._run_forward(op, x1)
         @test y1 isa JLArray
