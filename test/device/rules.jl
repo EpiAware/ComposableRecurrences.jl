@@ -291,6 +291,11 @@ function _rule_cases(S)
             transpose(Convolution(TimeVarying(G, CR.Primary()))),
             (x, tail, 2, nothing),
         ),
+        # The pressures of a run's outputs, as `pressure` reads them.
+        "pressure, dense coupling" => (
+            CR._Pressure(Recurrence(pmf; coupling = C)),
+            (Recurrence(pmf; coupling = C)(x; history = h), h, 1),
+        ),
         # Ends that go back, so a time falls in two windows.
         "Window sums, time last" =>
             (CR._WindowSums([4, 11, 7, 30], T, 2), (x,)),
