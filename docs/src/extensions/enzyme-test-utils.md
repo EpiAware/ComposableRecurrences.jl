@@ -1,6 +1,6 @@
 # [ADTypes + Enzyme + EnzymeTestUtils extension](@id extension-enzyme-test-utils)
 
-Loading EnzymeTestUtils adds [`test_adjoint`](@ref ComposableRecurrences.test_adjoint) for `AutoEnzyme`.
+Loading ADTypes, Enzyme and EnzymeTestUtils adds [`test_adjoint`](@ref ComposableRecurrences.test_adjoint) for `AutoEnzyme`.
 It runs `EnzymeTestUtils.test_reverse` on the rule of an operator at its positional arguments.
 
 ```jldoctest; filter = r"Test Summary:.*\n.*\n"
