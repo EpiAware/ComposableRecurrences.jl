@@ -138,7 +138,7 @@ end
 
 # A `Derived` map with no closed-form partials needs dual numbers.
 # Without `ForwardDiff` loaded, an operator holding one takes plain AD at
-# the call, says so once, and gives the right gradient (#536 item 11).
+# the call, says so once, and gives the right gradient.
 @testitem "Loading: Derived pieces without ForwardDiff take plain AD" tags = [:ad, :mooncake, :mooncake_reverse] begin
     script = raw"""
     using ComposableRecurrences, Mooncake, DifferentiationInterface
@@ -175,8 +175,15 @@ end
         k = TimeVarying(CR.Derived(decay, x[1], [0.0, 1.0, 2.0]), CR.Primary())
         return sum(Convolution(k)(fill(1.1, 8)))
     end
+    function scaled(x)
+        θ = CR.Derived((a, b) -> a * exp(-b), x[1], x[2])
+        m = CR.Transform((v, θ) -> v * θ, θ)
+        r = Recurrence([0.5, 0.3]; modifiers = (m,))
+        return sum(r(fill(1.1, 8); history = [1.0, 1.0]))
+    end
     for (f, x, what) in (
             (flow, [100.0, 0.02, 0.5, 0.1], "Recurrence"),
+            (scaled, [0.9, 0.2], "Transform"),
             (kernel, [0.3], "Recurrence"), (conv, [0.3], "Convolution"),
         )
         empty!(CR._PLAIN_NOTED)
@@ -191,7 +198,7 @@ end
     cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
     lines = split(read(cmd, String), '\n'; keepempty = false)
     @test lines[1] == "false"
-    @test lines[2:4] == fill("true true", 3)
+    @test lines[2:5] == fill("true true", 4)
 end
 
 @testitem "Trace, Mooncake reverse: gradients through the traces of built-in modifiers and flows, the rule against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin

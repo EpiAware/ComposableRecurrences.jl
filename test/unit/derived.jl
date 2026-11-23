@@ -151,3 +151,23 @@ end
         @test all(CR._partials(f, xs) .≈ CR._forward_derivative(f, xs))
     end
 end
+
+@testitem "Derived: maps without closed-form partials route to plain AD without dual numbers" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    closed = CR.Derived(*, 0.5, [1.0, 2.0])
+    open_map = CR.Derived((a, b) -> a * exp(b), 0.5, [1.0, 2.0])
+    @test !CR._derived_duals(closed)
+    @test CR._derived_duals(open_map)
+    # Found through operator, modifier and wrapper fields.
+    conv(d) = Convolution(TimeVarying(d, CR.Primary()))
+    @test CR._derived_duals(conv(open_map))
+    @test !CR._derived_duals(conv(closed))
+    scalar = CR.Derived((a, b) -> a * exp(b), 0.5, 0.2)
+    @test CR._derived_duals(CR.Transform((v, θ) -> v * θ, scalar))
+    @test !CR._derived_duals(Recurrence([0.5, 0.3]))
+    # The rule is kept with dual numbers loaded; without, plain AD.
+    expect = CR._duals_loaded(nothing) ? :one : :none
+    @test CR._fit(conv(open_map)) === expect
+    @test CR._fit(conv(closed)) === :one
+end

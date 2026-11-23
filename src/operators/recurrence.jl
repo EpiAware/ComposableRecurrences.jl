@@ -1104,8 +1104,7 @@ function _note_missing_duals(op)
         _note_plain((_dual_why(op),), _operator_name(op))
     return nothing
 end
-# The operator a note on plain AD names; each operator file adds its own.
-_operator_name(op) = "Operator"
+_operator_name(op) = string(nameof(typeof(op)))
 _note_missing_duals(w::_WithState) = _note_missing_duals(w.r)
 function _note_missing_duals(r::Recurrence)
     _duals_loaded(nothing) && return nothing
@@ -1113,14 +1112,15 @@ function _note_missing_duals(r::Recurrence)
     isempty(whys) || _note_plain(whys)
     return nothing
 end
-function _dual_why(p)
-    _derived_duals(p) && return _derived_why(p)
+# A held `Derived` map is named first; otherwise each part says why it takes
+# a local derivative.
+_dual_why(p) = _derived_duals(p) ? _derived_why(p) : _local_why(p)
+function _local_why(p)
     return "$(nameof(typeof(p))) has no `pullback!`, and its local " *
         "derivative needs `ForwardDiff`; add `using ForwardDiff` for the " *
         "faster rule"
 end
-function _dual_why(m::Depletion)
-    _derived_duals(m) && return _derived_why(m)
+function _local_why(::Depletion)
     return "a Depletion form without a `pullback!` takes a local derivative, " *
         "which needs `ForwardDiff`; add `using ForwardDiff` for the faster rule"
 end

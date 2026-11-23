@@ -135,7 +135,7 @@ function _needs_duals(m::Transform)
     return (m.derivative === nothing && _local_derivative(m)) ||
         _derived_duals(m.θ)
 end
-function _dual_why(::Transform)
+function _local_why(::Transform)
     return "a `Transform` without a `derivative` takes its local derivative " *
         "with `ForwardDiff`; add `using ForwardDiff` for the faster rule"
 end

@@ -235,6 +235,9 @@ end
 # Whether a type holds a `Derived` map whose partials are not in closed form
 # (`_partials`), so a rule takes them with dual numbers. Type-only, so it
 # folds at compile time.
+# It sees only concretely typed fields: a map held in an abstractly typed
+# field or captured by a closure is not found, and its rule still asks for
+# `ForwardDiff` in the reverse pass.
 function _derived_duals_type(::Type{T}) where {T}
     T <: Derived && return !_closed_partials(fieldtype(T, :f)) ||
         _derived_duals_type(fieldtype(T, :args))

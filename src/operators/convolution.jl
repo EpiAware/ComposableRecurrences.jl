@@ -274,8 +274,6 @@ struct Convolution{K, M <: ConvolutionMethod} <: AbstractOperator
     end
 end
 
-_operator_name(::Convolution) = "Convolution"
-
 # A method is a singleton `ConvolutionMethod`, so the type carries it.
 _is_method(m) = m isa ConvolutionMethod && Base.issingletontype(typeof(m))
 

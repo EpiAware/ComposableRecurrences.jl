@@ -188,6 +188,7 @@ function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
     fit = _fit(op, args...)
     fit === :one && return _ad(op, args...)
     fit === :wide && return _ad_wide(op, args...)
+    # `:none`: no rule fits, so the call takes plain AD.
     return _hooked_plain(op, args...)
 end
 # Without the dual-number extension an operator that holds a `Derived` map
