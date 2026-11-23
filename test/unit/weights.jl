@@ -269,6 +269,8 @@ end
     # `from` is a keyword only; a rebuild from fields keeps it and its check.
     @test_throws MethodError CR.Survival(TimeVarying(h), 1)
     s1 = CR.Survival(TimeVarying(h); from = 1)
+    @test s1.from == 1
+    @test CR.ConstructionBase.constructorof(typeof(s1))(s1.hazard, s1.from).from == 1
     s2 = CR.ConstructionBase.setproperties(s1; from = 2)
     @test s2.from == 2 && s2.hazard === s1.hazard
     @test_throws ArgumentError CR.ConstructionBase.setproperties(s1; from = -1)
