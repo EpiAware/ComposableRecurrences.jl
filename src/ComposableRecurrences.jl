@@ -101,7 +101,7 @@ public Derived, Recent, Depletion, Flow, Share, Redistribute,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Parallel, Device, EXECUTOR, param, add_param!, Direct, FFTMethod,
     delay_masses, pressure, Survival, convert_floats, islinear, isstateless,
-    window_sums, Trace, ntrace, add_cotangent!
+    window_sums, Trace, ntrace, add_cotangent!, Increments, Normalised
 
 # shapes: slot wrappers and shape and eltype helpers.
 # Time-varying, per-stratum and pairwise coefficients.
@@ -172,6 +172,8 @@ include("operators/windows.jl")
 include("kernels/routes.jl")
 # The masses of a delay on whole lags, the hook delay types extend.
 include("kernels/delays.jl")
+# Maps of a computed kernel along its lags: `Increments` and `Normalised`.
+include("kernels/lag_maps.jl")
 # Kernels computed from coefficients: `Survival` and the fill of the weights.
 include("kernels/weights.jl")
 # The weights walked one cohort at a time, for calls that read each once.
