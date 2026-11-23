@@ -373,6 +373,7 @@ nothing # hide
 | [`Truncate()`](@ref ComposableRecurrences.Truncate) | draws what is asked for, up to what is left | `Depletion(Truncate(); pools = (S = B,))` for a budget `B` |
 | [`Truncate(κ)`](@ref ComposableRecurrences.Truncate) | a smooth `Truncate()`, with softness `κ` in [0, 1), where 0 is `Truncate()` | `Depletion(cap, Truncate(0.1; into = :S))` |
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool at each step | `Flow(:S => :V, p; form = Share())` moves a share `p` of `:S` to `:V` |
+| [`Split()`](@ref ComposableRecurrences.Split) | a flow that draws one count from several pools, in proportion to the pools the step starts from | `Flow((:U, :C) => 0, b; form = Split())` draws `b` from `:U` and `:C` |
 | a type you write | a new depletion form | `Depletion(N, MyForm())` |
 
 - `α` in `Hazard(α)` and `Floor(α)` is the heterogeneity exponent, one by default.

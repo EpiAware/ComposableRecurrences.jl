@@ -699,6 +699,29 @@ end
 # ReverseDiff tape.
 _ward_given(w, θ) = _ward(w, θ .- WARD0)
 
+# Unconfirmed (pool 1) and confirmed (pool 2) patients: confirmed as a
+# share, absconding as a share, admitted in counts, and discharged in counts
+# split between the pools by the patients at the start of each step, which
+# the unconfirmed patients cannot always cover. The parameters are offsets
+# from `SPLIT0`, so the scenario starts at zero, as the ward's does.
+const SPLIT0 = _flat(
+    0.3 .+ 0.1 .* sin.(1:T), [0.02], 4 .+ 2 .* abs.(sin.(1:T)),
+    3 .+ 3 .* abs.(cos.(1:T)),
+)
+function _split_discharges(w, θ)
+    h, κ, adm, dis = _unpack(SPLIT0 .+ θ, (T,), (1,), (T,), (T,))
+    CR = ComposableRecurrences
+    d = CR.Depletion(
+        CR.Flow(:u => :c, TimeVarying(h); form = CR.Share()),
+        CR.Flow(:u => 0, only(κ); form = CR.Share()),
+        CR.Flow(0 => :u, TimeVarying(adm); form = CR.Truncate()),
+        CR.Flow((:u, :c) => 0, TimeVarying(dis); form = CR.Split());
+        pools = (:u, :c)
+    )
+    y = w(Recurrence([true]; modifiers = (d,)))(; history = [5.0; 2.0;;], stop = T)
+    return sum(W1' .* y)
+end
+
 # A negative binomial probability generating function iterated per
 # stratum, mixed by the coupling, with per-stratum dispersion and
 # probability.
@@ -1547,6 +1570,10 @@ const _SCENARIOS = [
         _ward_given, () -> copy(WARD0),
     ),
     (
+        "Recurrence discharges split between two pools (Split flow)",
+        _split_discharges, () -> zero(SPLIT0),
+    ),
+    (
         "Recurrence protected pool in Float32", _protected_float32,
         () -> Float32.(_flat(zeros(S, L), 0.3 .+ LOGR, 1 .+ 0.5 .* abs.(LOGR), [0.3])),
         _F32,
@@ -2179,6 +2206,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence ward with competing flows, from the parameters as given" =>
         (:depletion_pools,),
     "Recurrence waning protection (Depletion flows)" => (:depletion_pools,),
+    "Recurrence discharges split between two pools (Split flow)" => (:Split,),
     "Recurrence protected pool in Float32" => (:depletion_pools,),
     "Recurrence pool with twelve flows (over 32 leaves)" => (:depletion_pools,),
     "Recurrence two draws on one pool with a flow between" => (:depletion_pieces,),

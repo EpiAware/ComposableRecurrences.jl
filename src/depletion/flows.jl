@@ -30,13 +30,75 @@ ComposableRecurrences.Share()
 """
 struct Share end
 
+# == Split ==
+
+@doc raw"""
+The split flow form: a [`ComposableRecurrences.Flow`](@ref) with this form
+draws one count ``b`` from several pools, in proportion to the pools the
+step starts from.
+
+A split flow names its sources as a tuple, `(i_1, …, i_n) => to`, with
+``n \ge 2``.
+With ``w_j`` the pool ``i_j`` before the step's flows and
+``W = \sum_j w_j``, source ``j``'s share of the count is
+
+```math
+c_j = b\, \frac{w_j}{W},
+```
+
+or, when ``W \le 0``, ``c_1 = b`` and ``c_j = 0`` for the others.
+A source may hold less than its share at the point the flow runs, after
+the rates, shares and earlier counts.
+With ``y_j`` what source ``j`` holds then, the part it cannot cover,
+``u_j = \max(c_j - y_j, 0)``, passes to the other sources, in proportion
+to their ``w``, or to the first other source when theirs sum to zero or
+less.
+With two sources each takes the other's ``u`` whole.
+Source ``i`` then loses
+
+```math
+m_i = \min\big(c_i + \textstyle\sum_{j \ne i} u_j\, q_{ij},\ \max(y_i, 0)\big),
+```
+
+with ``q_{ij}`` the part of ``u_j`` passed to ``i``, and `to` gains
+``\sum_i m_i``.
+As for a `Truncate()` count, each source is floored at zero, a negative
+count adds to the sources and moves nothing into `to`, and the
+derivative through ``\min`` and ``\max`` takes the active branch.
+`Split()` is a form for flows only, not a depletion form.
+
+# Examples
+Discharges ``b`` split between unconfirmed and confirmed patients by the
+patients present at the start of each day, after half the unconfirmed
+patients are confirmed.
+On the second day the unconfirmed patients' share is 1.25, but they hold
+0.75, so the confirmed patients take the other 0.5:
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+leave = CR.Flow((:u, :c) => 0, CR.TimeVarying([2.0, 5.0]); form = CR.Split())
+d = CR.Depletion(
+    CR.Flow(:u => :c, 0.5; form = CR.Share()), leave; pools = (:u, :c)
+)
+Recurrence([true]; modifiers = (d,))(; history = [6.0; 2.0;;], stop = 2)
+
+# output
+
+2×2 Matrix{Float64}:
+ 1.5  0.0
+ 4.5  1.0
+```
+"""
+struct Split end
+
 # == Flow: type, construction and checks ==
 
 # The forms a flow takes: without an exponent, and without a draw's
 # arguments.
 const _FlowHazard = Hazard{Nothing, Nothing, Nothing, _Drop}
 const _FlowCount = Truncate{<:Any, Nothing, Nothing, _Drop}
-const _FlowForm = Union{_FlowHazard, Share, _FlowCount}
+const _FlowForm = Union{_FlowHazard, Share, _FlowCount, Split}
 
 # Marks the inner constructor of a flow whose ends `P` are already checked,
 # which, unlike an outer function, can build the type with `new`.
@@ -62,6 +124,7 @@ it leaves:
 | [`ComposableRecurrences.Hazard`](@ref) (the default) | a hazard rate | ``x\, d_f \big(1 - e^{-H}\big) / H``, with ``H`` the sum of the hazard rates out of ``x`` |
 | [`ComposableRecurrences.Share`](@ref) | a share | ``d_f\, x`` |
 | [`ComposableRecurrences.Truncate`](@ref) | a count | ``\min\big(d_f, \max(x, 0)\big)``, or a smooth one with `Truncate(κ)` |
+| [`ComposableRecurrences.Split`](@ref) | a count, from several pools | each source's part of ``d_f``, in proportion to the pools the step starts from |
 
 The hazard rates out of one pool compete, as in the `Hazard` depletion
 form, so together they move ``x (1 - e^{-H})``; with non-negative, finite
@@ -101,14 +164,15 @@ Rates are not checked.
 
 # Arguments
 - `pools`: `from => to`, each a pool's name or its position from 1, with
-  `to = 0` to leave the `Depletion` and `from = 0` to enter it.
+  `to = 0` to leave the `Depletion` and `from = 0` to enter it; for
+  `Split()`, `from` is a tuple of two or more pools.
 - `demand`: the rate, share or count, a
   [parameter](@ref ComposableRecurrences.param) read at each step's group
   and time, with `PerStratum` holding one per group.
 
 # Keyword Arguments
-- `form`: `Hazard()`, the default, `Share()`, `Truncate()` or
-  `Truncate(κ)`.
+- `form`: `Hazard()`, the default, `Share()`, `Truncate()`,
+  `Truncate(κ)` or `Split()`.
 
 # Examples
 ```jldoctest
@@ -123,11 +187,11 @@ waning.form, transfers.to
 (ComposableRecurrences.Hazard(), 0)
 ```
 """
-struct Flow{D, F <: _FlowForm, E, P}
-    "The pool the flow leaves, by name or position."
+struct Flow{D, F <: _FlowForm, E, P, G}
+    "The pool the flow leaves, by name or position, or a split's pools."
     from::E
     "The pool it enters, by name or position, or `0` when it leaves."
-    to::E
+    to::G
     "The rate, share or count, a parameter."
     demand::D
     "How the demand moves: `Hazard()`, `Share()` or `Truncate`."
@@ -138,8 +202,9 @@ struct Flow{D, F <: _FlowForm, E, P}
         d = _check_flow(from, to, demand, form)
         # A share is a fraction of the pool it leaves.
         form isa Share && _check_unit(:demand, d)
-        E = Union{typeof(from), typeof(to)}
-        return new{typeof(d), F, E, (from, to)}(from, to, d, form)
+        return new{typeof(d), F, typeof(from), (from, to), typeof(to)}(
+            from, to, d, form
+        )
     end
     # A flow with ends already checked. A kernel launch adapts the demand to
     # device arrays the host cannot read entry by entry, so those entries are
@@ -149,7 +214,9 @@ struct Flow{D, F <: _FlowForm, E, P}
         ) where {E, P, F}
         d = _check_flow(P[1], P[2], demand, form)
         form isa Share && d isa Real && _check_unit(:demand, d)
-        return new{typeof(d), F, E, P}(P[1], P[2], d, form)
+        return new{typeof(d), F, typeof(P[1]), P, typeof(P[2])}(
+            P[1], P[2], d, form
+        )
     end
 end
 
@@ -183,6 +250,7 @@ function _check_flow_parts(from, to, demand, form)
         )
     )
     form isa _FlowForm || _bad_flow_form(form)
+    _check_split(from, to, form)
     from isa Integer && iszero(from) && !(form isa Truncate) && throw(
         ArgumentError(
             "a flow from outside the Depletion is a count, with form " *
@@ -192,6 +260,53 @@ function _check_flow_parts(from, to, demand, form)
     _check_param(:demand, demand)
     return nothing
 end
+
+# Several sources go with `Split()`, and `Split()` with several sources,
+# each a pool of the `Depletion` other than `to`.
+function _check_split(from::Tuple, to, form)
+    form isa Split || throw(
+        ArgumentError(
+            "a flow from several pools has form Split(), got " *
+                _describe(form)
+        )
+    )
+    length(from) >= 2 || throw(
+        ArgumentError(
+            "a Split() flow draws from two or more pools, got " * repr(from)
+        )
+    )
+    any(x -> x isa Integer && iszero(x), from) && throw(
+        ArgumentError(
+            "a Split() flow draws from pools of the Depletion, not 0, got " *
+                repr(from)
+        )
+    )
+    allunique(from) || throw(
+        ArgumentError(
+            "a Split() flow draws from different pools, got " * repr(from)
+        )
+    )
+    to in from && throw(
+        ArgumentError(
+            "a Split() flow enters a pool it does not draw from, got " *
+                "$(repr(from)) => $(repr(to))"
+        )
+    )
+    return nothing
+end
+function _check_split(from, to, form)
+    form isa Split && throw(
+        ArgumentError(
+            "a Split() flow draws from a tuple of pools, as " *
+                "(:a, :b) => to, got $(repr(from)) => $(repr(to))"
+        )
+    )
+    return nothing
+end
+
+# A flow's float type is its demand's and its form's: its ends hold no
+# floats, and a split's tuple of them would stop the fields' unrolled read.
+param_eltype(f::Flow) = promote_type(param_eltype(f.demand), param_eltype(f.form))
 
 # A flow's ends, read from its type, so the step's selects at them fold.
 _from(::Flow{<:Any, <:Any, <:Any, P}) where {P} = P[1]
@@ -233,7 +348,7 @@ end
     )
     throw(
         ArgumentError(
-            "a flow's form is Hazard(), Share(), Truncate() or " *
+            "a flow's form is Hazard(), Share(), Split(), Truncate() or " *
                 "Truncate(κ), got $(_describe(form))"
         )
     )
@@ -242,6 +357,7 @@ end
 # A flow's end: a pool's name, or its position from 1, with `0` outside.
 _end(x::Symbol) = x
 _end(x::Integer) = Int(x)
+_end(x::Tuple) = map(_end, x)
 function _end(x)
     throw(
         ArgumentError(
@@ -250,6 +366,7 @@ function _end(x)
     )
 end
 _check_end(name, x::Symbol) = nothing
+_check_end(name, x::Tuple) = foreach(y -> _check_end(name, y), x)
 function _check_end(name, x::Int)
     x >= 0 || throw(
         ArgumentError(
@@ -265,14 +382,24 @@ end
 # Found from the types, so the placed flow's type infers.
 function _placed(f::Flow{<:Any, <:Any, <:Any, P}, ::Val{names}) where {P, names}
     from, to = _positions(Val(P), Val(names))
-    from === nothing && _unknown_pool(P[1], names, f)
+    from === nothing && _unknown_pool(_first_unknown(P[1], names), names, f)
     to === nothing && _unknown_pool(P[2], names, f)
-    return Flow(_Placed(), Int, Val((from, to)), f.demand, f.form)
+    return Flow(_Placed(), typeof(from), Val((from, to)), f.demand, f.form)
 end
 # An end's position among `names`: `0` outside, `nothing` for a name that is
 # not a pool or a position past the last.
 _end_position(x::Int, names) = x == 0 || x <= length(names) ? x : nothing
 _end_position(x::Symbol, names) = findfirst(==(x), names)
+# The end to name in an error: a split's first unknown source.
+_first_unknown(x, names) = x
+function _first_unknown(x::Tuple, names)
+    return x[something(findfirst(y -> _end_position(y, names) === nothing, x), 1)]
+end
+# A split flow's sources: their positions, or `nothing` if one is unknown.
+function _end_position(x::Tuple, names)
+    p = map(y -> _end_position(y, names), x)
+    return any(isnothing, p) ? nothing : p
+end
 # After `_end_position`: a generator sees only the methods defined before
 # it, so it cannot use `_position`, which `pool.jl` defines later.
 @generated function _positions(::Val{P}, ::Val{names}) where {P, names}
@@ -291,6 +418,9 @@ end
 
 # A count flow, which moves its demand up to what the pool holds.
 const _Count = Flow{<:Any, <:_FlowCount}
+# A split flow, which draws one count from several pools.
+const _SplitFlow = Flow{<:Any, Split}
+const _CountLike = Union{_Count, _SplitFlow}
 
 # The hazard rate and share of a flow, zero for another form.
 _rate(f::Flow{<:Any, _FlowHazard}, g, t) = param(f.demand, g, t)
@@ -364,7 +494,7 @@ end
 # Without a hazard flow `e^{-0}` and `g(0)` are exactly one, as `_leave` gives
 # them. Shares sum in their own type: in the pools' dual type each share's
 # product with a pool would be one of two duals.
-const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _FlowCount}}}}
+const _NoHazard = Tuple{Vararg{Flow{<:Any, <:Union{Share, _FlowCount, Split}}}}
 _leaves(fs::_NoHazard, i, g, t, z) = _no_hazard_leaves(fs, i, g, t)
 _no_hazard_leaves(fs, i, g, t) = true, true, _out(_share, fs, i, g, t, false)
 
@@ -453,7 +583,7 @@ end
     spread = @inline ((y, a), f, _) -> _spread_one(f, x, L, y, a, g, t)
     return _tuple_fold(spread, (y, a), fs)
 end
-_spread_one(f::_Count, x, L, y, a, g, t) = (y, a)
+_spread_one(f::_CountLike, x, L, y, a, g, t) = (y, a)
 @inline function _spread_one(f::Flow, x, L, y, a, g, t)
     _to(f) > 0 || return (y, a)
     _, gH, _ = L[_from(f)]
@@ -486,16 +616,19 @@ end
 # to the pool it leaves only. The arm follows the primal value.
 _moved_in(m) = ifelse(_primal_value(m) < 0, zero(m), m)
 
-# The count flows in order on the pools `y` and arrivals `a`.
-@inline function _counts(fs::Tuple, y, a, g, t)
-    count = @inline ((y, a), f, _) -> _count(f, y, a, g, t)
+# The count flows in order on the pools `y` and arrivals `a`, with `x` the
+# pools the step starts from, which a split reads.
+@inline function _counts(fs::Tuple, x, y, a, g, t)
+    count = @inline ((y, a), f, _) -> _count(f, x, y, a, g, t)
     return _tuple_fold(count, (y, a), fs)
 end
-_count(f::Flow, y, a, g, t) = y, a
-_count(f::_Count, y, a, g, t) = _count_demand(f, param(f.demand, g, t), y, a)
+_count(f::Flow, x, y, a, g, t) = y, a
+function _count(f::_CountLike, x, y, a, g, t)
+    return _count_demand(f, param(f.demand, g, t), x, y, a)
+end
 # One pass over the pools, by `ifelse`, for the count's demand `c`: a flow
 # out of the system (`to = 0`) adds to no pool.
-@inline function _count_demand(f::_Count, c, y, a)
+@inline function _count_demand(f::_Count, c, x, y, a)
     i, j = _from(f), _to(f)
     m = _moved(f.form, c, _source(y, i))
     p = _moved_in(m)
@@ -509,13 +642,122 @@ end
 # count from outside the `Depletion` (`i = 0`), so the count moves its demand.
 _source(y, i) = ifelse(i == 0, oftype(first(y), Inf), _get(y, i))
 
+# A split's step: the demand on each source, what each loses, and the pools.
+@inline function _count_demand(f::_SplitFlow, b, x, y, a)
+    I, j = _from(f), _to(f)
+    ys = map(i -> y[i], I)
+    m = map(_removal, _split_demands(b, map(i -> x[i], I), ys), ys)
+    p = sum(map(_moved_in, m))
+    y′ = ntuple(Val(length(y))) do l
+        return y[l] - _at_sources(m, I, l) + ifelse(l == j, p, zero(p))
+    end
+    return y′, _add(a, j, p)
+end
+# What sources `I` lose from pool `l`: the loss of the source that is `l`.
+@inline function _at_sources(m, I, l)
+    return sum(ntuple(k -> ifelse(I[k] == l, m[k], zero(m[k])), Val(length(I))))
+end
+
+# The demand on each source of a split of count `b`, from the pools the step
+# starts from, `w`, and what the sources hold when the split runs, `y`:
+# each source's share, and the parts of the others' shares they cannot
+# cover. Arms follow primal values, as `_removal` does.
+@inline function _split_demands(b, w::NTuple{n}, y::NTuple{n}) where {n}
+    c, u, W = _split_parts(b, w, y)
+    return ntuple(i -> c[i] + _passed(u, w, W, i), Val(n))
+end
+@inline function _split_parts(b, w::NTuple{n}, y::NTuple{n}) where {n}
+    W = sum(w)
+    on = _primal_value(W) > 0
+    Wd = ifelse(on, W, one(W))
+    c = ntuple(Val(n)) do j
+        q = b * w[j] / Wd
+        return ifelse(on, q, ifelse(j == 1, oftype(q, b), zero(q)))
+    end
+    u = ntuple(Val(n)) do j
+        e = c[j] - y[j]
+        return ifelse(_uncovered(c[j], y[j]), e, zero(e))
+    end
+    return c, u, W
+end
+_uncovered(c, y) = _primal_value(c) > _primal_value(y)
+# What source `i` takes of the others' uncovered parts `u`: with two
+# sources the other's whole.
+_passed(u, w::NTuple{2}, W, i) = u[3 - i]
+@inline function _passed(u, w::NTuple{n}, W, i) where {n}
+    return sum(
+        ntuple(Val(n)) do j
+            return ifelse(j == i, zero(u[j]), u[j] * _passed_share(w, W, i, j))
+        end
+    )
+end
+# The part of source `j`'s uncovered part that source `i` takes: in
+# proportion to the other sources' `w`, or all to the first other source
+# when they sum to zero or less.
+@inline function _passed_share(w, W, i, j)
+    Q = W - w[j]
+    on = _primal_value(Q) > 0
+    q = w[i] / ifelse(on, Q, one(Q))
+    first_other = ifelse(j == 1, 2, 1)
+    return ifelse(on, q, ifelse(i == first_other, one(q), zero(q)))
+end
+
+# Its cotangents `(b̄, w̄, ȳ)` from those `m̄` of what each source loses.
+function _split_back(b, w::NTuple{n}, y::NTuple{n}, m̄) where {n}
+    c, u, W = _split_parts(b, w, y)
+    d = ntuple(i -> c[i] + _passed(u, w, W, i), Val(n))
+    r̄s = map(_removal_pullback, d, y, m̄)
+    d̄ = map(first, r̄s)
+    ȳ0 = map(last, r̄s)
+    ū, w̄q = _passed_back(d̄, u, w, W)
+    c̄ = ntuple(j -> d̄[j] + ifelse(_uncovered(c[j], y[j]), ū[j], zero(ū[j])), Val(n))
+    ȳ = ntuple(
+        j -> ȳ0[j] - ifelse(_uncovered(c[j], y[j]), ū[j], zero(ū[j])), Val(n)
+    )
+    if W > 0
+        b̄ = sum(ntuple(j -> c̄[j] * w[j], Val(n))) / W
+        W̄ = -sum(ntuple(j -> c̄[j] * c[j], Val(n))) / W
+        w̄ = ntuple(j -> w̄q[j] + c̄[j] * b / W + W̄, Val(n))
+    else
+        b̄ = first(c̄)
+        w̄ = w̄q
+    end
+    return b̄, w̄, ȳ
+end
+# The cotangents of the uncovered parts and of the weights through the
+# passed shares, from those `d̄` of the demands.
+function _passed_back(d̄, u, w::NTuple{2}, W)
+    z = zero(first(d̄))
+    return (d̄[2], d̄[1]), (z, z)
+end
+function _passed_back(d̄, u, w::NTuple{n}, W) where {n}
+    ū = ntuple(Val(n)) do j
+        sum(ntuple(i -> i == j ? zero(d̄[i]) : d̄[i] * _passed_share(w, W, i, j), Val(n)))
+    end
+    w̄ = ntuple(_ -> zero(first(d̄)), Val(n))
+    for j in 1:n
+        Q = W - w[j]
+        Q > 0 || continue
+        Q̄ = zero(Q)
+        for i in 1:n
+            i == j && continue
+            f̄ = d̄[i] * u[j]
+            w̄ = _set(w̄, i, w̄[i] + f̄ / Q)
+            Q̄ -= f̄ * w[i] / Q^2
+        end
+        w̄ = map(x -> x + Q̄, w̄)
+        w̄ = _set(w̄, j, w̄[j] - Q̄)
+    end
+    return ū, w̄
+end
+
 # Count flows only, such as a depletion's removals: nothing moves at a
 # rate or as a share, so the counts act on `x` directly.
-const _Counts = Tuple{Vararg{_Count}}
+const _Counts = Tuple{Vararg{_CountLike}}
 
 # One group's step: the pools `x` after the flows, and arrivals.
 function _flow_group(fs::_Counts, x::NTuple{N}, g, t) where {N}
-    return _counts(fs, x, ntuple(_ -> zero(first(x)), Val(N)), g, t)
+    return _counts(fs, x, x, ntuple(_ -> zero(first(x)), Val(N)), g, t)
 end
 
 # Inlined, with the spread of the rates and shares, so that a step on dual
@@ -528,7 +770,7 @@ end
     # No name a closure captures is reassigned, or the closure would box it.
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, _start_arrivals(keep_arrivals, y0), g, t)
-    return _counts(fs, y, a, g, t)
+    return _counts(fs, x, y, a, g, t)
 end
 # The arrivals before the flows: zeros, or `nothing` when they are not
 # kept, which the flows' `_add` passes through.
@@ -538,7 +780,7 @@ end
 @inline _start_arrivals(::Val{false}, y) = nothing
 
 # The pools after the flows, without the arrivals, which are not built.
-_flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, nothing, g, t))
+_flow_only(fs::_Counts, x, g, t) = first(_counts(fs, x, x, nothing, g, t))
 @inline _flow_only(fs, x, g, t) = first(_flow_step(fs, x, g, t, Val(false)))
 
 # == Each flow's amount, for a trace without a draw ==
@@ -564,7 +806,15 @@ function _amount(f::Flow, x, L, y, g, t)
 end
 function _amount(f::_Count, x, L, y, g, t)
     m = _moved(f.form, param(f.demand, g, t), _source(y, _from(f)))
-    return m, first(_count(f, y, nothing, g, t))
+    return m, first(_count(f, x, y, nothing, g, t))
+end
+# A split's amount is what its sources lose together.
+function _amount(f::_SplitFlow, x, L, y, g, t)
+    I = _from(f)
+    ys = map(i -> y[i], I)
+    b = param(f.demand, g, t)
+    m = map(_removal, _split_demands(b, map(i -> x[i], I), ys), ys)
+    return sum(m), first(_count(f, x, y, nothing, g, t))
 end
 
 # A hazard or share flow's amount takes its own cotangent and that of the pool
@@ -574,26 +824,41 @@ function _amounts_pullback(fs, f̄s, r̄, x::NTuple{N}, g, t) where {N}
     z = zero(first(x))
     L, y = _amount_start(fs, x, g, t)
     z̄ = zero(promote_type(eltype(x), eltype(r̄)))
-    ȳ = _amount_counts_back(fs, f̄s, r̄, y, ntuple(_ -> z̄, Val(N)), g, t)
+    ȳ, x̄w = _amount_counts_back(
+        fs, f̄s, r̄, x, y, ntuple(_ -> z̄, Val(N)), g, t
+    )
     q = _amount_cotangents(fs, r̄, ȳ)
     H = ntuple(i -> _out(_rate, fs, i, g, t, z), Val(N))
     B = ntuple(i -> _rated(fs, q, i, g, t, z̄), Val(N))
     _amount_rates_back!(fs, f̄s, q, x, L, H, B, ȳ, g, t)
-    return ntuple(Val(N)) do i
+    x̄ = ntuple(Val(N)) do i
         E, gH, P = L[i]
         (E - P) * ȳ[i] + gH * B[i] + _shared(fs, q, i, g, t, z̄)
     end
+    return _with_split(x̄, x̄w)
 end
 
 # The counts' pullback, last first, from the cotangent `ȳ` of the pools
 # after them, each count's own amount cotangent added to its move's.
-function _amount_counts_back(fs::Tuple, f̄s, r̄, y, ȳ, g, t)
-    fwd(y, (f, _), _) = (first(_count(f, y, nothing, g, t)), y)
-    back(ȳ, (f, f̄), y, k) = _amount_count_back(f, f̄, r̄[k], y, ȳ, g, t)
-    return _tuple_forward_back(fwd, back, y, ȳ, _with_mirrors(fs, f̄s))
+function _amount_counts_back(fs::Tuple, f̄s, r̄, x, y, ȳ, g, t)
+    fwd(y, (f, _), _) = (first(_count(f, x, y, nothing, g, t)), y)
+    function back((ȳ, x̄), (f, f̄), y, k)
+        return _amount_count_back(f, f̄, r̄[k], x, y, ȳ, x̄, g, t)
+    end
+    b = (ȳ, _split_zero(fs, x))
+    return _tuple_forward_back(fwd, back, y, b, _with_mirrors(fs, f̄s))
 end
-_amount_count_back(f::Flow, f̄, r̄, y, ȳ, g, t) = ȳ
-function _amount_count_back(f::_Count, f̄, r̄, y, ȳ, g, t)
+_amount_count_back(f::Flow, f̄, r̄, x, y, ȳ, x̄, g, t) = ȳ, x̄
+function _amount_count_back(f::_SplitFlow, f̄, r̄, x, y, ȳ, x̄, g, t)
+    b = param(f.demand, g, t)
+    b̄, ȳ′, x̄′ = _split_count_back(f, b, r̄, x, y, ȳ, x̄, zero(eltype(ȳ)))
+    add_param!(cotangent(f̄, :demand), f.demand, b̄, g, t)
+    return ȳ′, x̄′
+end
+function _amount_count_back(f::_Count, f̄, r̄, x, y, ȳ, x̄, g, t)
+    return __amount_count_back(f, f̄, r̄, y, ȳ, g, t), x̄
+end
+function __amount_count_back(f::_Count, f̄, r̄, y, ȳ, g, t)
     i = _from(f)
     c = param(f.demand, g, t)
     s = _source(y, i)
@@ -612,7 +877,7 @@ end
 # it enters for a hazard or share flow.
 function _amount_cotangents(fs::Tuple, r̄, ȳ)
     return _tuple_map_index(fs) do f, k
-        f isa _Count || _to(f) == 0 ? r̄[k] : r̄[k] + ȳ[_to(f)]
+        f isa _CountLike || _to(f) == 0 ? r̄[k] : r̄[k] + ȳ[_to(f)]
     end
 end
 
@@ -634,7 +899,7 @@ function _amount_rates_back!(fs::Tuple, f̄s, q, x, L, H, B, ȳ, g, t)
         _amount_rate_back!(f, f̄, q[k], x, L, H, B, ȳ, g, t)
     end
 end
-_amount_rate_back!(f::_Count, f̄, q, x, L, H, B, ȳ, g, t) = nothing
+_amount_rate_back!(f::_CountLike, f̄, q, x, L, H, B, ȳ, g, t) = nothing
 function _amount_rate_back!(
         f::Flow{<:Any, _FlowHazard}, f̄, q, x, L, H, B, ȳ, g, t
     )
@@ -654,25 +919,65 @@ end
 
 # A demand that reads the outputs or has a map costs more to read than the
 # rest of a count, so each demand is read once and serves both passes.
-function _counts_back(fs::Tuple, f̄s, y, a, ȳ, ā, g, t)
+# Returns the cotangents of `y`, and of `x` through the splits' shares,
+# `nothing` without a split.
+function _counts_back(fs::Tuple, f̄s, x, y, a, ȳ, ā, g, t)
     function fwd((y, a), (f, f̄), _)
         d = _demand(f, f̄, g, t)
-        return _count_demand(f, first(d), y, a), (y, d)
+        return _count_demand(f, first(d), x, y, a), (y, d)
     end
-    back(ȳ, (f, f̄), (y, d), _) = _count_back(f, d, f̄, y, ȳ, ā, g, t)
-    return _tuple_forward_back(fwd, back, (y, a), ȳ, _with_mirrors(fs, f̄s))
+    function back((ȳ, x̄), (f, f̄), (y, d), _)
+        return _count_back(f, d, f̄, x, y, ȳ, x̄, ā, g, t)
+    end
+    b = (ȳ, _split_zero(fs, x))
+    return _tuple_forward_back(fwd, back, (y, a), b, _with_mirrors(fs, f̄s))
 end
 # What a count's pullback reads of its demand (`_param_partials`); a flow of
 # another form moves no count.
-function _demand(f::_Count, f̄, g, t)
+function _demand(f::_CountLike, f̄, g, t)
     return _param_partials(cotangent(f̄, :demand), f.demand, g, t)
 end
 _demand(f::Flow, f̄, g, t) = (nothing, nothing)
-_count_demand(f::Flow, c, y, a) = y, a
-_count_back(f::Flow, d, f̄, y, ȳ, ā, g, t) = ȳ
+_count_demand(f::Flow, c, x, y, a) = y, a
+_count_back(f::Flow, d, f̄, x, y, ȳ, x̄, ā, g, t) = ȳ, x̄
+function _count_back(f::_SplitFlow, d, f̄, x, y, ȳ, x̄, ā, g, t)
+    b, ∂ = d
+    j = _to(f)
+    āj = j > 0 ? ā[j] : zero(eltype(ȳ))
+    b̄, ȳ′, x̄′ = _split_count_back(f, b, zero(eltype(ȳ)), x, y, ȳ, x̄, āj)
+    _add_param_partials!(cotangent(f̄, :demand), f.demand, b̄, ∂, g, t)
+    return ȳ′, x̄′
+end
+# A split's cotangents from those of the pools after it, `ȳ`, of the
+# arrivals into `to`, `āj`, and of its amount, `r̄`: those of its count, of
+# the pools before it, and of the pools the step starts from.
+function _split_count_back(f, b, r̄, x, y, ȳ, x̄, āj)
+    I, j = _from(f), _to(f)
+    ys = map(i -> y[i], I)
+    w = map(i -> x[i], I)
+    m = map(_removal, _split_demands(b, w, ys), ys)
+    m̄ = map(m, I) do mk, i
+        into = j > 0 && _primal_value(mk) >= 0
+        return r̄ - ȳ[i] + ifelse(into, ȳ[max(j, 1)] + āj, zero(r̄))
+    end
+    b̄, w̄, ȳs = _split_back(b, w, ys, m̄)
+    ȳ′ = ntuple(l -> ȳ[l] + _at_sources(ȳs, I, l), Val(length(ȳ)))
+    x̄′ = ntuple(l -> x̄[l] + _at_sources(w̄, I, l), Val(length(x̄)))
+    return b̄, ȳ′, x̄′
+end
+# The cotangent of the pools the step starts from that splits add to: zeros,
+# or `nothing` without a split, and its sum with the rest of that cotangent.
+const _SingleForm = Union{_FlowHazard, Share, _FlowCount}
+_split_zero(fs, x) = map(zero, x)
+_split_zero(::Tuple{Vararg{Flow{<:Any, <:_SingleForm}}}, x) = nothing
+_with_split(x̄, ::Nothing) = x̄
+_with_split(x̄, x̄w) = map(+, x̄, x̄w)
 # A count from outside the `Depletion` (`from = 0`) takes from no pool, so its
 # source has no cotangent.
-function _count_back(f::_Count, d, f̄, y, ȳ, ā, g, t)
+function _count_back(f::_Count, d, f̄, x, y, ȳ, x̄, ā, g, t)
+    return __count_back(f, d, f̄, y, ȳ, ā, g, t), x̄
+end
+function __count_back(f::_Count, d, f̄, y, ȳ, ā, g, t)
     c, ∂ = d
     i = _from(f)
     s = _source(y, i)
@@ -706,7 +1011,7 @@ function _flows_pullback(
         fs::_Counts, f̄s, x::NTuple{N}, ȳout, ā, g, t
     ) where {N}
     a = ntuple(_ -> zero(first(x)), Val(N))
-    return _counts_back(fs, f̄s, x, a, ȳout, ā, g, t)
+    return _with_split(_counts_back(fs, f̄s, x, x, a, ȳout, ā, g, t)...)
 end
 # The leave terms are the step's, `_Moved` for a pool whose one hazard flow
 # enters a pool.
@@ -715,7 +1020,7 @@ function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
     L = _group_leaves_each(fs, g, t, z, Val(N))
     y0 = ntuple(@inline(i -> (L[i][1] - L[i][3]) * x[i]), Val(N))
     y, a = _spread(fs, x, L, y0, ntuple(_ -> zero(first(y0)), Val(N)), g, t)
-    ȳ = _counts_back(fs, f̄s, y, a, ȳout, ā, g, t)
+    ȳ, x̄w = _counts_back(fs, f̄s, x, y, a, ȳout, ā, g, t)
     # The hazard and share arrivals feed both the pools and the state.
     āt = ntuple(j -> ȳ[j] + ā[j], Val(N))
     H = ntuple(i -> _out(_rate, fs, i, g, t, z), Val(N))
@@ -728,7 +1033,7 @@ function _flows_pullback(fs, f̄s, x::NTuple{N}, ȳout, ā, g, t) where {N}
         return (E - P) * ȳ[i] + _leave_back(gH, B[i], fs, āt, i) +
             _shares_back(fs, āt, i, g, t, zero(E))
     end
-    return ntuple(x̄, Val(N))
+    return _with_split(ntuple(x̄, Val(N)), x̄w)
 end
 
 # What leaves pool `i` at a rate, against the arrivals' cotangents:
@@ -760,7 +1065,7 @@ function _rates_back!(fs::Tuple, f̄s, x, L, H, B, ȳ, ā, g, t)
         _rate_back!(f, f̄, x, L, H, B, ȳ, ā, g, t)
     end
 end
-_rate_back!(f::_Count, f̄, x, L, H, B, ȳ, ā, g, t) = nothing
+_rate_back!(f::_CountLike, f̄, x, L, H, B, ȳ, ā, g, t) = nothing
 function _rate_back!(f::Flow{<:Any, _FlowHazard}, f̄, x, L, H, B, ȳ, ā, g, t)
     i = _from(f)
     E, gH, _ = L[i]
@@ -796,7 +1101,7 @@ end
 # Printed only on error, so a passing check builds no string.
 struct _Named
     name::Symbol
-    from::Int
+    from::Union{Int, Tuple{Vararg{Int}}}
     to::Int
 end
 _Named(name, f::Flow) = _Named(name, _from(f), _to(f))
