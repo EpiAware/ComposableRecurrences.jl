@@ -452,6 +452,49 @@ CR.nstate(CR.Transform(clamp, 0.0, 1.0), 3), CR.nstate(leaky, 3)
 ```
 """
 nstate(m, S) = _blocks_nstate(_blocks(m), S)
+
+@doc raw"""
+Return how many rows each top-level parameter field of a whole-step modifier
+`m` has in a call over `S` strata, or `nothing` to skip the check.
+
+A row is one entry of a [`PerStratum`](@ref) or one row of a
+`TimeVarying(PerStratum(x))`.
+Before its [`ComposableRecurrences.Init`](@ref), each call checks
+
+```math
+\operatorname{rows}(x_f) = r(m, S) \quad \text{for each such field } f,
+```
+
+where ``x_f`` is the field and ``r(m, S)`` this count, and throws a
+`DimensionMismatch` that names a field that fails.
+Pointwise and blockwise modifiers ignore it: their rows follow from
+[`ComposableRecurrences.blocks`](@ref).
+
+# Arguments
+- `m`: the modifier, with `blocks(m) === nothing`.
+- `S`: the number of strata in the call.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+struct Mix{A}
+    a::A
+end
+function CR.forward!(m::Mix, ::CR.Step, v, s, t)
+    v .*= CR.param.(Ref(m.a), eachindex(v), t)
+    return nothing
+end
+CR.param_rows(::Mix, S) = S
+r = Recurrence([0.5]; modifiers = (Mix(PerStratum([1.0, 2.0])),))
+r(ones(3, 2); history = ones(3, 1))
+
+# output
+
+ERROR: DimensionMismatch: a has 2 rows, expected 3
+```
+"""
+param_rows(m, S) = nothing
 _blocks_nstate(::Nothing, S) = S
 _blocks_nstate(::Val{B}, S) where {B} = B[2] * _ngroups(Val(B), S)
 
