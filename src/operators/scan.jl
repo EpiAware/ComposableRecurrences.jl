@@ -48,13 +48,17 @@ end
     _gate(kernel, C, args...) && return _scan_rule(kernel, C, args...)
     return _scan(_scan_coef(kernel, C), args...)
 end
-_scan_rule(kernel, C, args...) = _scan(_scan_coef(kernel, C), args...)
+function _scan_rule(kernel, C, args::Vararg{Any, N}) where {N}
+    return _scan(_scan_coef(kernel, C), args...)
+end
 
 function _run_forward(op::_Scan, gain, add, h, τ0, stop)
     y = _scan(_scan_coef(op), gain, add, h, τ0, stop)
     return y, (; y = copy(y), gain = _tape(gain), h, τ0)
 end
-_primal(op::_Scan, args...) = _scan(_scan_coef(op), args...)
+function _primal(op::_Scan, args::Vararg{Any, N}) where {N}
+    return _scan(_scan_coef(op), args...)
+end
 
 function _scan_eltype(c, gain, add, h)
     return _buffer_eltype(param_eltype((c, gain, add, h)), ())
