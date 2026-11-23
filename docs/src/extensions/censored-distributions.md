@@ -1,20 +1,22 @@
 # [CensoredDistributions + Distributions extension](@id extension-censored-distributions)
 
-Loading CensoredDistributions and Distributions with ComposableRecurrences loads `ComposableRecurrencesCensoredDistributionsExt`.
-It gives a continuous delay distribution its masses on whole lags, so [`Recurrence`](@ref) and [`Convolution`](@ref) take it as a [kernel of delays](@ref overview-delays) with the number of lags.
-On lags `step` units wide the masses are those of `double_interval_censored(d; primary_event = Uniform(0, step), interval = step)`, read at each lag's interval.
-With the default `step = 1` these are CensoredDistributions' defaults: a uniform primary event window of one unit and `interval = 1`.
-The censoring arithmetic stays in CensoredDistributions.
+Loading CensoredDistributions lets [`Recurrence`](@ref) and [`Convolution`](@ref) take a continuous delay distribution as a [kernel of delays](@ref overview-delays), with the number of lags.
+Its masses on lags `step` units wide are those of `double_interval_censored(d; primary_event = Uniform(0, step), interval = step)`.
 
 ```jldoctest
 using ComposableRecurrences, CensoredDistributions, Distributions
 d = LogNormal(1.5, 0.75)
 delay = Convolution(d; lags = 30)
-delay.kernel ≈ [pdf(double_interval_censored(d; interval = 1), l) for l in 0:29]
+censored = double_interval_censored(d; interval = 1)
+delay.kernel ≈ [pdf(censored, l) for l in 0:29]
 
 # output
 
 true
 ```
 
-For another censoring choice, build the masses with CensoredDistributions and pass them to the operator.
+## Known issues
+
+| Symptom | Workaround |
+|---|---|
+| Need another censoring choice | Build the masses with CensoredDistributions and pass the vector |

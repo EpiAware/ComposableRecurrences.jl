@@ -1,73 +1,34 @@
 # [Adapt + KernelAbstractions + Reactant extension](@id extension-reactant)
 
-Loading Adapt, KernelAbstractions and Reactant with ComposableRecurrences loads `ComposableRecurrencesReactantExt`.
-KernelAbstractions loads Adapt itself, so loading Reactant and KernelAbstractions is enough.
-Without KernelAbstractions the extension does not load, and nothing says so: a traced call then runs the package's plain loops, which do not compile under Reactant.
-A traced call runs a loop over many strata as a KernelAbstractions kernel, and Reactant compiles a kernel through CUDA.jl, on the CPU too.
-So load CUDA.jl as well, whatever the target.
-Without it, a traced call throws an error that says so once a loop has [`TRACED_MIN_STRATA`](@ref ComposableRecurrences.TRACED_MIN_STRATA) strata; a call with fewer strata runs without it.
-
-Operator calls on traced arrays compile with `Reactant.@compile`:
+Loading Reactant and KernelAbstractions lets operator calls on traced arrays compile with `Reactant.@compile`.
+A loop over many strata runs as one kernel, and the time loop compiles to one loop, so the program does not grow with steps or strata.
+Reactant compiles kernels through CUDA.jl, so load it too, on the CPU as well.
+These blocks are not run in the docs build, which has no Reactant:
 
 ```julia
-using ComposableRecurrences, Reactant, KernelAbstractions, CUDA
+using ComposableRecurrences, Reactant, KernelAbstractions, CUDA, Enzyme
 r = Recurrence([0.5, 0.3])
 R = Reactant.to_rarray(fill(1.1, 50))
 f(R) = r(R; history = [1.0, 1.0])
 y = (Reactant.@compile f(R))(R)
-```
 
-Enzyme gradients of them compile once Reactant has raised the kernels to array operations, so pass `raise = true` and `raise_first = true`:
-
-```julia
-using Enzyme
 loss(R) = sum(f(R))
 grad(R) = Enzyme.gradient(Enzyme.Reverse, loss, R)[1]
 dR = (Reactant.@compile raise = true raise_first = true grad(R))(R)
 ```
 
-Without them the gradient fails to compile, in Reactant's pass pipeline.
+## Known issues
 
-To [join the history in front](@ref explanation-returns) of a traced output, pass the history in as a traced array too.
-Joining a host array to a traced one is a scalar-indexing error.
+| Symptom | Workaround |
+|---|---|
+| Plain loops fail to compile, with no message | Load KernelAbstractions; without it the extension does not load |
+| Error asking for CUDA.jl once a loop has [`TRACED_MIN_STRATA`](@ref ComposableRecurrences.TRACED_MIN_STRATA) strata | `using CUDA`, whatever the target |
+| Enzyme gradient fails in Reactant's pass pipeline | Pass `raise = true raise_first = true` to `@compile` |
+| Scalar-indexing error when [joining the history](@ref explanation-returns) to a traced output | Pass the history as a traced array: `h = Reactant.to_rarray(h)` |
+| `if` refuses a traced `Bool` in a user modifier | Use `ifelse(v > c, c, v)` |
+| `NaN` gradient through `ifelse` | Keep both arms finite: `ifelse(n > 0, k / ifelse(n > 0, n, one(n)), zero(n))` |
+| Program grows with the strata | Loops below `TRACED_MIN_STRATA` strata, or holding a traced number or change points, are written out; lower the threshold with `with(ComposableRecurrences.TRACED_MIN_STRATA => 8) do ... end` |
 
-```julia
-h = Reactant.to_rarray([1.0, 1.0])
-joined(R, h) = vcat(h, r(R; history = h))
-y = (Reactant.@compile joined(R, h))(R, h)
-```
-
-A traced call runs its own executor whatever [executor](@ref executors) is set, and Enzyme differentiates the traced program rather than using the hand-written gradients.
-The time loop compiles to one loop whose body is a step, so the program does not grow with the number of steps.
-
-From [`TRACED_MIN_STRATA`](@ref ComposableRecurrences.TRACED_MIN_STRATA) [strata](@ref overview-step), each step runs them as one kernel, the [`Parallel`](@ref ComposableRecurrences.Parallel) executor's, so the program does not grow with the number of strata either.
-Fewer strata are written out, one block a stratum.
-The docstring of `TRACED_MIN_STRATA` gives its default, why, and when to change it; set it with `with`:
-
-```julia
-using Base.ScopedValues: with
-dR = with(ComposableRecurrences.TRACED_MIN_STRATA => 8) do
-    (Reactant.@compile raise = true raise_first = true grad(R))(R)
-end
-```
-
-A loop whose arguments cannot be a kernel's is written out too, so its program grows with the strata.
-Such loops include a user's coupling or modifier holding a traced number, and a parameter given by change points.
-
-A user's modifier runs on traced values, so it cannot branch with `if` on them.
-A comparison of traced values is a traced `Bool`, which `if` refuses.
-Choose between the values with `ifelse` instead, which compiles to a select:
-
-```julia
-y = ifelse(v > c, c, v)    # not `v > c ? c : v`
-```
-
-`ifelse` computes both arms, and a gradient passes through both, so keep each finite.
-A ratio guarded by a test needs a safe denominator in the arm not taken:
-
-```julia
-share = ifelse(n > 0, k / ifelse(n > 0, n, one(n)), zero(n))
-```
-
-The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) records, for every scenario of the AD test registry and a few cases at 20 and 400 steps on the CPU, whether the compiled call matches plain Julia and its gradient matches ForwardDiff.
-How Reactant compares with the other AD backends, and what it falls back to, is in [Backends](@ref adjoint-backends).
+A traced call ignores the set [executor](@ref executors), and Enzyme differentiates the traced program rather than the package's rules.
+The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) records which scenarios compile and match.
+How Reactant compares with other backends is in [Backends](@ref adjoint-backends).
