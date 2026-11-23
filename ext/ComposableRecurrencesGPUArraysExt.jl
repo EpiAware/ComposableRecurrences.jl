@@ -10,6 +10,8 @@ using KernelAbstractions: get_backend
 using LinearAlgebra: Diagonal, mul!
 using SparseArrays: SparseMatrixCSC
 
+const CR = ComposableRecurrences
+
 # Device arrays, and views and reshapes of them, run on their own backend
 # under the CPU executors: host threads cannot index them.
 function ComposableRecurrences._resolve(
@@ -38,7 +40,6 @@ end
 
 # One kernel per step, one stratum per index. The reverse pass runs the
 # coupling and kernel pullbacks per step.
-const CR = ComposableRecurrences
 CR._device_ready(op::CR._Pressure) = CR._device_ready(op.r)
 function CR._pressure_run(
         ::Type{Tp}, r, y::AnyGPUArray, h, τ0, L, D, S, T, keep::Val
