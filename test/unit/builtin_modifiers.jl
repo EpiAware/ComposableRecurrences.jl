@@ -1249,6 +1249,23 @@ end
     # Strata that do not split into groups are reported as such, not as a
     # parameter mismatch.
     @test_throws r"multiple of 2 strata" run(PairScale(PerStratum(ones(2))), 3)
+    # A whole-step modifier is checked only against the rows it declares.
+    struct Mix{A}
+        a::A
+    end
+    function CR.forward!(m::Mix, ::CR.Step, v, s, t)
+        v .*= CR.param.(Ref(m.a), eachindex(v), t)
+        return nothing
+    end
+    @test_throws BoundsError run(Mix(PerStratum([1.0, 2.0])), 3)
+    CR.param_rows(::Mix, S) = S
+    @test size(run(Mix(PerStratum([0.5, 0.8, 1.1])), 3)) == (3, 4)
+    @test_throws DimensionMismatch("a has 2 rows, expected 3") run(
+        Mix(PerStratum([1.0, 2.0])), 3
+    )
+    @test_throws DimensionMismatch("a has 2 rows, expected 3") run(
+        Mix(TimeVarying(PerStratum(ones(2, 4)))), 3
+    )
     # The built-in modifiers keep their own checks and messages.
     @test_throws DimensionMismatch("θ has 4 strata, expected 3") run(
         CR.Transform(*, PerStratum(ones(4))), 3
