@@ -2492,5 +2492,6 @@ end
     )[1]
     @test length.(ē) == [3, 1]
     @test ē ≈ expected
+    # ReverseDiff takes a flat vector, which `flat` splits into rows.
     @test ReverseDiff.gradient(flat, reduce(vcat, rows)) ≈ g
 end

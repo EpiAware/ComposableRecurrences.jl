@@ -202,11 +202,21 @@ end
     @test PerStratum(rows).x == padded
     @test PerStratum(rows).x isa Matrix{Float64}
     @test PerStratum([[1, 2], [3]]).x == [1 2; 3 0]
+    # Rows of one length stack too, and an empty row is all zeros.
+    @test PerStratum([[1.0, 2.0], [3.0, 4.0]]).x == [1.0 2.0; 3.0 4.0]
+    @test PerStratum([[1.0], Float64[]]).x == reshape([1.0, 0.0], 2, 1)
     # Rows of mixed types promote, and rows are copied, not held.
     mixed = PerStratum([view([0.5, 0.5], 1:2), [1.0f0]])
     @test mixed.x == [0.5 0.5; 1.0 0.0]
+    row = [0.2, 0.8]
+    held = PerStratum([row, [1.0]])
+    row[1] = 9.0
+    @test held.x == [0.2 0.8; 1.0 0.0]
     @test_throws "at least one row" PerStratum(Vector{Float64}[])
-    @test_throws "vectors of numbers" PerStratum([[0.5], ["a"]])
+    # The rows' eltype is checked, so rows of `Any` holding numbers are not
+    # taken.
+    @test_throws "number eltype" PerStratum([[0.5], ["a"]])
+    @test_throws "number eltype" PerStratum([Any[0.5], [1.0]])
     R = [1.1 + 0.1 * k * t for k in 1:3, t in 1:8]
     H = [1.0 + 0.1 * k * l for k in 1:3, l in 1:4]
     X = [1.0 + 0.2 * sin(k + t) for k in 1:3, t in 1:8]

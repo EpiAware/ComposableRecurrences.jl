@@ -107,12 +107,8 @@ with ``k_{i,l}`` = `x[i, l]` the weight on lag ``l``, ``y_{t-l,i}`` the
 output of stratum ``i`` at absolute time ``t - l`` and ``p_{t,i}`` the
 value passed on to the coupling.
 A [`Convolution`](@ref) kernel is read the same way from lag 0.
-The rows may also be given as a vector of `S` vectors of any lengths,
-`PerStratum([k1, k2])`, which is stacked into one `S × L` array with the
-shorter rows padded with zero weights.
-A padded weight multiplies its input as any zero weight does, so
-``0 \cdot \infty`` gives `NaN`.
-Gradients come back to the rows as given.
+Rows of any lengths, `PerStratum([k1, k2])`, are stacked into one `S × L`
+array, with the shorter rows padded with zero weights.
 As a modifier parameter it is a length-`S` vector, ``\theta_i`` = `x[i]`.
 A coefficient per stratum and per time is `TimeVarying(PerStratum(x))`.
 
@@ -141,7 +137,8 @@ function PerStratum(ks::AbstractVector{<:AbstractVector})
     isempty(ks) && throw(ArgumentError("PerStratum needs at least one row"))
     all(k -> eltype(k) <: Real, ks) || throw(
         ArgumentError(
-            "PerStratum rows are vectors of numbers, got $(_describe(ks))"
+            "PerStratum rows are vectors with a number eltype, got " *
+                _describe(ks)
         )
     )
     L = maximum(length, ks)
