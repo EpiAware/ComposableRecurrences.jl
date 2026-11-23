@@ -1,7 +1,6 @@
 # [Modifiers](@id explanation-modifiers)
 
-Modifiers change each step's value of a recurrence, in order, and each keeps its own state.
-The [API overview](@ref api-overview) shows where they fit among the other parts.
+Modifiers change each step's value of a recurrence, in order, each with its own state; the [API overview](@ref api-overview) shows where they fit.
 
 ```@example modifiers
 using ComposableRecurrences
@@ -10,7 +9,6 @@ using ComposableRecurrences: Depletion, Floor, Transform
 
 ## [Built-in modifiers](@id explanation-builtin-modifiers)
 
-A modifier changes the value of each step of a [`Recurrence`](@ref) after the gain and `add`.
 A [`Depletion`](@ref ComposableRecurrences.Depletion) of a population draws each step's value from the people left to infect.
 Over 40 steps with a gain of 2, a population of 1000 holds the total infections below 1000:
 
@@ -21,37 +19,12 @@ total(r) = round(sum(r(gain; history = seed)))
 total(depleted)
 ```
 
-| Name | What it does | Parameters |
-|:--|:--|:--|
-| [`Depletion(N, parts...; pools)`](@ref ComposableRecurrences.Depletion) | draws each step's value from a pool | `N`, each starting pool and each part's parameters |
-| [`Depletion(cap, Truncate(; into = :O); pools = (:O,))`](@ref ComposableRecurrences.Depletion) | fills pool `:O` up to a capacity `cap` | the capacity |
-| [`Flow(from => to, rate; form)`](@ref ComposableRecurrences.Flow) | a part that moves values from pool `from` to pool `to` at each step | the rate |
-| [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute), `Redistribute(K, ε; leak)` | moves a share of each stratum's value to other strata | `M`, or `K` and `ε` |
-| [`Transform(+, b)`](@ref ComposableRecurrences.Transform) | adds ``b`` at this point in the order | `b` |
-| [`Transform(clamp, lo, hi)`](@ref ComposableRecurrences.Transform) | bounds each value | `lo`, `hi` |
-| [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) | rescales each group of strata to a known total | `total` |
-| [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) | maps each value through ``f(v, \theta)`` | `θ` |
-
-A `Depletion` holds named pools, such as the people left to infect.
-
-- Pools: `pools` gives each pool's name and starting size, such as `(S = N, V = 0.0)`, and a step draws its value from them.
-- Parts: draws and flows, acting in the order given.
-- Draws:
-  - A draw is a [depletion form](@ref explanation-depletion-forms), and `Depletion(N)` alone draws with [`Hazard()`](@ref ComposableRecurrences.Hazard).
-  - It takes each pool's share as a keyword of its form, such as `Hazard(; weights = (S = 1, V = σ))`.
-  - A small pool cannot give all a step asks for.
-    The draw's `overflow` keyword sends the rest to a second stratum (`:stratum`), to a queue that joins the next step's demand (`:queue`), or nowhere (the default).
-- Flows:
-  - A `Flow` names pools by their names in `pools`, and `0` stands for outside the model.
-  - With flows and no draw, a `Depletion` only moves values between pools, as for patients moving between wards.
-
-`Redistribute` and `Allocate` act on several strata.
-
-- A `Redistribute` moves whatever it receives, including values from `add`.
-  The columns of its matrix `M` sum to one, so the total is kept; with `leak = true` a column can sum to less, for a share lost on the way.
-- [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) builds `M`, moving a share `ε[q] * K[p, q]` of stratum `q`'s value to stratum `p`.
-- An `Allocate` keeps each stratum's share of its group.
-  With `imports = (fraction, pattern)`, a fraction of each total is shared out by a second pattern instead, as [Allocate with imports](@ref explanation-allocate-imports) shows.
+- `Depletion(N, parts...; pools)` draws each step's value from named pools, such as `(S = N, V = 0.0)`, through its parts: draws and [`Flow`](@ref ComposableRecurrences.Flow)s, in the order given.
+  A draw is a [depletion form](@ref explanation-depletion-forms), [`Hazard()`](@ref ComposableRecurrences.Hazard) by default, and its `overflow` keyword sends what a small pool cannot give to a second stratum, a queue or nowhere.
+  A `Flow(from => to, rate)` moves values between pools, with `0` for outside the model; with flows and no draw a `Depletion` only moves values.
+- [`Redistribute(M; leak)`](@ref ComposableRecurrences.Redistribute) moves a share of each stratum's value to others through a matrix whose columns sum to one, or less with `leak = true`; `Redistribute(K, ε)` moves `ε[q] * K[p, q]` of stratum `q` to `p`.
+- [`Allocate(groups, total)`](@ref ComposableRecurrences.Allocate) rescales each group of strata to a known total, keeping each stratum's share.
+- [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) maps each value through ``f(v, \theta)``, such as `Transform(+, b)` or `Transform(clamp, lo, hi)`.
 
 Each modifier here has its own [hand-written gradient](@ref adjoint-routing).
 A `Transform` has one when it is given a `derivative`, or when `f` holds no numbers of its own.
@@ -67,21 +40,18 @@ floored = Recurrence([0.3, 0.4, 0.3]; modifiers = (Depletion(N, Floor()),))
 total(floored)
 ```
 
-| Name | What it does | Example |
-|:--|:--|:--|
-| [`Hazard(α)`](@ref ComposableRecurrences.Hazard) | draws the value as a hazard, so the pool never goes negative; the default | `Depletion(N)` |
-| [`Floor(α)`](@ref ComposableRecurrences.Floor) | scales the value by the share of the pool left, with a floor | `Depletion(N, Floor())` |
-| [`Truncate()`](@ref ComposableRecurrences.Truncate) | draws what is asked for, up to what is left | `Depletion(Truncate(); pools = (S = B,))` for a budget `B` |
-| [`Truncate(κ)`](@ref ComposableRecurrences.Truncate) | a smooth `Truncate()`, with softness `κ` in [0, 1), where 0 is `Truncate()` | `Depletion(cap, Truncate(0.1; into = :S))` |
-| [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool at each step | `Flow(:S => :V, p; form = Share())` moves a share `p` of `:S` to `:V` |
-| a type you write | a new depletion form | `Depletion(N, MyForm())` |
+| Name | What it does |
+|:--|:--|
+| [`Hazard(α)`](@ref ComposableRecurrences.Hazard) | draws the value as a hazard, so the pool never goes negative; the default |
+| [`Floor(α)`](@ref ComposableRecurrences.Floor) | scales the value by the share of the pool left, with a floor |
+| [`Truncate(κ)`](@ref ComposableRecurrences.Truncate) | draws what is asked for, up to what is left; `κ` in [0, 1) smooths the cap |
+| [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool at each step |
 
 - `α` in `Hazard(α)` and `Floor(α)` is the heterogeneity exponent, one by default.
   Above one, infections slow sooner as the pool shrinks, as when the most susceptible are infected first.
 - A flow's form is `Hazard()` by default, a rate that competes with the pool's other flows.
   With `Truncate()` or `Truncate(κ)` a flow is a count, capped by what remains.
-- The docstring of each form gives its formula.
-- A new form is a type with a [`forward!`](@ref ComposableRecurrences.forward!) method for one step, [`Step()`](@ref ComposableRecurrences.Step); see [A depletion form](@ref extending-form).
+- The docstring of each form gives its formula, and [A depletion form](@ref extending-form) shows how to write a new one.
 
 ## [Order](@id explanation-modifier-order)
 
@@ -169,8 +139,7 @@ Without a draw it reads one group of pools held in the stratum, its state holds 
 A `Transform(+, b)` after an `Allocate` adds to its totals, and a spill whose pattern reads the values before the `Allocate` goes in its `spill`.
 A `Transform(+, b)` goes where the addition should enter, and a `Transform(clamp, lo, hi)` after what it bounds.
 
-A [`Convolution`](@ref) has no modifiers.
-Its parameters take every form in [Slots](@ref explanation-slots).
+A modifier's parameters take every form in [Slots](@ref explanation-slots).
 
 ## [Allocate with imports](@id explanation-allocate-imports)
 
@@ -200,15 +169,9 @@ round.(y; digits = 3)
 
 ## [Choosing a modifier](@id explanation-choosing-modifier)
 
-Several needs have more than one fit.
-
-- To bound values, `Transform(clamp, lo, hi)` cuts them and a `Depletion` filled up to a capacity routes, queues or drops what is cut, so it keeps account of the excess.
-- To move values between strata after the gain, `Redistribute` moves them through a movement matrix whose columns sum to one.
-- To move values between the pools of a group, use a `Depletion` without a draw.
-- To mix values between strata before the gain, use a [coupling](@ref explanation-coupling).
-- To map values, `Transform` takes any function, and write a [new modifier](@ref extending-pointwise) when the map keeps state or reads other strata.
-
-A [new modifier](@ref extending) composes with the built-ins in the same tuple.
+- To bound values, `Transform(clamp, lo, hi)` cuts them, and a `Depletion` filled up to a capacity keeps account of what is cut.
+- To mix strata before the gain use a [coupling](@ref explanation-coupling), and after it a `Redistribute`.
+- To map values, `Transform` takes any function; a [new modifier](@ref extending-pointwise) suits a map that keeps state or reads other strata, and composes with the built-ins in the same tuple.
 
 ## [Depletion in practice](@id explanation-depletion-examples)
 

@@ -1,7 +1,6 @@
 # [Operators](@id explanation-operators)
 
-A recurrence and a convolution are built once from a kernel and then called with data.
-The [API overview](@ref api-overview) shows where they fit among the other parts.
+A recurrence reads its own past outputs and a convolution an input series; the [API overview](@ref api-overview) shows where they fit.
 
 ```@example operators
 using ComposableRecurrences
@@ -10,20 +9,9 @@ using ComposableRecurrences: exponential_history, Depletion
 
 ## [A step](@id explanation-step)
 
-[`Recurrence`](@ref) and [`Convolution`](@ref) compute their outputs one step at a time.
-Time is the integer step ``t``, counted from 1, and the model sets its [time unit](@ref time-units).
-A model can run several series side by side, such as one per town.
-Each series is a stratum, and together they are the strata.
-
-At each step, a recurrence:
-
-- takes a weighted sum of each stratum's recent outputs, with weights on each lag from its kernel;
-- mixes these sums between strata with the coupling, a matrix of weights between strata;
-- scales the result by the gain, such as the reproduction number, and adds `add`;
-- passes the value through its modifiers in turn, such as a draw from a finite pool, each keeping its own state.
-
-A convolution takes a weighted sum of an input series, from the current step back, scales it by the gain and adds `add`.
-It has no coupling and no modifiers.
+[`Recurrence`](@ref) and [`Convolution`](@ref) compute their outputs one step at a time, with time the integer step ``t`` counted from 1 in the model's [time unit](@ref time-units).
+Each series run side by side, such as one per town, is a stratum.
+A convolution has no coupling and no modifiers.
 
 ![One recurrence step and one convolution output](../assets/recurrence-step.svg)
 
@@ -59,11 +47,7 @@ delay = Convolution([0.0, 0.1, 0.25, 0.3, 0.2, 0.1, 0.05])
 delay([10.0, 20.0, 30.0])
 ```
 
-| Name | What it does |
-|:--|:--|
-| [`Recurrence(kernel; lags, step, coupling, modifiers)`](@ref Recurrence) | computes each value from its own last ``L`` values; `kernel[1]` weights lag 1 |
-| [`Convolution(kernel; lags, step, method)`](@ref Convolution) | computes each value from the current and past inputs; `kernel[1]` weights lag 0 |
-
+The constructors are [`Recurrence(kernel; lags, step, coupling, modifiers)`](@ref Recurrence) and [`Convolution(kernel; lags, step, method)`](@ref Convolution).
 `lags` and `step` apply when the kernel is a [delay distribution](@ref explanation-delays).
 The keyword `method` sets how a convolution sums its lags: [`Direct()`](@ref ComposableRecurrences.Direct) sums them one by one, and [`FFTMethod()`](@ref ComposableRecurrences.FFTMethod) uses a fast Fourier transform.
 By default a convolution takes the transform for a kernel of at least 300 lags over at least 1000 steps.
@@ -73,21 +57,17 @@ An operator, modifier or shape wrapper displays in the REPL as one line with its
 
 ## [Calls](@id explanation-calls)
 
-A recurrence takes its gain first, and a convolution takes its input first and its gain as a keyword.
-In the table, `renewal` is a `Recurrence` and `delay` a `Convolution`.
+A recurrence `renewal` takes its gain first, and a convolution `delay` takes its input first and its gain as a keyword.
 
-| Call | What it does | Returns |
-|:--|:--|:--|
-| [`renewal(gain; history, add, start, stop)`](@ref Recurrence) | runs the recurrence from step `start` to step `stop` | a vector for one stratum, or strata × time |
-| [`delay(x; gain, add, history, start, stop)`](@ref Convolution) | weights the input `x` by the kernel from step `start` to step `stop` | an array shaped like `x` |
-| [`ComposableRecurrences.contributions(delay, x; gain, history, start, stop)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum, such as the reports at each time split by delay | lags × time, or strata × lags × time |
-| [`delay'(x; tail, start, stop)`](@ref Base.transpose(::Convolution)) | the transpose of `delay`: the sum that reads `x` forward from each time, with `tail` the values after the end of `x` | an array shaped like `x` |
-| [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | the coupled weighted sum ``K_t p_t`` at each time ``t``, recomputed from outputs `y`; `y` divided by it is the gain as run, such as the [reproduction number](@ref tutorial-reproduction-number) | shaped like `y` |
-| [`ComposableRecurrences.window_sums(y, ends; dims)`](@ref ComposableRecurrences.window_sums) | the sums of `y` over consecutive windows along `dims` that end at the times `ends`, the first from time 1, such as daily counts binned to report days | one entry per window in place of `dims` |
-| [`renewal(gain; history, record = (:state,))`](@ref Recurrence) | runs the recurrence and also returns its `State` at the end | `(; y, state)` |
-| [`renewal(gain; state)`](@ref Recurrence) | continues a run from a `State`, from time `state.t` | `y`, or `(; y, state)` with `record = (:state,)` |
-| [`renewal(gain; history, record = (:trace,))`](@ref Recurrence) | runs the recurrence and records what each modifier did and the pressure at each step | `(; y, trace)` |
-| [`exponential_history(I0, rate, L)`](@ref ComposableRecurrences.exponential_history) | a history of `L` steps growing by a factor `exp(rate)` per step, ending at `I0` | a vector, or strata × `L` |
+| Call | Returns |
+|:--|:--|
+| [`renewal(gain; history, add, start, stop)`](@ref Recurrence) | the run, a vector or strata × time |
+| [`delay(x; gain, add, history, start, stop)`](@ref Convolution) | an array shaped like `x` |
+| [`renewal(gain; history, record = (:state, :trace))`](@ref Recurrence) | `(; y, state, trace)`, with the `State` to [resume from](@ref explanation-history-state) |
+| [`ComposableRecurrences.contributions(delay, x; ...)`](@ref ComposableRecurrences.contributions) | each lag's term before the sum |
+| [`delay'(x; tail, start, stop)`](@ref Base.transpose(::Convolution)) | the transpose, which reads `x` forward from each time |
+| [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | ``K_t p_t`` recomputed from `y`; `y` over it is the gain as run |
+| [`ComposableRecurrences.window_sums(y, ends; dims)`](@ref ComposableRecurrences.window_sums) | the sums of `y` over windows ending at `ends` |
 
 The keyword `stop` defaults to the common length of the time-indexed inputs, and inputs of different lengths without a `stop` are an error.
 Without a gain, a recurrence takes a gain of 1.
