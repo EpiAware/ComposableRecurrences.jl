@@ -24,3 +24,5 @@ round.(delay([10.0, 20.0, 40.0, 80.0]); digits = 3)
 | Symptom | Workaround |
 |---|---|
 | Error for a continuous distribution | Load CensoredDistributions; see the [CensoredDistributions extension](@ref extension-censored-distributions) |
+
+All extensions are listed in the [overview](@ref extensions-overview).

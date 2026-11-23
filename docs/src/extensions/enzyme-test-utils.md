@@ -20,3 +20,5 @@ true
 ## Known issues
 
 The [Enzyme extension's known issues](@ref extension-enzyme) apply.
+
+All extensions are listed in the [overview](@ref extensions-overview).

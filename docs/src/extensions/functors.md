@@ -20,3 +20,5 @@ Float32
 | Symptom | Workaround |
 |---|---|
 | Error: `convert_floats needs Functors.jl` | Run `using Functors` first |
+
+All extensions are listed in the [overview](@ref extensions-overview).

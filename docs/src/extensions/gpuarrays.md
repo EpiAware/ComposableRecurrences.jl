@@ -17,3 +17,5 @@ y = r(CuArray(fill(1.1f0, 2, 4)); history = CuArray(ones(Float32, 2, 2)))
 |---|---|
 | `ArgumentError` for a `SparseMatrixCSC` coupling on device inputs | Move it to the device as a CSR matrix |
 | Other sparse forms use the array package's own `mul!` | Untested; prefer CSR |
+
+All extensions are listed in the [overview](@ref extensions-overview).
