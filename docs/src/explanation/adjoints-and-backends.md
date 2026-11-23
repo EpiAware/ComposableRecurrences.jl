@@ -149,10 +149,11 @@ The [rule timings](@ref rule-timings) are each rule's time over its twin's, at `
 
 Rules for building components before the call, the masses of a chain of delays and the movement of `Redistribute(K, ε)`, are not the operator's and stay too.
 
-A recurrence with one fixed lag, an `I` or `λ * I` coupling and no modifiers, such as a random walk, a cumulative sum from a seed or an AR(1) series, runs as a scan that keeps its running value in a register.
+A recurrence of one stratum with one fixed lag, an `I` or `λ * I` coupling and no modifiers, such as a random walk, a cumulative sum from a seed or an AR(1) series, runs as a scan that keeps its running value in a register.
+Several strata take the buffer run, which steps every stratum at each time.
 Its rule splits by backend.
 Mooncake takes the operator's rule.
-Enzyme takes a rule on each stratum's scan alone, as the operator's rule cost 1.7 to 2.3 times `accumulate` at 30 to 300 steps, mostly in its glue.
+Enzyme takes a rule on the scan alone, as the operator's rule cost 1.7 to 2.3 times `accumulate` at 30 to 300 steps, mostly in its glue.
 `NoAdjoint` differentiates the scan's loop on both.
 
 ## [Checking a rule](@id adjoint-checks)

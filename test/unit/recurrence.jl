@@ -1205,6 +1205,12 @@ end
     @test (@inferred r(1.0; history = [0.1], add = a)) isa Vector{Float64}
     y = @inferred r(1.0; history = ones(2, 1), add = ones(2, T))
     @test y isa Matrix{Float64}
+    # One stratum, as a vector or a one-row matrix, takes the scan; several
+    # strata take the buffer run.
+    scans(h) = CR._scans(Val(false), Val(false), r, (1.0, nothing, h, nothing))
+    @test scans([0.1])
+    @test scans(ones(1, 1))
+    @test !scans(ones(2, 1))
 end
 
 @testitem "Recurrence: the one-lag scan's errors match the buffer run's" begin
