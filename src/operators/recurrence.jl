@@ -93,6 +93,11 @@ the call covers the absolute times `start:stop`:
     `record = Val((:trace,))`, where it reaches the call as a variable or
     the call is compiled from its argument types alone; the return type
     then infers from the argument types.
+  - `include_history`: when `true`, `y` is the history followed by the
+    run, and each trace has zero columns over the history, so the output
+    and the trace share their times; `false` by default.
+    The state is unchanged.
+    It needs `history`, not `state`.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -128,7 +133,8 @@ y = r(R; history = ones(2, 3))
 
 # The seed followed by the run, with the seed at times 1 to 3.
 h = ones(2, 3)
-hcat(h, r(hcat(h, R); history = h, start = 4))
+r(hcat(h, R); history = h, start = 4, include_history = true) ==
+    hcat(h, r(hcat(h, R); history = h, start = 4))
 
 # Resume from the returned state over the same inputs.
 fit = r(R; history = ones(2, 3), stop = 5, record = (:state,))
@@ -738,22 +744,93 @@ end
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
 Base.@constprop :aggressive @inline function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing, record = nothing
+        add = nothing, start = _start(state), stop = nothing, record = nothing,
+        include_history::Bool = false
     )
     args = _run_args(r, gain, history, state, add, start)
+    include_history && _check_joinable(state)
     rec = _record(record)
     traced, stated = _recording(rec, Val(:trace)), _recording(rec, Val(:state))
-    return _routed(traced, stated, rec, r, route, args, stop)
+    return _routed(traced, stated, rec, r, route, args, stop, include_history)
 end
 # One call over both flags, so that a rule derived from types alone splits.
 # Inlined, as `_run_args` is, so a backend that differentiates the call
-# builds no shadow of the argument tuple.
-@inline function _routed(traced, stated, rec, r, route, args, stop)
-    _scans(traced, stated, r, args) &&
-        return _recorded(rec, traced, stated, _scan_call(route, r, args, stop))
+# builds no shadow of the argument tuple. With `joined` the history is
+# joined in front of the output, which the scan writes there itself.
+@inline function _routed(traced, stated, rec, r, route, args, stop, joined)
+    if _scans(traced, stated, r, args)
+        y = _scan_call(route, r, args, stop, joined)
+        return _recorded(rec, traced, stated, y)
+    end
     op = _call_op(traced, stated, _linear_parts(route, r, args[3]))
     out = adjoint_call(_reroute(route, op), args..., stop)
-    return _recorded(rec, traced, stated, out)
+    joined || return _recorded(rec, traced, stated, out)
+    return _recorded(rec, traced, stated, _joined(traced, stated, out, args[3]))
+end
+
+# == The history in front of the output ==
+
+# A resumed call starts from a state, so it has no seed to join.
+_check_joinable(::Nothing) = nothing
+@noinline function _check_joinable(state)
+    throw(
+        ArgumentError(
+            "include_history joins the seed passed as history, and a call " *
+                "resumed from a state has none; join state.history yourself"
+        )
+    )
+end
+
+# The output with the history `h` in front, and each trace with zero columns
+# over the history, so the trace and the output share their times.
+_joined(::Val{false}, ::Val{false}, y, h) = _join_history(h, y)
+_joined(::Val{false}, ::Val{true}, (y, state), h) = (_join_history(h, y), state)
+function _joined(::Val{true}, ::Val{false}, (y, trace), h)
+    return _join_history(h, y), _pad_trace(trace, h)
+end
+function _joined(::Val{true}, ::Val{true}, ((y, state), trace), h)
+    return (_join_history(h, y), state), _pad_trace(trace, h)
+end
+function _pad_trace(trace, h)
+    m = size(h, ndims(h))
+    pressure = _pad_front(trace.pressure, m)
+    return (; modifiers = map(x -> _pad_front(x, m), trace.modifiers), pressure)
+end
+
+# `x` followed by `y` along time, the last axis. A host output is filled
+# by a loop, which every backend differentiates, a view `x` included;
+# other arrays are joined with `cat`.
+_join_history(x, y) = cat(x, y; dims = ndims(y))
+function _join_history(x::AbstractVecOrMat, y::Array)
+    m = size(x, ndims(x))
+    out = similar(y, _with_times(y, m + size(y, ndims(y)))...)
+    _copy_times!(out, x, 0)
+    _copy_times!(out, y, m)
+    return out
+end
+# Zeros over the first `m` times, then `x`.
+function _pad_front(x::Array, m)
+    out = similar(x, _with_times(x, m + size(x, ndims(x)))...)
+    fill!(selectdim(out, ndims(out), 1:m), zero(eltype(x)))
+    _copy_times!(out, x, m)
+    return out
+end
+function _pad_front(x, m)
+    z = fill!(similar(x, _with_times(x, m)...), zero(eltype(x)))
+    return cat(z, x; dims = ndims(x))
+end
+# `x` into the times after the first `o` of `out`, entry by entry.
+function _copy_times!(out::AbstractVector, x::AbstractVector, o)
+    for (j, v) in enumerate(x)
+        out[o + j] = v
+    end
+    return out
+end
+function _copy_times!(out::AbstractMatrix, x::AbstractMatrix, o)
+    for (j, jx) in enumerate(axes(x, 2)), (k, i) in enumerate(axes(x, 1))
+        out[k, o + j] = x[i, jx]
+    end
+    return out
 end
 
 # What a call records beside `y`, checked once: `nothing` unless `record`

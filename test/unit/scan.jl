@@ -88,11 +88,11 @@ end
         end
         k, λ, g, h, a = args(θ, S)
         op = CR._Scan([k], λ * I)
-        y, cache = CR._run_forward(op, g, a, h, 1, T)
+        y, cache = CR._run_forward(op, g, a, h, 1, T, 0)
         ȳ = reshape(w[1:length(y)], size(y))
         grads = (;
             y = ȳ, piece = (; kernel = [0.0], coupling = (; λ = Ref(0.0))),
-            args = (zero(g), zero(a), zero(h), nothing, nothing),
+            args = (zero(g), zero(a), zero(h), nothing, nothing, nothing),
         )
         CR.pullback!(grads, op, CR.Run(), cache)
         J = ForwardDiff.gradient(ref, θ)
@@ -105,10 +105,10 @@ end
     # A scalar gain and add input take the sums of their slots.
     op = CR._Scan([0.9], 1.0I)
     h = [0.4]
-    y, cache = CR._run_forward(op, 1.1, 0.3, h, 1, T)
+    y, cache = CR._run_forward(op, 1.1, 0.3, h, 1, T, 0)
     grads = (;
         y = ones(T), piece = (; kernel = nothing, coupling = nothing),
-        args = (Ref(0.0), Ref(0.0), zero(h), nothing, nothing),
+        args = (Ref(0.0), Ref(0.0), zero(h), nothing, nothing, nothing),
     )
     CR.pullback!(grads, op, CR.Run(), cache)
     r = CR.NoAdjoint(Recurrence([0.9, 0.0]))

@@ -101,8 +101,15 @@ The two placements give the same run whenever the inputs over the seed times are
 ## [What a call returns](@id explanation-returns)
 
 A recurrence returns the run alone, from `start` to `stop`.
-`vcat(seed, y)`, or `hcat(seed, y)` for strata, joins the seed in front, which is the whole series a later operator should see.
-ReverseDiff needs `cat(seed, y; dims = ndims(y))`, and Enzyme needs a copied history, not a view, for `vcat`.
+With `include_history = true` it returns the seed followed by the run, which is the whole series a later operator should see.
+Each trace then has zero columns over the seed, so it shares the output's times.
+This works with a view as the history on every backend, which `vcat` does not under Enzyme.
+
+```@example operators
+whole = Recurrence(k)(gain; history = seed, include_history = true)
+whole == vcat(seed, Recurrence(k)(gain; history = seed))
+```
+
 A convolution's `history` holds inputs before time 1, which it reads but does not return.
 
 So a delay after a recurrence takes the seed as its own history.
@@ -112,7 +119,7 @@ Delaying the seed and run together and dropping the seed times gives the same re
 delay = Convolution([0.1, 0.4, 0.3, 0.2])
 infections = Recurrence(k)(gain; history = seed)
 reports = delay(infections; history = seed)
-joined = vcat(seed, infections)
+joined = Recurrence(k)(gain; history = seed, include_history = true)
 reports ≈ delay(joined)[(length(seed) + 1):end]
 ```
 
