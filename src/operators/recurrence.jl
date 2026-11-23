@@ -1911,17 +1911,24 @@ end
 uses_adjoint(::_Scan, ::Run) = true
 
 # Whether a call runs as a scan: read from the types, apart from the one
-# lag, so a call that cannot take it folds the check away. Recorded calls
-# and device arrays take the buffer run.
+# lag and one stratum, so a call that cannot take it folds the check away.
+# Recorded calls and device arrays take the buffer run. So do several
+# strata: each stratum's scan strides the output by the number of strata,
+# where the buffer run steps every stratum at each time.
 _scans(traced, stated, r, args) = false
 function _scans(
         ::Val{false}, ::Val{false},
         r::Recurrence{<:AbstractVector{<:Real}, <:UniformScaling, Tuple{}}, args
     )
     gain, add, h, s0 = args
-    return length(r.kernel) == 1 && s0 isa Union{Nothing, Tuple{}} &&
+    return length(r.kernel) == 1 && _one_stratum(h) &&
+        s0 isa Union{Nothing, Tuple{}} &&
         _on_host(r.kernel) && _on_host(gain) && _on_host(add) && _on_host(h)
 end
+
+_one_stratum(h::AbstractVector) = true
+_one_stratum(h::AbstractMatrix) = size(h, 1) == 1
+_one_stratum(h) = false
 
 # The call through the scan, with the same checks and output as the buffer
 # run.
