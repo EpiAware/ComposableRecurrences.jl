@@ -608,6 +608,39 @@ function _strata_init(m, s, nh)
     return nh % max(length(s), 1) == 0
 end
 
+# Whether `m` sets its own initial state but has no `pullback!` for `Init`,
+# so the pullback above would take the local derivative. Read from the
+# methods that could apply to its type, so a method typed on `m`'s type or a
+# supertype of it counts, and cached per type as `_default_init` is below.
+# A modifier without float parameters skips the local derivative when its
+# history is constant, but whether it is differentiated is not known from
+# the types, so that modifier is counted too.
+const _INIT_DUALS = Dict{Type, Tuple{UInt, Bool}}()
+function _init_needs_duals(m)
+    T = typeof(m)
+    world = Base.get_world_counter()
+    hit = @lock _DEFAULT_INIT_LOCK get(_INIT_DUALS, T, nothing)
+    hit !== nothing && first(hit) == world && return last(hit)
+    own_init = _own_method(Tuple{typeof(forward!), T, Init, Any, Any}, 1)
+    own_back = _own_method(Tuple{typeof(pullback!), Any, T, Init, Any, Any}, 2)
+    d = own_init && !own_back
+    @lock _DEFAULT_INIT_LOCK _INIT_DUALS[T] = (world, d)
+    return d
+end
+# Whether a method that could apply to the call signature `sig` types its
+# argument `j`, so it is not the generic fallback. The method table is read
+# directly, with each result's type asserted, so a trimmed build resolves it.
+function _own_method(sig, j)
+    ms = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
+    ms isa Vector || return false
+    for x in ms
+        m = (x::Core.MethodMatch).method
+        t = Base.unwrap_unionall(m.sig)::DataType
+        t.parameters[j + 1] === Any || return true
+    end
+    return false
+end
+
 # Cached per signature with its world age, so a method defined later is still
 # seen; a lookup on every reverse pass cost more than a short run's gradient
 # on Julia 1.13.
