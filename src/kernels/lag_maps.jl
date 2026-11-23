@@ -59,14 +59,11 @@ w_{k,l}(\tau) = \frac{x_{k,l}(\tau)}{\max_\epsilon \sum_{j} x_{k,j}(\tau)},
 
 where ``x_{k,l}(\tau)`` is the weight of the kernel `TimeVarying(x,
 Primary())`, the sum runs over all of the kernel's lags, and a total that
-is not finite or is at most `eps` is replaced by `eps`.
-Each cohort's weights then sum to one, and a cohort whose weights are all
-zero keeps weights of zero.
-
-Every lag of a cohort enters its total, so a `TimeVarying(h)` argument read
-at the time a weight lands covers the times up to ``n + L - 1`` in a
-[`Convolution`](@ref) and ``n + L`` in a [`Recurrence`](@ref), for ``n``
-cohorts and ``L`` lags.
+is not finite or is at most `eps` is replaced by `eps`, so a cohort whose
+weights are all zero keeps weights of zero.
+Every lag of each cohort enters its total, so for ``n`` cohorts and ``L``
+lags a `TimeVarying(h)` argument needs the times up to ``n + L - 1`` in a
+[`Convolution`](@ref) and ``n + L`` in a [`Recurrence`](@ref).
 
 # Arguments
 - `x`: the kernel to normalise, a [`Derived`](@ref), a

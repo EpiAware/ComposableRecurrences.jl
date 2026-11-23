@@ -173,6 +173,8 @@ A route is one way values pass between strata, such as contact in the community 
 | [`TimeVarying(P, Primary())`](@ref ComposableRecurrences.Primary) | a time-varying kernel whose column ``\tau`` belongs to input time ``\tau`` |
 | [`Derived(f, args...)`](@ref ComposableRecurrences.Derived) | a parameter computed by `f` from other parameters, or a cohort kernel computed inside the operator, `TimeVarying(Derived(f, args...), Primary())` |
 | [`Survival(h)`](@ref ComposableRecurrences.Survival) | each cohort's survival through a computed kernel's lags against a hazard `h`, as in `TimeVarying(S * (1 - Survival(TimeVarying(h))), Primary())` |
+| [`Increments(x)`](@ref ComposableRecurrences.Increments) | a computed kernel's differences along its lags, such as a delay's mass from its distribution, `Increments(1 - Survival(h))` |
+| [`Normalised(x)`](@ref ComposableRecurrences.Normalised) | a computed kernel's weights over each cohort's total across its lags; it fills on the host only |
 | [`Recent(n)`](@ref ComposableRecurrences.Recent) | a parameter that sums the recurrence's own last `n` outputs, for each stratum and time |
 
 Kernels:

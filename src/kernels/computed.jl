@@ -141,11 +141,6 @@ function _transposed_back!(ex::Serial, Ā, k̄, c::_NormalisedKernel, Z̄, A, o,
     _on_gpu(A) && return _transposed_split!(ex, Ā, k̄, c, Z̄, A, o, start)
     return _normalised_back!(nothing, Ā, _inner_mirror(k̄), c, Z̄, A, o, start)
 end
-function _transposed_split!(ex, Ā, k̄, c, Z̄, A, o, start)
-    _convolve!(ex, Ā, c, Z̄, o, start)
-    k̄ === nothing || _convolve_back!(ex, zero(Z̄), k̄, c, Z̄, A, o, start)
-    return nothing
-end
 
 # Each cohort `τ`, its kernel inside walked once: `X̄[m + τ]` (when given)
 # takes `Σ_i w_i Ȳ[τ + i - start]`, `Y` (when given) takes `w_i X[m + τ]` at

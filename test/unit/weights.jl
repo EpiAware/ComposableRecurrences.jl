@@ -482,7 +482,7 @@ end
 end
 
 @testitem "Computed kernels: increments and weights over their total" tags = [:threads] setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
-    using ComposableRecurrences
+    using ComposableRecurrences, JLArrays
     using ComposableRecurrences: Derived
     CR = ComposableRecurrences
     (; p, P, h, A, AS, primary) = WeightsChecks
@@ -549,12 +549,32 @@ end
     args = (xs, true, nothing, nothing, 1, T)
     check(conv(perstratum), args, sin.(xs))
     check(tr(perstratum), (xs, nothing, 1, T), sin.(xs))
-    # Another executor fills the dense kernel in blocks.
+    # Another executor fills the dense kernel in blocks, forward, transposed
+    # and in reverse.
+    dsmall = Convolution(primary(CR.kernel_weights(computed(small), T)))
+    held = fill(x[end], L - 1)
     threaded = CR.Threaded(; min_work = 0, ntasks = 2)
     Base.ScopedValues.with(CR.EXECUTOR => threaded) do
+        @test conv(small)(x) ≈ dsmall(x)
+        @test conv(small)'(x; tail = held) ≈ dsmall'(x; tail = held)
         check(conv(small), (x, true, nothing, nothing, 1, T), sin.(1:T))
+        check(tr(small), (x, held, 1, T), sin.(1:T))
         check(conv(perstratum), args, sin.(xs))
     end
+    # At a total of zero the floor has no slope.
+    check(conv(CR.Normalised(Derived(*, 0.0, q))), (x, true, nothing, nothing, 1, T), sin.(1:T))
+    # A total reads every lag of each cohort: a hazard read at the time a
+    # weight lands needs the times up to `T + L - 1` in a convolution and
+    # `T + L` in a recurrence.
+    landed(h) = CR.Normalised(1 - CR.Survival(Derived(*, 0.5 * q, TimeVarying(h))))
+    @test length(conv(landed(hs[1:(T + L - 1)]))(x)) == T
+    @test_throws DimensionMismatch conv(landed(hs[1:(T + L - 2)]))(x)
+    rec(h) = Recurrence(computed(0.3 * landed(h)))(fill(1.1, T); history = [1.0], start = 2)
+    @test length(rec(hs[1:(T + L)])) == T - 1
+    @test_throws DimensionMismatch rec(hs[1:(T + L - 1)])
+    # A lag map fills on the host only.
+    device = computed(CR.Increments(Derived(*, JLArray(q), 2.0)))
+    @test_throws "fills on the host" CR.kernel_weights(device, T)
     # A recurrence with a lag-mapped kernel, its lags from 1.
     r = Recurrence(computed(0.3 * small))
     check(r, (fill(1.1, T), nothing, [1.0], nothing, 2, T), sin.(1:(T - 1)))
