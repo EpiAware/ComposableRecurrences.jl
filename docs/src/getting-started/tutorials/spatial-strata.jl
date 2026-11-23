@@ -217,7 +217,7 @@ end
 death = [0.0, 0.0, 0.0, 0.0, 0.1, 0.2, 0.3, 0.2, 0.1, 0.1]
 funeral_days = [0.6, 0.4]
 cfr = 0.5
-gi_funeral = cfr .* Convolution(funeral_days)(vcat(death, 0.0))
+gi_funeral = Convolution(funeral_days)(vcat(death, 0.0); gain = cfr)
 K_funeral = sparse([0.9 0.1 0.0; 0.1 0.8 0.1; 0.0 0.1 0.9])
 routes = Pairwise(K => gi, K_funeral => gi_funeral)
 ebola = Recurrence(routes; modifiers = (depletion,))
