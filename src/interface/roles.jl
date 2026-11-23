@@ -758,15 +758,19 @@ function _vector_step!(::Val{B}, m, v, s, t) where {B}
     return nothing
 end
 
-# Group `g`'s step, gathered from and scattered back into `v` and `s`.
+# Group `g`'s step, on one-entry views of its entries of `v` and `s`.
 function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
     nv, ns = B
-    v′, s′ = @inline _block_step(
-        m, _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
-    )
-    _scatter!(v, v′, G, g)
-    _scatter!(s, s′, G, g)
+    vg, sg = _entries(v, Val(nv), G, g), _entries(s, Val(ns), G, g)
+    _written(m, @inline forward!(m, Step(), vg, sg, t, g))
     return nothing
+end
+
+# The group `g` entries of `x`, compartment by compartment, as one-entry
+# views of `x` itself with the axis `g:g`: immutable, so a step that is not
+# inlined, such as one over more than 32 entries, puts nothing on the heap.
+@generated function _entries(x, ::Val{n}, G, g) where {n}
+    return Expr(:tuple, (:(_At(_Shifted(x, $(i - 1) * G), g)) for i in 1:n)...)
 end
 
 function _vector_step!(::Nothing, m, v, s, t)
@@ -818,14 +822,23 @@ function _group_back!(gs, acc, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
     nv, ns = B
     m̄ = _unown(acc)
     for g in gs
-        gg = (;
-            piece = m̄, v = _gather(v̄, Val(nv), G, g),
-            s = _gather(s̄, Val(ns), G, g),
-        )
-        vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
-        v̄g, s̄g = @inline _block_back(gg, m, vg, sg, t, g)
-        _scatter!(v̄, v̄g, G, g)
-        _scatter!(s̄, s̄g, G, g)
+        if uses_adjoint(m, Step())
+            gg = (;
+                piece = m̄, v = _entries(v̄, Val(nv), G, g),
+                s = _entries(s̄, Val(ns), G, g),
+            )
+            vg, sg = _entries(v, Val(nv), G, g), _entries(s, Val(ns), G, g)
+            _written(m, @inline pullback!(gg, m, Step(), vg, sg, t, g))
+        else
+            gg = (;
+                piece = m̄, v = _gather(v̄, Val(nv), G, g),
+                s = _gather(s̄, Val(ns), G, g),
+            )
+            vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
+            v̄g, s̄g = _block_local_back(gg, m, vg, sg, t, g)
+            _scatter!(v̄, v̄g, G, g)
+            _scatter!(s̄, s̄g, G, g)
+        end
     end
     return nothing
 end

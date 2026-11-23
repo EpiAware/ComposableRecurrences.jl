@@ -794,25 +794,41 @@ end
 
 # == The group step ==
 
-# A group's step and its pullback. They, the parts' steps and their
-# helpers are inlined, as their calls are (see `_vector_step!`): a call-site
-# inline reaches only the first method, and inner calls slow the reverse pass.
-_block_step(m::Depletion, v::Tuple, s::Tuple, t, g) = _group_step(m, v, s, t, g)
+# A group's step and its pullback, on tuples of one-entry views of the
+# group's values and state. They, the parts' steps and their helpers are
+# inlined, as their calls are (see `_vector_step!`): a call-site inline
+# reaches only the first method, and inner calls slow the reverse pass.
 
 # Without a draw: the flows on the group's values.
-@inline function _group_step(m::_Drawless, v, s, t, g)
-    return _flow_group(only(m.pieces), v, g, t)
+@inline function forward!(m::_Drawless, ::Step, v::Tuple, s::Tuple, t, g)
+    v′, s′ = _flow_group(only(m.pieces), _held(v), g, t)
+    _hold!(v, v′)
+    _hold!(s, s′)
+    return nothing
 end
 
 # The parts fold over `(a, b, x, Q)`, with `nothing` for an overflow it lacks.
 # The parts' modifier-role steps reshape views into this tuple and call the
 # same `_piece_step`, which is faster than folding on views.
-@inline function _group_step(m, v, s, t, g)
+@inline function forward!(m::Depletion, ::Step, v::Tuple, s::Tuple, t, g)
     q, st = _queue_of(m), _stratum_of(m)
-    x, Q = _pools_queue(q, s, Val(_npools(m)))
-    c = (first(v), _second(st, v), x, Q)
+    x, Q = _pools_queue(q, _held(s), Val(_npools(m)))
+    vs = _held(v)
+    c = (first(vs), _second(st, vs), x, Q)
     a, b, x′, Q′ = _pieces_step(m.pieces, c, t, g)
-    return _out_values(st, a, b), _with_queue(q, x′, Q′)
+    _hold!(v, _out_values(st, a, b))
+    _hold!(s, _with_queue(q, x′, Q′))
+    return nothing
+end
+
+# The entries of one-entry views, and their write-back, as straight-line
+# code: past 32 entries `map` and `foreach` on a tuple do not unroll.
+@generated function _held(v::Tuple)
+    return Expr(:tuple, (:(v[$i][]) for i in 1:fieldcount(v))...)
+end
+@generated function _hold!(v::Tuple, x::Tuple)
+    body = (:(v[$i][] = x[$i]) for i in 1:fieldcount(v))
+    return Expr(:block, body..., :(return nothing))
 end
 
 # The pools and the queue in a group's state, `nothing` without a queue,
@@ -907,26 +923,14 @@ end
     return y, x′
 end
 
-# The group step and its pullback on tuples of one-entry views, from the
-# kernels.
-function forward!(m::Depletion, ::Step, v::Tuple, s::Tuple, t, g)
-    v′, s′ = _block_step(m, map(getindex, v), map(getindex, s), t, g)
-    foreach(setindex!, v, v′)
-    foreach(setindex!, s, s′)
-    return nothing
-end
-function pullback!(grads, m::Depletion, ::Step, v::Tuple, s::Tuple, t, g)
-    gg = (;
-        piece = grads.piece, v = map(getindex, grads.v),
-        s = map(getindex, grads.s),
+@inline function pullback!(
+        grads, m::Depletion, ::Step, v::Tuple, s::Tuple, t, g
     )
-    v̄, s̄ = _block_back(gg, m, map(getindex, v), map(getindex, s), t, g)
-    foreach(setindex!, grads.v, v̄)
-    foreach(setindex!, grads.s, s̄)
+    gg = (; piece = grads.piece, v = _held(grads.v), s = _held(grads.s))
+    v̄, s̄ = _group_pullback(gg, m, _held(v), _held(s), t, g)
+    _hold!(grads.v, v̄)
+    _hold!(grads.s, s̄)
     return nothing
-end
-function _block_back(grads, m::Depletion, v::Tuple, s::Tuple, t, g)
-    return _group_pullback(grads, m, v, s, t, g)
 end
 @inline function _group_pullback(grads, m::_Drawless, v, s, t, g)
     x̄ = _flows_pullback(
@@ -1096,18 +1100,18 @@ _as_run_mirror(::Flow, ::Nothing) = nothing
 _as_run_mirror(::Flow, f̄) = (f̄,)
 
 function forward!(p::_Piece, ::Step, v::Tuple, s::Tuple, t, g)
-    v′, s′ = _piece_group(_as_run(p), map(getindex, v), map(getindex, s), t, g)
-    foreach(setindex!, v, v′)
-    foreach(setindex!, s, s′)
+    v′, s′ = _piece_group(_as_run(p), _held(v), _held(s), t, g)
+    _hold!(v, v′)
+    _hold!(s, s′)
     return nothing
 end
 function pullback!(grads, p::_Piece, ::Step, v::Tuple, s::Tuple, t, g)
     v̄, s̄ = _piece_group_back(
-        _as_run(p), _as_run_mirror(p, grads.piece), map(getindex, grads.v),
-        map(getindex, grads.s), map(getindex, v), map(getindex, s), t, g
+        _as_run(p), _as_run_mirror(p, grads.piece), _held(grads.v),
+        _held(grads.s), _held(v), _held(s), t, g
     )
-    foreach(setindex!, grads.v, v̄)
-    foreach(setindex!, grads.s, s̄)
+    _hold!(grads.v, v̄)
+    _hold!(grads.s, s̄)
     return nothing
 end
 
