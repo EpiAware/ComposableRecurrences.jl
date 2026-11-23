@@ -242,7 +242,8 @@ end
 end
 
 @testitem "Blocks: a protected pool runs its strata in the series step" setup = [AdjointCheck] begin
-    using ComposableRecurrences, LinearAlgebra
+    using ComposableRecurrences, LinearAlgebra, JLArrays
+    using Base.ScopedValues: with
     pools(N) = CR.Depletion(
         N, CR.Hazard(; weights = (S = 1, V = 0.3)),
         CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.05);
@@ -258,7 +259,10 @@ end
         @test CR._independent(I, g, r.modifiers, nothing, H)
         sinks = CR._sinks(Val(:trace), H, Float64, r.modifiers, (zeros(2S),), S, 5)
         @test !CR._independent(I, g, r.modifiers, sinks, H)
-        @test !CR._series_ok(d, nothing, view(H, :, :))
+        @test !CR._series_ok(d, nothing, JLArray(H))
+        # The records a rule's forward run keeps take the series step too.
+        rec = (CR._records(H, Float64, d, zeros(2S), S, 5),)
+        @test CR._independent(I, g, r.modifiers, rec, H)
         R = [1.3 + 0.1 * sin(k + t) for k in 1:S, t in 1:30]
         h = ones(S, 3)
         # A dense identity coupling takes the coupled step on the same values.
@@ -268,6 +272,11 @@ end
         yc, trc = rc(R; history = h, record = (:trace,))
         @test first(tr.modifiers) ≈ first(trc.modifiers)
         @test pullback_matches(r, recargs(R, nothing, h)...)
+        # Strata split across tasks add into their own pool cotangents.
+        with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = S)) do
+            @test r(R; history = h) ≈ rc(R; history = h)
+            @test pullback_matches(r, recargs(R, nothing, h)...)
+        end
     end
     # One series, as a vector.
     r = Recurrence(g; modifiers = (pools(500.0),))

@@ -623,8 +623,7 @@ end
 # the group step is slower. `blocks` always gives positive integers.
 _blocks(m::_Pointwise) = nothing
 _blocks(m::Depletion) = Val(blocks(m))
-# Its group step and pullback are the whole of its step, so a `Depletion` with
-# one value per group runs in the series step.
+# One value per group runs in the series step.
 _group_series(m::Depletion) = _one_value(_blocks(m))
 
 # The groups of `S` strata.

@@ -1377,7 +1377,7 @@ function _all_series(ms::Tuple, rec, H)
 end
 function _series_ok(m, R, H)
     return _strata_loop(m) ||
-        (_group_series(m) && _plain_record(R) && H isa Array)
+        (_group_series(m) && _plain_record(R) && !_on_gpu(H))
 end
 # A blockwise modifier with one value per group that the series step may run
 # through its group step; a modifier type opts in, as its group step and
