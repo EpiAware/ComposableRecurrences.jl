@@ -30,7 +30,6 @@ pages = [
     "Getting started" => [
         "Overview" => "getting-started/index.md",
         "Three towns, step by step" => "getting-started/three-towns.md",
-        "API overview" => "getting-started/api-overview.md",
         "Time units" => "getting-started/time-units.md",
         "Infectious disease models" => "domain-guides/infectious-disease-models.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
@@ -69,7 +68,8 @@ pages = [
             "benchmarks/ad-comparison.md",
     ],
     "Performance summary" => "performance/summary.md",
-    "Explanation" => [
+    "How it works" => [
+        "API overview" => "explanation/api-overview.md",
         "Operators" => "explanation/operators.md",
         "Shapes and couplings" => "explanation/shapes-and-couplings.md",
         "Modifiers" => "explanation/modifiers.md",
