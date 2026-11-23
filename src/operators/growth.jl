@@ -73,7 +73,8 @@ function _growth_root(R, g)
         A, B = _growth_sums(R, g, r, _primal_value)
         step = (R * A - 1) / (R * B)
         r += step
-        abs(step) <= 1.0e-12 * max(1, abs(r)) && return r
+        # The iterates rise, so a step no longer above rounding ends the solve.
+        step <= 4 * eps(typeof(r)) * max(1, abs(r)) && return r
     end
     throw(ArgumentError("growth_rate did not converge in 50 steps for R = $R"))
 end

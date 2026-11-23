@@ -9,6 +9,13 @@
         r = CR.growth_rate(R, k)
         @test abs(R * sum(k[l] * exp(-r * l) for l in eachindex(k)) - 1) < 1.0e-10
     end
+    # Every float type converges to its own precision.
+    for T in (Float32, Float16, BigFloat), R in 0.3:0.1:3, k in kernels
+        r = CR.growth_rate(T(R), T.(k))
+        @test r isa T
+        res = T(R) * sum(T(k[l]) * exp(-r * l) for l in eachindex(k)) - 1
+        @test abs(res) <= 4 * eps(T)
+    end
     # Faster spread, faster growth; R below one shrinks.
     @test CR.growth_rate(1.5, g) > CR.growth_rate(1.2, g) > 0
     @test CR.growth_rate(0.8, g) < 0
