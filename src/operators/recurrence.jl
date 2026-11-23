@@ -2007,11 +2007,11 @@ end
     o = joined ? size(h, ndims(h)) : 0
     return _scan_route(route, r.kernel, r.coupling, gain, add, h, τ0, stop, o)
 end
-# The Mooncake extension makes `_scan_rule` a rule primitive, and the Enzyme
-# extension puts its rule on each stratum's `_scan!`; otherwise the scan
-# takes its coefficient as a scalar, so no shadow of the operator is built.
-# Under `NoAdjoint` the backend differentiates the bare loop, without the
-# Enzyme rule on `_scan!`.
+# One reverse-mode extension makes `_scan_rule` a rule primitive, the
+# operator's pullback; the other puts its rule on each stratum's `_scan!`.
+# Elsewhere the scan takes its coefficient as a scalar, so no shadow of the
+# operator is built. Under `NoAdjoint` the backend differentiates the bare
+# loop, without the rule on `_scan!`.
 function _scan_route(::NoAdjoint, kernel, C, args::Vararg{Any, N}) where {N}
     return _scan(_scan_coef(kernel, C), args..., _scan_steps!)
 end
@@ -2070,7 +2070,7 @@ end
 # `(j - 1) S + k`. Two steps at a time, as
 # `y_{t+1} = d_{t+1} d_t y_{t-1} + (d_{t+1} a_t + a_{t+1})` with
 # `d_t = c γ_t`, so the chain from one value to the next has one
-# multiply-add per two steps and the rest runs beside it. The Enzyme
+# multiply-add per two steps and the rest runs beside it. A backend
 # extension's rule is on `_scan!`; `_scan_steps!` is the loop itself.
 # Step `j` is at linear position `(o + j - 1) S + k`, after the `o` times
 # of a joined history.
