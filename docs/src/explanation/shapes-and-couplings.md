@@ -68,7 +68,7 @@ Each slot accepts its own set of wrappers.
 
 A `TimeVarying` kernel can be a vector with one kernel per step, each of any length.
 It can also be change points: `start => value` pairs, each value holding from its start time.
-Inside a function Enzyme differentiates, build them as [`TimeVarying`](@ref) says.
+Inside a differentiated function, build them as [`TimeVarying`](@ref) says.
 
 - By default, column ``\tau`` of a time-varying kernel belongs to output time ``\tau``, [`ComposableRecurrences.Secondary()`](@ref ComposableRecurrences.Secondary).
   It holds the weights the output at ``\tau`` puts on earlier times, such as the delays of the reports at ``\tau``.
