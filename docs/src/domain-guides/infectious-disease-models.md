@@ -39,6 +39,7 @@ Within one step a hazard flow acts before a count flow, so waning comes before t
 | Reporting delay ``w_l`` | ``C_t = \sum_{l=0}^{L-1} w_l I_{t-l}`` | [`Convolution(w)`](@ref Convolution) | [Three towns](@ref overview-build) |
 | Clinical transitions, each with probability ``h`` | ``A_t = h \sum_l w_l O_{t-l}``, one `Convolution` per transition | `Convolution(w)(O; gain = h)`, chained | [Clinical outcomes](@ref tutorial-clinical-outcomes) |
 | Delay that changes over time | ``C_t = \sum_l w_l(t) I_{t-l}`` or ``\sum_l w_l(t - l) I_{t-l}`` | [`Convolution(TimeVarying(W))`](@ref TimeVarying), or `TimeVarying(W, Primary())` | [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) |
+| Hazard ``h_1, \dots, h_n`` read a day late and held past the data | ``\lambda_t = h_{\min(\max(t - 1, 1), n)}`` | change points `TimeVarying(Pair.([1; 2:(n + 1)], vcat(h[1], h)))` inside [`Survival`](@ref ComposableRecurrences.Survival) or a `Derived` kernel: the last value holds, so no padding is needed | [`TimeVarying`](@ref) docstring |
 
 ## [Places and groups](@id domain-places)
 

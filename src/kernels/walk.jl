@@ -263,7 +263,7 @@ end
 function _walk_fill!(
         K, kernel::_ComputedKernel, o, last, keep::Val = Val(false)
     )
-    x = kernel.x
+    x = _densified(kernel, last).x
     L = _coef_lags(x)
     T = eltype(K)
     ks = _weights_strata(K)
@@ -304,7 +304,12 @@ _walk_kept(sc::_WalkScratch) = size(sc.S, 2) > 1 || _walk_kept(sc.hazard)
 # Take the cotangent `K̄` of those weights back to the coefficients' mirror
 # `x̄`, walking each cohort again unless `sc` kept its walk.
 function _walk_weights_back!(x̄, kernel::_ComputedKernel, K̄, o, last, sc)
-    x = kernel.x
+    x̄d = _densified_mirror(x̄, kernel, last)
+    _dense_walk_back!(x̄d, _densified(kernel, last).x, K̄, o, last, sc)
+    _fold_dense!(x̄, kernel, x̄d)
+    return nothing
+end
+function _dense_walk_back!(x̄, x, K̄, o, last, sc)
     _on_gpu(K̄) && return _device_weights_back!(x̄, x, K̄, o, last)
     L = _coef_lags(x)
     T = eltype(K̄)

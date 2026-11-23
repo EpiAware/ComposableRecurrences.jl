@@ -508,3 +508,77 @@ end
     @test Convolution(computed(landed(h)))'(x; tail) ≈ dense'(x; tail)
     @test_throws DimensionMismatch Convolution(computed(landed(h[1:T])))'(x; tail)
 end
+
+@testitem "Computed kernels: coefficients from change points equal the dense coefficient" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: Derived
+    CR = ComposableRecurrences
+    (; p) = WeightsChecks
+    (; rule_vjp, reference_vjp) = PullbackChecks
+    T, L = 10, 4
+    q = p[1:L]
+    computed(x) = TimeVarying(x, CR.Primary())
+    conv(k) = Convolution(computed(k))
+    x = [1.0 + 0.1 * t for t in 1:T]
+    xs = [1.0 + 0.1 * k * t for k in 1:2, t in 1:T]
+    # Each value repeated over its segment, out to `n` times.
+    function dense(starts, values, n)
+        j(t) = searchsortedlast(starts, t)
+        return [values[j(t)] for t in 1:n]
+    end
+    starts = [1, 3, 4, 8]
+    v = [0.10, 0.25, 0.05, 0.30]
+    n = T + L
+    pw(I = CR.Secondary()) = TimeVarying{typeof(I)}(Pair.(starts, v))
+    tv(I = CR.Secondary()) = TimeVarying{typeof(I)}(dense(starts, v, n))
+    # A survival against a hazard read at calendar time, and a map of a
+    # coefficient read at cohort time.
+    surv(h) = q * CR.Survival(h; from = 1)
+    @test conv(surv(pw()))(x) == conv(surv(tv()))(x)
+    prim(c) = Derived(*, q, c)
+    P = CR.Primary()
+    @test conv(prim(pw(P)))(x) == conv(prim(tv(P)))(x)
+    # Per-stratum values, and a Recurrence.
+    B = [PerStratum([0.1 * j, 0.2 * j]) for j in eachindex(v)]
+    Bd = reduce(hcat, [B[searchsortedlast(starts, t)].x for t in 1:n])
+    pws = TimeVarying(Pair.(starts, B))
+    @test conv(surv(pws))(xs) == conv(surv(TimeVarying(PerStratum(Bd))))(xs)
+    r(h) = Recurrence(computed(0.3 * surv(h)))
+    @test r(pw())(fill(1.1, T); history = [1.0], start = 2) ==
+        r(tv())(fill(1.1, T); history = [1.0], start = 2)
+    # The last value holds, so change points cover any `stop`, where the
+    # dense coefficient must reach the last time read.
+    long = [1.0 + 0.05 * t for t in 1:(3 * T)]
+    @test conv(surv(pw()))(long) ==
+        conv(surv(TimeVarying(dense(starts, v, 3 * T + L))))(long)
+    # A hazard read a day late and held past the grid, against the padding
+    # it replaces.
+    h = [0.05 + 0.01 * t for t in 1:T]
+    late = vcat(h[1], h, fill(h[end], L))
+    held = TimeVarying(Pair.([1; 2:(T + 1)], vcat(h[1], h)))
+    @test conv(surv(held))(x) == conv(surv(TimeVarying(late)))(x)
+    # The rule's pullback against a Jacobian.
+    check(op, args, ȳ) = @test rule_vjp(op, args, ȳ) ≈
+        reference_vjp(ReferenceAD.jacobian, op, args, ȳ)
+    args = (x, true, nothing, nothing, 1, T)
+    check(conv(surv(pw())), args, sin.(1:T))
+    check(conv(prim(pw(P))), args, sin.(1:T))
+    check(conv(surv(pws)), (xs, true, nothing, nothing, 1, T), sin.(xs))
+    # One segment, and a change point at every time, against the dense
+    # coefficient and through the rule's pullback.
+    one = TimeVarying([1 => 0.2])
+    @test conv(surv(one))(x) == conv(surv(TimeVarying(fill(0.2, n))))(x)
+    check(conv(surv(one)), args, sin.(1:T))
+    every = TimeVarying(Pair.(1:n, [0.05 + 0.01 * t for t in 1:n]))
+    @test conv(surv(every))(x) ==
+        conv(surv(TimeVarying([0.05 + 0.01 * t for t in 1:n])))(x)
+    check(conv(surv(every)), args, sin.(1:T))
+    check(r(every), (fill(1.1, T), nothing, [1.0], nothing, 2, T), sin.(1:(T - 1)))
+    # A transposed call and the weights as an array read them too.
+    tr = CR._TransposedConvolution(conv(surv(pw())))
+    check(tr, (x, nothing, 1, T), sin.(1:T))
+    kw = CR._KernelWeights(computed(surv(pw())))
+    check(kw, (T,), reshape(sin.(1:(L * T)), L, T))
+    @test CR.kernel_weights(computed(surv(pw())), T) ==
+        CR.kernel_weights(computed(surv(tv())), T)
+end

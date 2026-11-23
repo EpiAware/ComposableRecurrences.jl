@@ -21,10 +21,10 @@ function _convolve_dense!(ex, Y, c::_ComputedKernel, X, m, start)
 end
 function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
     _on_gpu(Y) && return _convolve_dense!(ex, Y, c, X, m, start)
-    x = c.x
+    stop = start + size(Y, 1) - 1
+    x = _densified(c, stop).x
     L = _nlags(c)
     T = eltype(Y)
-    stop = start + size(Y, 1) - 1
     sc = _walk_scratch(x, T, (L,), Val(false))
     last = stop
     stop = _cohorts(X, m, stop)
@@ -126,11 +126,11 @@ function _convolve_back!(
     )
     _on_gpu(Ȳ) &&
         return _convolve_back_dense!(ex, X̄, c̄, c, X, Ȳ, m, start)
-    x = c.x
-    x̄ = cotangent(c̄, :x)
+    stop = start + size(Ȳ, 1) - 1
+    x = _densified(c, stop).x
+    x̄ = _densified_mirror(cotangent(c̄, :x), c, stop)
     L = _nlags(c)
     T = eltype(X̄)
-    stop = start + size(Ȳ, 1) - 1
     sc = _walk_scratch(x, T, (L,), Val(false))
     last = stop
     stop = _cohorts(X̄, m, stop)
@@ -153,6 +153,7 @@ function _convolve_back!(
         end
         x̄ === nothing || _walk_cohort_back!(x̄, x, sc, k0, τ, 0, imax, T)
     end
+    _fold_dense!(cotangent(c̄, :x), c, x̄)
     return nothing
 end
 

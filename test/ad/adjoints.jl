@@ -159,6 +159,7 @@
         "Convolution transpose of a Primary kernel with a tail",
         "Convolution Poisson delay distribution",
         "Convolution kernel from a hazard and a survival",
+        "Convolution kernel from a held hazard given by change points",
         "Convolution chain of two delays as masses",
         "Convolution time-varying kernel",
         "Recurrence negative binomial generation interval per stratum",
@@ -2469,4 +2470,35 @@ end
     prep2 = Base.invokelatest(prepare_gradient, loss, mc, θ)
     @test Base.invokelatest(gradient, loss, prep2, mc, θ) ≈ ref
     @test first(ext._PLAIN_RULES[key]) > first(built)
+end
+
+@testitem "Computed kernels with change points: Mooncake and Enzyme against the padded hazard" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, ForwardDiff, Mooncake, Enzyme
+    using ComposableRecurrences: Survival, Primary
+    # A hazard read a day late and held past the grid, as change points and
+    # as the padding they replace. The losses capture nothing, so Enzyme
+    # sees no captured array or binding.
+    function hand(h)
+        pmf = [0.4, 0.3, 0.2, 0.1]
+        x = [1.0 + 0.1 * sin(t) for t in eachindex(h)]
+        late = vcat(h[1], h, fill(h[end], length(pmf)))
+        k = pmf * Survival(TimeVarying(late); from = 1)
+        return sum(Convolution(TimeVarying(k, Primary()))(x))
+    end
+    function held(h)
+        pmf = [0.4, 0.3, 0.2, 0.1]
+        x = [1.0 + 0.1 * sin(t) for t in eachindex(h)]
+        tv = TimeVarying(Pair.([1; 2:(length(h) + 1)], vcat(h[1], h)))
+        k = pmf * Survival(tv; from = 1)
+        return sum(Convolution(TimeVarying(k, Primary()))(x))
+    end
+    h = [0.05 + 0.01 * sin(t) for t in 1:12]
+    @test held(h) == hand(h)
+    g = ForwardDiff.gradient(hand, h)
+    @test ForwardDiff.gradient(held, h) ≈ g
+    rule = Mooncake.build_rrule(held, h)
+    @test Mooncake.value_and_gradient!!(rule, held, h)[2][2] ≈ g
+    for mode in (Enzyme.Reverse, Enzyme.set_runtime_activity(Enzyme.Reverse))
+        @test Enzyme.gradient(mode, Enzyme.Const(held), h)[1] ≈ g
+    end
 end

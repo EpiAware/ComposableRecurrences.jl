@@ -84,7 +84,7 @@ const _TimeAxis = Union{
 }
 const _ArrayCoefficient = Union{
     AbstractVector{<:Real}, PerStratum{<:AbstractVecOrMat{<:Real}},
-    TimeVarying{<:Any, <:_TimeAxis},
+    TimeVarying{<:Any, <:Union{_TimeAxis, _Piecewise{<:_TimeAxis}}},
 }
 const _Coefficient = Union{Real, _ArrayCoefficient, _Computed}
 function _check_coefficient(x::_ArrayCoefficient)
@@ -95,7 +95,7 @@ _check_coefficient(x::_Computed) = nothing
 _check_coefficient(x::Real) = nothing
 const _COEFFICIENTS = "a number, a vector of lag weights, a PerStratum " *
     "vector or matrix, a TimeVarying vector or PerStratum matrix (with or " *
-    "without Primary()), a Derived or a Survival"
+    "without Primary(), or given by change points), a Derived or a Survival"
 @noinline function _check_coefficient(x)
     throw(
         ArgumentError(
@@ -139,6 +139,7 @@ _coef_lags(x::Survival) = _coef_lags(x.hazard)
 _coef_strata(x) = 0
 _coef_strata(x::PerStratum) = size(x.x, 1)
 _coef_strata(x::TimeVarying{<:Any, <:PerStratum}) = size(x.x.x, 1)
+_coef_strata(x::_TVPiecewise) = _coef_strata(_values(x))
 _coef_strata(x::Derived) = _joined(_coef_strata, x.args, "strata")
 _coef_strata(x::Survival) = _coef_strata(x.hazard)
 # One tuple entry at a time, so arguments of mixed types infer.
@@ -156,6 +157,11 @@ end
 _stratified_type(::Type) = false
 _stratified_type(::Type{<:PerStratum}) = true
 _stratified_type(::Type{<:TimeVarying{<:Any, <:PerStratum}}) = true
+function _stratified_type(
+        ::Type{<:TimeVarying{<:Any, <:_Piecewise{<:PerStratum}}}
+    )
+    return true
+end
 _stratified_type(::Type{<:Survival{H}}) where {H} = _stratified_type(H)
 function _stratified_type(::Type{<:Derived{F, A}}) where {F, A}
     return any(_stratified_type, fieldtypes(A))
@@ -202,6 +208,9 @@ end
 function _check_coef_times(x::TimeVarying{Secondary}, n, last)
     return _check_covers(:kernel, _extent(_array(x)), last)
 end
+# Change points hold their last value, so they cover every time.
+_check_coef_times(x::_TVPiecewise{Primary}, n, last) = nothing
+_check_coef_times(x::_TVPiecewise{Secondary}, n, last) = nothing
 function _check_coef_times(x::Derived, n, last)
     map(a -> _check_coef_times(a, n, last), x.args)
     return nothing
@@ -221,11 +230,122 @@ end
 _coef_array(x) = nothing
 _coef_array(x::AbstractArray) = x
 _coef_array(x::Union{PerStratum, TimeVarying}) = _coef_array(x.x)
+_coef_array(x::_Piecewise) = _coef_array(x.x)
 _coef_array(x::Survival) = _coef_array(x.hazard)
 _coef_array(x::Derived) = _first_array(map(_coef_array, x.args))
 _first_array(::Tuple{}) = nothing
 _first_array(a::Tuple{Nothing, Vararg}) = _first_array(Base.tail(a))
 _first_array(a::Tuple) = first(a)
+
+# == Change points, made dense for a call ==
+
+# A call's fill reads coefficients given by change points as the dense
+# coefficient over the times `1:last` it reads, so the walks run as they do
+# on arrays; the reverse pass folds the dense cotangent back onto the
+# segments. A coefficient without change points is passed through.
+_pieces_type(::Type) = false
+_pieces_type(::Type{<:_TVPiecewise}) = true
+_pieces_type(::Type{<:Survival{H}}) where {H} = _pieces_type(H)
+function _pieces_type(::Type{<:Derived{F, A}}) where {F, A}
+    return any(_pieces_type, fieldtypes(A))
+end
+@generated _has_pieces(x) = _pieces_type(x)
+
+function _densified(k::_ComputedKernel, last)
+    return _has_pieces(k.x) ? TimeVarying{Primary}(_dense_coef(k.x, last)) : k
+end
+_dense_coef(x, last) = x
+_dense_coef(x::Survival, last) = Survival(_dense_coef(x.hazard, last), x.from)
+function _dense_coef(x::Derived, last)
+    return Derived(x.f, map(a -> _dense_coef(a, last), x.args))
+end
+function _dense_coef(x::_TVPiecewise{I}, last) where {I}
+    V = _array(x.x)
+    D = similar(V, size(V)[1:(end - 1)]..., max(last, 1))
+    _each_segment((t, j) -> _copy_time!(D, t, V, j), x.x, size(D, ndims(D)))
+    return TimeVarying{I}(x.x.x isa PerStratum ? PerStratum(D) : D)
+end
+_copy_time!(D::AbstractVector, t, V, j) = (D[t] = V[j]; nothing)
+function _copy_time!(D::AbstractMatrix, t, V, j)
+    for k in axes(D, 1)
+        D[k, t] = V[k, j]
+    end
+    return nothing
+end
+# `f(t, j)` for each time `t` in `1:n` and its segment `j`.
+function _each_segment(f::F, p::_Piecewise, n) where {F}
+    j = 1
+    for t in 1:n
+        while j < length(p.starts) && p.starts[j + 1] <= t
+            j += 1
+        end
+        f(t, j)
+    end
+    return nothing
+end
+
+# The mirror of the dense coefficients, from the mirror `x̄` of the kernel's
+# coefficients: a zero array for each made dense, and the coefficient's own
+# mirror elsewhere.
+function _densified_mirror(x̄, k::_ComputedKernel, last)
+    return _has_pieces(k.x) ? _dense_mirror_of(x̄, k.x, last) : x̄
+end
+_dense_mirror_of(x̄, x, last) = x̄
+function _dense_mirror_of(x̄, x::Survival, last)
+    x̄ === nothing && return nothing
+    h̄ = _dense_mirror_of(cotangent(x̄, :hazard), x.hazard, last)
+    return (; hazard = h̄)
+end
+function _dense_mirror_of(x̄, x::Derived, last)
+    x̄ === nothing && return nothing
+    ā = cotangent(x̄, :args)
+    ā === nothing && return x̄
+    d̄ = map((b, a) -> _dense_mirror_of(b, a, last), Tuple(ā), x.args)
+    return (; args = d̄)
+end
+function _dense_mirror_of(x̄, x::_TVPiecewise, last)
+    _values_cotangent(x̄) === nothing && return nothing
+    V = _array(x.x)
+    D = fill!(similar(V, size(V)[1:(end - 1)]..., max(last, 1)), zero(eltype(V)))
+    return x.x.x isa PerStratum ? (; x = (; x = D)) : (; x = D)
+end
+
+# Each dense cotangent summed onto the value of its time's segment.
+function _fold_dense!(x̄, k::_ComputedKernel, x̄d)
+    _has_pieces(k.x) && _fold!(x̄, k.x, x̄d)
+    return nothing
+end
+_fold!(x̄, x, x̄d) = nothing
+function _fold!(x̄, x::Survival, x̄d)
+    x̄ === nothing && return nothing
+    return _fold!(cotangent(x̄, :hazard), x.hazard, cotangent(x̄d, :hazard))
+end
+function _fold!(x̄, x::Derived, x̄d)
+    x̄ === nothing && return nothing
+    ā, d̄ = cotangent(x̄, :args), cotangent(x̄d, :args)
+    (ā === nothing || d̄ === nothing) && return nothing
+    foreach(_fold!, Tuple(ā), x.args, d̄)
+    return nothing
+end
+function _fold!(x̄, x::_TVPiecewise, x̄d)
+    x̄ === nothing && return nothing
+    V̄ = _values_cotangent(x̄)
+    V̄ === nothing || _fold_values!(V̄, x̄d.x, x.x)
+    return nothing
+end
+function _fold_values!(V̄, D̄::AbstractVector, p)
+    _each_segment((t, j) -> add_cotangent!(V̄, D̄[t], j), p, length(D̄))
+    return nothing
+end
+function _fold_values!(V̄, D̄::NamedTuple, p)
+    M, W = D̄.x, cotangent(V̄, :x)
+    _each_segment(p, size(M, 2)) do t, j
+        for k in axes(M, 1)
+            add_cotangent!(W, M[k, t], k, j)
+        end
+    end
+    return nothing
+end
 
 # == The weights, a block of cohorts at a time ==
 
@@ -527,7 +647,7 @@ end
 function _fill_kernel(
         kernel::_ComputedKernel, o, n, last, keep::Val = Val(true)
     )
-    x = kernel.x
+    x = _densified(kernel, last).x
     n = max(n, 0)
     _check_coef_times(x, n, last)
     Tp = float(param_eltype(x))
@@ -601,7 +721,12 @@ _keeps_fill_type(::Type{<:Survival{H}}) where {H} = _keeps_fill_type(H)
 # Blocks are recomputed unless `_fill_kernel` kept every cohort's scratch.
 _weights_back!(::Nothing, kernel::_ComputedKernel, K̄, o, last, sc) = nothing
 function _weights_back!(x̄, kernel::_ComputedKernel, K̄, o, last, sc)
-    x = kernel.x
+    x̄d = _densified_mirror(x̄, kernel, last)
+    _dense_weights_back!(x̄d, _densified(kernel, last).x, K̄, o, last, sc)
+    _fold_dense!(x̄, kernel, x̄d)
+    return nothing
+end
+function _dense_weights_back!(x̄, x, K̄, o, last, sc)
     _on_gpu(K̄) && return _device_weights_back!(x̄, x, K̄, o, last)
     n = size(K̄, ndims(K̄))
     B = _block_size(x, n, Val(true))
