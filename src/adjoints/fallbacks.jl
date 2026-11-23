@@ -229,10 +229,15 @@ end
 
 # == Read steps ==
 
+# The one width of a local derivative's passes. The rule takes this route
+# while one pass covers every input, and `_ad_wide` while two do.
+const _LOCAL_PRESSURE = 24
+const _LOCAL_PRESSURE_WIDE = 2 * _LOCAL_PRESSURE
 # `n` counts every read, so `n > lo + R` marks a step that read more than the
-# partials hold.
-const _READ_WIDTH = 12
-const _READ_CAP = 2 * _READ_WIDTH
+# partials hold. A read pass also seeds the value, the state and the
+# scalars, so it holds half a pass of reads, and a step reads at most two.
+const _READ_WIDTH = _LOCAL_PRESSURE ÷ 2
+const _READ_CAP = _LOCAL_PRESSURE
 mutable struct _Reads{R}
     n::Int
     lo::Int
@@ -336,17 +341,13 @@ _pressure_scalars(C̄, C) = C̄ === nothing ? () : _param_tuple(C)
 _array_seeds(C̄, C) = C̄ !== nothing && !_scalar_params(C)
 
 # Made once per reverse pass so a step allocates nothing; `nothing` for a
-# coupling with its own pullback. A step whose dual type is not among them
-# allocates its own.
+# coupling with its own pullback. A step whose dual type differs allocates
+# its own.
 function _pressure_buffers(C̄, C, Tp)
     return _pressure_buffers(Val(uses_adjoint(C, Pressure())), C̄, C, Tp)
 end
 _pressure_buffers(::Val{true}, C̄, C, Tp) = nothing
 _pressure_buffers(::Val{false}, C̄, C, Tp) = _dual_pressure_buffers(C̄, C, Tp)
-# The rule takes this route while one pass covers every input, and
-# `_ad_wide` while two do.
-const _LOCAL_PRESSURE = 24
-const _LOCAL_PRESSURE_WIDE = 2 * _LOCAL_PRESSURE
 # Parameter arrays are views of one vector of dual numbers, so each pass
 # reseeds them in place.
 struct _ArrayPressure{T, L}
@@ -366,10 +367,8 @@ struct _StepDuals{T, L}
     θ::Vector{T}
     ḡ::Vector{T}
     lane::L
-    # Whether the step seeds only the entries it reads (`_reads_fewer`),
-    # and how many the last step read: the next step's width.
+    # Whether the step seeds only the entries it reads (`_reads_fewer`).
     readstep::Bool
-    reads::Base.RefValue{Int}
 end
 _step_duals(m̄, m, args...) = nothing
 _local_step!(m̄, m, args...) = _need_forwarddiff(m)

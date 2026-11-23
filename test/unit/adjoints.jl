@@ -2558,10 +2558,8 @@ end
         return J
     end
     rng = Xoshiro(3)
-    # Past one pass, whole passes of 24 come first and 8 or fewer inputs left
-    # take a pass of 4 or 8; more run every pass 24 wide. `Mixer` has
-    # `2S + 2` inputs, so 2, 4, 6, 10, 18 and 24 past the first pass from 12
-    # strata on.
+    # Every pass is 24 wide. `Mixer` has `2S + 2` inputs, so 11 strata fill
+    # one pass and 12 to 23 take a second, partly filled.
     for (m, S) in (
             (Mixer(0.9, 0.1), 1), (Mixer(0.9, 0.1), 3), (Mixer(0.9, 0.1), 11),
             (Mixer(0.9, 0.1), 12), (Mixer(0.9, 0.1), 13), (Mixer(0.9, 0.1), 14),
@@ -2598,15 +2596,19 @@ end
         @test (@allocated CR._local_step_back!(grads, m, v, s, 2)) == 0 skip = coverage
         @inferred CR._local_step_back!(grads, m, v, s, 2)
     end
-    # Every pass runs on the one lane, sized to the strata, whatever is left
-    # after the whole passes.
-    for S in (13, 14, 16)
+    # Both passes run on the one lane, sized to the strata, and match the
+    # Jacobian on either side of the pass boundary.
+    for S in (11, 12, 13, 16)
         m = Mixer(0.9, 0.1)
+        v, s, v̄, s̄ = rand(rng, S), rand(rng, S), rand(rng, S), rand(rng, S)
+        ref = transpose(reference(m, v, s, 2)) * [v̄; s̄]
         m̄ = zero_mirror(m)
         b = CR._step_duals(m̄, m, Float64)
-        grads = (; piece = m̄, v = ones(S), s = ones(S), pass = b)
-        CR._local_step_back!(grads, m, ones(S), ones(S), 2)
+        grads = (; piece = m̄, v = copy(v̄), s = copy(s̄), pass = b)
+        CR._local_step_back!(grads, m, v, s, 2)
         @test length(first(b.lane)) == S
+        @test [grads.v; grads.s] ≈ ref[1:(2S)]
+        @test mirror_vec(m̄, m) ≈ ref[(2S + 1):end]
     end
     # Through a recurrence the rule matches ForwardDiff over every leaf.
     for (ms, S) in (

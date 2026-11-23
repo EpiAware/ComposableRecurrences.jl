@@ -230,22 +230,19 @@ end
 function _pressure_dual(T, ::Val{N}) where {N}
     return ForwardDiff.Dual{typeof(ForwardDiff.Tag(_local_pressure!, T)), T, N}
 end
-_dual_buffers(::Tuple{}, ::Type{D}, S) where {D} = (Vector{D}(undef, S), Vector{D}(undef, S))
-_dual_buffers(::Nothing, ::Type{D}, S) where {D} = _dual_buffers((), D, S)
-function _dual_buffers(
-        bufs::Tuple{Tuple{Vector{D}, Vector{D}}, Vararg}, ::Type{D}, S
-    ) where {D}
-    pd, qd = first(bufs)
+# The pair made for the reverse pass, resized; a step without one, or whose
+# dual type differs, allocates its own.
+function _dual_buffers((pd, qd)::Tuple{Vector{D}, Vector{D}}, ::Type{D}, S) where {D}
     return resize!(pd, S), resize!(qd, S)
 end
-_dual_buffers(bufs::Tuple, ::Type{D}, S) where {D} = _dual_buffers(Base.tail(bufs), D, S)
+_dual_buffers(_, ::Type{D}, S) where {D} = (Vector{D}(undef, S), Vector{D}(undef, S))
 
 # Default pullback of a coupling without its own: the local `ForwardDiff`
 # derivative of `q = C(p)` in `p` and the coupling's float scalars `θ`.
 # The `n = S + P` inputs are seeded `N` at a time, and each pass adds
 # `q̄ ⋅ ∂q/∂x` for its inputs, so no Jacobian is stored. Inputs beyond
-# `_LOCAL_PRESSURE` take passes of that width. The rule takes this route while one pass covers every input (`_LOCAL_PRESSURE`),
-# and through `_ad_wide` while two do (`_LOCAL_PRESSURE_WIDE`).
+# `_LOCAL_PRESSURE` take further passes of that width. Above
+# `_LOCAL_PRESSURE_WIDE` inputs the run takes plain AD instead (`_fit`).
 function _local_pressure!(p̄, C̄, C, q̄, p, t, θ::Tuple, bufs = nothing)
     n = length(p) + length(θ)
     return _local_pressure!(Val(_LOCAL_PRESSURE), p̄, C̄, C, q̄, p, t, θ, bufs, 0, n)
@@ -345,7 +342,7 @@ function _step_duals(m̄, m, ::Type{Tp}, S = nothing) where {Tp}
     θ = _array_seeds(m̄, m) && !rd ? Vector{T}(_params(m)) : T[]
     D = _step_dual(T, Val(_LOCAL_PRESSURE))
     lane = (D[], D[], Vector{D}(undef, length(θ)), _Reads{_LOCAL_PRESSURE}())
-    return _StepDuals(T[], T[], θ, zero(θ), lane, rd, Ref(0))
+    return _StepDuals(T[], T[], θ, zero(θ), lane, rd)
 end
 # The float scalars a pass seeds: those of a differentiated modifier whose
 # parameters are all scalars, as a tuple, so its rebuild allocates nothing;
@@ -357,7 +354,6 @@ function _local_step!(m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     θs = _param_tuple(m)
     return _local_read_step!(Val(_LOCAL_PRESSURE), b.lane, b, θs, m̄, m, v̄, s̄, v, s, t)
 end
-# Every pass is `_LOCAL_PRESSURE` wide.
 function _local_step!(::Val{false}, m̄, m, v̄, s̄, v, s, t, b::_StepDuals)
     θs = _step_scalars(m̄, m)
     n = length(v) + length(s) + length(b.θ) + length(θs)
@@ -468,7 +464,6 @@ function _local_read_step!(
         end
         pass += 1
     end
-    b.reads[] = n - M
     return nothing
 end
 
@@ -853,12 +848,12 @@ end
 
 # The dual-number buffers of a coupling's local derivative, made once per
 # reverse pass so a step allocates nothing: a pair of vectors sized on first
-# use. A step whose dual type differs allocates its own.
+# use.
 function _dual_pressure_buffers(C̄, C, Tp)
     _array_seeds(C̄, C) && return _array_pressure(C, Tp)
     T = float(promote_type(Tp, map(typeof, _pressure_scalars(C̄, C))...))
     D = _pressure_dual(T, Val(_LOCAL_PRESSURE))
-    return ((D[], D[]),)
+    return (D[], D[])
 end
 
 # `Transform`'s seeds: a `ForwardDiff.Tag` orders this dual against any
