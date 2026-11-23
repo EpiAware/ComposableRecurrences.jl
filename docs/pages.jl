@@ -30,7 +30,6 @@ pages = [
     "Getting started" => [
         "Overview" => "getting-started/index.md",
         "Three towns, step by step" => "getting-started/three-towns.md",
-        "API overview" => "getting-started/api-overview.md",
         "Time units" => "getting-started/time-units.md",
         "Infectious disease models" => "domain-guides/infectious-disease-models.md",
         "Renewal then delay" => "getting-started/tutorials/renewal-then-delay.md",
@@ -69,7 +68,8 @@ pages = [
             "benchmarks/ad-comparison.md",
     ],
     "Performance summary" => "performance/summary.md",
-    "Explanation" => [
+    "How it works" => [
+        "API overview" => "explanation/api-overview.md",
         "Operators" => "explanation/operators.md",
         "Shapes and couplings" => "explanation/shapes-and-couplings.md",
         "Modifiers" => "explanation/modifiers.md",
@@ -80,6 +80,14 @@ pages = [
         "Contributing" => "developer/contributing.md",
         "Extending" => [
             "Writing new types" => "developer/extending.md",
+            "Parameters and gradients" => "developer/extending-parameters.md",
+            "Couplings" => "developer/extending-couplings.md",
+            "Steps across strata" => "developer/extending-steps.md",
+            "Traces" => "developer/extending-traces.md",
+            "Depletion forms" => "developer/extending-forms.md",
+            "Extension API" => "developer/extending-api.md",
+            "Rules for every type" => "developer/extending-rules.md",
+            "Performance and trimming" => "developer/extending-performance.md",
             "Testing and benchmarking" => "developer/testing.md",
             "Case study: a backend model" => "getting-started/tutorials/backend-case-study.md",
         ],

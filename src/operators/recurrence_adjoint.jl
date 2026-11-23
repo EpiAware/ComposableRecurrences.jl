@@ -157,7 +157,7 @@ function _device_modifiers(ms::Tuple)
 end
 # A user modifier takes the rule when it runs per stratum or on fixed groups
 # with scalar parameters; an `Init` of its own reverses on host copies (see
-# `_init_strata_back!` in the GPUArraysCore extension). Groups reverse one
+# `_init_strata_back!` in the GPUArrays extension). Groups reverse one
 # per kernel index unless the modifier has a `pullback!` for the whole step,
 # which would index the device arrays from the host.
 _device_modifier(m) = (_strata_loop(m) || _device_groups(m)) && _scalar_params(m)
@@ -463,7 +463,7 @@ function _steps_back!(
     return nothing
 end
 
-# The coupling's pullback at step `t`, then the kernels'. The GPUArraysCore
+# The coupling's pullback at step `t`, then the kernels'. The GPUArrays
 # extension runs both in one kernel per step for a dense coupling on device
 # arrays, with the buffers `_coupling_steps` makes once per call and the
 # coupling's cotangent added after the loop (`_coupling_steps_done!`).

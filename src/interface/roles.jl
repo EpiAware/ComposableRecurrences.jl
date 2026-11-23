@@ -452,6 +452,49 @@ CR.nstate(CR.Transform(clamp, 0.0, 1.0), 3), CR.nstate(leaky, 3)
 ```
 """
 nstate(m, S) = _blocks_nstate(_blocks(m), S)
+
+@doc raw"""
+Return how many rows each top-level parameter field of a whole-step modifier
+`m` has in a call over `S` strata, or `nothing` to skip the check.
+
+A row is one entry of a [`PerStratum`](@ref) or one row of a
+`TimeVarying(PerStratum(x))`.
+Before its [`ComposableRecurrences.Init`](@ref), each call checks
+
+```math
+\operatorname{rows}(x_f) = r(m, S) \quad \text{for each such field } f,
+```
+
+where ``x_f`` is the field and ``r(m, S)`` this count, and throws a
+`DimensionMismatch` that names a field that fails.
+Pointwise and blockwise modifiers ignore it: their rows follow from
+[`ComposableRecurrences.blocks`](@ref).
+
+# Arguments
+- `m`: the modifier, with `blocks(m) === nothing`.
+- `S`: the number of strata in the call.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+struct Mix{A}
+    a::A
+end
+function CR.forward!(m::Mix, ::CR.Step, v, s, t)
+    v .*= CR.param.(Ref(m.a), eachindex(v), t)
+    return nothing
+end
+CR.param_rows(::Mix, S) = S
+r = Recurrence([0.5]; modifiers = (Mix(PerStratum([1.0, 2.0])),))
+r(ones(3, 2); history = ones(3, 1))
+
+# output
+
+ERROR: DimensionMismatch: a has 2 rows, expected 3
+```
+"""
+param_rows(m, S) = nothing
 _blocks_nstate(::Nothing, S) = S
 _blocks_nstate(::Val{B}, S) where {B} = B[2] * _ngroups(Val(B), S)
 
@@ -758,15 +801,28 @@ function _vector_step!(::Val{B}, m, v, s, t) where {B}
     return nothing
 end
 
-# Group `g`'s step, gathered from and scattered back into `v` and `s`.
+# Group `g`'s step, on one-entry views of its entries of `v` and `s`.
 function _group_body!(g, v, s, m, t, ::Val{B}, G) where {B}
     nv, ns = B
-    v′, s′ = @inline _block_step(
-        m, _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g), t, g
-    )
-    _scatter!(v, v′, G, g)
-    _scatter!(s, s′, G, g)
+    vg, sg = _entries(v, Val(nv), G, g), _entries(s, Val(ns), G, g)
+    _written(m, @inline forward!(m, Step(), vg, sg, t, g))
     return nothing
+end
+
+# The group `g` entries of `x`, compartment by compartment, as one-entry
+# views of `x` itself with the axis `g:g`: immutable, so a step that is not
+# inlined, such as one over more than 32 entries, puts nothing on the heap.
+@generated function _entries(x, ::Val{n}, G, g) where {n}
+    return Expr(:tuple, (:(_At(_Shifted(x, $(i - 1) * G), g)) for i in 1:n)...)
+end
+# The entries of one-entry views, and their write-back, as straight-line
+# code: past 32 entries `map` and `foreach` on a tuple do not unroll.
+@generated function _held(v::Tuple)
+    return Expr(:tuple, (:(v[$i][]) for i in 1:fieldcount(v))...)
+end
+@generated function _hold!(v::Tuple, x::Tuple)
+    body = (:(v[$i][] = x[$i]) for i in 1:fieldcount(v))
+    return Expr(:block, body..., :(return nothing))
 end
 
 function _vector_step!(::Nothing, m, v, s, t)
@@ -819,13 +875,18 @@ function _group_back!(gs, acc, v̄, s̄, m, v, s, t, ::Val{B}, G) where {B}
     m̄ = _unown(acc)
     for g in gs
         gg = (;
-            piece = m̄, v = _gather(v̄, Val(nv), G, g),
-            s = _gather(s̄, Val(ns), G, g),
+            piece = m̄, v = _entries(v̄, Val(nv), G, g),
+            s = _entries(s̄, Val(ns), G, g),
         )
-        vg, sg = _gather(v, Val(nv), G, g), _gather(s, Val(ns), G, g)
-        v̄g, s̄g = @inline _block_back(gg, m, vg, sg, t, g)
-        _scatter!(v̄, v̄g, G, g)
-        _scatter!(s̄, s̄g, G, g)
+        vg, sg = _entries(v, Val(nv), G, g), _entries(s, Val(ns), G, g)
+        if uses_adjoint(m, Step())
+            _written(m, @inline pullback!(gg, m, Step(), vg, sg, t, g))
+        else
+            gl = (; piece = m̄, v = _held(gg.v), s = _held(gg.s))
+            v̄g, s̄g = _block_local_back(gl, m, _held(vg), _held(sg), t, g)
+            _hold!(gg.v, v̄g)
+            _hold!(gg.s, s̄g)
+        end
     end
     return nothing
 end

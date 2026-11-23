@@ -318,7 +318,7 @@ function _allocate_imports(w, θ)
     split = ComposableRecurrences.Allocate(
         GROUPS, TimeVarying(PerStratum(exp.(logtot)));
         imports = (TimeVarying(PerStratum(φ)), P),
-        spill = _leaky(ComposableRecurrences._kernel_movement(K, ε))
+        spill = _leaky(ComposableRecurrences.Redistribute(K, ε).M)
     )
     y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -342,7 +342,7 @@ function _allocate_empty_imports(w, θ)
     split = ComposableRecurrences.Allocate(
         GROUPS_EMPTY, TimeVarying(PerStratum(exp.(logtot)));
         imports = (TimeVarying(PerStratum(φ)), P),
-        spill = _leaky(ComposableRecurrences._kernel_movement(K, ε))
+        spill = _leaky(ComposableRecurrences.Redistribute(K, ε).M)
     )
     y = w(Recurrence(g; modifiers = (split,)))(exp.(logR); history = exp.(logh))
     return sum(WS .* log.(y))
@@ -357,10 +357,10 @@ function _dense_matrices(w, θ)
     split = ComposableRecurrences.Allocate(
         GROUPS, TimeVarying(PerStratum(exp.(logtot)));
         imports = (0.2, collect(P)),
-        spill = _leaky(ComposableRecurrences._kernel_movement(collect(K), ε))
+        spill = _leaky(ComposableRecurrences.Redistribute(collect(K), ε).M)
     )
     mods = (
-        _leaky(ComposableRecurrences._kernel_movement(collect(K), 0.1)),
+        _leaky(ComposableRecurrences.Redistribute(collect(K), 0.1).M),
         split,
     )
     r = Recurrence(g; coupling = collect(C), modifiers = mods)
@@ -767,7 +767,7 @@ function _clamp_redistribute_add(w, θ)
         CRA0 .+ θ, (S, S), (S,), (S, T), (S,), (S, L), (S, T)
     )
     mods = (
-        _leaky(ComposableRecurrences._kernel_movement(K, ε)),
+        _leaky(ComposableRecurrences.Redistribute(K, ε).M),
         added(TimeVarying(PerStratum(B))),
         clamped(0.0, PerStratum(hi)),
     )

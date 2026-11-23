@@ -579,3 +579,31 @@ end
     r = Recurrence(computed(0.3 * small))
     check(r, (fill(1.1, T), nothing, [1.0], nothing, 2, T), sin.(1:(T - 1)))
 end
+
+@testitem "Computed kernels: a transposed call with a tail reads only what its outputs need" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: Derived
+    CR = ComposableRecurrences
+    (; primary) = WeightsChecks
+    (; rule_vjp, reference_vjp) = PullbackChecks
+    T, L = 8, 4
+    x = [1.0 + 0.1 * t for t in 1:T]
+    tail = fill(x[end], L - 1)
+    base = [0.5, 0.6, 0.7, 0.8]
+    computed(w) = TimeVarying(w, CR.Primary())
+    # The transpose reads the series and tail past its last output, but a
+    # coefficient per cohort covering the outputs alone serves.
+    cohort = 1 - CR.Survival(Derived(*, base, TimeVarying(fill(0.3, T), CR.Primary())))
+    dense = Convolution(primary(CR.kernel_weights(computed(cohort), T)))
+    @test Convolution(computed(cohort))'(x; tail) ≈ dense'(x; tail)
+    tr = CR._TransposedConvolution(Convolution(computed(cohort)))
+    args = (x, tail, 1, T)
+    @test rule_vjp(tr, args, sin.(1:T)) ≈ reference_vjp(ReferenceAD.jacobian, tr, args, sin.(1:T))
+    # A hazard read at the time a weight lands covers the times the outputs
+    # read, up to `T + L - 1`.
+    h = [0.1 + 0.02 * t for t in 1:(T + L - 1)]
+    landed(h) = base * CR.Survival(TimeVarying(h); from = 1)
+    dense = Convolution(primary(CR.kernel_weights(computed(landed(h)), T)))
+    @test Convolution(computed(landed(h)))'(x; tail) ≈ dense'(x; tail)
+    @test_throws DimensionMismatch Convolution(computed(landed(h[1:T])))'(x; tail)
+end
