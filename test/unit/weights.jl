@@ -266,6 +266,11 @@ end
     # A coefficient with a lag axis of its own is not one a kernel reads.
     @test_throws ArgumentError Derived(*, p, TimeVarying(ones(length(p), 4), CR.Primary()))
     @test_throws ArgumentError CR.Survival(TimeVarying(h); from = -1)
+    # `from` is a keyword only; the rebuild from fields keeps it.
+    @test CR.Survival(TimeVarying(h); from = 1).from == 1
+    @test_throws MethodError CR.Survival(TimeVarying(h), 1)
+    s1 = CR.Survival(TimeVarying(h); from = 1)
+    @test CR.ConstructionBase.constructorof(typeof(s1))(s1.hazard, s1.from).from == 1
     @test_throws ArgumentError CR.Survival(ones(2, 2))
     # A computed kernel is indexed by cohort.
     @test_throws ArgumentError Convolution(TimeVarying(p * s))

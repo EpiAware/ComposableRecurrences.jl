@@ -117,6 +117,8 @@ k = \lfloor (c - 1) n / m \rfloor + 1, \ldots, \lfloor c n / m \rfloor,
 
 There are `m = min(ntasks, n)` chunks, with `ntasks` the number of threads
 unless it is set.
+`ntasks` fixes the number of chunks whatever the thread count, so a test can
+exercise the split paths the same way on any machine.
 A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 The threshold applies to each loop.
