@@ -241,6 +241,41 @@ end
     )
 end
 
+@testitem "Blocks: a protected pool runs its strata in the series step" setup = [AdjointCheck] begin
+    using ComposableRecurrences, LinearAlgebra
+    pools(N) = CR.Depletion(
+        N, CR.Hazard(; weights = (S = 1, V = 0.3)),
+        CR.Flow(:S => :V, 2.0; form = CR.Truncate()), CR.Flow(:V => :S, 0.05);
+        pools = (:S, :V)
+    )
+    g = [0.3, 0.4, 0.2]
+    for S in (1, 3)
+        d = pools(CR.PerStratum(fill(500.0, S)))
+        r = Recurrence(g; modifiers = (d,))
+        H = zeros(4, S)
+        # Each group is one stratum, so the strata run on their own, but not
+        # when the run writes the pools' trace or on a device buffer.
+        @test CR._independent(I, g, r.modifiers, nothing, H)
+        sinks = CR._sinks(Val(:trace), H, Float64, r.modifiers, (zeros(2S),), S, 5)
+        @test !CR._independent(I, g, r.modifiers, sinks, H)
+        @test !CR._series_ok(d, nothing, view(H, :, :))
+        R = [1.3 + 0.1 * sin(k + t) for k in 1:S, t in 1:30]
+        h = ones(S, 3)
+        # A dense identity coupling takes the coupled step on the same values.
+        rc = Recurrence(g; coupling = Matrix(1.0I, S, S), modifiers = (d,))
+        @test r(R; history = h) ≈ rc(R; history = h)
+        y, tr = r(R; history = h, record = (:trace,))
+        yc, trc = rc(R; history = h, record = (:trace,))
+        @test first(tr.modifiers) ≈ first(trc.modifiers)
+        @test pullback_matches(r, recargs(R, nothing, h)...)
+    end
+    # One series, as a vector.
+    r = Recurrence(g; modifiers = (pools(500.0),))
+    R = [1.3 + 0.1 * sin(t) for t in 1:30]
+    @test r(R; history = ones(3)) ≈ vec(r(reshape(R, 1, :); history = ones(1, 3)))
+    @test pullback_matches(r, recargs(R, nothing, ones(3))...)
+end
+
 @testitem "Blocks: shapes, resume and mixed modifiers" setup = [AdjointCheck, BlockChecks] begin
     using ComposableRecurrences
     (; Move) = BlockChecks

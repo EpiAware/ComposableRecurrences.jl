@@ -90,7 +90,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     ādd, ḡain = _slots(ādd), _slots(ḡain)
     kslots = _kernel_slots(ḡ, kernel)
     work = S * _kwork(kernel, S, L)
-    if _independent(coupling, kernel, modifiers)
+    if _independent(coupling, kernel, modifiers, rec, H)
         acc = (; ādd, ḡain, C̄, ḡ = kslots, m̄s)
         accs = _accumulators(ex, H, S, _work(_RunLoop(), H, T * work), acc)
         _reduce_blocks!(
@@ -582,12 +582,27 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
     v̄ = _thread_back(
         Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t, k
     )
-    R, s̄ = first(rec), first(s̄s)
-    m, m̄, vk, sk = first(ms), first(m̄s), R.V[k, t], _state_at(R.S, k, t)
+    m = first(ms)
+    return _series_stage_back!(
+        Val(_strata_loop(m)), m, first(m̄s), first(rec), first(s̄s), v̄, τ, t, k
+    )
+end
+function _series_stage_back!(::Val{true}, m, m̄, R, s̄, v̄, τ, t, k)
+    vk, sk = R.V[k, t], _state_at(R.S, k, t)
     v̄, s̄k, a, b = _trace_out(R, m, m̄, v̄, s̄[k], vk, sk, τ, t, k)
     v̄, s̄k = _step_pullback((; piece = m̄, v = v̄, s = s̄k), m, vk, sk, τ, k)
     s̄[k] = _trace_in(b, s̄k)
     return _trace_in(a, v̄)
+end
+# A modifier with one value per group, as `_group_back!` reverses group `k`;
+# the series step takes it only with plain records, so no trace to add.
+function _series_stage_back!(::Val{false}, m, m̄, R, s̄, v̄, τ, t, k)
+    ns, G = _group_entries(m, s̄)
+    sk = _group_state_at(R.S, Val(ns), G, k, t)
+    gg = (; piece = m̄, v = (v̄,), s = _gather(s̄, Val(ns), G, k))
+    (v̄k,), s̄k = @inline _block_back(gg, m, (R.V[k, t],), sk, τ, k)
+    _scatter!(s̄, s̄k, G, k)
+    return v̄k
 end
 
 # `grads.after` and `grads.pass` go to a modifier that asks (`_pass_buffer`).
