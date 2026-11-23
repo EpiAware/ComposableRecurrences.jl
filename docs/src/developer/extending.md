@@ -68,7 +68,7 @@ Without a `pullback!` the operator still takes its [rule](@ref adjoint-routing).
 using ForwardDiff
 
 loss(a) = sum(model(a)(fill(1.8, 80); history = seed))
-ForwardDiff.derivative(loss, 0.5), CR.uses_adjoint(model(0.5), CR.Run())
+ForwardDiff.derivative(loss, 0.5)
 ```
 
 ## [Roles](@id extending-roles)
@@ -95,7 +95,7 @@ The arguments mean the same in every role:
   Without an `Init` method the state starts at zero, and no `Init` pullback is needed.
 - In `pullback!`, `v`, `s`, `p` and `history` are the values `forward!` was given, so the values before the step.
   Read them, but do not write to them.
-- Leave `grads` and the arguments after the role in `pullback!` untyped, so that [`uses_adjoint`](@ref ComposableRecurrences.uses_adjoint) finds the method.
+- Leave `grads` and the arguments after the role in `pullback!` untyped, so that the rule finds the method.
 - A pointwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to `(1, 1)`, and writes entry `k` of `v` and `s` from entry `k` only, for each `k` in `eachindex(v)`.
   `blocks` says why to loop over `eachindex(v)` and read parameters with [`param`](@ref ComposableRecurrences.param), not broadcast; the pointwise check of `PieceInterface` reports a broadcast.
   Its `Init` writes `s[k]` from the parameters read at stratum `k` and time 1, `param(m.a, k, 1)`, and from row `k` of the history only.
@@ -154,10 +154,6 @@ Both skip a field the backend holds constant.
 The `Init` pullback adds the state's cotangent into the last column of the history.
 
 ```@example extending
-CR.uses_adjoint(Smooth(0.5), CR.Step())
-```
-
-```@example extending
 function CR.pullback!(grads, m::Smooth, ::CR.Step, v, s, t)
     v̄, s̄ = grads.v, grads.s
     for k in eachindex(v, s)
@@ -176,7 +172,7 @@ end
 
 grads = (; piece = (; a = Ref(0.0)), v = [1.0], s = [0.5])
 CR.pullback!(grads, Smooth(0.5), CR.Step(), [2.0], [1.0], 1)
-(grads.v, grads.s, grads.piece.a[]), CR.uses_adjoint(Smooth(0.5), CR.Step())
+(grads.v, grads.s, grads.piece.a[])
 ```
 
 The `:pullback` [check](@ref extending-checks) compares a `pullback!` with the ForwardDiff Jacobian of `forward!` on the same inputs.
@@ -464,11 +460,11 @@ Here `args` are the arguments after the role:
 - `(v, s, t)`, with vectors, for a modifier's `Step()`;
 - `(q, p, t)` for `Pressure()`;
 - `(v, s, N)`, with vectors `v` and `s` and a float `N`, for a depletion form, as a float `N` is what tells a form's step from a modifier's;
-- `(r, v, s, v′, s′, t)` for `ComposableRecurrences.Trace()`, with `r` a tuple of vectors for a pointwise modifier and a column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows for any other.
+- `(r, v, s, v′, s′, t)` for [`Trace()`](@ref ComposableRecurrences.Trace), with `r` a tuple of vectors for a pointwise modifier and a column of [`ntrace`](@ref ComposableRecurrences.ntrace) rows for any other.
   A blockwise group takes `g` after `t`, and its arguments are tuples of `Ref`s.
 
-For `ComposableRecurrences.Trace()` it checks that the trace leaves `v`, `s`, `v′` and `s′` unchanged.
-It also checks that `uses_adjoint` finds any `pullback!` the type has.
+For `Trace()` it checks that the trace leaves `v`, `s`, `v′` and `s′` unchanged.
+It also checks that the rule finds any `pullback!` the type has.
 The optional checks of `PieceInterface{(:pointwise, :nstate)}` test a pointwise step and the state length, and `(:blocks,)` a [blockwise](@ref extending-blockwise) step.
 The optional `:pullback` check compares each `pullback!` for `Step()` or `Pressure()` with the ForwardDiff Jacobian of `forward!` on the same inputs, so it needs `using ForwardDiff`.
 At a tie that Jacobian takes the branch `forward!` takes, as the local step does.
@@ -502,9 +498,6 @@ backend = AutoMooncake(; config = nothing)
 gradient(abs2_loss(smooth), backend, [0.3]) ≈
     gradient(abs2_loss(CR.NoAdjoint ∘ smooth), backend, [0.3])
 ```
-
-For a new operator, `ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)` then runs the backend's own rule tester on its rule, with `args` its positional arguments.
-It needs Mooncake, or Enzyme and EnzymeTestUtils, loaded.
 
 ## [Performance](@id extending-performance)
 
@@ -631,8 +624,7 @@ A new type does its work in a [`forward!`](@ref ComposableRecurrences.forward!) 
 - `Step()` computes one step.
 - [`Init()`](@ref ComposableRecurrences.Init) computes the starting state.
 - [`Pressure()`](@ref ComposableRecurrences.Pressure) is a coupling's mixing.
-- `ComposableRecurrences.Trace()` is a modifier's record for a call with `record = (:trace,)`.
-- `ComposableRecurrences.Run()` is an operator's whole call.
+- [`Trace()`](@ref ComposableRecurrences.Trace) is a modifier's record for a call with `record = (:trace,)`.
 
 An operator's hand-written gradient is its rule.
 
@@ -640,36 +632,37 @@ An operator's hand-written gradient is its rule.
 |:--|:--|:--|
 | [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one role | writes in place, returns `nothing` |
 | [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | adds to the cotangents: the gradients of the result with respect to each input |
-| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`ComposableRecurrences.Trace()`](@ref ComposableRecurrences.Trace), [`ComposableRecurrences.Run()`](@ref ComposableRecurrences.Run) | the roles | types with no fields |
-| [`ComposableRecurrences.ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
-| [`ComposableRecurrences.uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role` | `Bool` |
+| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Trace()`](@ref ComposableRecurrences.Trace) | the roles | types with no fields |
+| [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | a modifier's groups of strata | a tuple, or `nothing` |
-| [`ComposableRecurrences.ispointwise(m)`](@ref ComposableRecurrences.ispointwise) | whether a modifier acts on each stratum on its own | `Bool` |
 | [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` strata | `Int` |
 | [`isstateless(m)`](@ref ComposableRecurrences.isstateless) | whether a modifier leaves its state unchanged, so it records no trace | `Bool` |
 | [`islinear(x)`](@ref ComposableRecurrences.islinear) | whether a coupling or whole-step modifier is a matrix, so a call runs that matrix in its place | `Bool` |
 | [`param(x, k, t)`](@ref ComposableRecurrences.param) | reads a parameter for stratum `k` at time `t` | a value |
 | [`add_param!(x̄, x, v, k, t)`](@ref ComposableRecurrences.add_param!) | adds to a parameter's cotangent | `nothing` |
 | [`cotangent(x̄, name)`](@ref ComposableRecurrences.cotangent) | the cotangent of a field | a cotangent, or `nothing` |
-| [`ComposableRecurrences.add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | adds to a cotangent | `nothing` |
-| [`ComposableRecurrences.depth(x)`](@ref ComposableRecurrences.depth) | how many past outputs a modifier, coupling or kernel reads | `Int` |
-| [`ComposableRecurrences.param_eltype(x)`](@ref ComposableRecurrences.param_eltype) | the number type a type's parameters need in the store of past outputs | a type |
+| [`add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | adds to a cotangent | `nothing` |
 | [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the conformance test for a new type, built on the Interfaces.jl package | a test result |
 
-For an operator, pass `ComposableRecurrences.Run()` as the role to `ComposableRecurrences.uses_adjoint`, `PieceInterface` and `test_adjoint`.
-`ComposableRecurrences.ispointwise` and `nstate` are read from [`blocks`](@ref ComposableRecurrences.blocks).
-A modifier that defines `ispointwise` without `blocks` still runs as one that reads every stratum, so its parameters are not checked against the strata.
-A run keeps at least `ComposableRecurrences.depth` past outputs, even when the kernel is shorter.
+`nstate` is read from [`blocks`](@ref ComposableRecurrences.blocks).
 
-### [Checking gradients](@id overview-gradients)
+## [Checking your type](@id overview-gradients)
 
 A rule can be checked against the gradient that automatic differentiation computes from the operator's code.
+[`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) is the same operator, differentiated by automatic differentiation instead of its [rule](@ref adjoints-backends).
+The gradient through `NoAdjoint(op)` checks the gradient through `op`, and timing both compares their cost.
+
+The names below are internal helpers.
+They help check a new type, but they may change without notice.
 
 | Name | What it does | Returns |
 |:--|:--|:--|
-| [`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) | the same operator, differentiated by automatic differentiation instead of its [rule](@ref adjoints-backends) | an operator |
+| [`ComposableRecurrences.uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role` | `Bool` |
+| [`ComposableRecurrences.Run()`](@ref ComposableRecurrences.Run) | the role of an operator's whole call | a type with no fields |
 | [`ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs the rule tester of an automatic differentiation package on an operator's rule | a test result |
 
-The gradient through `NoAdjoint(op)` checks the gradient through `op`, and timing both compares their cost.
-`backend` names the automatic differentiation package, such as Mooncake or Enzyme.
-`test_adjoint` needs the Mooncake package, or the Enzyme and EnzymeTestUtils packages, loaded.
+- `CR.uses_adjoint(Smooth(0.5), CR.Step())` is `true` once `Smooth` has a `pullback!` for `Step()`.
+- For an operator, pass `CR.Run()` as the role to `uses_adjoint`, `PieceInterface` and `test_adjoint`.
+  `CR.uses_adjoint(model(0.5), CR.Run())` is `true` when a call takes the rule.
+- `test_adjoint` runs the backend's own rule tester on an operator's rule, with `args` its positional arguments.
+  It needs the Mooncake package, or the Enzyme and EnzymeTestUtils packages, loaded.
