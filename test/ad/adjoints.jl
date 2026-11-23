@@ -2470,3 +2470,27 @@ end
     @test Base.invokelatest(gradient, loss, prep2, mc, θ) ≈ ref
     @test first(ext._PLAIN_RULES[key]) > first(built)
 end
+
+@testitem "Ragged PerStratum rows: reverse gradients come back to each row as given" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, ForwardDiff, Mooncake, Enzyme, ReverseDiff
+    R = [1.1 + 0.1 * k * t for k in 1:2, t in 1:8]
+    H = [1.0 + 0.1 * k * l for k in 1:2, l in 1:3]
+    rows = [[0.2, 0.5, 0.3], [0.6]]
+    loss(ks) = sum(Recurrence(PerStratum(ks))(R; history = H))
+    flat(v) = loss([v[1:3], v[4:4]])
+    g = ForwardDiff.gradient(flat, reduce(vcat, rows))
+    expected = [g[1:3], g[4:4]]
+    cache = Mooncake.prepare_gradient_cache(loss, rows)
+    _, (_, ḡ) = Mooncake.value_and_gradient!!(cache, loss, rows)
+    @test length.(ḡ) == [3, 1]
+    @test ḡ ≈ expected
+    # The fixed arrays go in as `Const` arguments, not captured.
+    run(ks, R, H) = sum(Recurrence(PerStratum(ks))(R; history = H))
+    ē = Enzyme.gradient(
+        Enzyme.Reverse, Enzyme.Const(run), rows, Enzyme.Const(R),
+        Enzyme.Const(H)
+    )[1]
+    @test length.(ē) == [3, 1]
+    @test ē ≈ expected
+    @test ReverseDiff.gradient(flat, reduce(vcat, rows)) ≈ g
+end

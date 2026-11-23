@@ -114,6 +114,7 @@ Operators return only their outputs, so recompute an intermediate this way rathe
 Every time-indexed input is read at absolute time ``t``, counted from 1.
 This holds for `gain`, `add`, a convolution's `x` and every [`TimeVarying`](@ref) kernel, coupling or parameter.
 `start` and `stop` choose which times are computed, not how the inputs are read.
+So a run over a window of longer time-varying inputs needs no slicing: pass them whole and set `start` and `stop`.
 So a call from `start = 4` reads `gain[4]` at its first step, and the output has `stop - start + 1` entries.
 With ``h_{t}`` the history value at time ``t``, that first step is
 
