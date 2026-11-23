@@ -1,6 +1,7 @@
 # [Functors extension](@id extension-functors)
 
 Loading Functors lets [`convert_floats`](@ref ComposableRecurrences.convert_floats) walk an operator and convert every float it holds.
+Without Functors, `convert_floats` throws an error that says to load it.
 Use it to keep a run in `Float32`, as a GPU needs:
 
 ```jldoctest
@@ -14,11 +15,5 @@ eltype(r32(fill(1.2f0, 4); history = Float32[1, 1]))
 
 Float32
 ```
-
-## Known issues
-
-| Symptom | Workaround |
-|---|---|
-| Error: `convert_floats needs Functors.jl` | Run `using Functors` first |
 
 All extensions are listed in the [overview](@ref extensions-overview).

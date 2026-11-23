@@ -1,6 +1,7 @@
 # [FFTW extension](@id extension-fftw)
 
 Loading FFTW runs the lag sum of a [`Convolution`](@ref) with [`FFTMethod`](@ref ComposableRecurrences.FFTMethod).
+It covers a fixed kernel on `Float32` or `Float64` arrays, and matches the direct method to a relative `1e-10`, or `1e-4` in `Float32`.
 The default [`Auto()`](@ref ComposableRecurrences.Auto) method switches to it for a kernel of at least 300 lags over at least 1000 `Float64` outputs.
 
 ```jldoctest
@@ -15,13 +16,6 @@ Convolution(kernel; method = FFTMethod())(x) ≈
 
 true
 ```
-
-## Known issues
-
-| Symptom | Workaround |
-|---|---|
-| Results differ from the direct method by up to `1e-10` relative, or `1e-4` in `Float32` | Pass `method = Direct()` where exact agreement matters |
-| Only a fixed kernel on `Float32` or `Float64` arrays runs with it | Other kernels and types use the direct method |
 
 The reverse pass runs inside the package's own rule, so no AD backend needs FFT rules.
 

@@ -2,6 +2,7 @@
 
 Loading Distributions lets [`Recurrence`](@ref) and [`Convolution`](@ref) take a discrete distribution as a [kernel of delays](@ref overview-delays), with the number of lags.
 Each lag's mass sums the masses of the `step` whole units in it, through [`delay_masses`](@ref ComposableRecurrences.delay_masses).
+A continuous distribution needs the [CensoredDistributions extension](@ref extension-censored-distributions).
 
 A Poisson delay with mean 1.5 days, cut at 4 lags, applied to doubling counts:
 
@@ -18,11 +19,5 @@ round.(delay([10.0, 20.0, 40.0, 80.0]); digits = 3)
  18.129
  37.514
 ```
-
-## Known issues
-
-| Symptom | Workaround |
-|---|---|
-| Error for a continuous distribution | Load CensoredDistributions; see the [CensoredDistributions extension](@ref extension-censored-distributions) |
 
 All extensions are listed in the [overview](@ref extensions-overview).

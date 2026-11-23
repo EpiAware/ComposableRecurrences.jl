@@ -19,10 +19,4 @@ round.(ForwardDiff.gradient(loss, fill(1.1, 4)); digits = 3)
  0.613
 ```
 
-## Known issues
-
-| Symptom | Workaround |
-|---|---|
-| `ArgumentError: ... needs ForwardDiff` from a reverse gradient through an `Init` without a `pullback!` | `using ForwardDiff`, or give the `Init` a `pullback!` |
-
 All extensions are listed in the [overview](@ref extensions-overview).
