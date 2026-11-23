@@ -172,7 +172,7 @@ end
 function _summary(t::Transform)
     parts = String[_brief(t.f)]
     _theta_summary!(parts, t.f, t.θ)
-    d = t.derivative
+    d = _user_derivative(t.derivative)
     d === nothing || push!(parts, "derivative " * _brief(d))
     return _summary_string(:Transform, parts)
 end
