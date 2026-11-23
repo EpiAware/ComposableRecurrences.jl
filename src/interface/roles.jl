@@ -469,8 +469,6 @@ where ``x_f`` is the field and ``r(m, S)`` this count, and throws a
 `DimensionMismatch` that names a field that fails.
 Pointwise and blockwise modifiers ignore it: their rows follow from
 [`ComposableRecurrences.blocks`](@ref).
-The default is `nothing`, so a whole-step modifier is not checked unless it
-declares its rows.
 
 # Arguments
 - `m`: the modifier, with `blocks(m) === nothing`.
@@ -483,12 +481,17 @@ CR = ComposableRecurrences
 struct Mix{A}
     a::A
 end
+function CR.forward!(m::Mix, ::CR.Step, v, s, t)
+    v .*= CR.param.(Ref(m.a), eachindex(v), t)
+    return nothing
+end
 CR.param_rows(::Mix, S) = S
-CR.param_rows(Mix(PerStratum([1.0, 2.0])), 2)
+r = Recurrence([0.5]; modifiers = (Mix(PerStratum([1.0, 2.0])),))
+r(ones(3, 2); history = ones(3, 1))
 
 # output
 
-2
+ERROR: DimensionMismatch: a has 2 rows, expected 3
 ```
 """
 param_rows(m, S) = nothing

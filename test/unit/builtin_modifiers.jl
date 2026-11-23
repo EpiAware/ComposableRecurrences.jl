@@ -1257,15 +1257,28 @@ end
         v .*= CR.param.(Ref(m.a), eachindex(v), t)
         return nothing
     end
-    @test_throws BoundsError run(Mix(PerStratum([1.0, 2.0])), 3)
+    # Undeclared, it is not checked: two rows run on two strata.
+    @test size(run(Mix(PerStratum([1.0, 2.0])), 2)) == (2, 4)
     CR.param_rows(::Mix, S) = S
     @test size(run(Mix(PerStratum([0.5, 0.8, 1.1])), 3)) == (3, 4)
+    # A scalar field has no rows to check.
+    @test size(run(Mix(0.5), 3)) == (3, 4)
     @test_throws DimensionMismatch("a has 2 rows, expected 3") run(
         Mix(PerStratum([1.0, 2.0])), 3
     )
     @test_throws DimensionMismatch("a has 2 rows, expected 3") run(
         Mix(TimeVarying(PerStratum(ones(2, 4)))), 3
     )
+    # A resumed call checks the same rows.
+    good = Recurrence([0.4, 0.3]; modifiers = (Mix(PerStratum(ones(3))),))
+    (; state) = good(fill(1.2, 3, 4); history = ones(3, 2), record = (:state,))
+    short = Recurrence([0.4, 0.3]; modifiers = (Mix(PerStratum(ones(2))),))
+    @test_throws DimensionMismatch("a has 2 rows, expected 3") short(
+        fill(1.2, 3, 8); state
+    )
+    # A declaration of `nothing` skips the check.
+    CR.param_rows(::Mix, S) = nothing
+    @test size(run(Mix(PerStratum([1.0, 2.0])), 2)) == (2, 4)
     # The built-in modifiers keep their own checks and messages.
     @test_throws DimensionMismatch("θ has 4 strata, expected 3") run(
         CR.Transform(*, PerStratum(ones(4))), 3
