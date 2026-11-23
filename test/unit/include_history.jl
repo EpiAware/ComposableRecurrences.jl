@@ -55,7 +55,7 @@ end
     backends = (
         AutoMooncake(; config = nothing),
         AutoEnzyme(; mode = set_runtime_activity(Reverse)),
-        AutoEnzyme(; mode = Reverse, function_annotation = Enzyme.Const),
+        AutoEnzyme(; mode = Reverse),
     )
     # The scan and the buffer run, each with a history that is a view of
     # the parameters, as a sampled vector hands it over.
