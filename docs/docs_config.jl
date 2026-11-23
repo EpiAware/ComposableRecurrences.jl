@@ -182,7 +182,7 @@ const INDEX_REWRITES = Pair{String, String}[
     # The GPU and trimming links, as in-site references.
     "](https://composablerecurrences.epiaware.org/stable/explanation/adjoints-and-backends/#gpu-arrays)" =>
         "](@ref gpu-arrays)",
-    "](https://composablerecurrences.epiaware.org/stable/developer/extending/#trimming)" =>
+    "](https://composablerecurrences.epiaware.org/stable/developer/extending-performance/#trimming)" =>
         "](@ref trimming)",
     # The README's model block prints nothing on the home page.
     "reports = delay(infections; gain = 0.4, history = seed)" =>
@@ -298,6 +298,14 @@ const PACKAGE_SECTIONS = Pair{String, Any}[
 # own to write, at those exact paths.
 const DEVELOPMENT_EXTEND_PAGE = "Extending" => [
     "Writing new types" => "developer/extending.md",
+    "Parameters and gradients" => "developer/extending-parameters.md",
+    "Couplings" => "developer/extending-couplings.md",
+    "Steps across strata" => "developer/extending-steps.md",
+    "Traces" => "developer/extending-traces.md",
+    "Depletion forms" => "developer/extending-forms.md",
+    "Extension API" => "developer/extending-api.md",
+    "Rules for every type" => "developer/extending-rules.md",
+    "Performance and trimming" => "developer/extending-performance.md",
     "Testing and benchmarking" => "developer/testing.md",
     "Case study: a backend model" =>
         "getting-started/tutorials/backend-case-study.md",

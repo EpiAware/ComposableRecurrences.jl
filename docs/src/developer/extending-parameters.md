@@ -1,0 +1,65 @@
+# [Parameters and gradients](@id extending-parameters)
+
+A modifier parameter read with [`param`](@ref ComposableRecurrences.param) can be one value, one per stratum, one per step or any other parameter form, and its gradient follows with [`add_param!`](@ref ComposableRecurrences.add_param!).
+It builds on the smoothing modifier of [Writing new types](@ref extending), and the layout of `grads.piece` below holds for every new type.
+
+```@example extending-parameters
+using ComposableRecurrences
+const CR = ComposableRecurrences
+```
+
+## [The gradient mirror](@id extending-mirror)
+
+`grads.piece` mirrors the type's fields, one entry per field, by field type:
+
+| Field | Mirror entry |
+|---|---|
+| float scalar | `Ref`, add with `x̄[] += g` |
+| float array | an array of the same shape |
+| [`PerStratum`](@ref), [`TimeVarying`](@ref) or another struct | a NamedTuple of its own fields' mirrors, such as `(; x = zeros(S))` |
+| integer, range, `nothing`, function | `nothing` |
+| struct with no fields | `(;)` |
+
+The whole mirror, or any entry, is `nothing` when the backend holds it constant.
+Read an entry with [`cotangent`](@ref ComposableRecurrences.cotangent), which returns `nothing` for such a field, and add to it with [`add_cotangent!`](@ref ComposableRecurrences.add_cotangent!), which skips `nothing`.
+For a modifier parameter, use `param` and `add_param!` instead, which accept every parameter form, including [`Derived`](@ref ComposableRecurrences.Derived) and [`Recent`](@ref ComposableRecurrences.Recent).
+Call `add_param!` for every parameter, even with a `nothing` mirror, as a `Recent` parameter still sends its cotangent to the outputs it read.
+
+## [A per-stratum parameter](@id extending-param)
+
+This modifier adds ``b_k`` to the value of stratum ``k``:
+
+```math
+v'_{t,k} = v_{t,k} + b_k.
+```
+
+It reads `b` with `param` and adds its cotangent with `add_param!`, so `b` may be one value or `PerStratum`.
+For a `PerStratum` `b` the mirror entry is `(; x)`, and the cotangent of entry `k` lands in `x[k]`.
+
+```@example extending-parameters
+struct Shift{B}
+    b::B
+end
+CR.blocks(::Shift) = (1, 1)
+function CR.forward!(m::Shift, ::CR.Step, v, s, t)
+    for k in eachindex(v)
+        v[k] += CR.param(m.b, k, t)
+    end
+    return nothing
+end
+function CR.pullback!(grads, m::Shift, ::CR.Step, v, s, t)
+    b̄ = CR.cotangent(grads.piece, :b)
+    for k in eachindex(v)
+        CR.add_param!(b̄, m.b, grads.v[k], k, t)
+    end
+    return nothing
+end
+
+m = Shift(PerStratum([0.1, 0.2]))
+grads = (; piece = (; b = (; x = zeros(2))), v = [1.5, 0.5], s = [0.0, 0.0])
+CR.pullback!(grads, m, CR.Step(), [2.0, 1.0], [0.0, 0.0], 1)
+grads.piece.b.x
+```
+
+A pointwise modifier reads each parameter at its own stratum, `param(m.b, k, t)`, and its `Init` at time 1, `param(m.b, k, 1)`.
+A call checks the `PerStratum` parameters of a pointwise or blockwise modifier against the number of strata.

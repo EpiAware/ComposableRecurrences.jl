@@ -1,0 +1,91 @@
+# [Extension API](@id overview-extending)
+
+Every name for writing and checking a new coupling, modifier or depletion form is listed here, with the arguments of each role.
+It is the reference for the pages that start at [Writing new types](@ref extending).
+
+## [Roles](@id extending-roles)
+
+A role is one job a new type can do, named by a type with no fields.
+A new type does its work in a [`forward!`](@ref ComposableRecurrences.forward!) method for each role it has, and may add a [`pullback!`](@ref ComposableRecurrences.pullback!) for each.
+The role is the second argument of `forward!` and the third of `pullback!`, and selects the method by dispatch.
+
+- [`Step()`](@ref ComposableRecurrences.Step) computes one step.
+- [`Init()`](@ref ComposableRecurrences.Init) computes the starting state.
+- [`Pressure()`](@ref ComposableRecurrences.Pressure) is a coupling's mixing.
+- [`Trace()`](@ref ComposableRecurrences.Trace) is a modifier's record for a call with `record = (:trace,)`.
+
+Both methods write their outputs in place and return `nothing`, and a method that returns anything else is an error.
+`pullback!` receives the named tuple `grads`.
+Its field `grads.piece` is the mirror, the cotangents of the type's own fields, laid out as [The gradient mirror](@ref extending-mirror) gives.
+Its other fields hold the cotangents of the role's arguments.
+
+| Type | `forward!` | `pullback!` | `grads` |
+|---|---|---|---|
+| modifier step | `forward!(m, Step(), v, s, t)` updates `v` and `s` | `pullback!(grads, m, Step(), v, s, t)` | the mirror; `v` and `s` hold the cotangents of `v′` and `s′`; overwrite them with those of `v` and `s` |
+| initial state | `forward!(m, Init(), s, history)` writes `s` | `pullback!(grads, m, Init(), s, history)` | the mirror; `s` holds the cotangent of `s`; add into `history`, which may be `nothing` |
+| coupling | `forward!(C, Pressure(), q, p, t)` writes `q` | `pullback!(grads, C, Pressure(), q, p, t)`, with `q === nothing` | the mirror; `q` holds the cotangent of `q`; add into `p` |
+
+The rows for a [blockwise step](@ref extending-blockwise), a [trace](@ref extending-trace-own) and a [depletion form](@ref extending-form-pullback) are on their pages.
+The arguments mean the same in every role:
+
+- `t` is the absolute time, counted from 1 as `start` and `stop` are.
+- `v` holds one value per [stratum](@ref overview-step), indexed by stratum, and `s` is the modifier's state after the previous step, with [`nstate`](@ref ComposableRecurrences.nstate) entries.
+- `history` is the call's `history` as given: a vector for one series, else strata × time.
+  Without an `Init` method the state starts at zero, and no `Init` pullback is needed.
+
+## [Names](@id extending-names)
+
+An operator's hand-written gradient is its rule.
+
+| Name | What it does | Returns |
+|:--|:--|:--|
+| [`forward!(m, role, args...)`](@ref ComposableRecurrences.forward!) | the maths of a modifier, coupling or depletion form for one role | writes in place, returns `nothing` |
+| [`pullback!(grads, m, role, args...)`](@ref ComposableRecurrences.pullback!) | its hand-written gradient, optional | adds to the cotangents: the gradients of the result with respect to each input |
+| [`Step()`](@ref ComposableRecurrences.Step), [`Init()`](@ref ComposableRecurrences.Init), [`Pressure()`](@ref ComposableRecurrences.Pressure), [`Trace()`](@ref ComposableRecurrences.Trace) | the roles | types with no fields |
+| [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
+| [`blocks(m)`](@ref ComposableRecurrences.blocks) | a modifier's groups of strata | a tuple, or `nothing` |
+| [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` strata | `Int` |
+| [`isstateless(m)`](@ref ComposableRecurrences.isstateless) | whether a modifier leaves its state unchanged, so it records no trace | `Bool` |
+| [`islinear(x)`](@ref ComposableRecurrences.islinear) | whether a coupling or whole-step modifier is a matrix, so a call runs that matrix in its place | `Bool` |
+| [`param(x, k, t)`](@ref ComposableRecurrences.param) | reads a parameter for stratum `k` at time `t` | a value |
+| [`add_param!(x̄, x, v, k, t)`](@ref ComposableRecurrences.add_param!) | adds to a parameter's cotangent | `nothing` |
+| [`cotangent(x̄, name)`](@ref ComposableRecurrences.cotangent) | the cotangent of a field | a cotangent, or `nothing` |
+| [`add_cotangent!(x̄, v, idx...)`](@ref ComposableRecurrences.add_cotangent!) | adds to a cotangent | `nothing` |
+| [`PieceInterface`](@ref ComposableRecurrences.PieceInterface) | the conformance test for a new type, built on the Interfaces.jl package | a test result |
+
+`nstate` is read from [`blocks`](@ref ComposableRecurrences.blocks).
+
+## [Checking your type](@id overview-gradients)
+
+`PieceInterface` takes one `Arguments` per role the type has, each holding the type, the role and the arguments after the role:
+
+- `(s, history)` for `Init()`;
+- `(v, s, t)`, with vectors, for a modifier's `Step()`;
+- `(q, p, t)` for `Pressure()`;
+- `(v, s, N)`, with vectors `v` and `s` and a float `N`, for a depletion form;
+- `(r, v, s, v′, s′, t)` for `Trace()`, with `r` a tuple of vectors for a pointwise modifier and a column of `ntrace` rows for any other.
+  A blockwise group takes `g` after `t`, and its arguments are tuples of `Ref`s.
+
+It also checks that the rule finds any `pullback!` the type has.
+The optional checks are `:pointwise` and `:nstate` for a pointwise step and the state length, `:blocks` for a blockwise step and `:pullback`.
+The `:pullback` check compares each `pullback!` for `Step()` or `Pressure()` with the ForwardDiff Jacobian of `forward!` on the same inputs, so it needs `using ForwardDiff`.
+At a tie that Jacobian takes the branch `forward!` takes, as the local step does.
+
+A rule can be checked against the gradient that automatic differentiation computes from the operator's code.
+[`NoAdjoint(op)`](@ref ComposableRecurrences.NoAdjoint) is the same operator, differentiated by automatic differentiation instead of its [rule](@ref adjoints-backends).
+The gradient through `NoAdjoint(op)` checks the gradient through `op`, and timing both compares their cost.
+
+The names below are internal helpers.
+They help check a new type, but they may change without notice.
+
+| Name | What it does | Returns |
+|:--|:--|:--|
+| [`ComposableRecurrences.uses_adjoint(m, role)`](@ref ComposableRecurrences.uses_adjoint) | whether the rule calls `m`'s `pullback!` for `role` | `Bool` |
+| [`ComposableRecurrences.Run()`](@ref ComposableRecurrences.Run) | the role of an operator's whole call | a type with no fields |
+| [`ComposableRecurrences.test_adjoint(backend, op, ComposableRecurrences.Run(), args...)`](@ref ComposableRecurrences.test_adjoint) | runs the rule tester of an automatic differentiation package on an operator's rule | a test result |
+
+- `CR.uses_adjoint(Smooth(0.5), CR.Step())` is `true` once `Smooth` has a `pullback!` for `Step()`.
+- For an operator, pass `CR.Run()` as the role to `uses_adjoint`, `PieceInterface` and `test_adjoint`.
+  `CR.uses_adjoint(model(0.5), CR.Run())` is `true` when a call takes the rule.
+- `test_adjoint` runs the backend's own rule tester on an operator's rule, with `args` its positional arguments.
+  It needs the Mooncake package, or the Enzyme and EnzymeTestUtils packages, loaded.

@@ -1,0 +1,34 @@
+# [Rules for every type](@id extending-rules)
+
+A `forward!` and `pullback!` that keep these rules work with every number type, every executor and every gradient route.
+They hold for the types of all the pages that start at [Writing new types](@ref extending).
+
+## [Number types](@id extending-number-types)
+
+`forward!` must be generic in the element type of its arguments.
+A dual number, a `Float32` or a tracked value can arrive in `v`, `s` or a field.
+So do not annotate `Float64` or build `0.0`; use `zero(v)` and `oftype`.
+A field with a type parameter lets a dual number take its place.
+
+## [Arguments of a pullback](@id extending-pullback-arguments)
+
+In `pullback!`, `v`, `s`, `p` and `history` are the values `forward!` was given, so the values before the step.
+Read them, but do not write to them.
+Leave `grads` and the arguments after the role in `pullback!` untyped, so that the rule finds the method.
+A type without a `pullback!` still takes the rule when the [local step](@ref adjoint-local-step) can rebuild it.
+
+## [Pointwise steps](@id extending-pointwise-rules)
+
+A pointwise modifier sets [`blocks`](@ref ComposableRecurrences.blocks) to `(1, 1)`, and writes entry `k` of `v` and `s` from entry `k` only, for each `k` in `eachindex(v)`.
+
+- Loop over `eachindex(v)` and read parameters with [`param`](@ref ComposableRecurrences.param), rather than broadcast; the `:pointwise` check of `PieceInterface` reports a broadcast.
+- Its `Init` writes `s[k]` from the parameters read at stratum `k` and time 1 and from row `k` of the history only.
+  Without an `Init` `pullback!`, its derivative is then taken stratum by stratum, and the `:pointwise` check tests it.
+- Such a step runs under [`Parallel`](@ref ComposableRecurrences.Parallel) when it reads and writes only `eachindex(v)` entries, and allocates nothing.
+
+## [Threads](@id extending-threads)
+
+Under [`Threaded`](@ref ComposableRecurrences.Threaded) the steps of different strata can run at once.
+So a step writes only its own stratum's slots, and never to the type's fields.
+In the reverse pass each chunk of strata adds into a zeroed copy of the mirror, and the copies are summed after the loop.
+A mirror with an entry of another kind, such as an integer or a `Ref` that is not of a number, runs that loop on one task.
