@@ -7,11 +7,12 @@ module ComposableRecurrencesMooncakeExt
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
     _ad_wide, _check_flow_parts, _check_form, _check_given, _check_nonnegative,
+    _checked_call,
     _check_now, _check_parts, _check_pieces, _check_secondary, _check_unit,
     _convolve_masses, _convolve_masses_back!, _current,
     _fft_convolve!, _fft_convolve_back!, _fit, _flat_groups, _hooked_plain,
     _movement, _movement_back!, _note_missing_duals, _plain_hook, _route, _run_forward,
-    _run_pullback!, _untraced
+    _run_pullback!, _Scan, _scan_rule, _untraced
 using LinearAlgebra: axpy!
 using Mooncake: Mooncake, CoDual, NoFData, NoRData, primal, tangent
 using Random: Xoshiro
@@ -97,6 +98,10 @@ Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
 # Nor is the same check run by the call of an operator built before
 # ForwardDiff was loaded.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_now), Any}
+# Nor are a call's checks against its recurrence, which return only sizes.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
+    typeof(_checked_call), Vararg,
+}
 # Nor is its check that only the kernel takes `Primary()` indexing.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_check_secondary), Any, Tuple,
@@ -281,6 +286,40 @@ Mooncake.@is_primitive(
 function Mooncake.rrule!!(::CoDual{typeof(_ad_wide)}, args::Vararg{CoDual, N}) where {N}
     return Mooncake.rrule!!(Mooncake.zero_fcodual(_ad), args...)
 end
+
+# A one-lag scan's call is a primitive that takes the rule, where Enzyme
+# keeps plain AD of the scan.
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Mooncake.ReverseMode, Tuple{typeof(_scan_rule), Vararg}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(_scan_rule)}, kernel::CoDual, C::CoDual,
+        args::Vararg{CoDual, N}
+    ) where {N}
+    op = _Scan(primal(kernel), primal(C))
+    dop = _scan_fdata(op, tangent(kernel), tangent(C))
+    f = Mooncake.zero_fcodual(_ad)
+    y, pb = Mooncake.rrule!!(f, CoDual(op, dop), args...)
+    return y, _ScanPullback(pb)
+end
+# The operator's fdata from its fields', which is `NoFData` when none has
+# any.
+function _scan_fdata(op, dk, dC)
+    F = Mooncake.fdata_type(Mooncake.tangent_type(typeof(op)))
+    F === NoFData && return NoFData()
+    return F((; kernel = dk, coupling = dC))
+end
+# The operator's cotangents go back to its kernel and coupling.
+struct _ScanPullback{P}
+    pb::P
+end
+function (s::_ScanPullback)(ȳ)
+    r̄ = s.pb(ȳ)
+    k̄, C̄ = _scan_rdata(r̄[2])
+    return (NoRData(), k̄, C̄, Base.tail(Base.tail(r̄))...)
+end
+_scan_rdata(::NoRData) = (NoRData(), NoRData())
+_scan_rdata(op̄) = (op̄.data.kernel, op̄.data.coupling)
 
 # `_fit` picks the route per call, so a rule Mooncake derived for `_route`
 # would infer plain AD through the whole run even when no call takes it. As

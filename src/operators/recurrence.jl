@@ -736,7 +736,7 @@ end
 
 # The call builds the positional arguments `(gain, add, h, s0, τ0, stop)`
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
-Base.@constprop :aggressive function _invoke(
+Base.@constprop :aggressive @inline function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
         add = nothing, start = _start(state), stop = nothing, record = nothing
     )
@@ -746,7 +746,11 @@ Base.@constprop :aggressive function _invoke(
     return _routed(traced, stated, rec, r, route, args, stop)
 end
 # One call over both flags, so that a rule derived from types alone splits.
-function _routed(traced, stated, rec, r, route, args, stop)
+# Inlined, as `_run_args` is, so a backend that differentiates the call
+# builds no shadow of the argument tuple.
+@inline function _routed(traced, stated, rec, r, route, args, stop)
+    _scans(traced, stated, r, args) &&
+        return _recorded(rec, traced, stated, _scan_call(route, r, args, stop))
     op = _call_op(traced, stated, _linear_parts(route, r, args[3]))
     out = adjoint_call(_reroute(route, op), args..., stop)
     return _recorded(rec, traced, stated, out)
@@ -816,7 +820,7 @@ _recorded(::Union{Tuple, Val}, ::Val{true}, ::Val{false}, (y, trace)) = (; y, tr
 _recorded(::Union{Tuple, Val}, ::Val{true}, ::Val{true}, ((y, state), trace)) =
     (; y, state, trace)
 
-function _run_args(r, gain, history, state, add, start)
+@inline function _run_args(r, gain, history, state, add, start)
     _check_start(start)
     _check_unwrapped(:gain, gain)
     _check_unwrapped(:add, add)
@@ -1296,6 +1300,13 @@ end
 function _recur(
         r::Recurrence, gain, add, h, s0, τ0, stop, cache::Val
     )
+    (; L, D, S, T) = _checked_call(r, gain, add, h, s0, τ0, stop)
+    Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
+    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache)
+end
+# The checks of a call against its recurrence, which the buffer run and the
+# scan share, and the sizes they settle.
+function _checked_call(r::Recurrence, gain, add, h, s0, τ0, stop)
     (; kernel, coupling, modifiers) = r
     L = _nlags(kernel)
     D = _buffer_depth(r, L)
@@ -1322,9 +1333,7 @@ function _recur(
     _check_times(:modifiers, modifiers, stop)
     _check_device(h, (kernel, coupling, modifiers, gain, add, s0))
     _check_device_moves(h, modifiers)
-    T = stop - τ0 + 1
-    Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
-    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache)
+    return (; L, D, S, T = stop - τ0 + 1, stop)
 end
 
 # The buffer eltype from the promoted eltype `E` of every input and part:

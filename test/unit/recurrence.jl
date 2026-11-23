@@ -1142,13 +1142,20 @@ end
     # Through the view and through the copy the run gives the same series,
     # and the view saves the copy's allocation.
     gain = [1.1 + 0.1 * sin(t) for t in 1:12]
-    for k in (g, [0.7])
-        r = Recurrence(k)
-        rc = Recurrence(view(k, :))
-        @test r(gain; history = [1.0, 2.0]) == rc(gain; history = [1.0, 2.0])
-        r(gain; history = [1.0, 2.0])
-        rc(gain; history = [1.0, 2.0])
-        @test @allocated(r(gain; history = [1.0, 2.0])) <
-            @allocated(rc(gain; history = [1.0, 2.0]))
-    end
+    r = Recurrence(g)
+    rc = Recurrence(view(g, :))
+    @test r(gain; history = [1.0, 2.0]) == rc(gain; history = [1.0, 2.0])
+    r(gain; history = [1.0, 2.0])
+    rc(gain; history = [1.0, 2.0])
+    @test @allocated(r(gain; history = [1.0, 2.0])) <
+        @allocated(rc(gain; history = [1.0, 2.0]))
+    # A one-lag kernel, as a vector or a view, runs as a scan, which reads
+    # the kernel without a copy either way.
+    r = Recurrence([0.7])
+    rc = Recurrence(view([0.7], :))
+    @test r(gain; history = [1.0, 2.0]) == rc(gain; history = [1.0, 2.0])
+    r(gain; history = [1.0, 2.0])
+    rc(gain; history = [1.0, 2.0])
+    @test @allocated(r(gain; history = [1.0, 2.0])) ==
+        @allocated(rc(gain; history = [1.0, 2.0]))
 end

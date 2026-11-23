@@ -55,8 +55,14 @@ end
 # `route` is the operator itself or its `NoAdjoint`; an operator with a
 # keyword call adds an `_invoke` method that builds the positional arguments.
 _invoke(op::AbstractOperator, route, args...) = adjoint_call(route, args...)
-(op::AbstractOperator)(args...; kwargs...) = _invoke(op, op, args...; kwargs...)
-(n::NoAdjoint)(args...; kwargs...) = _invoke(n.op, n, args...; kwargs...)
+# Inlined so that a backend that differentiates the call builds no shadow of
+# the keywords.
+@inline function (op::AbstractOperator)(args...; kwargs...)
+    return _invoke(op, op, args...; kwargs...)
+end
+@inline function (n::NoAdjoint)(args...; kwargs...)
+    return _invoke(n.op, n, args...; kwargs...)
+end
 function forward(n::NoAdjoint, ::Run, args...; kwargs...)
     return forward(n.op, Run(), args...; kwargs...)
 end
