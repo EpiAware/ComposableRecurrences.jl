@@ -136,6 +136,90 @@ end
     @test "traced true" in lines
 end
 
+@testitem "Loading: an Init without a pullback! takes plain AD without ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin
+    script = raw"""
+    using ComposableRecurrences, Mooncake, DifferentiationInterface
+    CR = ComposableRecurrences
+    loaded(name) = any(k -> k.name == name, keys(Base.loaded_modules))
+    println(loaded("ForwardDiff"))
+    backend = AutoMooncake(; config = nothing)
+    function fd(f, x; h = 1.0e-6)
+        return map(eachindex(x)) do i
+            e = zero(x)
+            e[i] = h
+            (f(x + e) - f(x - e)) / 2h
+        end
+    end
+    # A pool that sets its own initial state, with a `pullback!` for its
+    # step; `Pool` has none for its `Init`, `PoolInit` has one.
+    for P in (:Pool, :PoolInit)
+        @eval begin
+            struct $P{T}
+                N::T
+            end
+            CR.blocks(::$P) = (1, 1)
+            CR.uses_adjoint(::$P, ::CR.Step) = true
+            CR.forward!(m::$P, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
+            function CR.forward!(m::$P, ::CR.Step, v, s, t)
+                for k in eachindex(v, s)
+                    x = v[k] / m.N
+                    v[k], s[k] = -s[k] * expm1(-x), s[k] * exp(-x)
+                end
+                return nothing
+            end
+            function CR.pullback!(grads, m::$P, ::CR.Step, v, s, t)
+                for k in eachindex(v, s)
+                    v̄, s̄ = grads.v[k], grads.s[k]
+                    x = v[k] / m.N
+                    e = exp(-x)
+                    x̄ = s[k] * e * (v̄ - s̄)
+                    CR.add_cotangent!(CR.cotangent(grads.piece, :N), -x̄ * x / m.N)
+                    grads.v[k], grads.s[k] = x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
+                end
+                return nothing
+            end
+        end
+    end
+    function CR.pullback!(grads, m::PoolInit, ::CR.Init, s, history)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :N), sum(grads.s))
+        return nothing
+    end
+    run(P) = θ -> sum(
+        Recurrence([0.3, 0.2]; modifiers = (P(θ[1]),))(
+            fill(1.5, 6); history = [1.0, 2.0]
+        )
+    )
+    θ = [50.0]
+    # Without the dual-number extension, `Pool` takes plain AD, says why
+    # once, and gives the right gradient.
+    f = run(Pool)
+    n0 = CR._PULLBACK_CALLS[]
+    g = gradient(f, backend, θ)
+    noted = any(CR._PLAIN_NOTED) do m
+        occursin("Pool sets its own initial state", m) &&
+            occursin("add `using ForwardDiff`", m)
+    end
+    println("plain ", CR._PULLBACK_CALLS[] == n0, " ", isapprox(g, fd(f, θ); rtol = 1.0e-5), " ", noted)
+    # With a `pullback!` for its `Init`, the rule.
+    fi = run(PoolInit)
+    n0 = CR._PULLBACK_CALLS[]
+    g = gradient(fi, backend, θ)
+    println("rule ", CR._PULLBACK_CALLS[] > n0, " ", isapprox(g, fd(fi, θ); rtol = 1.0e-5))
+    # With the dual-number extension, `Pool` takes the rule too.
+    using ForwardDiff
+    n0 = CR._PULLBACK_CALLS[]
+    g = gradient(f, backend, θ)
+    println("duals ", CR._PULLBACK_CALLS[] > n0, " ", isapprox(g, fd(f, θ); rtol = 1.0e-5))
+    """
+    project = Base.active_project()
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
+    lines = split(read(cmd, String), '\n'; keepempty = false)
+    @test lines[1] == "false"
+    @test "plain true true true" in lines
+    @test "rule true true" in lines
+    @test "duals true true" in lines
+end
+
 @testitem "Trace, Mooncake reverse: gradients through the traces of built-in modifiers and flows, the rule against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin
     using ComposableRecurrences, ForwardDiff, Mooncake
     using DifferentiationInterface: gradient, AutoMooncake

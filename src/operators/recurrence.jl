@@ -1089,9 +1089,16 @@ _long_kernel(w::_WithState, args...) = _long_kernel(w.r, args...)
 function _dual_whys(kernel, C, ms)
     Cp = _primary_adjoint(C) === :local ? (C,) : ()
     Ck = filter(K -> _coupling_adjoint(K) === :local, _kernel_couplings(kernel))
-    return map(_dual_why, (Cp..., Ck..., filter(_needs_duals, ms)...))
+    Mi = filter(m -> !_needs_duals(m) && _init_needs_duals(m), ms)
+    whys = map(_dual_why, (Cp..., Ck..., filter(_needs_duals, ms)...))
+    return (whys..., map(_init_dual_why, Mi)...)
 end
 _needs_duals(m) = _modifier_adjoint(m) === :local || _local_modifier(m) !== ()
+function _init_dual_why(m)
+    return "$(nameof(typeof(m))) sets its own initial state without a " *
+        "`pullback!` for `Init`, and its local derivative needs " *
+        "`ForwardDiff`; add `using ForwardDiff` for the faster rule"
+end
 # Called by the reverse-mode rules of `_plain_hook`, so only a reverse pass
 # through plain AD logs, once, which parts need the dual-number extension.
 # A `NoAdjoint` call opted out of the rule, so it says nothing.

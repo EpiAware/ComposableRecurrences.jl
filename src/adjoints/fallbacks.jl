@@ -609,6 +609,30 @@ function _strata_init(m, s, nh)
     return nh % max(length(s), 1) == 0
 end
 
+# Whether `m` sets its own initial state but has no `pullback!` for `Init`,
+# so the pullback above would take the local derivative. Read from the
+# methods that could apply to its type, so a typed method counts too, and
+# cached per type as `_default_init` is below.
+const _INIT_DUALS = Dict{Type, Tuple{UInt, Bool}}()
+function _init_needs_duals(m)
+    T = typeof(m)
+    world = Base.get_world_counter()
+    hit = @lock _DEFAULT_INIT_LOCK get(_INIT_DUALS, T, nothing)
+    hit !== nothing && first(hit) == world && return last(hit)
+    own_init = _own_method(forward!, Tuple{T, Init, Any, Any}, 1)
+    own_back = _own_method(pullback!, Tuple{Any, T, Init, Any, Any}, 2)
+    d = own_init && !own_back
+    @lock _DEFAULT_INIT_LOCK _INIT_DUALS[T] = (world, d)
+    return d
+end
+# Whether a method of `f` that could apply to `sig` types its argument `j`,
+# so it is not the generic fallback.
+function _own_method(f, sig, j)
+    return any(methods(f, sig)) do mt
+        Base.unwrap_unionall(mt.sig).parameters[j + 1] !== Any
+    end
+end
+
 # Cached per signature with its world age, so a method defined later is still
 # seen; a lookup on every reverse pass cost more than a short run's gradient
 # on Julia 1.13.
