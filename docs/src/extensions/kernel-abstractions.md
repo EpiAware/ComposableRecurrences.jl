@@ -26,4 +26,4 @@ true
 | `Parallel(CPU())` is slower than `Threaded()` | Use [`Threaded`](@ref ComposableRecurrences.Threaded) on the CPU |
 | A new modifier type holding arrays fails inside a kernel | Add an `Adapt.adapt_structure` method |
 
-Executors are compared in [Executors](@ref executors); device arrays need the [GPUArraysCore extension](@ref extension-gpuarrays-core).
+Executors are compared in [Executors](@ref executors); device arrays need the [GPUArrays extension](@ref extension-gpuarrays).
