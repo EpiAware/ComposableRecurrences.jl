@@ -394,7 +394,7 @@ end
 end
 
 @testitem "Transform(*, γ): its own pullback, and a gain on the added values" setup = [ModifierChecks] begin
-    using ComposableRecurrences, Test
+    using ComposableRecurrences, ForwardDiff, Mooncake, Test
     CR = ComposableRecurrences
     v, s = [0.3, 0.6, 0.9], [0.1, 0.2, 0.3]
     for (γ, θ, t) in (
@@ -419,4 +419,21 @@ end
     scaled = Recurrence([0.5, 0.3]; modifiers = (m,))
     @test scaled(1.0; history = h, add = a, stop = T) ≈
         Recurrence([0.5, 0.3])(γ; history = h, add = γ .* a)
+    # The rule's gradients in γ and in the added values, against ForwardDiff
+    # of plain AD.
+    W = [sin(k + t) for k in 1:2, t in 1:T]
+    function loss(op, x)
+        γx, ax = reshape(x[1:(2T)], 2, T), reshape(x[(2T + 1):end], 2, T)
+        r = Recurrence(
+            [0.5, 0.3]; modifiers = (CR.Transform(*, TimeVarying(PerStratum(γx))),)
+        )
+        return sum(W .* op(r)(1.0; history = h, add = ax, stop = T))
+    end
+    x = vcat(vec(γ), vec(a))
+    expected = ForwardDiff.gradient(x -> loss(CR.NoAdjoint, x), x)
+    f = x -> loss(identity, x)
+    n0 = CR._PULLBACK_CALLS[]
+    rule = Mooncake.build_rrule(f, x)
+    @test Mooncake.value_and_gradient!!(rule, f, x)[2][2] ≈ expected
+    @test CR._PULLBACK_CALLS[] > n0
 end

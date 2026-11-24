@@ -53,9 +53,11 @@ passing `B` as `add`.
 ``\ell_{t,i} \le u_{t,i}``.
 Its pullback sends the cotangent to the active bound, or to ``v_i`` when
 neither is.
-`Transform(*, γ)` scales each value by ``\gamma_{t,i}``; before a
-[`ComposableRecurrences.Allocate`](@ref) or a draw, with `add`, it applies a
-gain to the added values too.
+`Transform(*, γ)` scales each value by ``\gamma_{t,i}``.
+First in the modifiers, it scales the `add` values with the kernel's, so
+the gain acts on both before an [`ComposableRecurrences.Allocate`](@ref) or
+a draw.
+A `γ` that is a plain number has no cotangent, so its pullback adds none.
 
 It acts on a [`Recurrence`](@ref) and is pointwise.
 Its rule takes the local forward-mode derivative or `derivative`, or a
@@ -168,6 +170,9 @@ function _check_theta(θ::Union{Tuple, NamedTuple})
 end
 _check_theta(θ) = (_check_param(:θ, θ); nothing)
 
+# The gain of `Transform(*, γ)`: one parameter, not a tuple of them.
+const _GainParam = Union{Real, PerStratum, TimeVarying}
+
 # == Traits ==
 
 # Whether the local derivative covers every parameter. A closure's float
@@ -187,9 +192,7 @@ end
 _own_pullback(::Transform) = false
 _own_pullback(::Transform{typeof(+), Nothing, Nothing}) = true
 _own_pullback(::Transform{typeof(clamp), <:Tuple{Any, Any}, Nothing}) = true
-# A single parameter of `Transform(*, γ)`.
-const _OneParam = Union{Real, PerStratum, TimeVarying}
-_own_pullback(::Transform{typeof(*), <:_OneParam, Nothing}) = true
+_own_pullback(::Transform{typeof(*), <:_GainParam, Nothing}) = true
 function _dual_why(::Transform)
     return "a `Transform` without a `derivative` takes its local derivative " *
         "with `ForwardDiff`; add `using ForwardDiff` for the faster rule"
@@ -252,10 +255,9 @@ function pullback!(
     return nothing
 end
 
-# `Transform(*, γ)` with one parameter: `y = γ v`, so `v̄ γ` goes to `v` and
-# `v̄ v` to `γ`.
+# `y = γ v`.
 function pullback!(
-        grads, m::Transform{typeof(*), <:_OneParam, Nothing}, ::Step, v, s, t
+        grads, m::Transform{typeof(*), <:_GainParam, Nothing}, ::Step, v, s, t
     )
     v̄, γ̄ = grads.v, cotangent(grads.piece, :θ)
     for k in eachindex(v)
