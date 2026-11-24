@@ -2471,6 +2471,80 @@ end
     @test first(ext._PLAIN_RULES[key]) > first(built)
 end
 
+@testitem "Enzyme: the one-lag scan's rule against the buffer run" tags = [:ad, :enzyme, :enzyme_reverse, :compat_floor] begin
+    using ComposableRecurrences, Enzyme, ForwardDiff, LinearAlgebra
+    CR = ComposableRecurrences
+    # Kernel, gain, seed and add input, odd and even lengths, as vectors and
+    # as one-row matrices, with and without runtime activity, against the
+    # buffer run.
+    function loss(θ, T, row, wrap, lags)
+        k = θ[1]
+        g, h, a = θ[2:(1 + T)], θ[(2 + T):(2 + T)], θ[(3 + T):end]
+        if row
+            g, h, a = reshape(g, 1, T), reshape(h, 1, 1), reshape(a, 1, T)
+        end
+        r = wrap(Recurrence(vcat(k, zeros(lags - 1)); coupling = 1.5I))
+        y = r(g; history = h, add = a)
+        return sum(abs2, y) + sum(sin, y)
+    end
+    modes = (Reverse, set_runtime_activity(Reverse))
+    # On Julia 1.11 with threads, plain reverse mode of a `NoAdjoint`
+    # operator can crash in the garbage collector, so there its
+    # reference takes runtime activity alone; the rule takes both modes.
+    plain_modes = VERSION < v"1.12" ? (set_runtime_activity(Reverse),) : modes
+    arms = (
+        (mode, wrap) for wrap in (identity, CR.NoAdjoint)
+            for mode in (wrap === identity ? modes : plain_modes)
+    )
+    for T in (6, 7), row in (false, true)
+        θ = vcat(0.8, 1 .+ 0.1 .* sin.(1:T), 0.3, cos.(1:T))
+        ref = ForwardDiff.gradient(θ -> loss(θ, T, row, CR.NoAdjoint, 2), θ)
+        for (mode, wrap) in arms
+            n0 = CR._PULLBACK_CALLS[]
+            g = Enzyme.gradient(mode, θ -> loss(θ, T, row, wrap, 1), θ)[1]
+            @test g ≈ ref
+            # The rule runs, and `NoAdjoint` differentiates the loop.
+            @test (CR._PULLBACK_CALLS[] > n0) == (wrap === identity)
+        end
+    end
+end
+
+@testitem "Mooncake: the one-lag scan's rule against the buffer run" tags = [:ad, :mooncake, :mooncake_reverse] begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    using ADTypes: AutoMooncake
+    import DifferentiationInterface as DI
+    import Mooncake
+    CR = ComposableRecurrences
+    # Kernel, coupling scale, gain, seed and add input, odd and even
+    # lengths, as vectors and as one-row matrices, vector and scalar gain
+    # and add input, against the buffer run.
+    function loss(θ, T, row, wrap, lags, scalars)
+        k, λ = θ[1], θ[2]
+        g, h, a = θ[3:(2 + T)], θ[(3 + T):(3 + T)], θ[(4 + T):end]
+        if row
+            g, h, a = reshape(g, 1, T), reshape(h, 1, 1), reshape(a, 1, T)
+        end
+        g, a = scalars ? (g[1], a[1]) : (g, a)
+        r = wrap(Recurrence(vcat(k, zeros(lags - 1)); coupling = λ * I))
+        y = r(g; history = h, add = a, stop = T)
+        return sum(abs2, y) + sum(sin, y)
+    end
+    backend = AutoMooncake(; config = nothing)
+    for T in (6, 7), row in (false, true), scalars in (false, true)
+        θ = vcat(0.8, 1.2, 1 .+ 0.1 .* sin.(1:T), 0.3, cos.(1:T))
+        ref = ForwardDiff.gradient(
+            θ -> loss(θ, T, row, CR.NoAdjoint, 2, scalars), θ
+        )
+        for wrap in (identity, CR.NoAdjoint)
+            f = θ -> loss(θ, T, row, wrap, 1, scalars)
+            n0 = CR._PULLBACK_CALLS[]
+            @test DI.gradient(f, backend, θ) ≈ ref
+            # The rule runs, and `NoAdjoint` differentiates the loop.
+            @test (CR._PULLBACK_CALLS[] > n0) == (wrap === identity)
+        end
+    end
+end
+
 @testitem "Ragged PerStratum rows: reverse gradients come back to each row as given" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences, ForwardDiff, Mooncake, Enzyme, ReverseDiff
     R = [1.1 + 0.1 * k * t for k in 1:2, t in 1:8]

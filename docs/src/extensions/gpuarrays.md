@@ -7,7 +7,9 @@ Convert floats with [`convert_floats(Float32, r)`](@ref ComposableRecurrences.co
 A sparse coupling must be a device sparse matrix, best in CSR form, one stratum's row per kernel index.
 A CSC or other device sparse coupling is converted to CSR when the recurrence is built, through the array package's own conversion.
 A form the package cannot convert is kept as given and runs through the package's own sparse products.
-A device sparse coupling takes plain AD rather than the rule ([#834](https://github.com/EpiAware/ComposableRecurrences.jl/issues/834)).
+Adapting a built recurrence moves its coupling by the array package's own rules, without this conversion, so a host sparse coupling may arrive as CSC or dense.
+To take the CSR kernel, build the recurrence with its coupling already on the device.
+A device CSR coupling takes the package's rule, as a dense one does; another device sparse form takes plain AD.
 JLArrays stands in for a GPU here; CUDA, AMDGPU and Metal arrays work the same way.
 
 ```jldoctest gpu
