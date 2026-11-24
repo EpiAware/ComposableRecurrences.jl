@@ -2488,10 +2488,18 @@ end
         return sum(abs2, y) + sum(sin, y)
     end
     modes = (Reverse, set_runtime_activity(Reverse))
+    # On Julia 1.11 with threads, plain reverse mode of a `NoAdjoint`
+    # operator can crash in the garbage collector (#872), so there its
+    # reference takes runtime activity alone; the rule takes both modes.
+    plain_modes = VERSION < v"1.12" ? (set_runtime_activity(Reverse),) : modes
+    arms = (
+        (mode, wrap) for wrap in (identity, CR.NoAdjoint)
+            for mode in (wrap === identity ? modes : plain_modes)
+    )
     for T in (6, 7), row in (false, true)
         θ = vcat(0.8, 1 .+ 0.1 .* sin.(1:T), 0.3, cos.(1:T))
         ref = ForwardDiff.gradient(θ -> loss(θ, T, row, CR.NoAdjoint, 2), θ)
-        for mode in modes, wrap in (identity, CR.NoAdjoint)
+        for (mode, wrap) in arms
             n0 = CR._PULLBACK_CALLS[]
             g = Enzyme.gradient(mode, θ -> loss(θ, T, row, wrap, 1), θ)[1]
             @test g ≈ ref
