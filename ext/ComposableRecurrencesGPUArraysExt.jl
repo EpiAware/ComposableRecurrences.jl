@@ -340,14 +340,7 @@ end
 CR._stored_coupling(C::AbstractGPUSparseMatrixCSR) = C
 function CR._stored_coupling(C::AbstractGPUSparseMatrix)
     T = typeof(C)
-    hasmethod(csr_type, Tuple{Type{T}}) || throw(
-        ArgumentError(
-            "a device sparse coupling runs in CSR form, and a $(nameof(T)) " *
-                "has no conversion to it on its device; pass the coupling " *
-                "as a CSR matrix"
-        )
-    )
-    return csr_type(T)(C)
+    return hasmethod(csr_type, Tuple{Type{T}}) ? csr_type(T)(C) : C
 end
 function CR.forward!(
         C::AbstractGPUSparseMatrixCSR, ::Pressure, q::AnyGPUArray, p, t
