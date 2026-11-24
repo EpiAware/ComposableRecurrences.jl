@@ -359,7 +359,7 @@ end
     P = rand(prng, S, S)
     PT = 0.5 .+ rand(prng, S, S, T)
     Ks = rand(prng, S, S) ./ 2 + 0.3I
-    Ms = CR._kernel_movement(Ks, [0.3, 0.2, 0.1])
+    Ms = CR.Redistribute(Ks, [0.3, 0.2, 0.1]).M
     spill = CR.Redistribute(Ms)
     sparse_spill = CR.Redistribute(sparse(Ms))
     for mods in (
@@ -449,7 +449,7 @@ end
     groups = [1:2, 3:5]
     P = rand(rng, S, S)
     K = rand(rng, S, S) ./ 2 + 0.2I
-    M = CR._kernel_movement(K, fill(0.2, S))
+    M = CR.Redistribute(K, fill(0.2, S)).M
     imports = (PerStratum([0.3, 0.5]), P)
     m = CR.Allocate(groups, PerStratum([6.0, 4.0]); imports, spill = CR.Redistribute(M))
     # One step: the pullback given the state after the step, and given a
@@ -2829,6 +2829,36 @@ end
         return nothing
     end
     @test !Base.invokelatest(CR._default_init, LateInit(), s, h)
+end
+
+@testitem "Adjoint: an Init without a pullback! is named among the parts that need ForwardDiff" begin
+    using ComposableRecurrences
+    const CR = ComposableRecurrences
+    # Both set their own initial state and have a step pullback; only the
+    # second has an `Init` pullback, so only the first takes the local
+    # derivative.
+    struct OwnInit end
+    struct OwnInitBack end
+    const Own = Union{OwnInit, OwnInitBack}
+    CR.blocks(::Own) = (1, 1)
+    CR.uses_adjoint(::Own, ::CR.Step) = true
+    CR.forward!(::Own, ::CR.Step, v, s, t) = nothing
+    CR.pullback!(grads, ::Own, ::CR.Step, v, s, t) = nothing
+    function CR.forward!(::Own, ::CR.Init, s, history)
+        s .= 1
+        return nothing
+    end
+    CR.pullback!(grads, ::OwnInitBack, ::CR.Init, s, history) = nothing
+    @test CR._init_needs_duals(OwnInit())
+    @test !CR._init_needs_duals(OwnInitBack())
+    @test !CR._init_needs_duals(CR.Depletion(50.0))
+    whys = CR._dual_whys([0.3, 0.2], CR.I, (OwnInit(), OwnInitBack()))
+    @test length(whys) == 1
+    @test occursin("OwnInit sets its own initial state", only(whys))
+    # The check is cached per type and world age, so a pullback defined
+    # after the first check is found by the next.
+    @eval CR.pullback!(grads, ::OwnInit, ::CR.Init, s, history) = nothing
+    @test !Base.invokelatest(CR._init_needs_duals, OwnInit())
 end
 
 @testitem "Adjoint: local pullbacks take the step's branch at a tie" setup = [

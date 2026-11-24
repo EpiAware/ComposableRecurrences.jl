@@ -161,7 +161,7 @@ function _route_val(op, args...)
     return Val(_type_adjoint(op) && ok ? :rule : :plain)
 end
 
-# The GPUArraysCore extension says which arrays live on a device
+# The GPUArrays extension says which arrays live on a device
 # (`_on_gpu`). Each part folds from the types, so the route stays a constant.
 function _device_gate(op, args...)
     return _device_ready(op) && _any_on_gpu(args...) &&
@@ -169,7 +169,7 @@ function _device_gate(op, args...)
 end
 _any_on_gpu() = false
 _any_on_gpu(x, rest...) = _on_gpu(x) || _any_on_gpu(rest...)
-# Whether `x` lives on a GPU; the GPUArraysCore extension says so for its
+# Whether `x` lives on a GPU; the GPUArrays extension says so for its
 # arrays.
 _on_gpu(x) = false
 # Whether operator `op`'s reverse pass runs on a device; each operator file

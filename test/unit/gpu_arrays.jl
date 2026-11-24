@@ -486,13 +486,13 @@ end
 
 @testitem "KernelAbstractions alone adapts wrappers and modifiers" begin
     # Adapt.jl rules load with KernelAbstractions, which loads Adapt, so a
-    # kernel launch on a backend without GPUArraysCore (such as the CPU
+    # kernel launch on a backend without GPUArrays (such as the CPU
     # backend) adapts the arrays the wrappers and modifiers hold.
     project = dirname(Base.active_project())
     code = """
     using ComposableRecurrences, KernelAbstractions, Adapt
     const CR = ComposableRecurrences
-    gpu = Base.get_extension(CR, :ComposableRecurrencesGPUArraysCoreExt)
+    gpu = Base.get_extension(CR, :ComposableRecurrencesGPUArraysExt)
     ka = Base.get_extension(CR, :ComposableRecurrencesKernelAbstractionsExt)
     m = CR.Depletion(PerStratum([60.0, 50.0]); pools = (S = PerStratum([50.0, 40.0]),))
     y = adapt(Array{Float32}, m)

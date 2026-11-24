@@ -25,6 +25,6 @@ true
 |---|---|
 | An error inside a loop body loses its type on the CPU backend | Rerun under `Serial()` to see it |
 
-Executors are compared in [Executors](@ref executors); device arrays need the [GPUArraysCore extension](@ref extension-gpuarrays-core).
+Executors are compared in [Executors](@ref executors); device arrays need the [GPUArrays extension](@ref extension-gpuarrays).
 
 All extensions are listed in the [overview](@ref extensions-overview).
