@@ -654,6 +654,8 @@ end
     # The table sets the kernel's lags and strata.
     @test CR._coef_lags(K) == L && CR._coef_strata(K) == 0
     @test CR._coef_lags(KS) == L && CR._coef_strata(KS) == size(Ps, 1)
+    @test !CR._stratified_type(typeof(K))
+    @test CR._stratified_type(typeof(KS))
 end
 
 @testitem "Computed kernels: a transposed call with a tail reads only what its outputs need" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
