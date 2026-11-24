@@ -740,3 +740,47 @@ end
         @test !occursin("eachindex_mismatch", ir)
     end
 end
+
+@testitem "Convolution: one series per stratum as a tuple" setup = [ReferenceAD] begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    G = [0.5 0.3 0.2; 0.6 0.4 0.0]
+    c = Convolution(PerStratum(G))
+    a1 = [1.0 + 0.1 * t for t in 1:8]
+    a2 = [2.0 - 0.1 * t for t in 1:8]
+    X = permutedims(hcat(a1, a2))
+    # The rows of the strata × time input, and of its output.
+    ys = @inferred c((a1, a2))
+    @test ys isa Tuple{Vector{Float64}, Vector{Float64}}
+    Y = c(X)
+    @test ys == (Y[1, :], Y[2, :])
+    # The keywords are those of a matrix call.
+    H = [0.4 0.6; 0.2 0.1]
+    kw = (; gain = 0.7, history = H, start = 2)
+    @test c((a1, a2); kw...) == Tuple(eachrow(c(X; kw...)))
+    @test CR.NoAdjoint(c)((a1, a2)) == ys
+    # Series of mixed eltypes promote; lengths must agree.
+    @test c((a1, Float32.(a2)))[2] ≈ Y[2, :] rtol = 1.0e-6
+    @test_throws DimensionMismatch c((a1, a2[1:7]))
+    # Each rule's pullback against the Jacobian of the matrix call.
+    W = [cos(k * t) for k in 1:2, t in 1:8]
+    function loss_rows(v)
+        y = c((v[1:8], v[9:16]))
+        return sum(W[1, :] .* y[1]) + sum(W[2, :] .* y[2])
+    end
+    loss_matrix(v) = sum(W .* c(permutedims(hcat(v[1:8], v[9:16]))))
+    v = vcat(a1, a2)
+    @test ReferenceAD.gradient(loss_rows, v) ≈ ReferenceAD.gradient(loss_matrix, v)
+    op = CR._StackRows()
+    Xs, cache = CR._run_forward(op, (a1, a2))
+    m1, m2 = zero(a1), zero(a2)
+    grads = (; piece = nothing, y = W, args = ((m1, m2),))
+    CR.pullback!(grads, op, CR.Run(), cache)
+    @test (m1, m2) == (W[1, :], W[2, :])
+    sp = CR._SplitRows{2}()
+    rows, cache = CR._run_forward(sp, X)
+    M = zero(X)
+    grads = (; piece = nothing, y = (W[1, :], nothing), args = (M,))
+    CR.pullback!(grads, sp, CR.Run(), cache)
+    @test M == vcat(W[1:1, :], zeros(1, 8))
+end

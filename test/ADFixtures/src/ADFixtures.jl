@@ -1999,6 +1999,22 @@ push!(
     ),
 )
 
+# One input series per stratum, passed as a tuple, with a kernel per
+# stratum; the output is a tuple of series.
+function _series_per_stratum(w, θ)
+    g, X = _unpack(θ, (S, L), (S, T))
+    ys = w(Convolution(PerStratum(g)))(ntuple(k -> X[k, :], Val(S)))
+    return sum(k -> sum(view(WS, k, :) .* ys[k]), 1:S)
+end
+push!(
+    _SCENARIOS,
+    (
+        "Convolution of one series per stratum as a tuple",
+        _series_per_stratum,
+        () -> _flat(repeat(G0', S) .* (0.8 .+ 0.1 .* (1:S)), 1 .+ LOGR),
+    ),
+)
+
 # Kernels computed from their coefficients: a cohort's weight on each lag
 # from a hazard over calendar time and a profile over the lags. One small
 # scenario for each operator's rule; the unit tests check each pullback.
@@ -2249,6 +2265,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence coupling from change points" => (:_Piecewise,),
     "Recurrence parameters from change points" => (:_Piecewise,),
     "Convolution kernel from a hazard and a survival" => (:Survival,),
+    # One series per stratum came with `_StackRows`.
+    "Convolution of one series per stratum as a tuple" => (:_StackRows,),
     "Kernel weights of a survival against a delay and calendar hazard" =>
         (:Survival, :_KernelWeights),
     "Recurrence kernel shortened by a survival" => (:Survival,),
