@@ -169,7 +169,9 @@ round.(y; digits = 3)
  2.0
 ```
 
-Its trace names its rows ([`trace_rows`](@ref ComposableRecurrences.trace_rows)): `spilled` and `pattern`, its state after each step, and `imports`, the part of each stratum's value the import term placed.
+Its trace is its state after each step.
+With `trace_imports = Val(true)` it also holds `imports`, the part of each stratum's value the import term placed, and names its rows ([`trace_rows`](@ref ComposableRecurrences.trace_rows)): `spilled`, `pattern` and `imports`.
+The imports cost a little more to record, so they are built only when asked for.
 Named in the modifiers, it is read by name:
 
 ```jldoctest
@@ -179,7 +181,8 @@ P = [0.0 0.0 0.2; 0.0 0.0 0.8; 0.0 0.0 0.0]
 within = CR.Redistribute([0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0])
 split = CR.Allocate(
     [1:2, 3:3], PerStratum([10.0, 2.0]);
-    imports = (PerStratum([0.2, 0.0]), P), spill = within
+    imports = (PerStratum([0.2, 0.0]), P), spill = within,
+    trace_imports = Val(true)
 )
 r = Recurrence([1.0]; modifiers = (; split))
 out = r(ones(3, 1); history = [3.0; 1.0; 1.0;;], record = (:split,))

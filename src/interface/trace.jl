@@ -105,8 +105,9 @@ makes a call return the modifier's trace as a named tuple of views of
 its matrix, the ``j``th holding rows ``\sum_{i<j} n_i + 1`` to
 ``\sum_{i \le j} n_i``, each with a column per step.
 The default, `nothing`, returns the trace as one matrix.
-[`ComposableRecurrences.Allocate`](@ref) with imports names its rows,
-with `imports` the part of each stratum's value its import term placed.
+[`ComposableRecurrences.Allocate`](@ref) with
+`trace_imports = Val(true)` names its rows, with `imports` the part of
+each stratum's value its import term placed.
 
 # Arguments
 - `m`: the modifier.
@@ -117,7 +118,10 @@ with `imports` the part of each stratum's value its import term placed.
 using ComposableRecurrences
 CR = ComposableRecurrences
 P = [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 1.0]
-CR.trace_rows(CR.Allocate([1:2, 3:3], 10.0; imports = (0.2, P)), 3)
+m = CR.Allocate(
+    [1:2, 3:3], 10.0; imports = (0.2, P), trace_imports = Val(true)
+)
+CR.trace_rows(m, 3)
 
 # output
 

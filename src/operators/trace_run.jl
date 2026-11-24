@@ -68,7 +68,9 @@ end
 struct _NoTrace{O}
     out::O
 end
-_sinks(::Val{false}, h, ::Type{Tp}, ms, states, S, T, picks) where {Tp} = nothing
+function _sinks(::Val{false}, h, ::Type{Tp}, ms, states, S, T, picks) where {Tp}
+    return nothing
+end
 function _sinks(
         ::Val{:trace}, h, ::Type{Tp}, ms, states, S, T, picks
     ) where {Tp}
@@ -265,8 +267,7 @@ end
 # cotangent, as a state trace does, and its buffers stay zero for
 # `_trace_in!`.
 function _trace_out!(
-        R::_TracedRecord, m::Allocate{<:Any, <:_AllocateImports}, m̄, v̄, s̄,
-        v, s, τ, t
+        R::_TracedRecord, m::_TracedImports, m̄, v̄, s̄, v, s, τ, t
     )
     R.live || return nothing
     n, col = length(s̄), view(R.T̄, :, t)

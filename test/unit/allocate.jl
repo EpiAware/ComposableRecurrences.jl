@@ -605,9 +605,9 @@ end
         end
         return out
     end
-    split(f, spill) = CR.Allocate(
+    split(f, spill; trace_imports = Val(true)) = CR.Allocate(
         groups, TimeVarying(PerStratum(tot));
-        imports = (TimeVarying(PerStratum(f)), P), spill
+        imports = (TimeVarying(PerStratum(f)), P), spill, trace_imports
     )
     for spill in (nothing, CR.Redistribute(M, 0.3))
         names = spill === nothing ? (:pattern, :imports) :
@@ -630,7 +630,9 @@ end
         U = spill === nothing ? R[:, 3:end] .* out.trace.pressure : a.spilled
         @test a.imports ≈ naive(U, a.pattern, tot, fr)
         # A part not built is empty, as are its named rows.
-        empty = r(R; history = h, start = 3, stop = T + 2, record = (:pressure,))
+        empty = r(
+            R; history = h, start = 3, stop = T + 2, record = (:pressure,)
+        )
         @test all(x -> size(x) == (0, 0), empty.trace.modifiers.split)
         @test typeof(empty.trace) == typeof(out.trace)
         # Gradients through every row, against ForwardDiff of plain AD.
@@ -653,7 +655,9 @@ end
     # spilled values the rest of `φ T`; with no pattern at all they place
     # all of it.
     for Pd in ([1.0e-17 0.0; 0.0 2.0e-17], zeros(2, 2))
-        m = CR.Allocate([1:2], 100.0; imports = (0.3, Pd))
+        m = CR.Allocate(
+            [1:2], 100.0; imports = (0.3, Pd), trace_imports = Val(true)
+        )
         q = Recurrence(Float64[]; modifiers = (; m))
         o = q(
             zeros(2, 1); history = zeros(2, 0),
@@ -666,6 +670,35 @@ end
         @test imports ≈ 30 .* (pattern ./ eps() .+ (1 - r) .* [0.4, 0.6])
         @test sum(o.y) ≈ 100
     end
-    # Without imports the trace stays one matrix.
+    # Without imports, or without `trace_imports`, the trace stays one
+    # matrix, the state after each step.
     @test CR.trace_rows(CR.Allocate(groups, 5.0), S) === nothing
+    for spill in (nothing, CR.Redistribute(M, 0.3))
+        plain = split(fr, spill; trace_imports = Val(false))
+        @test CR.trace_rows(plain, S) === nothing
+        r = Recurrence([0.5, 0.3]; modifiers = (; split = plain))
+        out = r(R; history = h, start = 3, record = (:split, :state))
+        n = CR.nstate(plain, S)
+        @test size(out.trace.modifiers.split) == (n, T)
+        @test out.trace.modifiers.split[:, end] == vec(only(out.state.states))
+        # A rebuild keeps the choice.
+        im = split(fr, spill).imports
+        back = CR.constructorof(typeof(im))(im.fraction, im.pattern, im.spill)
+        @test typeof(back) == typeof(im)
+    end
+    # The choice is part of the type, so a model built per draw infers.
+    function on(gs, P)
+        return ComposableRecurrences.Allocate(
+            gs, 5.0; imports = (0.2, P), trace_imports = Val(true)
+        )
+    end
+    off(gs, P) = ComposableRecurrences.Allocate(gs, 5.0; imports = (0.2, P))
+    @test CR.trace_rows(@inferred(on(groups, P)), S) !== nothing
+    @test CR.trace_rows(@inferred(off(groups, P)), S) === nothing
+    @test_throws "trace_imports is Val(true) or Val(false)" CR.Allocate(
+        groups, 5.0; imports = (0.2, P), trace_imports = true
+    )
+    @test_throws "trace_imports needs imports" CR.Allocate(
+        groups, 5.0; trace_imports = Val(true)
+    )
 end

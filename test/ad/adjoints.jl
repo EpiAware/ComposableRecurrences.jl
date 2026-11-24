@@ -1856,7 +1856,7 @@ end
         (; y, trace) = Recurrence(g; modifiers = (m,))(
             rates(θ); history = h, record = (:trace,)
         )
-        return sum(W .* y) + weigh(first(trace.modifiers).pattern)
+        return sum(W .* y) + weigh(first(trace.modifiers))
     end
     # Depletion's trace alone, so Redistribute's trace has a zero
     # cotangent and Depletion's takes the general pullback.

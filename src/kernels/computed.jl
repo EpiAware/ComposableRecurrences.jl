@@ -191,7 +191,8 @@ end
 # A recurrence fills the weights of cohorts up to its last time, then runs
 # with them as its kernel; its cache keeps the computed kernel.
 function _recur(
-        r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop, cache::Val;
+        r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop,
+        cache::Val;
         picks = nothing
     )
     n = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
