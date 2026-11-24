@@ -1,4 +1,4 @@
-# [FFTW extension](@id extension-fftw)
+# [FFT convolutions](@id extension-fftw)
 
 Loading FFTW runs the lag sum of a [`Convolution`](@ref) with [`FFTMethod`](@ref ComposableRecurrences.FFTMethod).
 It covers a fixed kernel on `Float32` or `Float64` arrays, and matches the direct method to a relative `1e-10`, or `1e-4` in `Float32`.
@@ -18,5 +18,3 @@ true
 ```
 
 The reverse pass runs inside the package's own rule, so no AD backend needs FFT rules.
-
-All extensions are listed in the [overview](@ref extensions-overview).
