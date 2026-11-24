@@ -105,8 +105,7 @@
     @test plain(CR.Derived(-, CR.Recent(w))) == "Derived(-Recent(3 weights))"
     @test plain(CR.Derived(*, TimeVarying(ones(5)), ones(3))) ==
         "Derived(TimeVarying(5 times) * 3-element Vector{Float64})"
-    @test plain(CR.Transform(exp; derivative = exp)) ==
-        "Transform(exp, derivative exp)"
+    @test plain(CR.Transform(exp)) == "Transform(exp)"
     @test plain(CR.NoAdjoint(Recurrence(ones(3)))) ==
         "NoAdjoint(Recurrence(3 lags))"
     @test plain(Recurrence(ones(3); coupling = 2.0 * CR.I)) ==

@@ -292,10 +292,10 @@
                 rec(R ./ 4, nothing, h ./ 4),
             ),
             (
-                "Transform, no parameter and a supplied derivative",
+                "Transform, no parameter and a local rule",
                 Recurrence(
                     g; coupling = K, modifiers = (
-                        CR.Transform(log1p), CR.Transform(sqrt; derivative = v -> 1 / (2sqrt(v))),
+                        CR.Transform(log1p), CR.Transform(exp),
                     )
                 ),
                 rec(R, nothing, h),

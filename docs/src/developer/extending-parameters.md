@@ -62,3 +62,31 @@ grads.piece.b.x
 
 A pointwise modifier reads each parameter at its own stratum, `param(m.b, k, t)`, and its `Init` at time 1, `param(m.b, k, 1)`.
 A call checks the `PerStratum` parameters of a pointwise or blockwise modifier against the number of strata.
+
+## [Local rules for maps](@id extending-local-rules)
+
+The map of a [`Derived`](@ref ComposableRecurrences.Derived) parameter or a [`Transform`](@ref ComposableRecurrences.Transform) is differentiated one entry at a time.
+Without a rule of its own, each entry takes a local forward-mode derivative, which evaluates the map on dual numbers.
+A map whose derivative has a closed form can say so with a [`pullback!`](@ref ComposableRecurrences.pullback!) method in the [`Local`](@ref ComposableRecurrences.Local) role.
+It receives the map's value at the entry, as the forward pass computed it, before the map's arguments, and returns the partial derivatives, one per argument.
+
+Write the map as a callable struct, or a named function, so the method is for a type you own.
+A reporting-delay hazard on the logit scale, ``h = \operatorname{logistic}(a + \gamma)``, has ``\partial h / \partial a = \partial h / \partial \gamma = h (1 - h)``:
+
+```@example extending-parameters
+struct LogisticSum end
+(::LogisticSum)(a, γ) = inv(1 + exp(-(a + γ)))
+function CR.pullback!(grads, ::LogisticSum, ::CR.Local, y, a, γ)
+    d = y * (1 - y)
+    return d, d
+end
+
+hazard = CR.Derived(LogisticSum(), [-2.0, -1.5, -1.0], TimeVarying(zeros(6)))
+delay = TimeVarying(CR.Increments(1 - CR.Survival(hazard)), CR.Primary())
+round.(CR.kernel_weights(delay, 2); digits = 3)
+```
+
+The operators find the method from the types, so a map without one costs nothing to check.
+A `Transform` map `f(v, θ)` returns `(∂f/∂v, ∂f/∂θ)`, the second shaped as `θ`.
+A map with float fields of its own keeps taking plain AD, as the rule gives no gradient for those fields; pass them in `θ`.
+

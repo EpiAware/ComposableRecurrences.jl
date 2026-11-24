@@ -98,7 +98,7 @@ export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 public Derived, Recent, Depletion, Flow, Share, Split, Redistribute,
     Allocate, Transform, Hazard, Floor, Truncate,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
-    blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
+    Local, blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Parallel, Device, EXECUTOR, param, add_param!, Direct, FFTMethod,
     delay_masses, pressure, Survival, convert_floats, islinear, isstateless,
     window_sums, Trace, ntrace, add_cotangent!, param_rows, kernel_weights,

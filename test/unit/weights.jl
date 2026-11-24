@@ -615,3 +615,68 @@ end
     @test Convolution(computed(landed(h)))'(x; tail) ≈ dense'(x; tail)
     @test_throws DimensionMismatch Convolution(computed(landed(h[1:T])))'(x; tail)
 end
+
+@testitem "Computed kernels: a map's local rule" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
+    using ComposableRecurrences, ForwardDiff, LogExpFunctions
+    using ComposableRecurrences: Derived
+    CR = ComposableRecurrences
+    (; rule_vjp, reference_vjp) = PullbackChecks
+    # The package's rules and the extension's match the forward-mode
+    # partials, value and all.
+    for (f, xs) in (
+            (+, (0.3, -1.2)), (-, (0.3, -1.2)), (-, (0.7,)), (*, (0.3, -1.2)),
+            (/, (0.3, -1.2)), (identity, (0.4,)), (exp, (0.4,)), (log, (0.4,)),
+            (logistic, (-0.8,)), (log1pexp, (-0.8,)), (logit, (0.3,)),
+        )
+        @test CR._has_local(f, xs)
+        y, ∂ = CR._value_and_partials(f, xs)
+        y0, ∂0 = CR._forward_value_and_derivative(f, xs)
+        @test y ≈ y0 && all(∂ .≈ ∂0)
+    end
+    # A user's rule for a type they own, read from the map's value; a closure
+    # has none and keeps the forward-mode derivative.
+    struct LogisticSum end
+    (::LogisticSum)(a, b) = logistic(a + b)
+    function CR.pullback!(grads, ::LogisticSum, ::CR.Local, y, a, b)
+        d = y * (1 - y)
+        return d, d
+    end
+    @test CR._has_local(LogisticSum(), (0.3, -1.2))
+    @test !CR._has_local((a, b) -> logistic(a + b), (0.3, -1.2))
+    args = (0.3, -1.2)
+    local_dy = CR._value_and_partials(LogisticSum(), args)[2]
+    dual_dy = CR._forward_value_and_derivative(LogisticSum(), args)[2]
+    @test all(local_dy .≈ dual_dy)
+    # A parameter's value is the forward pass's, never a forward-mode
+    # evaluation's, which can differ in the last bits.
+    struct Nudged end
+    (::Nudged)(a) = a isa Float64 ? a : a * (1 + eps())
+    @test CR._value_and_partials(Nudged(), (1.0,))[1] != 1.0
+    @test CR._primal_and_partials(Nudged(), (1.0,))[1] === 1.0
+    @test CR._primal_and_partials(LogisticSum(), args)[1] ===
+        LogisticSum()(args...)
+    # Each rule's pullback against a Jacobian, through the walk and the
+    # blocks of a computed kernel.
+    T, L = 8, 5
+    z0, γ = [-2.0 + 0.2 * l for l in 1:L], [0.1 * sin(t) for t in 1:(T + L)]
+    x = [1.0 + 0.1 * t for t in 1:T]
+    check(op, args, ȳ) = @test rule_vjp(op, args, ȳ) ≈ reference_vjp(ReferenceAD.jacobian, op, args, ȳ)
+    computed(k) = TimeVarying(k, CR.Primary())
+    hazards = (
+        Derived(LogisticSum(), z0, TimeVarying(γ)),
+        Derived(logistic, Derived(+, z0, TimeVarying(γ))),
+    )
+    for h in hazards
+        pmf = CR.Normalised(CR.Increments(1 - CR.Survival(h)))
+        conv = Convolution(computed(pmf))
+        check(conv, (x, true, nothing, nothing, 1, T), sin.(1:T))
+        tconv = CR._TransposedConvolution(conv)
+        check(tconv, (x, fill(x[end], L - 1), 1, T), sin.(1:T))
+        cdf = CR._KernelWeights(computed(1 - CR.Survival(h)))
+        check(cdf, (T,), reshape(sin.(1:(L * T)), L, T))
+    end
+    # A modifier parameter through the map's rule.
+    β = Derived(LogisticSum(), TimeVarying([0.1 * t for t in 1:T]), -0.5)
+    r = Recurrence([0.5, 0.5]; modifiers = (CR.Transform(*, β),))
+    check(r, (fill(1.1, T), nothing, [1.0, 1.0], nothing, 3, T), sin.(1:(T - 2)))
+end

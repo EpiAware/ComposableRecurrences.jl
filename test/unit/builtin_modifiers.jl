@@ -488,19 +488,17 @@ end
 @testitem "Transform: rebuilt from its fields, and inferred" begin
     using ComposableRecurrences, ConstructionBase, KernelAbstractions, Adapt
     CR = ComposableRecurrences
-    # `clamp` and `+` with their own pullbacks, and a map with a derivative.
-    derivative(v, θ) = (θ, v)
+    # `clamp` and `+` with their own pullbacks, and a map with a local rule.
     for m in (
             CR.Transform(clamp, 0.0, PerStratum([1.0, 2.0])),
             CR.Transform(+, TimeVarying([1.0, 2.0])),
-            CR.Transform(*, 0.5; derivative),
+            CR.Transform(*, 0.5),
         )
         @test constructorof(typeof(m))(getfields(m)...) === m
         @test setproperties(m, (; θ = m.θ)) === m
         @test adapt(KernelAbstractions.CPU(), m) === m
-        @test @inferred(constructorof(typeof(m))(m.f, m.θ, m.derivative)) === m
-        m.f === clamp ||
-            @test @inferred(CR.Transform(m.f, m.θ; derivative = m.derivative)) === m
+        @test @inferred(constructorof(typeof(m))(m.f, m.θ)) === m
+        m.f === clamp || @test @inferred(CR.Transform(m.f, m.θ)) === m
     end
     @test setproperties(CR.Transform(clamp, 0.0, 1.0), (; θ = (0.5, 2.0))) ===
         CR.Transform(clamp, 0.5, 2.0)

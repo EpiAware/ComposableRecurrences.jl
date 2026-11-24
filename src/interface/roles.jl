@@ -318,6 +318,111 @@ grads.v, grads.piece.θ[2][]
 """
 function pullback! end
 
+@doc raw"""
+The role of a map's local derivative at one entry: the partial derivatives
+of a [`Derived`](@ref) map or a [`ComposableRecurrences.Transform`](@ref)
+map at its arguments, given its value there.
+
+For a map ``y = f(x_1, \dots, x_n)`` of scalars,
+`pullback!(grads, f, Local(), y, x...)` returns the partial derivatives
+```math
+\left(\frac{\partial f}{\partial x_1}, \dots,
+\frac{\partial f}{\partial x_n}\right),
+```
+one per argument and shaped as it is: a `Transform` map `f(v, θ)` with a
+tuple or NamedTuple `θ` returns `(∂f/∂v, ∂f/∂θ)`, the second shaped as
+`θ`.
+`y` is the map's value at the arguments, as the forward pass computed it,
+so a derivative written in terms of the value does not compute it again.
+`grads` holds no cotangents for this role.
+Unlike the other roles' pullbacks, it returns its partials, as a scalar map
+has nothing to write into.
+
+Add a method for the type of a function you own, a named function or a
+callable struct; the operators find it from the types alone.
+Without one the partials come from a local forward-mode derivative, which
+needs `ForwardDiff` loaded.
+The package adds methods for `+`, `-`, `*`, `/`, `identity`, `exp` and
+`log`, and, with `LogExpFunctions` loaded, for `logistic`, `log1pexp` and
+`logit`.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+# A logistic hazard of the sum of its arguments, whose derivative reads its
+# value.
+struct LogisticSum end
+(::LogisticSum)(a, b) = inv(1 + exp(-(a + b)))
+function CR.pullback!(grads, ::LogisticSum, ::CR.Local, y, a, b)
+    d = y * (1 - y)
+    return d, d
+end
+h = CR.Derived(LogisticSum(), [-2.0, -1.0], 0.5)
+cdf = TimeVarying(1 - CR.Survival(h), CR.Primary())
+round.(CR.kernel_weights(cdf, 1); digits = 3)
+
+# output
+
+2×1 Matrix{Float64}:
+ 0.182
+ 0.491
+```
+"""
+struct Local end
+
+# Without a method for `f`, a map has no local rule, and the operators take
+# the forward-mode derivative.
+pullback!(grads, f, ::Local, y, xs...) = nothing
+
+# Whether `f` has a local rule at arguments of the types of `xs`: decided
+# from the inferred type of its `pullback!`, so it folds at compile time.
+function _has_local(f::F, xs::Tuple) where {F}
+    Y = Core.Compiler.return_type(f, Tuple{map(typeof, xs)...})
+    R = Core.Compiler.return_type(
+        pullback!, Tuple{typeof((;)), F, Local, Y, map(typeof, xs)...}
+    )
+    return !(R <: Nothing)
+end
+
+# The value of `f` at `xs` and its partial derivatives there: from its local
+# rule when it has one, or from one local forward-mode evaluation.
+@inline function _value_and_partials(f, xs::Tuple)
+    return _value_and_partials(Val(_has_local(f, xs)), f, xs)
+end
+@inline function _value_and_partials(::Val{true}, f, xs::Tuple)
+    y = f(xs...)
+    return y, _local_partials(f, y, xs)
+end
+@inline function _value_and_partials(::Val{false}, f, xs::Tuple)
+    return _forward_value_and_derivative(f, xs)
+end
+# The same with the value the forward pass computes, `f(xs...)` on the plain
+# arguments, where a caller reads it: a forward-mode evaluation's value can
+# differ from it in the last bits.
+@inline function _primal_and_partials(f, xs::Tuple)
+    return _primal_and_partials(Val(_has_local(f, xs)), f, xs)
+end
+@inline function _primal_and_partials(::Val{true}, f, xs::Tuple)
+    return _value_and_partials(Val(true), f, xs)
+end
+@inline function _primal_and_partials(::Val{false}, f, xs::Tuple)
+    return f(xs...), last(_forward_value_and_derivative(f, xs))
+end
+# The partials at `xs`, given the value `y` there.
+@inline _local_partials(f, y, xs::Tuple) = pullback!((;), f, Local(), y, xs...)
+@inline _partials(f, xs::Tuple) = last(_value_and_partials(f, xs))
+
+# The package's own local rules.
+pullback!(grads, ::typeof(identity), ::Local, y, a::Real) = (one(a),)
+pullback!(grads, ::typeof(+), ::Local, y, a::Real, b::Real) = (one(a), one(b))
+pullback!(grads, ::typeof(-), ::Local, y, a::Real, b::Real) = (one(a), -one(b))
+pullback!(grads, ::typeof(-), ::Local, y, a::Real) = (-one(a),)
+pullback!(grads, ::typeof(*), ::Local, y, a::Real, b::Real) = (b, a)
+pullback!(grads, ::typeof(/), ::Local, y, a::Real, b::Real) = (inv(b), -a / b^2)
+pullback!(grads, ::typeof(exp), ::Local, y, a::Real) = (y,)
+pullback!(grads, ::typeof(log), ::Local, y, a::Real) = (inv(a),)
+
 # == Modifier traits ==
 
 @doc raw"""

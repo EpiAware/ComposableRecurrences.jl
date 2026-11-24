@@ -39,6 +39,7 @@ Within one step a hazard flow acts before a count flow, so waning comes before t
 | Reporting delay ``w_l`` | ``C_t = \sum_{l=0}^{L-1} w_l I_{t-l}`` | [`Convolution(w)`](@ref Convolution) | [Three towns](@ref overview-build) |
 | Clinical transitions, each with probability ``h`` | ``A_t = h \sum_l w_l O_{t-l}``, one `Convolution` per transition | `Convolution(w)(O; gain = h)`, chained | [Clinical outcomes](@ref tutorial-clinical-outcomes) |
 | Delay that changes over time | ``C_t = \sum_l w_l(t) I_{t-l}`` or ``\sum_l w_l(t - l) I_{t-l}`` | [`Convolution(TimeVarying(W))`](@ref TimeVarying), or `TimeVarying(W, Primary())` | [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) |
+| Delay from a hazard on the logit scale, ``h_l(\tau) = \operatorname{logistic}(a_l + \gamma_{\tau + l})`` | ``w_l(\tau) = h_l(\tau) \prod_{j < l} \big(1 - h_j(\tau)\big)`` | `Increments(1 - Survival(Derived(LogisticSum(), a, TimeVarying(γ))))` in `TimeVarying(·, Primary())`, with a local rule for `LogisticSum` | [Local rules for maps](@ref extending-local-rules) |
 
 ## [Places and groups](@id domain-places)
 

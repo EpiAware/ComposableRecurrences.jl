@@ -26,23 +26,18 @@ The reverse pass, for output cotangent ``\bar v'_i``, is
     \frac{\partial f}{\partial \theta}(v_i, \theta_{t,i})\, \bar v'_i,
 ```
 
-with the partial derivatives from `derivative` when given, or else from a
+with the partial derivatives from the map's local rule, a
+[`ComposableRecurrences.pullback!`](@ref) method for `f` in the
+[`ComposableRecurrences.Local`](@ref) role, when it has one, or else from a
 local forward-mode derivative of `f`.
-`derivative(v)` returns ``\partial f / \partial v`` without `θ`, and
-`derivative(v, θ)` returns
-``(\partial f / \partial v, \partial f / \partial \theta)``, the second
-shaped as ``\theta_{t,i}``.
-A `derivative` with any method that takes three arguments, a catch-all or
-varargs one included, is called as `derivative(v, θ, y)` instead, with the
-step's output ``y = f(v, \theta)`` (and `θ` `nothing` without parameters),
-returning the same pair.
-The reverse pass of a [`Recurrence`](@ref) passes ``y`` from the forward
-pass, so a derivative written in terms of the value need not recompute it.
+The local rule receives the step's output ``y = f(v, \theta)`` from the
+forward pass, so a derivative written in terms of the value need not
+recompute it.
 Values captured by `f` (a closure, or a callable struct with float fields)
-are not in ``\theta``, so without `derivative` the AD backend
-differentiates the [`Recurrence`](@ref) holding such a map.
+are not in ``\theta``, so the AD backend differentiates the
+[`Recurrence`](@ref) holding such a map.
 
-Two maps have their own pullbacks, used unless `derivative` is given.
+Two maps have their own pullbacks.
 `Transform(+, b)` adds ``b_{t,i}`` where it sits in the tuple.
 After a [`ComposableRecurrences.Depletion`](@ref), the added values are
 neither scaled by nor drawn from the pool.
@@ -55,18 +50,13 @@ Its pullback sends the cotangent to the active bound, or to ``v_i`` when
 neither is.
 
 It acts on a [`Recurrence`](@ref) and is pointwise.
-Its rule takes the local forward-mode derivative or `derivative`, or a
-hand-written pullback for `+` and `clamp`.
+Its rule takes the map's local rule or the local forward-mode derivative,
+or a hand-written pullback for `+` and `clamp`.
 
 # Arguments
 - `f`: the map, called as `f(v)` or `f(v, θ)`.
 - `θ`: the parameters, or `nothing`.
 - `lo`, `hi`: with `clamp`, the lower and upper bounds, each a parameter.
-
-# Keyword Arguments
-- `derivative`: the derivative of `f`, called as `derivative(v)`,
-  `derivative(v, θ)` or `derivative(v, θ, y)`, or `nothing` for the local
-  one.
 
 # Examples
 ```jldoctest
@@ -91,19 +81,20 @@ round.(y; digits = 3)
  0.961
 ```
 
-Each partial derivative of `G` contains `G` itself, so its derivative can
-take the output:
+Each partial derivative of `G` contains `G` itself, so a local rule for it
+can read the output:
 
 ```jldoctest
 using ComposableRecurrences
 CR = ComposableRecurrences
-G(s, θ) = (θ.p / (1 - (1 - θ.p) * s))^θ.r
-function dG(s, θ, y)
+struct NBPGF end
+(::NBPGF)(s, θ) = (θ.p / (1 - (1 - θ.p) * s))^θ.r
+function CR.pullback!(grads, ::NBPGF, ::CR.Local, y, s, θ)
     D = 1 - (1 - θ.p) * s
     return y * θ.r * (1 - θ.p) / D,
         (; r = y * log(θ.p / D), p = y * θ.r * (1 - s) / (θ.p * D))
 end
-q = CR.Transform(G, (; r = 0.5, p = 0.4); derivative = dG)
+q = CR.Transform(NBPGF(), (; r = 0.5, p = 0.4))
 y = Recurrence([1.0]; modifiers = (q,))(; history = [0.0], stop = 3)
 round.(y; digits = 3)
 
@@ -115,49 +106,32 @@ round.(y; digits = 3)
  0.879
 ```
 """
-struct Transform{F, P, D}
+struct Transform{F, P}
     "The map, called as `f(v)` or `f(v, θ)`."
     f::F
     "The parameters, or `nothing`."
     θ::P
-    "The derivative of `f`, or `nothing` for the local one."
-    derivative::D
-    function Transform{F, P, D}(f::F, θ::P, derivative::D) where {F, P, D}
+    function Transform{F, P}(f::F, θ::P) where {F, P}
         _check_theta(θ)
-        return new{F, P, D}(f, θ, derivative)
+        return new{F, P}(f, θ)
     end
 end
 
-function Transform(f, θ = nothing; derivative = nothing)
+function Transform(f, θ = nothing)
     p = _as_params(θ)
-    d = _output_form(derivative)
-    return Transform{typeof(f), typeof(p), typeof(d)}(f, p, d)
+    return Transform{typeof(f), typeof(p)}(f, p)
 end
 # The bounds are held as `θ = (lo, hi)`, and passed only as `lo, hi`.
 function Transform(::typeof(clamp), lo, hi)
     θ = (_check_param(:lo, _as_param(lo)), _check_param(:hi, _as_param(hi)))
-    return Transform{typeof(clamp), typeof(θ), Nothing}(clamp, θ, nothing)
+    return Transform{typeof(clamp), typeof(θ)}(clamp, θ)
 end
-@noinline function Transform(::typeof(clamp), θ = nothing; derivative = nothing)
+@noinline function Transform(::typeof(clamp), θ = nothing)
     throw(ArgumentError("pass clamp's bounds as Transform(clamp, lo, hi)"))
 end
 # `Adapt` and the dual-number rebuild construct it from its fields.
 ConstructionBase.constructorof(::Type{<:Transform}) = _transform
-function _transform(f, θ, derivative)
-    d = _output_form(derivative)
-    return Transform{typeof(f), typeof(θ), typeof(d)}(f, θ, d)
-end
-
-# A derivative that also takes the step's output, `derivative(v, θ, y)`, is
-# marked once here, so the reverse pass picks its form by dispatch.
-struct _WithOutput{D}
-    derivative::D
-end
-_output_form(d) = hasmethod(d, Tuple{Any, Any, Any}) ? _WithOutput(d) : d
-_output_form(::Nothing) = nothing
-_output_form(d::_WithOutput) = d
-_user_derivative(d) = d
-_user_derivative(d::_WithOutput) = d.derivative
+_transform(f, θ) = Transform{typeof(f), typeof(θ)}(f, θ)
 
 _check_theta(::Nothing) = nothing
 function _check_theta(θ::Union{Tuple, NamedTuple})
@@ -170,9 +144,7 @@ _check_theta(θ) = (_check_param(:θ, θ); nothing)
 
 # Whether the local derivative covers every parameter. A closure's float
 # fields are out of its reach, so plain AD runs instead.
-function _local_derivative(m::Transform)
-    return m.derivative !== nothing || param_eltype(m.f) <: Union{Bool, Integer}
-end
+_local_derivative(m::Transform) = param_eltype(m.f) <: Union{Bool, Integer}
 
 blocks(::Transform) = (1, 1)
 isstateless(::Transform) = true
@@ -180,14 +152,20 @@ uses_adjoint(m::Transform, ::Step) = _local_derivative(m)
 # `+` without `b` and `clamp` have their own pullbacks (`_own_pullback`), so
 # a call needs no dual numbers for them.
 function _needs_duals(m::Transform)
-    return m.derivative === nothing && _local_derivative(m) && !_own_pullback(m)
+    return _local_derivative(m) && !_own_pullback(m) &&
+        !_has_local(m.f, _probe(m.θ))
 end
 _own_pullback(::Transform) = false
-_own_pullback(::Transform{typeof(+), Nothing, Nothing}) = true
-_own_pullback(::Transform{typeof(clamp), <:Tuple{Any, Any}, Nothing}) = true
+_own_pullback(::Transform{typeof(+), Nothing}) = true
+_own_pullback(::Transform{typeof(clamp), <:Tuple{Any, Any}}) = true
+# Float arguments shaped as the map's, to ask whether it has a local rule.
+_probe(::Nothing) = (0.0,)
+_probe(θ::Union{Tuple, NamedTuple}) = (0.0, map(_ -> 0.0, θ))
+_probe(θ) = (0.0, 0.0)
 function _dual_why(::Transform)
-    return "a `Transform` without a `derivative` takes its local derivative " *
-        "with `ForwardDiff`; add `using ForwardDiff` for the faster rule"
+    return "a `Transform` without a local rule for its map takes its local " *
+        "derivative with `ForwardDiff`; add `using ForwardDiff` for the " *
+        "faster rule"
 end
 _scalar_params(::Transform) = false
 _local_params(::Transform) = false
@@ -226,13 +204,13 @@ function pullback!(grads, m::Transform, ::Step, v, s, t)
     _local_derivative(m) || throw(
         ArgumentError(
             "a Transform whose map has float fields is differentiated by " *
-                "the AD backend; pass them in θ or supply derivative"
+                "the AD backend; pass them in θ"
         )
     )
     v̄, θ̄ = grads.v, cotangent(grads.piece, :θ)
     for k in eachindex(v)
         θk = _theta_at(m.θ, k, t)
-        ∂v, ∂θ = _derivative(m.derivative, m.f, v[k], θk, grads, k)
+        ∂v, ∂θ = _derivative(m.f, v[k], θk, grads, k)
         _add_theta!(θ̄, m.θ, ∂θ, v̄[k], k, t)
         v̄[k] *= ∂v
     end
@@ -242,7 +220,7 @@ end
 # Without `b`, `Transform(+)` is the identity. A map given its own pullback
 # here is listed in `_own_pullback` too, or it still asks for `ForwardDiff`.
 function pullback!(
-        grads, ::Transform{typeof(+), Nothing, Nothing}, ::Step, v, s, t
+        grads, ::Transform{typeof(+), Nothing}, ::Step, v, s, t
     )
     return nothing
 end
@@ -250,7 +228,7 @@ end
 # `Transform(clamp, lo, hi)` matches `clamp`'s branches: above `hi`, then
 # below `lo`, else `v`.
 function pullback!(
-        grads, m::Transform{typeof(clamp), <:Tuple{Any, Any}, Nothing}, ::Step,
+        grads, m::Transform{typeof(clamp), <:Tuple{Any, Any}}, ::Step,
         v, s, t
     )
     v̄ = grads.v
@@ -285,22 +263,25 @@ _add_theta!(θ̄, θ, ∂θ, ȳ, k, t) = add_param!(θ̄, θ, ȳ * ∂θ, k, t)
 
 # == Local derivative ==
 
-# `(∂f/∂v, ∂f/∂θ)`: from a supplied derivative, or else the local
-# forward-mode derivative, one dual per scalar of `(v, θ)`.
-_derivative(df, f, v, θ) = θ === nothing ? (df(v), nothing) : df(v, θ)
-_derivative(::Nothing, f, v, θ) = _forward_derivative(f, v, θ)
-# The output form reads the step's output from `grads.out` where the
-# reverse pass passes it, and recomputes it where it does not.
-_derivative(df, f, v, θ, grads, k) = _derivative(df, f, v, θ)
-function _derivative(df::_WithOutput, f, v, θ, grads, k)
-    return df.derivative(v, θ, _step_output(grads, f, v, θ, k))
+# `(∂f/∂v, ∂f/∂θ)`: from the map's local rule, given the step's output from
+# `grads.out` where the reverse pass passes it and recomputed where it does
+# not, or else the local forward-mode derivative, one dual per scalar of
+# `(v, θ)`.
+function _derivative(f, v, θ, grads, k)
+    xs = _map_args(v, θ)
+    _has_local(f, xs) || return _forward_derivative(f, v, θ)
+    ∂ = _local_partials(f, _step_output(grads, f, v, θ, k), xs)
+    return θ === nothing ? (only(∂), nothing) : ∂
 end
+_map_args(v, ::Nothing) = (v,)
+_map_args(v, θ) = (v, θ)
 function _step_output(grads::NamedTuple{N}, f, v, θ, k) where {N}
     return :out in N ? @inbounds(grads.out[k]) : _call(f, v, θ)
 end
-# Whether a modifier's step pullback reads its output, `grads.out`.
+# Whether a modifier's step pullback reads its output, `grads.out`: a
+# `Transform` whose map has a local rule.
 _wants_output(m) = false
-_wants_output(::Transform{<:Any, <:Any, <:_WithOutput}) = true
+_wants_output(m::Transform) = !_own_pullback(m) && _has_local(m.f, _probe(m.θ))
 
 struct _TransformTag end
 

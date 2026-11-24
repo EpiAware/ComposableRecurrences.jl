@@ -171,7 +171,7 @@ function _param_partials(x̄, x::Derived, k, t)
     xs = _params_at(x.args, k, t)
     ā = _arg_mirrors(cotangent(x̄, :args), x.args)
     ā === nothing && return (x.f(xs...), nothing)
-    return (x.f(xs...), _partials(x.f, xs))
+    return _primal_and_partials(x.f, xs)
 end
 _add_param_partials!(x̄, x, v, ::Nothing, k, t) = add_param!(x̄, x, v, k, t)
 function _add_param_partials!(x̄, x::Derived, v, ∂::Tuple, k, t)
