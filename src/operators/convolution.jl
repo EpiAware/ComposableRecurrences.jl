@@ -196,6 +196,9 @@ call covers the absolute times `start:stop`:
   - `x`: the inputs, length `T` or `S × T`, read at absolute time `t`. The
     inputs before `start` come from `x` itself, and the inputs after its
     end are zero.
+    A tuple of `S` series, one per stratum and all of length `T`, is read
+    as the rows of `S × T`, and the output is then a tuple of `S` series;
+    the keywords are as for `S × T`.
   - `gain`: a scalar, a length-`T` vector shared by every stratum, or
     `S × T`, read at time `t`; one when left out.
   - `add`: `nothing`, a scalar, length `T` or `S × T`, read at time `t`.
