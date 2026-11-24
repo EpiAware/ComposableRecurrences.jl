@@ -175,6 +175,7 @@ Recurrence(GeometricDelay(0.5); lags = 3, step = 2).kernel
 ```
 
 Delays take the same wrappers as arrays, such as `PerStratum(ds)` or `TimeVarying(ds, Primary())`, with `Pairwise` for `Recurrence` only.
+`Pairwise(D)` is a matrix of delays with `D[i, j]` the delay of stratum `j` in stratum `i`, and `TimeVarying` also takes `PerStratum` or `Pairwise` of delays, with time last.
 A tuple `(d₁, d₂)` is a [chain of delays](@ref time-units-chained), one after another, and is itself a delay.
 
 ## [Where the coupling acts](@id explanation-coupling)

@@ -229,10 +229,15 @@ end
 
 # == Read steps ==
 
+# The one width of a local derivative's passes. The rule takes this route
+# while one pass covers every input, and `_ad_wide` while two do.
+const _LOCAL_PRESSURE = 24
+const _LOCAL_PRESSURE_WIDE = 2 * _LOCAL_PRESSURE
 # `n` counts every read, so `n > lo + R` marks a step that read more than the
-# partials hold.
-const _READ_WIDTHS = (4, 8, 12)
-const _READ_CAP = 2 * last(_READ_WIDTHS)
+# partials hold. A read pass also seeds the value, the state and the
+# scalars, so it holds half a pass of reads, and a step reads at most two.
+const _READ_WIDTH = _LOCAL_PRESSURE ÷ 2
+const _READ_CAP = _LOCAL_PRESSURE
 mutable struct _Reads{R}
     n::Int
     lo::Int
@@ -336,23 +341,19 @@ _pressure_scalars(C̄, C) = C̄ === nothing ? () : _param_tuple(C)
 _array_seeds(C̄, C) = C̄ !== nothing && !_scalar_params(C)
 
 # Made once per reverse pass so a step allocates nothing; `nothing` for a
-# coupling with its own pullback. A step whose dual type is not among them
-# allocates its own.
+# coupling with its own pullback. A step whose dual type differs allocates
+# its own.
 function _pressure_buffers(C̄, C, Tp)
     return _pressure_buffers(Val(uses_adjoint(C, Pressure())), C̄, C, Tp)
 end
 _pressure_buffers(::Val{true}, C̄, C, Tp) = nothing
 _pressure_buffers(::Val{false}, C̄, C, Tp) = _dual_pressure_buffers(C̄, C, Tp)
-# The rule takes this route while one pass covers every input, and
-# `_ad_wide` while two do.
-const _LOCAL_PRESSURE = 24
-const _LOCAL_PRESSURE_WIDE = 2 * _LOCAL_PRESSURE
 # Parameter arrays are views of one vector of dual numbers, so each pass
 # reseeds them in place.
 struct _ArrayPressure{T, L}
     θ::Vector{T}
     ḡ::Vector{T}
-    lanes::L
+    lane::L
 end
 
 # == Whole-step local derivative ==
@@ -365,11 +366,9 @@ struct _StepDuals{T, L}
     s̄::Vector{T}
     θ::Vector{T}
     ḡ::Vector{T}
-    lanes::L
-    # Whether the step seeds only the entries it reads (`_reads_fewer`),
-    # and how many the last step read: the next step's width.
+    lane::L
+    # Whether the step seeds only the entries it reads (`_reads_fewer`).
     readstep::Bool
-    reads::Base.RefValue{Int}
 end
 _step_duals(m̄, m, args...) = nothing
 _local_step!(m̄, m, args...) = _need_forwarddiff(m)
@@ -607,6 +606,39 @@ end
 function _strata_init(m, s, nh)
     _strata_loop(m) && _local_params(m) || return false
     return nh % max(length(s), 1) == 0
+end
+
+# Whether `m` sets its own initial state but has no `pullback!` for `Init`,
+# so the pullback above would take the local derivative. Read from the
+# methods that could apply to its type, so a method typed on `m`'s type or a
+# supertype of it counts, and cached per type as `_default_init` is below.
+# A modifier without float parameters skips the local derivative when its
+# history is constant, but whether it is differentiated is not known from
+# the types, so that modifier is counted too.
+const _INIT_DUALS = Dict{Type, Tuple{UInt, Bool}}()
+function _init_needs_duals(m)
+    T = typeof(m)
+    world = Base.get_world_counter()
+    hit = @lock _DEFAULT_INIT_LOCK get(_INIT_DUALS, T, nothing)
+    hit !== nothing && first(hit) == world && return last(hit)
+    own_init = _own_method(Tuple{typeof(forward!), T, Init, Any, Any}, 1)
+    own_back = _own_method(Tuple{typeof(pullback!), Any, T, Init, Any, Any}, 2)
+    d = own_init && !own_back
+    @lock _DEFAULT_INIT_LOCK _INIT_DUALS[T] = (world, d)
+    return d
+end
+# Whether a method that could apply to the call signature `sig` types its
+# argument `j`, so it is not the generic fallback. The method table is read
+# directly, with each result's type asserted, so a trimmed build resolves it.
+function _own_method(sig, j)
+    ms = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
+    ms isa Vector || return false
+    for x in ms
+        m = (x::Core.MethodMatch).method
+        t = Base.unwrap_unionall(m.sig)::DataType
+        t.parameters[j + 1] === Any || return true
+    end
+    return false
 end
 
 # Cached per signature with its world age, so a method defined later is still
