@@ -307,6 +307,18 @@ function _check_one_based(
     return nothing
 end
 
+@implements PieceInterface Convolution [
+    Arguments(;
+        piece = Convolution([0.1, 0.6, 0.3]), role = Run(),
+        args = ([1.0, 2.0, 3.0, 4.0],)
+    ),
+    Arguments(;
+        piece = Convolution([0.1, 0.6, 0.3]), role = Run(),
+        args = ([1.0 2.0 3.0; 4.0 5.0 6.0],),
+        kwargs = (; history = [1.0 1.0; 2.0 2.0])
+    ),
+]
+
 # == A call: forward, cache and paths ==
 
 # The call builds the positional arguments
@@ -1441,15 +1453,3 @@ function pullback!(grads, op::_Contributions, ::Run, cache)
     _add_window!(x̄, h̄, X̄, o, m, stop)
     return nothing
 end
-
-@implements PieceInterface Convolution [
-    Arguments(;
-        piece = Convolution([0.1, 0.6, 0.3]), role = Run(),
-        args = ([1.0, 2.0, 3.0, 4.0],)
-    ),
-    Arguments(;
-        piece = Convolution([0.1, 0.6, 0.3]), role = Run(),
-        args = ([1.0 2.0 3.0; 4.0 5.0 6.0],),
-        kwargs = (; history = [1.0 1.0; 2.0 2.0])
-    ),
-]
