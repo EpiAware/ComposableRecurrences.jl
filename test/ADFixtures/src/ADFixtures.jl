@@ -3124,6 +3124,13 @@ const REACTANT_BROKEN = Dict(
         "Recurrence trace through a sparse coupling",
         "Recurrence sparse user coupling declared linear",
     ],
+    # A traced value cannot be broadcast into a `Pair`, and change points
+    # given one by one stack their values into a plain vector of traced
+    # numbers, which a computed kernel does not read.
+    "change points from traced values" => [
+        "Convolution kernel from a held hazard given by change points",
+        "Recurrence kernel shortened by a survival on change points",
+    ],
     # A distribution's constructor takes only real parameters.
     "Distributions from traced parameters" => [
         "Convolution Poisson delay distribution",
