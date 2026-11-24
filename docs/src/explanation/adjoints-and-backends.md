@@ -227,8 +227,8 @@ Float types:
 - [`convert_floats(Float32, r)`](@ref ComposableRecurrences.convert_floats) converts every float of `r`, scalars included, so `Adapt.adapt(CuArray, convert_floats(Float32, r))` runs on the device in `Float32`.
 
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
-- A sparse coupling is a device sparse matrix: in CSR form each stratum's row is one index of a kernel.
-  Other forms use the array package's own `mul!`, such as CUSPARSE on CUDA; JLArrays has none, so they are not tested.
+- A sparse coupling is a device sparse matrix in CSR form, and each stratum's row is one index of a kernel.
+  A CSC or other device sparse coupling is converted to CSR when the recurrence is built, where the array package can convert it.
 - Modifiers with a vector step (`Redistribute`, `Allocate` and a `Depletion` with several pools or without a draw) run each stratum, or each `Allocate` group, as one index of a kernel; `Allocate` copies its groups to the device each step.
 - A modifier or wrapper that holds arrays is rebuilt with its device arrays inside a kernel through Adapt.jl; a new modifier type that holds arrays needs an `Adapt.adapt_structure` method.
   Arrays captured by the function of a `Transform` or `Derived` are not moved.
