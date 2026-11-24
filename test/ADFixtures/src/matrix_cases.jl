@@ -1933,11 +1933,10 @@ if isfile(BVD_HANDRULE)
     REQUIRES["bvd_zones"] = (:_AllocateImports,)
 end
 
-# The BVDOutbreakSize bed occupancy balance as that backend's port spells it:
-# three pools carried forward by one `Depletion`, with share flows,
-# admissions and rule-outs as counts, and two discharge drains that split
-# each day's discharges by the previous day's pools (`Derived` over
-# `Recent(1)` reads), then a floor.
+# The BVDOutbreakSize bed occupancy balance on the package: three pools
+# carried forward by one `Depletion`, with share flows, admissions and
+# rule-outs as counts, and the day's discharges split between the two
+# true-case pools by the pools the day starts from (`Split()`), then a floor.
 const BVD_REFERENCES = joinpath(
     @__DIR__, "..", "..", "usecases", "references"
 )
@@ -1947,59 +1946,30 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
     include(joinpath(BVD_REFERENCES, "bvd_port.jl"))
     using .BVDReference: BVDReference as BVDRef
 
-    # The confirmed share of the day's discharges `b`, off the previous
-    # day's unconfirmed and confirmed pools `u` and `c`; the test is asked of
-    # `abs2`, whose derivative at zero is zero, so a dual number does not
-    # break the tie and divide zero by zero.
-    function _occ_conf_share(b, u, c)
-        s = u + c
-        return abs2(s) > zero(s) ? b * (c / s) : zero(b * s)
-    end
-    _occ_unconf_left(u, A, h, κ, o) = u * (1 - κ - h) + A - o
-    _occ_conf_left(u, c, h, o) = c + h * u - o
-    # Each true-case pool's discharges: its share, plus the other pool's
-    # overshoot below zero, so the total true-case stock takes the floor.
-    # Both drains take the port's one argument tuple, so the first takes
-    # `A` and `κ` without reading them.
-    function _occ_unconf_discharges(b, u, c, A, h, κ)
-        oc = _occ_conf_share(b, u, c)
-        return (b - oc) + max(-_occ_conf_left(u, c, h, oc), zero(oc))
-    end
-    function _occ_conf_discharges(b, u, c, A, h, κ)
-        oc = _occ_conf_share(b, u, c)
-        return oc + max(-_occ_unconf_left(u, A, h, κ, b - oc), zero(oc))
-    end
     # The port's spelling at epiforecasts/BVDOutbreakSize#1152 b4d4c602
-    # (`accumulate_occupancy`, src/models/observations.jl L2032-L2087): the
-    # abscond shares as `Derived(identity, κ)`, so a rate above one is not
-    # checked, and the outputs from the port's own loop and rule. The pools
-    # are named in place, as the port names them, so the compiler sees the
-    # names as constants.
+    # (`accumulate_occupancy`, src/models/observations.jl L2032-L2087), with
+    # its two discharge drains, each a `Derived` count over `Recent(1)` reads
+    # of the previous day's pools, as one `Split()` flow, which gives the
+    # same split and the same overshoot to the other pool. The abscond shares
+    # stay `Derived(identity, κ)`, so a rate above one is not checked, and the
+    # outputs come from the port's own loop and rule. The pools are named in
+    # place, so the compiler sees the names as constants.
     function _bvd_occupancy_rule(wrap, A_bvd, A_bg, deaths, recover, ruleout, κ, h)
         n = length(A_bvd)
         T = promote_type(
             eltype(A_bvd), eltype(A_bg), eltype(deaths), eltype(recover),
             eltype(ruleout), typeof(κ), eltype(h)
         )
-        bvd_out = TimeVarying(deaths .+ recover)
-        adm = TimeVarying(A_bvd)
         hz = TimeVarying(h)
-        unconf = Recent(1)
-        conf = Recent(1; coupling = [0.0 1.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0])
-        args = (bvd_out, unconf, conf, adm, hz, κ)
         flows = CR.Depletion(
             CR.Flow(:unconf => :conf, Derived(identity, hz); form = CR.Share()),
             CR.Flow(:unconf => 0, Derived(identity, κ); form = CR.Share()),
             CR.Flow(:bg => 0, Derived(identity, κ); form = CR.Share()),
-            CR.Flow(0 => :unconf, adm; form = CR.Truncate()),
+            CR.Flow(0 => :unconf, TimeVarying(A_bvd); form = CR.Truncate()),
             CR.Flow(0 => :bg, TimeVarying(A_bg); form = CR.Truncate()),
             CR.Flow(
-                :unconf => 0, Derived(_occ_unconf_discharges, args...);
-                form = CR.Truncate()
-            ),
-            CR.Flow(
-                :conf => 0, Derived(_occ_conf_discharges, args...);
-                form = CR.Truncate()
+                (:unconf, :conf) => 0, TimeVarying(deaths .+ recover);
+                form = CR.Split()
             ),
             CR.Flow(:bg => 0, TimeVarying(ruleout); form = CR.Truncate());
             pools = (:unconf, :conf, :bg)
@@ -2066,7 +2036,7 @@ if isfile(joinpath(BVD_REFERENCES, "bvd_rules.jl"))
         CASES,
         Case(
             "bvd_occupancy",
-            "BVD accumulate_occupancy: pools, share and count flows, Derived drains",
+            "BVD occupancy: pools, share and count flows, split discharges",
             _bvd_occupancy(_bvd_occupancy_rule), [1], false,
         ),
     )
