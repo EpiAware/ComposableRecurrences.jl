@@ -524,7 +524,7 @@ end
 end
 
 @testitem "JLArrays: the rule passes of built-in modifiers match the CPU" setup = [DeviceRules] begin
-    # A `Transform` without a `derivative` takes its derivative with dual
+    # A `Transform` without a local rule takes its derivative with dual
     # numbers, which needs ForwardDiff.
     using ForwardDiff
     # A read of the outputs through a coupling.

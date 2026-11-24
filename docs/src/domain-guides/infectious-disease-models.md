@@ -50,6 +50,7 @@ Within one step a hazard flow acts before a count flow, so waning comes before t
 | Transmission routes, such as community and funeral contacts | ``I_{t,i} = R_{t,i} \sum_r \sum_j K^{(r)}_{ij} \sum_l g^{(r)}_l I_{t-l,j}`` | [`Recurrence(Pairwise(K₁ => g₁, K₂ => g₂))`](@ref Pairwise) | [Spatial models](@ref tutorial-spatial-strata) |
 | Importation between patches | a share ``M_{ij}`` of patch ``j``'s infections occurs in patch ``i``, with ``M = I - \operatorname{diag}(\varepsilon \odot o) + K \operatorname{diag}(\varepsilon)`` for a movement matrix ``K`` with column sums ``o`` | [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | [Spatial models](@ref tutorial-spatial-strata) |
 | Districts sharing a patch total ``\bar I_{t,p}`` fixed elsewhere | ``I_{t,i} = \bar I_{t,p}\, u_{t,i} / \sum_{j \in p} u_{t,j}``, with ``u_{t,i}`` district ``i``'s own new infections before the split | [`Allocate(groups, TimeVarying(PerStratum(Ī)))`](@ref ComposableRecurrences.Allocate) | [Spatial models](@ref tutorial-spatial-strata) |
+| A gain ``\gamma_{t,i}`` that also scales an added input ``a_{t,i}``, such as infections seeded from outside the model | ``\gamma_{t,i}\big(\sum_j K_{ij} \sum_l g_l I_{t-l,j} + a_{t,i}\big)``, read before any other modifier | [`Transform(*, TimeVarying(PerStratum(γ)))`](@ref ComposableRecurrences.Transform) first in the modifiers, with `add = a` and no gain | [Spatial models](@ref tutorial-spatial-strata) |
 
 ## [Branching processes and isolation](@id domain-branching)
 

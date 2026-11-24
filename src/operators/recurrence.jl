@@ -1098,9 +1098,9 @@ end
 # numbers included, log nothing more.
 const _PLAIN_NOTED = Set{String}()
 const _PLAIN_LOCK = ReentrantLock()
-function _note_plain(whys::Tuple)
+function _note_plain(whys::Tuple, what = "Recurrence")
     msg = string(
-        "Recurrence gradients use plain AD of the whole operator: ",
+        what, " gradients use plain AD of the whole operator: ",
         join(unique(whys), "; ")
     )
     new = @lock _PLAIN_LOCK (msg in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, msg); true))
@@ -1207,13 +1207,17 @@ _long_kernel(w::_WithState, args...) = _long_kernel(w.r, args...)
 # The parts of `r` whose reverse pass takes a local derivative, each with why
 # it needs the dual-number extension.
 function _dual_whys(kernel, C, ms)
-    Cp = _primary_adjoint(C) === :local ? (C,) : ()
+    Cp = _primary_adjoint(C) === :local || _derived_duals(C) ? (C,) : ()
     Ck = filter(K -> _coupling_adjoint(K) === :local, _kernel_couplings(kernel))
+    k = _derived_duals(kernel) ? (kernel,) : ()
     Ms = filter(m -> _needs_duals(m) || _init_needs_duals(m), ms)
     Mw = map(m -> _needs_duals(m) ? _dual_why(m) : _init_dual_why(m), Ms)
-    return (map(_dual_why, (Cp..., Ck...))..., Mw...)
+    return (map(_dual_why, (k..., Cp..., Ck...))..., Mw...)
 end
-_needs_duals(m) = _modifier_adjoint(m) === :local || _local_modifier(m) !== ()
+function _needs_duals(m)
+    return _modifier_adjoint(m) === :local || _local_modifier(m) !== () ||
+        _derived_duals(m)
+end
 function _init_dual_why(m)
     return "$(nameof(typeof(m))) sets its own initial state without a " *
         "`pullback!` for `Init`, and its local derivative needs " *
@@ -1222,7 +1226,12 @@ end
 # Called by the reverse-mode rules of `_plain_hook`, so only a reverse pass
 # through plain AD logs, once, which parts need the dual-number extension.
 # A `NoAdjoint` call opted out of the rule, so it says nothing.
-_note_missing_duals(op) = nothing
+function _note_missing_duals(op)
+    _duals_loaded(nothing) || !_derived_duals(op) ||
+        _note_plain((_dual_why(op),), _operator_name(op))
+    return nothing
+end
+_operator_name(op) = string(nameof(typeof(op)))
 _note_missing_duals(w::_WithState) = _note_missing_duals(w.r)
 function _note_missing_duals(r::Recurrence)
     _duals_loaded(nothing) && return nothing
@@ -1230,14 +1239,22 @@ function _note_missing_duals(r::Recurrence)
     isempty(whys) || _note_plain(whys)
     return nothing
 end
-function _dual_why(p)
+# A held `Derived` map is named first; otherwise each part says why it takes
+# a local derivative.
+_dual_why(p) = _derived_duals(p) ? _derived_why(p) : _local_why(p)
+function _local_why(p)
     return "$(nameof(typeof(p))) has no `pullback!`, and its local " *
         "derivative needs `ForwardDiff`; add `using ForwardDiff` for the " *
         "faster rule"
 end
-function _dual_why(::Depletion)
+function _local_why(::Depletion)
     return "a Depletion form without a `pullback!` takes a local derivative, " *
         "which needs `ForwardDiff`; add `using ForwardDiff` for the faster rule"
+end
+function _derived_why(p)
+    return "$(nameof(typeof(p))) holds a Derived map whose partials are " *
+        "taken with dual numbers, which needs `ForwardDiff`; add " *
+        "`using ForwardDiff` for the faster rule"
 end
 function _coupling_fit(C, h)
     _coupling_adjoint(C) === :local || return :one
@@ -1588,15 +1605,16 @@ end
 # Whether a vector modifier's pullback reads its state after each step,
 # so the forward pass records it (see `_pass_buffer`).
 _keeps_after(m) = false
+# Whether a modifier's step, pullback or trace reads its incoming state.
+# `false` is a promise that none does: `_state_record` then shares the
+# starting state, so a step that read it would see the wrong one.
+_reads_state(m) = true
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,
-    # so sharing it is safe; a stateless modifier's state never changes,
-    # and one whose steps never read it need not see it change.
+    # so sharing it is safe; a stateless modifier's state never changes.
     keep = isstateless(m) || !_reads_state(m)
     return keep ? s : _unset(h, Tp, length(s), T)
 end
-# Whether a modifier's step, pullback or trace reads its incoming state.
-_reads_state(m) = true
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
 _record_states!(R::AbstractMatrix, s, t) = _copy_column!(R, s, t)

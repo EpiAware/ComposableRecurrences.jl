@@ -643,6 +643,38 @@ end
     end
     @test CR._has_local(LogisticSum(), (0.3, -1.2))
     @test !CR._has_local((a, b) -> logistic(a + b), (0.3, -1.2))
+    # The check folds to a constant also for a map that does not infer.
+    scale = Ref{Any}(2.0)
+    struct Untyped end
+    (::Untyped)(a) = scale[] * a
+    CR.pullback!(grads, ::Untyped, ::CR.Local, y, a) = (2.0,)
+    @test CR._has_local(Untyped(), (1.0,))
+    ci = only(code_typed(CR._has_local, Tuple{Untyped, Tuple{Float64}}))[1]
+    @test ci.code == Any[Core.ReturnNode(true)]
+    # A rule that may fall back to `nothing` at the inferred types is not
+    # taken: the forward-mode derivative is used instead.
+    struct TypedOutput end
+    (::TypedOutput)(a) = scale[] * a
+    CR.pullback!(grads, ::TypedOutput, ::CR.Local, y::Float64, a) = (2.0,)
+    @test !CR._has_local(TypedOutput(), (1.0,))
+    @test CR._value_and_partials(TypedOutput(), (1.5,)) == (3.0, (2.0,))
+    # A parameter holding a map asks for dual numbers only when the map has
+    # no local rule, including a rule defined after the package.
+    γ0 = TimeVarying([0.1, 0.2])
+    @test !CR._derived_duals(Derived(LogisticSum(), -1.0, γ0))
+    @test !CR._derived_duals(Derived(logistic, Derived(+, -1.0, γ0)))
+    @test CR._derived_duals(Derived((a, b) -> logistic(a + b), -1.0, γ0))
+    # The link functions' rules against forward mode, in the tails too.
+    using LogExpFunctions: log1pexp, logit
+    for (f, x) in (
+            (logistic, -40.0), (logistic, 0.3), (logistic, 40.0),
+            (log1pexp, -40.0), (log1pexp, 0.3), (log1pexp, 40.0),
+            (logit, 1.0e-12), (logit, 0.3), (logit, 1 - 1.0e-12),
+        )
+        local_d = CR.pullback!((;), f, CR.Local(), f(x), x)[1]
+        dual_d = CR._forward_value_and_derivative(f, (x,))[2][1]
+        @test local_d ≈ dual_d rtol = 1.0e-10
+    end
     args = (0.3, -1.2)
     local_dy = CR._value_and_partials(LogisticSum(), args)[2]
     dual_dy = CR._forward_value_and_derivative(LogisticSum(), args)[2]

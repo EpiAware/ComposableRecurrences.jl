@@ -232,6 +232,35 @@ end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _derived_local(x) = _derived_local_type(x)
 
+# The `Derived` maps a type holds, as (map type, argument count) pairs.
+# It sees only concretely typed fields: a map held in an abstractly typed
+# field or captured by a closure is not found, and its rule still asks for
+# `ForwardDiff` in the reverse pass.
+function _derived_maps_type!(acc, ::Type{T}) where {T}
+    if T <: Derived
+        A = fieldtype(T, :args)
+        push!(acc, (fieldtype(T, :f), fieldcount(A)))
+        _derived_maps_type!(acc, A)
+    elseif T <: Union{Real, Nothing, Symbol, AbstractString, Function}
+        nothing
+    elseif T <: AbstractArray
+        _derived_maps_type!(acc, eltype(T))
+    elseif isconcretetype(T) && isstructtype(T)
+        foreach(S -> _derived_maps_type!(acc, S), fieldtypes(T))
+    end
+    return acc
+end
+# Whether a type holds a `Derived` map without a local rule, so a rule takes
+# its partials with dual numbers. The generator finds the maps from the
+# type; the rule check runs in the caller's world, so it sees rules defined
+# after this method, and folds at compile time.
+@generated function _derived_duals(x)
+    maps = unique!(_derived_maps_type!(Any[], x))
+    isempty(maps) && return false
+    checks = [:(!_has_local_type($F, Val($N))) for (F, N) in maps]
+    return foldl((a, b) -> Expr(:||, a, b), checks)
+end
+
 # == Arithmetic ==
 
 # Arithmetic with a `Derived` on either side lowers to `Derived`; the other

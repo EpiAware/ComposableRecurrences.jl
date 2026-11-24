@@ -332,19 +332,12 @@ For a map ``y = f(x_1, \dots, x_n)`` of scalars,
 one per argument and shaped as it is: a `Transform` map `f(v, θ)` with a
 tuple or NamedTuple `θ` returns `(∂f/∂v, ∂f/∂θ)`, the second shaped as
 `θ`.
-`y` is the map's value at the arguments, as the forward pass computed it,
-so a derivative written in terms of the value does not compute it again.
+`y` is the map's value there, from the forward pass.
 `grads` holds no cotangents for this role.
-Unlike the other roles' pullbacks, it returns its partials, as a scalar map
-has nothing to write into.
-
-Add a method for the type of a function you own, a named function or a
-callable struct; the operators find it from the types alone.
+The operators look for the method with `Float64` arguments, so it should
+accept any `Real` arguments.
 Without one the partials come from a local forward-mode derivative, which
 needs `ForwardDiff` loaded.
-The package adds methods for `+`, `-`, `*`, `/`, `identity`, `exp` and
-`log`, and, with `LogExpFunctions` loaded, for `logistic`, `log1pexp` and
-`logit`.
 
 # Examples
 ```jldoctest
@@ -376,14 +369,26 @@ struct Local end
 pullback!(grads, f, ::Local, y, xs...) = nothing
 
 # Whether `f` has a local rule at arguments of the types of `xs`: decided
-# from the inferred type of its `pullback!`, so it folds at compile time.
+# from the inferred type of its `pullback!`, so it folds at compile time,
+# also when `f` itself does not infer. A rule counts only when it cannot
+# return `nothing`, so an inferred union with the fallback, or a rule whose
+# result does not infer, takes the forward-mode derivative instead.
 function _has_local(f::F, xs::Tuple) where {F}
     Y = Core.Compiler.return_type(f, Tuple{map(typeof, xs)...})
     R = Core.Compiler.return_type(
         pullback!, Tuple{typeof((;)), F, Local, Y, map(typeof, xs)...}
     )
-    return !(R <: Nothing)
+    return _is_rule(R)
 end
+# The same check from a map's type and argument count, with `Float64`
+# arguments, for a type that holds the map.
+function _has_local_type(::Type{F}, ::Val{N}) where {F, N}
+    R = Core.Compiler.return_type(
+        pullback!, Tuple{typeof((;)), F, Local, Float64, Vararg{Float64, N}}
+    )
+    return _is_rule(R)
+end
+_is_rule(R) = R !== Union{} && !(Nothing <: R)
 
 # The value of `f` at `xs` and its partial derivatives there: from its local
 # rule when it has one, or from one local forward-mode evaluation.
