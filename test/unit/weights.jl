@@ -588,6 +588,76 @@ end
     check(r, (fill(1.1, T), nothing, [1.0], nothing, 2, T), sin.(1:(T - 1)))
 end
 
+@testitem "Computed kernels: lag maps over a kernel's weights" tags = [:threads] setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
+    using ComposableRecurrences
+    using ComposableRecurrences: Derived
+    CR = ComposableRecurrences
+    (; p, P, h, A, AS, primary) = WeightsChecks
+    (; rule_vjp, reference_vjp) = PullbackChecks
+    computed(x) = TimeVarying(x, CR.Primary())
+    kw(x, m) = CR.kernel_weights(computed(x), m)
+    # The maps over a kernel's weights equal the maps over the kernel that
+    # computed them, alone, nested and with strata.
+    n = 30
+    cdf = 1 - CR.Survival(Derived(*, 0.5 * p, TimeVarying(h)))
+    stratified = PerStratum(P) * CR.Survival(TimeVarying(h); from = 1)
+    for x in (cdf, stratified)
+        K = computed(kw(x, n))
+        for map in (CR.Increments, CR.Normalised, x -> CR.Normalised(CR.Increments(x)))
+            @test kw(map(K), n) ≈ kw(map(x), n)
+        end
+    end
+    # The operators against the dense kernel of the same weights, the
+    # transpose with its input held at its last value past its end.
+    for (x, input) in ((cdf, A), (stratified, AS))
+        m = size(input, ndims(input))
+        pmf = CR.Normalised(CR.Increments(computed(kw(x, m))))
+        conv, dense = Convolution(computed(pmf)), Convolution(primary(kw(pmf, m)))
+        @test conv(input) ≈ dense(input)
+        tail = collect(selectdim(input, ndims(input), fill(m, 5)))
+        @test conv'(input; tail) ≈ dense'(input; tail)
+        @test conv'(input; stop = 20) ≈ dense'(input; stop = 20)
+    end
+    # Each rule's pullback against a Jacobian, the weights' cotangent
+    # included, on small inputs.
+    T, L = 8, 5
+    q, hs, Ps = p[1:L], h[1:(T + L + 1)], P[:, 1:L]
+    K = computed(kw(1 - CR.Survival(Derived(*, 0.5 * q, TimeVarying(hs))), T))
+    KS = computed(kw(PerStratum(Ps) * CR.Survival(TimeVarying(hs); from = 1), T))
+    x, xs = [1.0 + 0.1 * t for t in 1:T], [1.0 + 0.1 * k * t for k in 1:2, t in 1:T]
+    check(op, args, ȳ) = @test rule_vjp(op, args, ȳ) ≈ reference_vjp(ReferenceAD.jacobian, op, args, ȳ)
+    conv(k) = Convolution(computed(k))
+    tr(k) = CR._TransposedConvolution(conv(k))
+    held = fill(x[end], L - 1)
+    for k in (CR.Normalised(CR.Increments(K)), CR.Increments(K))
+        check(conv(k), (x, true, nothing, nothing, 1, T), sin.(1:T))
+        check(tr(k), (x, nothing, 1, T), sin.(1:T))
+        check(tr(k), (x, held, 1, T), sin.(1:T))
+        check(CR._KernelWeights(computed(k)), (T,), reshape(sin.(1:(L * T)), L, T))
+    end
+    pmfs = CR.Normalised(CR.Increments(KS))
+    check(conv(pmfs), (xs, true, nothing, nothing, 1, T), sin.(xs))
+    check(tr(pmfs), (xs, nothing, 1, T), sin.(xs))
+    # Another executor fills the dense kernel in blocks.
+    threaded = CR.Threaded(; min_work = 0, ntasks = 2)
+    Base.ScopedValues.with(CR.EXECUTOR => threaded) do
+        check(tr(CR.Normalised(CR.Increments(K))), (x, held, 1, T), sin.(1:T))
+        check(conv(pmfs), (xs, true, nothing, nothing, 1, T), sin.(xs))
+    end
+    # A recurrence with a lag-mapped table, its lags from 1.
+    r = Recurrence(computed(0.3 * CR.Normalised(K)))
+    check(r, (fill(1.1, T), nothing, [1.0], nothing, 2, T), sin.(1:(T - 1)))
+    # The weights cover the cohorts the call reads; a series over time is
+    # not a kernel's weights.
+    @test_throws DimensionMismatch conv(CR.Normalised(computed(kw(cdf, T - 1))))(x)
+    @test_throws ArgumentError CR.Increments(computed(hs))
+    # The table sets the kernel's lags and strata.
+    @test CR._coef_lags(K) == L && CR._coef_strata(K) == 0
+    @test CR._coef_lags(KS) == L && CR._coef_strata(KS) == size(Ps, 1)
+    @test !CR._stratified_type(typeof(K))
+    @test CR._stratified_type(typeof(KS))
+end
+
 @testitem "Computed kernels: a transposed call with a tail reads only what its outputs need" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived
@@ -658,7 +728,9 @@ end
     CR.pullback!(grads, ::Untyped, ::CR.Local, y, a) = (2.0,)
     @test CR._has_local(Untyped(), (1.0,))
     ci = only(code_typed(CR._has_local, Tuple{Untyped, Tuple{Float64}}))[1]
-    @test ci.code == Any[Core.ReturnNode(true)]
+    # Coverage runs add markers, which are not calls.
+    body = filter(s -> !Meta.isexpr(s, :code_coverage_effect), ci.code)
+    @test body == Any[Core.ReturnNode(true)]
     # A rule that may fall back to `nothing` at the inferred types is not
     # taken: the forward-mode derivative is used instead.
     struct TypedOutput end
@@ -672,16 +744,23 @@ end
     @test !CR._derived_duals(Derived(LogisticSum(), -1.0, γ0))
     @test !CR._derived_duals(Derived(logistic, Derived(+, -1.0, γ0)))
     @test CR._derived_duals(Derived((a, b) -> logistic(a + b), -1.0, γ0))
-    # The link functions' rules against forward mode, in the tails too.
+    # The link functions' rules against forward mode inside the range, and
+    # against their closed forms in the tails, where an older forward-mode
+    # rule can round to zero.
     using LogExpFunctions: log1pexp, logit
-    for (f, x) in (
-            (logistic, -40.0), (logistic, 0.3), (logistic, 40.0),
-            (log1pexp, -40.0), (log1pexp, 0.3), (log1pexp, 40.0),
-            (logit, 1.0e-12), (logit, 0.3), (logit, 1 - 1.0e-12),
+    dlogistic(x) = exp(-abs(x)) / (1 + exp(-abs(x)))^2
+    for (f, df) in (
+            (logistic, dlogistic), (log1pexp, logistic),
+            (logit, x -> inv(x * (1 - x))),
         )
+        x = 0.3
         local_d = CR.pullback!((;), f, CR.Local(), f(x), x)[1]
         dual_d = CR._forward_value_and_derivative(f, (x,))[2][1]
         @test local_d ≈ dual_d rtol = 1.0e-10
+        tails = f === logit ? (1.0e-12, 1 - 1.0e-12) : (-40.0, 40.0)
+        for t in tails
+            @test CR.pullback!((;), f, CR.Local(), f(t), t)[1] ≈ df(t) rtol = 1.0e-10
+        end
     end
     args = (0.3, -1.2)
     local_dy = CR._value_and_partials(LogisticSum(), args)[2]
