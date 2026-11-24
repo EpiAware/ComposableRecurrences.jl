@@ -551,8 +551,8 @@ end
     long = [1.0 + 0.05 * t for t in 1:(3 * T)]
     @test conv(surv(pw()))(long) ==
         conv(surv(TimeVarying(dense(starts, v, 3 * T + L))))(long)
-    # A hazard read a day late and held past the grid, against the padding
-    # it replaces.
+    # A hazard read a day late and held past the grid, as change points
+    # and as a dense, padded vector.
     h = [0.05 + 0.01 * t for t in 1:T]
     late = vcat(h[1], h, fill(h[end], L))
     held = TimeVarying(Pair.([1; 2:(T + 1)], vcat(h[1], h)))

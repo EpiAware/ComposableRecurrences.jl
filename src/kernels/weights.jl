@@ -251,6 +251,8 @@ function _pieces_type(::Type{<:Derived{F, A}}) where {F, A}
 end
 @generated _has_pieces(x) = _pieces_type(x)
 
+# The dense coefficient is built again in the reverse pass rather than kept:
+# it is one array over the times read, small beside the weights.
 function _densified(k::_ComputedKernel, last)
     return _has_pieces(k.x) ? TimeVarying{Primary}(_dense_coef(k.x, last)) : k
 end

@@ -2475,8 +2475,9 @@ end
 @testitem "Computed kernels with change points: Mooncake and Enzyme against the padded hazard" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences, ForwardDiff, Mooncake, Enzyme
     using ComposableRecurrences: Survival, Primary
-    # A hazard read a day late and held past the grid, as change points and
-    # as the padding they replace. The losses capture nothing, so Enzyme
+    # A hazard read a day late and held past the grid: `hand` reads it as a
+    # dense, padded vector and `held` as change points. The losses capture
+    # nothing, so Enzyme
     # sees no captured array or binding.
     function hand(h)
         pmf = [0.4, 0.3, 0.2, 0.1]

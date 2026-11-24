@@ -118,6 +118,7 @@ round.(r([2.0 2.0 2.0; 1.0 1.0 1.0]; history = ones(2, 3)); digits = 3)
 
 A `Derived` kernel's arguments may also be vectors of lag weights, `Primary()` coefficients and [`Survival`](@ref ComposableRecurrences.Survival).
 A time-varying argument, or a `Survival`'s hazard, may be given by change points, whose last value holds past the data.
+Change points run on the host, as they do in every other slot.
 
 Every modifier reads a parameter through [`param`](@ref ComposableRecurrences.param), which takes every form.
 So a new wrapper or parameter form works with every modifier that reads through `param`.
