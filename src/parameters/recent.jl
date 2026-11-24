@@ -276,6 +276,8 @@ function param_eltype(b::_BoundRecent)
     )
 end
 
+_check_param(name, x::_BoundRecent) = x
+
 # Stratum `j`'s weighted window ending before row `i`.
 function _recent_window(w, H, i, j)
     acc = zero(promote_type(eltype(w), eltype(H)))
@@ -301,6 +303,36 @@ function _read(C, b, k, i)
     return acc
 end
 
+# The buffer row of time `t`, checked once so the loops over the window
+# read without bounds checks: a read at a time before the run's window,
+# such as from a modifier's `Init`, is an error.
+function _recent_row(b::_BoundRecent, k, t)
+    i = t + b.o
+    W = length(b.x.w)
+    i - W >= 1 && i - 1 <= size(b.H, 1) || _before_window(b, t)
+    checkbounds(b.H, i - 1, k)
+    return i
+end
+_before_window(b::_BoundRecent, t) = _before_window(b.site, b, t)
+@noinline function _before_window(::Nothing, b, t)
+    W = length(b.x.w)
+    t0 = W + 1 - b.o
+    throw(
+        ArgumentError(
+            "Recent with $W weights was read at time $t, but this call keeps " *
+                "outputs only for reads from time $t0 on; " * _RECENT_INIT
+        )
+    )
+end
+# Inside a device kernel the message is a constant, as a kernel cannot
+# build one.
+@noinline _before_window(::_InKernel, b, t) =
+    throw(ArgumentError(_RECENT_BEFORE_WINDOW))
+const _RECENT_INIT = "a modifier's Init reads its parameters at time 1, so " *
+    "start the run at 1"
+const _RECENT_BEFORE_WINDOW = "Recent was read at a time before the outputs " *
+    "this call keeps for its weights; " * _RECENT_INIT
+
 function add_param!(x̄, b::_BoundRecent, v, k, t)
     i = _recent_row(b, k, t)
     _read_back!(x̄, b.x.coupling, b, v, k, i)
@@ -310,6 +342,15 @@ function _read_back!(x̄, ::Nothing, b, v, k, i)
     return _recent_back!(cotangent(x̄, :w), b.x.w, b.H, b.H̄, v, i, k)
 end
 _read_back!(x̄, C, b, v, k, i) = _coupled_back!(x̄, C, b.z, b, v, k, i)
+function _recent_back!(w̄, w, H, H̄, v, i, j)
+    @inbounds for l in eachindex(w)
+        add_cotangent!(w̄, v * H[i - l, j], l)
+        _add_buffer!(H̄, v * w[l], i - l, j)
+    end
+    return nothing
+end
+Base.@propagate_inbounds _add_buffer!(H̄, v, i, k) = (H̄[i, k] += v; nothing)
+_add_buffer!(::Nothing, v, i, k) = nothing
 # On the host the strata share one vector of window cotangents.
 function _coupled_back!(x̄, C, z::AbstractVector, b, v, k, i)
     b.row[] == i || (_flush_one!(b); _refresh_one!(b, i))
@@ -343,6 +384,10 @@ function _ensure_row!(::Nothing, b, i)
     return nothing
 end
 _ensure_row!(::_InKernel, b, i) = nothing
+
+# Apply `f` to every bound `Recent` with a coupling inside `x`, as a tuple
+# found from the type so the loop is unrolled with no dynamic calls.
+_each_coupled(f, x) = (foreach(f, _coupled_reads(x)); nothing)
 
 # Fill the windows of every coupled `Recent` in `x` at buffer row `i`, once
 # per step and before the strata read them.
@@ -443,52 +488,6 @@ function _flush_weights!(w̄, z, w, H, i)
     end
     return nothing
 end
-
-
-# Apply `f` to every bound `Recent` with a coupling inside `x`, as a tuple
-# found from the type so the loop is unrolled with no dynamic calls.
-_each_coupled(f, x) = (foreach(f, _coupled_reads(x)); nothing)
-function _recent_back!(w̄, w, H, H̄, v, i, j)
-    @inbounds for l in eachindex(w)
-        add_cotangent!(w̄, v * H[i - l, j], l)
-        _add_buffer!(H̄, v * w[l], i - l, j)
-    end
-    return nothing
-end
-# The buffer row of time `t`, checked once so the loops over the window
-# read without bounds checks: a read at a time before the run's window,
-# such as from a modifier's `Init`, is an error.
-function _recent_row(b::_BoundRecent, k, t)
-    i = t + b.o
-    W = length(b.x.w)
-    i - W >= 1 && i - 1 <= size(b.H, 1) || _before_window(b, t)
-    checkbounds(b.H, i - 1, k)
-    return i
-end
-_before_window(b::_BoundRecent, t) = _before_window(b.site, b, t)
-@noinline function _before_window(::Nothing, b, t)
-    W = length(b.x.w)
-    t0 = W + 1 - b.o
-    throw(
-        ArgumentError(
-            "Recent with $W weights was read at time $t, but this call keeps " *
-                "outputs only for reads from time $t0 on; " * _RECENT_INIT
-        )
-    )
-end
-# Inside a device kernel the message is a constant, as a kernel cannot
-# build one.
-@noinline _before_window(::_InKernel, b, t) =
-    throw(ArgumentError(_RECENT_BEFORE_WINDOW))
-const _RECENT_INIT = "a modifier's Init reads its parameters at time 1, so " *
-    "start the run at 1"
-const _RECENT_BEFORE_WINDOW = "Recent was read at a time before the outputs " *
-    "this call keeps for its weights; " * _RECENT_INIT
-
-Base.@propagate_inbounds _add_buffer!(H̄, v, i, k) = (H̄[i, k] += v; nothing)
-_add_buffer!(::Nothing, v, i, k) = nothing
-
-_check_param(name, x::_BoundRecent) = x
 
 # == Type walks ==
 

@@ -1,11 +1,15 @@
-# [GPUArrays + KernelAbstractions extension](@id extension-gpuarrays)
+# [Running on GPU arrays](@id extension-gpuarrays)
 
 Loading a GPU array package, with KernelAbstractions, runs operator calls on its arrays as kernels on the device.
 Every GPU array package loads GPUArrays, so `using CUDA, KernelAbstractions` is enough.
 Put every array the call reads on the device, e.g. with `Adapt.adapt(CuArray, r)`, and the call runs there under the default executor.
 Convert floats with [`convert_floats(Float32, r)`](@ref ComposableRecurrences.convert_floats) to run in `Float32`.
-A sparse coupling must be a device sparse matrix, ideally CSR, which runs one stratum's row per kernel index.
-Other sparse forms use the array package's own `mul!` and are untested ([#834](https://github.com/EpiAware/ComposableRecurrences.jl/issues/834)).
+A sparse coupling must be a device sparse matrix, best in CSR form, one stratum's row per kernel index.
+A CSC or other device sparse coupling is converted to CSR when the recurrence is built, through the array package's own conversion.
+A form the package cannot convert is kept as given and runs through the package's own sparse products.
+Adapting a built recurrence moves its coupling by the array package's own rules, without this conversion, so a host sparse coupling may arrive as CSC or dense.
+To take the CSR kernel, build the recurrence with its coupling already on the device.
+A device CSR coupling takes the package's rule, as a dense one does; another device sparse form takes plain AD.
 JLArrays stands in for a GPU here; CUDA, AMDGPU and Metal arrays work the same way.
 
 ```jldoctest gpu
@@ -23,7 +27,7 @@ round.(Array(y); digits = 3)
 ```
 
 Mooncake and Enzyme fail on JLArrays and are untested on a GPU ([#835](https://github.com/EpiAware/ComposableRecurrences.jl/issues/835)), so take forward-mode derivatives with dual numbers built on the device.
-Here, the gradient of the total over the two kernel weights:
+The gradient of the total over the two kernel weights:
 
 ```jldoctest gpu
 using ForwardDiff: Dual, partials
@@ -43,5 +47,3 @@ round.(Tuple(partials(sum(rg(R; history = h)))); digits = 3)
 | `ForwardDiff.gradient` errors with scalar indexing | Build the duals directly, as above |
 
 What runs on a device, and which rules cover it, is in [GPU arrays](@ref gpu-arrays).
-
-All extensions are listed in the [overview](@ref extensions-overview).

@@ -1,6 +1,6 @@
-# [Enzyme extension](@id extension-enzyme)
+# [Enzyme gradients](@id extension-enzyme)
 
-Loading Enzyme registers the [rule](@ref adjoint-routing) of every operator as an Enzyme reverse-mode rule.
+Loading Enzyme registers the [rule](@ref adjoint-routing) of every operator as an Enzyme reverse-mode rule, so Enzyme is one of the [backends](@ref adjoint-backends).
 Use reverse mode with runtime activity:
 
 ```jldoctest

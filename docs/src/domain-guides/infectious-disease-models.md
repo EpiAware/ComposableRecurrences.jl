@@ -12,7 +12,7 @@ Each table maps model features to the code that builds them, with the tutorial t
 | Renewal process | ``I_t = R_t \sum_{l=1}^{L} g_l I_{t-l}`` | [`Recurrence(g)`](@ref Recurrence), called as `r(R; history)` | [Three towns](@ref overview-build) |
 | Control measure from ``t_0`` to ``t_1`` cutting transmission by ``c`` | ``R_t \big(1 - c\, \mathbb{1}[t_0 \le t \le t_1]\big)``, or any multiplier ``m_t`` as ``R_t m_t`` | the gain `R .* measure` | [Three towns](@ref overview-build) ramps the reduction in over six days |
 | Imported cases ``\iota_t`` | ``v_t = R_t \sum_l g_l I_{t-l} + \iota_t`` | `add = ι`, or [`Transform(+, TimeVarying(ι))`](@ref ComposableRecurrences.Transform) after depletion | [Imported cases](@ref tutorial-imports) |
-| Instantaneous or effective reproduction number from a run | ``\hat R_{t,i} = I_{t,i} \big/ \sum_j K_{ij} \sum_{l=1}^{L} g_l I_{t-l,j}``: the gain without modifiers, the effective value with depletion | `y ./ pressure(r, y; history)`, with [`pressure`](@ref ComposableRecurrences.pressure) | [The reproduction number from a run](@ref tutorial-reproduction-number) |
+| Instantaneous or effective reproduction number from a run | the infections over the pressure, as the [call table](@ref explanation-calls) gives | `y ./ pressure(r, y; history)`, with [`pressure`](@ref ComposableRecurrences.pressure) | [The reproduction number from a run](@ref tutorial-reproduction-number) |
 | Log reproduction number as a latent process | ``\log R_t = \phi \log R_{t-1} + \epsilon_t`` | `Recurrence([φ])(; history, add = ϵ)` | [Latent processes driving R_t](@ref tutorial-latent-rt) |
 | Behavioural response to incidence | – | [`Transform`](@ref ComposableRecurrences.Transform), before `Depletion` | [Latent processes driving R_t](@ref tutorial-latent-rt) |
 
@@ -22,7 +22,7 @@ Random walks and autoregressions are [recurrences](@ref explanation-time-series)
 
 | Model feature | Maths | Code | Tutorial |
 |---|---|---|---|
-| Susceptible depletion | ``I_t = S_{t-1} \big(1 - e^{-v_t / N}\big)``, ``S_t = S_{t-1} - I_t`` | [`Depletion(N)`](@ref ComposableRecurrences.Depletion), or `Depletion(N, Floor())` | [Renewal then delay](@ref tutorial-renewal-delay) |
+| Susceptible depletion | the [depletion forms](@ref explanation-depletion-forms) | [`Depletion(N)`](@ref ComposableRecurrences.Depletion), or `Depletion(N, Floor())` | [Renewal then delay](@ref tutorial-renewal-delay) |
 | Doses or places used up in full | ``x_t = \min(v_t, S_{t-1})``, ``S_t = S_{t-1} - x_t`` | [`Depletion(Truncate(); pools = (S = b,))`](@ref ComposableRecurrences.Truncate), or `Truncate(κ)` for a smooth minimum | [`Truncate`](@ref ComposableRecurrences.Truncate) docstring |
 | All-or-nothing vaccination, efficacy ``\eta``, doses ``d_t`` | a share ``\eta`` of doses leaves ``S``: ``S_t \mathrel{-}= \min(\eta\, d_t, S_t)`` | [`Depletion(N, Hazard(; weights = (S = 1, V = 0)), Flow(:S => :V, TimeVarying(η .* d); form = Truncate()); pools = (:S, :V))`](@ref ComposableRecurrences.Depletion) | [Vaccination](@ref tutorial-vaccination) |
 | Leaky vaccination, efficacy ``\eta``, doses ``d_t`` | infections from ``S + (1 - \eta) V``, doses move from ``S`` to ``V`` | [`Depletion(N, Hazard(; weights = (S = 1, V = 1 - η)), Flow(:S => :V, TimeVarying(d); form = Truncate()); pools = (:S, :V))`](@ref ComposableRecurrences.Depletion) | [Vaccination](@ref tutorial-vaccination) |
@@ -49,6 +49,7 @@ Within one step a hazard flow acts before a count flow, so waning comes before t
 | Transmission routes, such as community and funeral contacts | ``I_{t,i} = R_{t,i} \sum_r \sum_j K^{(r)}_{ij} \sum_l g^{(r)}_l I_{t-l,j}`` | [`Recurrence(Pairwise(K₁ => g₁, K₂ => g₂))`](@ref Pairwise) | [Spatial models](@ref tutorial-spatial-strata) |
 | Importation between patches | a share ``M_{ij}`` of patch ``j``'s infections occurs in patch ``i``, with ``M = I - \operatorname{diag}(\varepsilon \odot o) + K \operatorname{diag}(\varepsilon)`` for a movement matrix ``K`` with column sums ``o`` | [`Redistribute(K, ε)`](@ref ComposableRecurrences.Redistribute) | [Spatial models](@ref tutorial-spatial-strata) |
 | Districts sharing a patch total ``\bar I_{t,p}`` fixed elsewhere | ``I_{t,i} = \bar I_{t,p}\, u_{t,i} / \sum_{j \in p} u_{t,j}``, with ``u_{t,i}`` district ``i``'s own new infections before the split | [`Allocate(groups, TimeVarying(PerStratum(Ī)))`](@ref ComposableRecurrences.Allocate) | [Spatial models](@ref tutorial-spatial-strata) |
+| A gain ``\gamma_{t,i}`` that also scales an added input ``a_{t,i}``, such as infections seeded from outside the model | ``\gamma_{t,i}\big(\sum_j K_{ij} \sum_l g_l I_{t-l,j} + a_{t,i}\big)``, read before any other modifier | [`Transform(*, TimeVarying(PerStratum(γ)))`](@ref ComposableRecurrences.Transform) first in the modifiers, with `add = a` and no gain | [Spatial models](@ref tutorial-spatial-strata) |
 
 ## [Branching processes and isolation](@id domain-branching)
 

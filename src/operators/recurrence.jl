@@ -54,6 +54,8 @@ routes that have a cheaper equivalent form.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
 struct with `forward!` on [`ComposableRecurrences.Pressure`](@ref).
+A bare `S × S × T` array is read as `TimeVarying`: its third axis is time,
+not lags.
 Modifiers are structs with `forward!` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 
@@ -191,9 +193,13 @@ function Recurrence(
     )
     _check_no_step(step)
     _check_no_delays(kernel)
-    k, C = _fold(kernel, coupling)
+    k, C = _fold(kernel, _as_coupling(coupling))
     return Recurrence(k, C, Tuple(modifiers), _modifier_names(modifiers))
 end
+
+# A coupling is strata × strata, so a bare third axis can only be time.
+_as_coupling(C) = C
+_as_coupling(C::AbstractArray{<:Real, 3}) = TimeVarying(C)
 
 # The modifiers' names, the keys of a named tuple of modifiers; a tuple
 # names none. A name cannot be one that `record` reads for another part.
@@ -359,9 +365,11 @@ end
 function _check_kernel_shape(k::AbstractArray)
     throw(
         ArgumentError(
-            "a kernel array is a vector of lag weights; wrap a strata × " *
-                "lags matrix as PerStratum(G) and a strata × strata × lags " *
-                "array as Pairwise(A); got $(_describe(k))"
+            "a kernel array is a vector of lag weights; a matrix could be " *
+                "strata × lags, PerStratum(G), or lags × time, " *
+                "TimeVarying(G), and a 3-dimensional array strata × lags × " *
+                "time, TimeVarying(PerStratum(G)), or strata × strata × " *
+                "lags, Pairwise(A), so wrap it as one; got $(_describe(k))"
         )
     )
 end
@@ -1176,9 +1184,9 @@ end
 # numbers included, log nothing more.
 const _PLAIN_NOTED = Set{String}()
 const _PLAIN_LOCK = ReentrantLock()
-function _note_plain(whys::Tuple)
+function _note_plain(whys::Tuple, what = "Recurrence")
     msg = string(
-        "Recurrence gradients use plain AD of the whole operator: ",
+        what, " gradients use plain AD of the whole operator: ",
         join(unique(whys), "; ")
     )
     new = @lock _PLAIN_LOCK (msg in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, msg); true))
@@ -1285,13 +1293,17 @@ _long_kernel(w::_WithState, args...) = _long_kernel(w.r, args...)
 # The parts of `r` whose reverse pass takes a local derivative, each with why
 # it needs the dual-number extension.
 function _dual_whys(kernel, C, ms)
-    Cp = _primary_adjoint(C) === :local ? (C,) : ()
+    Cp = _primary_adjoint(C) === :local || _derived_duals(C) ? (C,) : ()
     Ck = filter(K -> _coupling_adjoint(K) === :local, _kernel_couplings(kernel))
+    k = _derived_duals(kernel) ? (kernel,) : ()
     Ms = filter(m -> _needs_duals(m) || _init_needs_duals(m), ms)
     Mw = map(m -> _needs_duals(m) ? _dual_why(m) : _init_dual_why(m), Ms)
-    return (map(_dual_why, (Cp..., Ck...))..., Mw...)
+    return (map(_dual_why, (k..., Cp..., Ck...))..., Mw...)
 end
-_needs_duals(m) = _modifier_adjoint(m) === :local || _local_modifier(m) !== ()
+function _needs_duals(m)
+    return _modifier_adjoint(m) === :local || _local_modifier(m) !== () ||
+        _derived_duals(m)
+end
 function _init_dual_why(m)
     return "$(nameof(typeof(m))) sets its own initial state without a " *
         "`pullback!` for `Init`, and its local derivative needs " *
@@ -1300,7 +1312,12 @@ end
 # Called by the reverse-mode rules of `_plain_hook`, so only a reverse pass
 # through plain AD logs, once, which parts need the dual-number extension.
 # A `NoAdjoint` call opted out of the rule, so it says nothing.
-_note_missing_duals(op) = nothing
+function _note_missing_duals(op)
+    _duals_loaded(nothing) || !_derived_duals(op) ||
+        _note_plain((_dual_why(op),), _operator_name(op))
+    return nothing
+end
+_operator_name(op) = string(nameof(typeof(op)))
 _note_missing_duals(w::_WithState) = _note_missing_duals(w.r)
 function _note_missing_duals(r::Recurrence)
     _duals_loaded(nothing) && return nothing
@@ -1308,14 +1325,22 @@ function _note_missing_duals(r::Recurrence)
     isempty(whys) || _note_plain(whys)
     return nothing
 end
-function _dual_why(p)
+# A held `Derived` map is named first; otherwise each part says why it takes
+# a local derivative.
+_dual_why(p) = _derived_duals(p) ? _derived_why(p) : _local_why(p)
+function _local_why(p)
     return "$(nameof(typeof(p))) has no `pullback!`, and its local " *
         "derivative needs `ForwardDiff`; add `using ForwardDiff` for the " *
         "faster rule"
 end
-function _dual_why(::Depletion)
+function _local_why(::Depletion)
     return "a Depletion form without a `pullback!` takes a local derivative, " *
         "which needs `ForwardDiff`; add `using ForwardDiff` for the faster rule"
+end
+function _derived_why(p)
+    return "$(nameof(typeof(p))) holds a Derived map whose partials are " *
+        "taken with dual numbers, which needs `ForwardDiff`; add " *
+        "`using ForwardDiff` for the faster rule"
 end
 function _coupling_fit(C, h)
     _coupling_adjoint(C) === :local || return :one
@@ -1576,17 +1601,81 @@ end
 _all_pointwise(::Tuple{}) = true
 _all_pointwise(ms::Tuple) = _strata_loop(first(ms)) && _all_pointwise(Base.tail(ms))
 
+# Modifiers the series step runs stratum by stratum: pointwise ones, and a
+# blockwise one whose groups are single strata (`_group_series`). The latter
+# only on host arrays and with no trace written or read per stratum, as its
+# trace and device steps run on the whole vectors, and for one stratum: with
+# more, the vector step over all of them is as fast or faster.
+_all_series(::Tuple{}, rec, H) = true
+function _all_series(ms::Tuple, rec, H)
+    return _series_ok(first(ms), _first(rec), H) &&
+        _all_series(Base.tail(ms), _tail(rec), H)
+end
+function _series_ok(m, R, H)
+    return _strata_loop(m) ||
+        (_group_series(m) && _plain_record(R) && !_on_gpu(H) && size(H, 2) == 1)
+end
+# A blockwise modifier with one value per group that the series step may run
+# through its group step; a modifier type opts in, as its group step and
+# pullback must be the whole of its step.
+_group_series(m) = false
+_one_value(::Val{B}) where {B} = B[1] == 1
+_one_value(::Nothing) = false
+_plain_record(::Nothing) = true
+_plain_record(::NamedTuple{(:V, :S, :A)}) = true
+_plain_record(R) = false
+_first(::Nothing) = nothing
+_first(rec::Tuple) = first(rec)
+
 # `rec` holds records or trace sinks (see `_TraceSink`).
 @inline _thread(::Tuple{}, ::Tuple{}, rec, v, τ, t, k) = v
 @inline function _thread(ms::Tuple, states::Tuple, rec, v, τ, t, k)
-    m, s = first(ms), first(states)
-    sk = s[k]
-    rec === nothing || _record!(first(rec), v, sk, t, k)
-    v′, s′ = _step(m, v, sk, τ, k)
-    s[k] = s′
-    rec === nothing || _trace_step!(first(rec), m, v, sk, v′, s′, τ, t, k)
+    m = first(ms)
+    v′ = _series_stage!(
+        Val(_strata_loop(m)), m, first(states), _first(rec), v, τ, t, k
+    )
     return _thread(Base.tail(ms), Base.tail(states), _tail(rec), v′, τ, t, k)
 end
+@inline function _series_stage!(::Val{true}, m, s, R, v, τ, t, k)
+    sk = s[k]
+    R === nothing || _record!(R, v, sk, t, k)
+    v′, s′ = _step(m, v, sk, τ, k)
+    s[k] = s′
+    R === nothing || _trace_step!(R, m, v, sk, v′, s′, τ, t, k)
+    return v′
+end
+# Group `k` of a modifier with one value per group is stratum `k`, so its
+# state entries are gathered and stepped as the vector step's group body does.
+@inline function _series_stage!(::Val{false}, m, s, R, v, τ, t, k)
+    ns, G = _group_entries(m, s)
+    sk = _gather(s, Val(ns), G, k)
+    R === nothing || _record_group!(R, v, sk, t, k, G)
+    (v′,), s′ = @inline _block_step(m, (v,), sk, τ, k)
+    _scatter!(s, s′, G, k)
+    return v′
+end
+# The state entries per group and the number of groups.
+function _group_entries(m, s)
+    ns = _state_entries(_blocks(m))
+    return ns, length(s) ÷ ns
+end
+_state_entries(::Val{B}) where {B} = B[2]
+function _state_entries(::Nothing)
+    throw(ArgumentError("a modifier without blocks has no group state entries"))
+end
+function _record_group!(R, v, s, t, k, G)
+    R.V[k, t] = v
+    _record_group_state!(R.S, s, t, k, G)
+    return nothing
+end
+function _record_group_state!(R::AbstractMatrix, s, t, k, G)
+    _scatter!(view(R, :, t), s, G, k)
+    return nothing
+end
+_record_group_state!(R::AbstractVector, s, t, k, G) = nothing
+# Group `k`'s recorded state entering step `t`.
+_group_state_at(R::AbstractMatrix, n, G, k, t) = _gather(view(R, :, t), n, G, k)
+_group_state_at(R::AbstractVector, n, G, k, t) = _gather(R, n, G, k)
 _tail(::Nothing) = nothing
 _tail(rec::Tuple) = Base.tail(rec)
 function _record!(rec, v, s, t, k)
@@ -1607,10 +1696,15 @@ end
 # Whether a vector modifier's pullback reads its state after each step,
 # so the forward pass records it (see `_pass_buffer`).
 _keeps_after(m) = false
+# Whether a modifier's step, pullback or trace reads its incoming state.
+# `false` is a promise that none does: `_state_record` then shares the
+# starting state, so a step that read it would see the wrong one.
+_reads_state(m) = true
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,
     # so sharing it is safe; a stateless modifier's state never changes.
-    return isstateless(m) ? s : _unset(h, Tp, length(s), T)
+    keep = isstateless(m) || !_reads_state(m)
+    return keep ? s : _unset(h, Tp, length(s), T)
 end
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
@@ -1653,12 +1747,12 @@ function _init_state(::Type{Tp}, m, h, S) where {Tp}
     return s
 end
 
-# No step reads another stratum.
-_independent(coupling, kernel, modifiers) = false
+# No step reads another stratum, with the run's records `rec` and buffer `H`.
+_independent(coupling, kernel, modifiers, rec, H) = false
 function _independent(
-        ::_PointwiseCoupling, kernel, modifiers::Tuple
+        ::_PointwiseCoupling, kernel, modifiers::Tuple, rec, H
     )
-    return !(kernel isa _PairwiseKernel) && _all_pointwise(modifiers) &&
+    return !(kernel isa _PairwiseKernel) && _all_series(modifiers, rec, H) &&
         !_reads_across(modifiers)
 end
 
@@ -1985,7 +2079,7 @@ function _run(
     rec = keep ? map((m, s) -> _records(h, Tp, m, s, S, T), modifiers, init) :
         _sinks(Val(C), h, Tp, modifiers, states, S, T)
     work = S * _kwork(kernel, S, L)
-    if _independent(coupling, kernel, modifiers)
+    if _independent(coupling, kernel, modifiers, rec, H)
         # A stratum on its own reads only its kernel convolution, so the run
         # needs no pressure vectors.
         _blocks!(
@@ -2044,6 +2138,8 @@ oldest first, so ``h_L = I_0``.
 - `I0`: the value at the last step; a vector gives one per stratum.
 - `r`: the rate per step; with a vector `I0`, a scalar or one per
   stratum.
+  [`ComposableRecurrences.growth_rate`](@ref) gives it from a
+  reproduction number and generation interval.
 - `L`: the number of steps, at least 1, usually the kernel length.
 
 # Examples

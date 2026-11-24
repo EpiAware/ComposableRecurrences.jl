@@ -77,7 +77,7 @@ ConstructionBase.constructorof(::Type{<:Survival}) = _survival_flat
 # == Coefficients ==
 
 # A kernel computed from coefficients, and the kernel it is part of.
-const _Computed = Union{Derived, Survival}
+const _Computed = Union{Derived, Survival, _LagMap}
 const _ComputedKernel = TimeVarying{Primary, <:_Computed}
 _over_time(::_Computed) = true
 
@@ -99,7 +99,7 @@ _check_coefficient(x::_Computed) = nothing
 _check_coefficient(x::Real) = nothing
 const _COEFFICIENTS = "a number, a vector of lag weights, a PerStratum " *
     "vector or matrix, a TimeVarying vector or PerStratum matrix (with or " *
-    "without Primary()), a Derived or a Survival"
+    "without Primary()), a Derived, a Survival, Increments or Normalised"
 @noinline function _check_coefficient(x)
     throw(
         ArgumentError(
@@ -128,6 +128,7 @@ _check_argument(x) = (_check_param(_DerivedArg(), x); nothing)
 _check_kernel_args(x) = _check_coefficient(x)
 _check_kernel_args(x::Derived) = (map(_check_kernel_args, x.args); nothing)
 _check_kernel_args(x::Survival) = _check_kernel_args(x.hazard)
+_check_kernel_args(x::_LagMap) = _check_kernel_args(x.x)
 
 # The time a coefficient is read at for lag `l` of cohort `τ`: the cohort's
 # own time, or the time the weight lands.
@@ -140,11 +141,13 @@ _coef_lags(x::AbstractVector) = length(x)
 _coef_lags(x::PerStratum{<:AbstractMatrix}) = size(x.x, 2)
 _coef_lags(x::Derived) = _joined(_coef_lags, x.args, "lags")
 _coef_lags(x::Survival) = _coef_lags(x.hazard)
+_coef_lags(x::_LagMap) = _coef_lags(x.x)
 _coef_strata(x) = 0
 _coef_strata(x::PerStratum) = size(x.x, 1)
 _coef_strata(x::TimeVarying{<:Any, <:PerStratum}) = size(x.x.x, 1)
 _coef_strata(x::Derived) = _joined(_coef_strata, x.args, "strata")
 _coef_strata(x::Survival) = _coef_strata(x.hazard)
+_coef_strata(x::_LagMap) = _coef_strata(x.x)
 # One tuple entry at a time, so arguments of mixed types infer.
 _joined(f::F, ::Tuple{}, what) where {F} = 0
 function _joined(f::F, args::Tuple, what) where {F}
@@ -161,6 +164,8 @@ _stratified_type(::Type) = false
 _stratified_type(::Type{<:PerStratum}) = true
 _stratified_type(::Type{<:TimeVarying{<:Any, <:PerStratum}}) = true
 _stratified_type(::Type{<:Survival{H}}) where {H} = _stratified_type(H)
+_stratified_type(::Type{<:Increments{X}}) where {X} = _stratified_type(X)
+_stratified_type(::Type{<:Normalised{X}}) where {X} = _stratified_type(X)
 function _stratified_type(::Type{<:Derived{F, A}}) where {F, A}
     return any(_stratified_type, fieldtypes(A))
 end
@@ -194,7 +199,8 @@ function _check_kernel_strata(x::_Computed, S)
     return nothing
 end
 function _check_kernel_times(k::_ComputedKernel, stop)
-    return _check_coef_times(k.x, stop, stop)
+    _check_coef_times(k.x, stop, stop)
+    return _check_lag_times(k.x, stop, 0)
 end
 
 # Each time-varying coefficient covers the cohorts up to `n` and the times
@@ -211,6 +217,20 @@ function _check_coef_times(x::Derived, n, last)
     return nothing
 end
 _check_coef_times(x::Survival, n, last) = _check_coef_times(x.hazard, n, last)
+_check_coef_times(x::_LagMap, n, last) = _check_coef_times(x.x, n, last)
+# A total reads every lag of each cohort: for lags from `o`, the times up to
+# `n + L - 1 + o`.
+_check_lag_times(x, n, o) = nothing
+function _check_lag_times(x::Derived, n, o)
+    foreach(a -> _check_lag_times(a, n, o), x.args)
+    return nothing
+end
+_check_lag_times(x::Survival, n, o) = _check_lag_times(x.hazard, n, o)
+_check_lag_times(x::Increments, n, o) = _check_lag_times(x.x, n, o)
+function _check_lag_times(x::Normalised, n, o)
+    _check_coef_times(x.x, n, n + _coef_lags(x.x) - 1 + o)
+    return _check_lag_times(x.x, n, o)
+end
 
 # A computed kernel is differentiated by its own reverse pass unless a map
 # holds floats of its own.
@@ -226,6 +246,7 @@ _coef_array(x) = nothing
 _coef_array(x::AbstractArray) = x
 _coef_array(x::Union{PerStratum, TimeVarying}) = _coef_array(x.x)
 _coef_array(x::Survival) = _coef_array(x.hazard)
+_coef_array(x::_LagMap) = _coef_array(x.x)
 _coef_array(x::Derived) = _first_array(map(_coef_array, x.args))
 _first_array(::Tuple{}) = nothing
 _first_array(a::Tuple{Nothing, Vararg}) = _first_array(Base.tail(a))
@@ -497,6 +518,97 @@ function _block_back!(x̄, x::Survival, sc, τ0, nb, o, last)
     return nothing
 end
 
+# == Lag maps, a block of cohorts at a time ==
+
+# `U` holds the values of the kernel inside, `W` the map's and `W̄` their
+# cotangents in the reverse pass; `P` is whether they have a strata axis.
+struct _LagScratch{P, C, A <: AbstractArray{<:Any, 3}}
+    inner::C
+    U::A
+    W::A
+    W̄::A
+    function _LagScratch{P}(inner::C, U::A, W::A, W̄::A) where {P, C, A}
+        return new{P, C, A}(inner, U, W, W̄)
+    end
+end
+function _scratch(x::_LagMap, ::Type{Tp}, L, B = _BLOCK) where {Tp}
+    ns = max(_coef_strata(x.x), 1)
+    return _LagScratch{_stratified(x.x)}(
+        _scratch(x.x, Tp, L, B), _alloc(Tp, B, L, ns), _alloc(Tp, B, L, ns),
+        zeros(Tp, 0, 0, 0)
+    )
+end
+function _back_scratch(sc::_LagScratch{P}) where {P}
+    W̄ = zeros(eltype(sc.W), size(sc.W))
+    return _LagScratch{P}(_back_scratch(sc.inner), sc.U, sc.W, W̄)
+end
+_row(sc::_LagScratch{false}, k) = 1
+_row(sc::_LagScratch{true}, k) = k
+
+# The last time the kernel inside is read at, and the lags of cohort `τ` the
+# map reads: those whose weights land by `last`, or every lag for a total.
+_inner_last(::Increments, τ0, nb, L, o, last) = last
+_inner_last(::Normalised, τ0, nb, L, o, last) = τ0 + nb + L + o
+_map_lags(::Increments, τ, L, o, last) = _imax(τ, L, o, last)
+_map_lags(::Normalised, τ, L, o, last) = L
+
+function _block!(x::_LagMap, sc, τ0, nb, o, last)
+    (; U, W) = sc
+    L = size(U, 2)
+    _block!(x.x, sc.inner, τ0, nb, o, _inner_last(x, τ0, nb, L, o, last))
+    for k in axes(U, 3), b in 1:nb
+        τ = τ0 + b - 1
+        n = _map_lags(x, τ, L, o, last)
+        @inbounds for i in 1:n
+            U[b, i, k] = _value(x.x, sc.inner, k, i, τ, i - 1 + o, b)
+        end
+        _lag_map!(view(W, b, :, k), x, view(U, b, :, k), n)
+    end
+    return nothing
+end
+Base.@propagate_inbounds function _value(x::_LagMap, sc::_LagScratch, k, i, τ, l, b)
+    return sc.W[b, i, _row(sc, k)]
+end
+_add_value!(::Nothing, x::_LagMap, sc::_LagScratch, v, k, i, τ, l, b) = nothing
+Base.@propagate_inbounds function _add_value!(
+        x̄, x::_LagMap, sc::_LagScratch, v, k, i, τ, l, b
+    )
+    sc.W̄[b, i, _row(sc, k)] += v
+    return nothing
+end
+# Each cohort's weight cotangents back through the map to the kernel inside,
+# cleared for the next block.
+_block_back!(::Nothing, x::_LagMap, sc, τ0, nb, o, last) = nothing
+function _block_back!(x̄, x::_LagMap, sc, τ0, nb, o, last)
+    x̄x = cotangent(x̄, :x)
+    (; U, W̄) = sc
+    L = size(U, 2)
+    T = eltype(U)
+    for k in axes(U, 3), b in 1:nb
+        τ = τ0 + b - 1
+        n = _map_lags(x, τ, L, o, last)
+        w̄ = view(W̄, b, :, k)
+        _lag_map_back!(w̄, x, w̄, view(U, b, :, k), n)
+        @inbounds for i in 1:n
+            v = w̄[i]
+            w̄[i] = zero(T)
+            iszero(v) ||
+                _add_value!(x̄x, x.x, sc.inner, v, k, i, τ, i - 1 + o, b)
+        end
+    end
+    full = _inner_last(x, τ0, nb, L, o, last)
+    _block_back!(x̄x, x.x, sc.inner, τ0, nb, o, full)
+    return nothing
+end
+@noinline function _device_lag_map_error()
+    throw(
+        ArgumentError(
+            "a kernel with Increments or Normalised fills on the host; " *
+                "pass its coefficients as host arrays"
+        )
+    )
+end
+
 # The block's weights into `W` (cohorts × lags × strata), and their
 # cotangents `W̄` back to the mirror `x̄`.
 function _fill_block!(W, x, sc, τ0, nb, o, last)
@@ -534,10 +646,12 @@ function _fill_kernel(
     x = kernel.x
     n = max(n, 0)
     _check_coef_times(x, n, last)
+    _check_lag_times(x, n, o)
     Tp = float(param_eltype(x))
     L = _coef_lags(x)
     ns = max(_coef_strata(x), 1)
     like = _coef_array(x)
+    _on_gpu(like) && _lag_mapped(x) && _device_lag_map_error()
     _on_gpu(like) && return _device_fill(x, like, Tp, ns, L, n, o, last)
     B = _block_size(x, n, keep)
     sc = _scratch(x, Tp, L, B)
@@ -602,7 +716,17 @@ function _keeps_fill_type(::Type{<:Derived{F, A}}) where {F, A}
     return !(F <: _Arithmetic) || any(_keeps_fill_type, fieldtypes(A))
 end
 _keeps_fill_type(::Type{<:Survival{H}}) where {H} = _keeps_fill_type(H)
-@generated _keeps_fill(x) = _keeps_fill_type(x)
+_keeps_fill_type(::Type{<:_LagMap}) = false
+# Whether a coefficient of type `T` holds a lag map. Its walk keeps one
+# cohort's values at a time, so no walk or block of it is kept.
+_lag_mapped_type(::Type) = false
+_lag_mapped_type(::Type{<:_LagMap}) = true
+_lag_mapped_type(::Type{<:Survival{H}}) where {H} = _lag_mapped_type(H)
+function _lag_mapped_type(::Type{<:Derived{F, A}}) where {F, A}
+    return any(_lag_mapped_type, fieldtypes(A))
+end
+@generated _lag_mapped(x) = _lag_mapped_type(x)
+@generated _keeps_fill(x) = _keeps_fill_type(x) && !_lag_mapped_type(x)
 
 # Blocks are recomputed unless `_fill_kernel` kept every cohort's scratch.
 _weights_back!(::Nothing, kernel::_ComputedKernel, K̄, o, last, sc) = nothing
@@ -641,5 +765,7 @@ for op in (:+, :-, :*, :/)
         Base.$op(a::Survival, b::Union{_Operand, _Computed}) =
             Derived($op, a, b)
         Base.$op(a::Union{_Operand, Derived}, b::Survival) = Derived($op, a, b)
+        Base.$op(a::_LagMap, b::Union{_Operand, _Computed}) = Derived($op, a, b)
+        Base.$op(a::Union{_Operand, Derived}, b::_LagMap) = Derived($op, a, b)
     end
 end

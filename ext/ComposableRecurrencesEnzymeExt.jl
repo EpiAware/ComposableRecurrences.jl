@@ -8,7 +8,7 @@ module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
     _Current, _check_form, _check_now, _checked_call, _count_pullback,
-    _check_parts, _check_secondary,
+    _growth_root, _check_parts, _check_secondary,
     _convolve_masses!, _convolve_masses_back!, _current, _fft_convolve!,
     _fft_convolve_back!, _fft_convolve_terms!, _flat_groups, _is_leaf,
     _keep_inputs, _leaf_paths, _note_missing_duals, _offset, _plain_hook, _probe_step_reads, _rebuild_leaves,
@@ -229,6 +229,9 @@ EnzymeRules.inactive(::typeof(_check_parts), args...) = nothing
 EnzymeRules.inactive(::typeof(_check_now), args...) = nothing
 # Nor are a call's checks against its recurrence, which return only sizes.
 EnzymeRules.inactive(::typeof(_checked_call), args...) = nothing
+# Nor is `growth_rate`'s root on primal values: its last Newton step carries
+# the derivative.
+EnzymeRules.inactive(::typeof(_growth_root), args...) = nothing
 # The call-time count of a whole-step modifier's reads picks its route.
 EnzymeRules.inactive(::typeof(_probe_step_reads), args...) = nothing
 # Nor is its check that only the kernel takes `Primary()` indexing.

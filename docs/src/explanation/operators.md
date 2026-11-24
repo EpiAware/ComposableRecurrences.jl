@@ -68,6 +68,7 @@ A recurrence `renewal` takes its gain first, and a convolution `delay` takes its
 | [`delay'(x; tail, start, stop)`](@ref Base.transpose(::Convolution)) | the transpose, which reads `x` forward from each time |
 | [`pressure(renewal, y; history, start)`](@ref ComposableRecurrences.pressure) | ``K_t p_t`` recomputed from `y`; `y` over it is the gain as run |
 | [`ComposableRecurrences.window_sums(y, ends; dims)`](@ref ComposableRecurrences.window_sums) | the sums of `y` over windows ending at `ends` |
+| [`ComposableRecurrences.window_sums(y, starts, stops; dims)`](@ref ComposableRecurrences.window_sums) | the sums of `y` over windows from `starts` to `stops`, which may leave gaps or overlap |
 | [`ComposableRecurrences.kernel_weights(TimeVarying(w, Primary()), n)`](@ref ComposableRecurrences.kernel_weights) | the weights a computed kernel `w` gives cohorts 1 to `n` |
 
 The keyword `stop` defaults to the common length of the time-indexed inputs, and inputs of different lengths without a `stop` are an error.
@@ -126,6 +127,7 @@ Operators return only their outputs, so recompute an intermediate this way rathe
 Every time-indexed input is read at absolute time ``t``, counted from 1.
 This holds for `gain`, `add`, a convolution's `x` and every [`TimeVarying`](@ref) kernel, coupling or parameter.
 `start` and `stop` choose which times are computed, not how the inputs are read.
+So a run over a window of longer time-varying inputs needs no slicing: pass them whole and set `start` and `stop`.
 So a call from `start = 4` reads `gain[4]` at its first step, and the output has `stop - start + 1` entries.
 With ``h_{t}`` the history value at time ``t``, that first step is
 

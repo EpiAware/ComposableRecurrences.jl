@@ -1,6 +1,6 @@
-# [Adapt + KernelAbstractions + Reactant extension](@id extension-reactant)
+# [Compiling with Reactant](@id extension-reactant)
 
-Loading Reactant and KernelAbstractions lets operator calls on traced arrays compile with `Reactant.@compile`.
+Loading Reactant and KernelAbstractions lets operator calls on traced arrays compile with `Reactant.@compile`, which makes Reactant one of the [backends](@ref adjoint-backends).
 A loop over at least [`TRACED_MIN_STRATA`](@ref ComposableRecurrences.TRACED_MIN_STRATA) strata runs as one kernel, and the time loop compiles to one loop, so the program does not grow with steps or strata.
 Without KernelAbstractions the extension does not load, and plain loops fail to compile.
 Pass the history as a traced array too, to [join it](@ref explanation-returns) to a traced output.
@@ -29,6 +29,3 @@ dR = (Reactant.@compile raise = true raise_first = true grad(R))(R)
 
 A traced call ignores the set [executor](@ref executors), and Enzyme differentiates the traced program rather than the package's rules.
 The [support matrix](https://github.com/EpiAware/ComposableRecurrences.jl/blob/main/test/reactant/RESULTS.md) records which scenarios compile and match.
-How Reactant compares with other backends is in [Backends](@ref adjoint-backends).
-
-All extensions are listed in the [overview](@ref extensions-overview).

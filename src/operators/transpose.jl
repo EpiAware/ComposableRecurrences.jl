@@ -100,29 +100,38 @@ function _run_forward(t::_TransposedConvolution, x, tail, start, stop)
     tail === nothing ||
         _load_input!(A, tail, n + 1 - start, last - n, start - n)
     o = 1 - clamp(start - _nlags(kernel) + 1, 1, last + 1)
-    Z = _zeros(x, Tp, o + _transposed_rows(kernel, last, stop), S)
+    rows = o + _transposed_rows(kernel, last, stop)
+    Z = _zeros(x, Tp, rows, S)
     _with_executor(_convolve_back!, Z, nothing, kernel, Z, A, o, start)
     out = _public(Z, (o + start):(o + stop), x)
-    return out, (; A, n, o, start, stop, last)
+    return out, (; A, n, o, start, stop, last, rows)
 end
 
 # The convolution's forward body takes the output cotangent back to the
 # series; its reverse body gives the kernel's.
 function pullback!(grads, t::_TransposedConvolution, ::Run, cache)
     _count_pullback()
-    (; A, n, o, start, stop, last) = cache
+    (; A, n, o, start, stop, last, rows) = cache
     x̄, t̄ = grads.args
     kernel = t.c.kernel
-    Z̄ = _zeros(A, eltype(A), o + _transposed_rows(kernel, last, stop), size(A, 2))
+    Z̄ = _zeros(A, eltype(A), rows, size(A, 2))
     _load_input!(Z̄, grads.y, o + start - 1, stop - start + 1)
     Ā = zero(A)
-    _with_executor(_convolve!, Ā, kernel, Z̄, o, start)
     k̄ = cotangent(cotangent(grads.piece, :c), :kernel)
-    k̄ === nothing || _with_executor(
-        _convolve_back!, zero(Z̄), k̄, kernel, Z̄, A, o, start
-    )
+    _with_executor(_transposed_back!, Ā, k̄, kernel, Z̄, A, o, start)
     _add_rows!(x̄, Ā, 1 - start, start, min(n, last))
     _add_rows!(t̄, Ā, n + 1 - start, max(start - n, 1), last - n)
+    return nothing
+end
+
+# The series' cotangent `Ā` from the convolution's forward body, then the
+# kernel's from its reverse body; a kernel may take both in one pass.
+function _transposed_back!(ex, Ā, k̄, kernel, Z̄, A, o, start)
+    return _transposed_split!(ex, Ā, k̄, kernel, Z̄, A, o, start)
+end
+function _transposed_split!(ex, Ā, k̄, kernel, Z̄, A, o, start)
+    _convolve!(ex, Ā, kernel, Z̄, o, start)
+    k̄ === nothing || _convolve_back!(ex, zero(Z̄), k̄, kernel, Z̄, A, o, start)
     return nothing
 end
 
@@ -174,7 +183,7 @@ function _check_transpose(kernel, x, tail, start, stop)
 end
 
 # The rows the bodies fill and read for the outputs: past `stop` for most
-# kernels, and only up to it for a computed kernel (see `_cohorts`).
+# kernels; a computed kernel's are by its bodies.
 _transposed_rows(kernel, last, stop) = max(last, stop)
 # A `Primary()` kernel's column is the time of the output; any other's is
 # the time it reads.
