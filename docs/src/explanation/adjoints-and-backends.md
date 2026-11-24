@@ -149,7 +149,7 @@ The [rule timings](@ref rule-timings) are each rule's time over its twin's, at `
   Without them Mooncake's plain AD of a convolution is 1.3 to 3.1 times slower.
 - Under Enzyme, a sparse route coupling's pressure is differentiated by the coupling's own `pullback!`.
   Plain AD reaches it under `NoAdjoint`, and by default when `Pairwise` routes with a route coupling without a `pullback!` take plain AD on Enzyme.
-Without the rule that default is 3 to 4 times slower.
+  Without the rule that default is 3 to 4 times slower.
 
 Rules for building components before the call, the masses of a chain of delays and the movement of `Redistribute(K, ε)`, are not the operator's and stay too.
 
