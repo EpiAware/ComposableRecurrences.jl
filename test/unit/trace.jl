@@ -141,7 +141,7 @@ end
     S = 3
     m = CR.Depletion(PerStratum(fill(150.0, S)), CR.Floor())
     @test CR._blocks(m) === nothing && CR._strata_loop(m)
-    R = CR._TraceSink(zeros(CR.ntrace(m, S), 4), nothing, nothing, S)
+    R = CR._TraceSink(zeros(CR.ntrace(m, S), 4), nothing, nothing, S, true)
     # Through the module's own name, a constant, and measured inside a
     # function, so only the step's allocations are counted.
     step(R, m) = ComposableRecurrences._trace_step!(

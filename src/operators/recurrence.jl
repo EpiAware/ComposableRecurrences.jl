@@ -1415,7 +1415,7 @@ end
 
 # Checks the call, then runs the buffer loop at the promoted eltype.
 function _recur(
-        r::Recurrence, gain, add, h, s0, τ0, stop, cache::Val
+        r::Recurrence, gain, add, h, s0, τ0, stop, cache::Val; picks = nothing
     )
     (; kernel, coupling, modifiers) = r
     L = _nlags(kernel)
@@ -1445,7 +1445,7 @@ function _recur(
     _check_device_moves(h, modifiers)
     T = stop - τ0 + 1
     Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
-    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache)
+    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache; picks)
 end
 
 # The buffer eltype from the promoted eltype `E` of every input and part:
@@ -1788,10 +1788,11 @@ end
 # `Val(:trace)` traces only, `Val(false)` nothing. Row `D + t` holds time
 # `τ0 + t - 1`; a threaded run splits independent strata once per call.
 function _run(
-        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, cache::Val
+        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, cache::Val;
+        picks = nothing
     ) where {Tp}
     return _with_executor() do ex
-        _run(Tp, ex, r, gain, add, h, s0, τ0, L, D, S, T, cache)
+        _run(Tp, ex, r, gain, add, h, s0, τ0, L, D, S, T, cache; picks)
     end
 end
 
@@ -1800,7 +1801,8 @@ end
 # A plain call returns only the output. Independent strata may run
 # strata-major (`_strata_major`); AD never does (see `_untraced`).
 function _run(
-        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{:primal}
+        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{:primal};
+        picks = nothing
     ) where {Tp}
     if _strata_major(Tp, ex, r, gain, add, h, s0, L, S) && _untraced()
         return (_strata_major_run(Tp, r, gain, add, h, τ0, L, D, S, T),)
@@ -1871,7 +1873,8 @@ function _strata_major_run(
 end
 
 function _run(
-        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{C}
+        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{C};
+        picks = nothing
     ) where {Tp, C}
     keep = C === true || C === :traced
     coupling = r.coupling
@@ -1894,7 +1897,7 @@ function _run(
         C === :trace ? _trace_pressures(h, Tp, S, T) : nothing
     end
     rec = keep ? map((m, s) -> _records(h, Tp, m, s, S, T), modifiers, init) :
-        _sinks(Val(C), h, Tp, modifiers, states, S, T)
+        _sinks(Val(C), h, Tp, modifiers, states, S, T, picks)
     work = S * _kwork(kernel, S, L)
     if _independent(coupling, kernel, modifiers)
         # A stratum on its own reads only its kernel convolution, so the run
