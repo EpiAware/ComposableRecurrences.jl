@@ -114,8 +114,8 @@ end
         @test eltype(Recurrence(g; modifiers = (m,))(R; history = h)) == Float32
     end
     # The movement of a Float32 kernel stays Float32.
-    @test eltype(CR._kernel_movement(K, 0.1f0)) == Float32
-    @test CR.param_eltype(CR._kernel_movement(K, fill(0.1f0, 2, 5))) == Float32
+    @test eltype(CR.Redistribute(K, 0.1f0).M) == Float32
+    @test CR.param_eltype(CR.Redistribute(K, fill(0.1f0, 2, 5)).M) == Float32
     # The constructor infers with a form struct.
     floor_depletion() = ComposableRecurrences.Depletion(
         1.0, ComposableRecurrences.Floor()

@@ -126,9 +126,13 @@ function _piece_summary(d::_Drawing, names)
     return "draw " * form * N
 end
 function _piece_summary(fs::_Flows, names)
-    pair(f) = string(names[f.from], " => ", f.to == 0 ? "0" : names[f.to])
+    pair(f) = string(_pool_names(names, f.from), " => ", f.to == 0 ? "0" : names[f.to])
     return "flows (" * join(map(pair, fs), ", ") * ")"
 end
+
+# A flow's sources by name: one, or a split's tuple of them.
+_pool_names(names, i::Int) = string(names[i])
+_pool_names(names, I::Tuple) = "(" * join(map(i -> names[i], I), ", ") * ")"
 
 function _summary(d::Depletion)
     names = keys(d.pools)
@@ -172,7 +176,7 @@ end
 function _summary(t::Transform)
     parts = String[_brief(t.f)]
     _theta_summary!(parts, t.f, t.θ)
-    d = t.derivative
+    d = _user_derivative(t.derivative)
     d === nothing || push!(parts, "derivative " * _brief(d))
     return _summary_string(:Transform, parts)
 end

@@ -157,7 +157,7 @@ function _device_modifiers(ms::Tuple)
 end
 # A user modifier takes the rule when it runs per stratum or on fixed groups
 # with scalar parameters; an `Init` of its own reverses on host copies (see
-# `_init_strata_back!` in the GPUArraysCore extension). Groups reverse one
+# `_init_strata_back!` in the GPUArrays extension). Groups reverse one
 # per kernel index unless the modifier has a `pullback!` for the whole step,
 # which would index the device arrays from the host.
 _device_modifier(m) = (_strata_loop(m) || _device_groups(m)) && _scalar_params(m)
@@ -297,7 +297,8 @@ function _series_back!(
             τ = τ0 + t - 1
             for k in ks
                 v̄k = _thread_back(
-                    ms, acc.m̄s, rec, s̄s, @inbounds(H̄[D + t, k]), τ, t, k
+                    ms, acc.m̄s, rec, s̄s, @inbounds(H̄[D + t, k]), τ, t, k,
+                    @inbounds(H[D + t, k])
                 )
                 p̄k = _core_back!(acc, v̄k, pr, gain, coupling, t, τ, k)
                 _kernel_back_at!(kb, acc.ḡ, g, p̄k, H, H̄, t + D - L, τ, L, k)
@@ -348,7 +349,8 @@ function _carried_back!(
     for t in reverse(steps)
         τ = τ0 + t - 1
         v̄k = _thread_back(
-            ms, acc.m̄s, rec, s̄s, @inbounds(H̄[D + t, k]) + carry, τ, t, k
+            ms, acc.m̄s, rec, s̄s, @inbounds(H̄[D + t, k]) + carry, τ, t, k,
+            @inbounds(H[D + t, k])
         )
         p̄ = _core_back!(acc, v̄k, pr, gain, coupling, t, τ, k)
         L >= 1 || (carry = zero(carry); continue)
@@ -367,9 +369,11 @@ _stratum_buffer(::Nothing, g, k) = nothing
 
 # Stratum `k`'s output cotangent at step `t` back through the pointwise
 # modifiers, then `_gain_add_back!`.
-@inline function _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D, k)
+@inline function _value_back!(acc, s̄s, rec, pr, gain, C, ms, H, H̄, t, τ, D, k)
     m̄s = _unown(acc.m̄s)
-    v̄k = _thread_back(ms, m̄s, rec, s̄s, @inbounds(H̄[D + t, k]), τ, t, k)
+    v̄k = _thread_back(
+        ms, m̄s, rec, s̄s, @inbounds(H̄[D + t, k]), τ, t, k, @inbounds(H[D + t, k])
+    )
     return _gain_add_back!(acc, v̄k, pr, gain, C, t, τ, k)
 end
 
@@ -442,12 +446,14 @@ function _steps_back!(
             _refresh!(ms, D + t)
             if _all_pointwise(ms)
                 _reduce_blocks!(
-                    _values_back!, accs, S, q̄, s̄s, rec, pr, gain, coupling, ms, H̄,
-                    t, τ, D
+                    _values_back!, accs, S, q̄, s̄s, rec, pr, gain, coupling, ms, H,
+                    H̄, t, τ, D
                 )
             else
                 copyto!(v̄, view(H̄, D + t, :))
-                _stages_back!(ms, _own(acc.m̄s), rec, s̄s, bufs, v̄, τ, t)
+                _stages_back!(
+                    ms, _own(acc.m̄s), rec, s̄s, bufs, v̄, τ, t, view(H, D + t, :)
+                )
                 _reduce_blocks!(
                     _gain_adds_back!, _step_accs(accs), S,
                     q̄, v̄, pr, gain, coupling, t, τ
@@ -463,7 +469,7 @@ function _steps_back!(
     return nothing
 end
 
-# The coupling's pullback at step `t`, then the kernels'. The GPUArraysCore
+# The coupling's pullback at step `t`, then the kernels'. The GPUArrays
 # extension runs both in one kernel per step for a dense coupling on device
 # arrays, with the buffers `_coupling_steps` makes once per call and the
 # coupling's cotangent added after the loop (`_coupling_steps_done!`).
@@ -484,9 +490,9 @@ function _gain_adds_back!(ks, acc, q̄, v̄, pr, gain, C, t, τ)
     return nothing
 end
 
-function _values_back!(ks, acc, q̄, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D)
+function _values_back!(ks, acc, q̄, s̄s, rec, pr, gain, C, ms, H, H̄, t, τ, D)
     for k in ks
-        q̄[k] = _value_back!(acc, s̄s, rec, pr, gain, C, ms, H̄, t, τ, D, k)
+        q̄[k] = _value_back!(acc, s̄s, rec, pr, gain, C, ms, H, H̄, t, τ, D, k)
     end
     return nothing
 end
@@ -577,34 +583,52 @@ Base.@propagate_inbounds _add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v
 Base.@propagate_inbounds _add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
 Base.@propagate_inbounds _add_slot!(x̄::_Owned, v, k, t) = _add_slot!(x̄.x, v, k, t)
 
-_thread_back(::Tuple{}, m̄s, rec, s̄s, v̄, τ, t, k) = v̄
-function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k)
+# `y` is the last modifier's output, the buffer's value; each other
+# modifier's output is the next one's recorded value.
+_thread_back(::Tuple{}, m̄s, rec, s̄s, v̄, τ, t, k, y) = v̄
+function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k, y)
     v̄ = _thread_back(
-        Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t, k
+        Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t, k,
+        y
     )
     R, s̄ = first(rec), first(s̄s)
     m, m̄, vk, sk = first(ms), first(m̄s), R.V[k, t], _state_at(R.S, k, t)
     v̄, s̄k, a, b = _trace_out(R, m, m̄, v̄, s̄[k], vk, sk, τ, t, k)
-    v̄, s̄k = _step_pullback((; piece = m̄, v = v̄, s = s̄k), m, vk, sk, τ, k)
+    g = _with_output(
+        Val(_wants_output(m)), (; piece = m̄, v = v̄, s = s̄k), Base.tail(rec), y,
+        t, k
+    )
+    v̄, s̄k = _step_pullback(g, m, vk, sk, τ, k)
     s̄[k] = _trace_in(b, s̄k)
     return _trace_in(a, v̄)
 end
 
 # `grads.after` and `grads.pass` go to a modifier that asks (`_pass_buffer`).
-_stages_back!(::Tuple{}, m̄s, rec, s̄s, bufs, v̄, τ, t) = nothing
-function _stages_back!(ms::Tuple, m̄s, rec, s̄s, bufs, v̄, τ, t)
+_stages_back!(::Tuple{}, m̄s, rec, s̄s, bufs, v̄, τ, t, y) = nothing
+function _stages_back!(ms::Tuple, m̄s, rec, s̄s, bufs, v̄, τ, t, y)
     _stages_back!(
         Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s),
-        Base.tail(bufs), v̄, τ, t
+        Base.tail(bufs), v̄, τ, t, y
     )
     R, m, m̄, s̄ = first(rec), first(ms), first(m̄s), first(s̄s)
     v, s = view(R.V, :, t), _states_at(R.S, t)
     _trace_out!(R, m, m̄, v̄, s̄, v, s, τ, t)
-    _vector_pullback!(_step_grads(m̄, v̄, s̄, R.A, first(bufs), t), m, v, s, τ)
+    g = _with_output(
+        Val(_wants_output(m)), _step_grads(m̄, v̄, s̄, R.A, first(bufs), t),
+        Base.tail(rec), y, t, :
+    )
+    _vector_pullback!(g, m, v, s, τ)
     _trace_in!(R, m, v̄, s̄)
     return nothing
 end
 _step_grads(m̄, v̄, s̄, ::Nothing, ::Nothing, t) = (; piece = m̄, v = v̄, s = s̄)
+# A modifier that reads its output (`_wants_output`) gets it in `grads.out`:
+# at stratum `k`, or the column for `k = :`.
+_with_output(::Val{false}, g, rest, y, t, k) = g
+_with_output(::Val{true}, g, rest, y, t, k) = merge(g, (; out = _output_at(rest, y, t, k)))
+_output_at(::Tuple{}, y, t, k) = y
+_output_at(rest::Tuple{Any, Vararg}, y, t, k) = @inbounds first(rest).V[k, t]
+_output_at(rest::Tuple{Any, Vararg}, y, t, ::Colon) = view(first(rest).V, :, t)
 function _step_grads(m̄, v̄, s̄, A, b, t)
     return (; piece = m̄, v = v̄, s = s̄, after = _column(A, t), pass = _column(b, t))
 end
