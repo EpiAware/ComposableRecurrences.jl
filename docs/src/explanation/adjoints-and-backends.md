@@ -63,7 +63,8 @@ A modifier with a [`Derived`](@ref ComposableRecurrences.Derived) parameter whos
 An operator whose kernel is a `Derived` with such a map takes plain AD for the same reason.
 
 The [local step](@ref adjoint-local-step) rebuilds a component with dual numbers in place of its float parameters.
-For a coupling or a whole-step modifier, one pass of dual numbers seeds up to 24 inputs, so its limit of 24 in the table is one pass per step and its limit of 48 is two.
+For a coupling or a whole-step modifier, one pass of dual numbers seeds up to 24 inputs.
+Its limit of 24 in the table is therefore one pass per step, and its limit of 48 is two.
 A pointwise modifier's reads take passes of up to 12, so its limit of 24 is two passes.
 The `Recurrence` constructor checks the rebuild once and stores the result in the field `rebuilds`.
 
@@ -147,7 +148,8 @@ The [rule timings](@ref rule-timings) are each rule's time over its twin's, at `
 - Under Mooncake, two BLAS overlays stay: a convolution adds each lag with `axpy!`, which Mooncake differentiates with its own rule.
   Without them Mooncake's plain AD of a convolution is 1.3 to 3.1 times slower.
 - Under Enzyme, a sparse route coupling's pressure is differentiated by the coupling's own `pullback!`.
-  Plain AD reaches it under `NoAdjoint`, and by default when `Pairwise` routes with a route coupling without a `pullback!` take plain AD on Enzyme; without the rule that default is 3 to 4 times slower.
+  Plain AD reaches it under `NoAdjoint`, and by default when `Pairwise` routes with a route coupling without a `pullback!` take plain AD on Enzyme.
+Without the rule that default is 3 to 4 times slower.
 
 Rules for building components before the call, the masses of a chain of delays and the movement of `Redistribute(K, ε)`, are not the operator's and stay too.
 
@@ -229,7 +231,8 @@ Float types:
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
 - A sparse coupling is a device sparse matrix: in CSR form each stratum's row is one index of a kernel.
   Other forms use the array package's own `mul!`, such as CUSPARSE on CUDA; JLArrays has none, so they are not tested.
-- Modifiers with a vector step (`Redistribute`, `Allocate` and a `Depletion` with several pools or without a draw) run each stratum, or each `Allocate` group, as one index of a kernel; `Allocate` copies its groups to the device each step.
+- Modifiers with a vector step (`Redistribute`, `Allocate` and a `Depletion` with several pools or without a draw) run each stratum, or each `Allocate` group, as one index of a kernel.
+  `Allocate` copies its groups to the device each step.
 - A modifier or wrapper that holds arrays is rebuilt with its device arrays inside a kernel through Adapt.jl; a new modifier type that holds arrays needs an `Adapt.adapt_structure` method.
   Arrays captured by the function of a `Transform` or `Derived` are not moved.
 - A ragged `TimeVarying` kernel (a vector of columns) keeps its column offsets where its values live.
@@ -285,14 +288,16 @@ The cotangent of a modifier's `PerStratum` parameter in a vector step is not cop
 A computed kernel's reverse pass walks its cohorts again in blocks, and each block adds into its own copy of the coefficients' cotangents, as cohorts share them.
 With strata the blocks are blocks of strata, so a per-stratum coefficient's cotangent is not copied either.
 `kernel_weights` takes the rule the same way.
-A run that returns its modifiers' traces takes the rule too: each stratum's or group's trace pullback is one index of a kernel, and groups that share a parameter add into stacked copies of its cotangent, as their steps do.
+A run that returns its modifiers' traces takes the rule too: each stratum's or group's trace pullback is one index of a kernel.
+Groups that share a parameter add into stacked copies of its cotangent, as their steps do.
 A modifier type the package does not define with scalar parameters reverses one stratum or fixed group per kernel index, through its `pullback!` or, without one, its local derivative.
 A `Redistribute` step runs as kernels, one index per stratum, and each origin writes only its own column of the kernel's cotangent, so nothing is copied.
 An intensity read from a parameter may share a cotangent between origins, such as a scale's, and blocks of origins add into their own copies of it.
 The rule covers `window_sums` too: each sum is one index of a kernel, and in the reverse pass each time adds the cotangents of the windows it falls in.
 The rule covers `pressure` as it covers its recurrence: each step's pressures are one kernel, one stratum per index, and its reverse pass runs the recurrence's coupling and kernel pullbacks at each step.
 A convolution's transpose takes the rule when the convolution does, as it runs the convolution's bodies with their inputs and outputs swapped; a series extended past its end (`tail`) takes a cotangent too.
-Routes reverse one route at a time on the calling task: each route's coupling as a dense coupling's pressure does, then its kernel, one stratum per kernel index, as each stratum writes only its own entries.
+Routes reverse one route at a time on the calling task: each route's coupling as a dense coupling's pressure does, then its kernel.
+The kernel runs one stratum per kernel index, as each stratum writes only its own entries.
 A pairwise kernel reverses one sender per kernel index, as every stratum reads a sender's window.
 The sender's index loops over the strata and writes only its own column of the buffer's cotangent and its own pairs of the kernel's, so nothing is copied.
 A coupling over time reverses each step's slice as two products, and writes only that slice of its cotangent, so nothing is copied.
