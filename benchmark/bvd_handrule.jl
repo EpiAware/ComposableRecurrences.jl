@@ -1,8 +1,8 @@
 # Hand-written reference kernels in the style of the BVDOutbreakSize
 # backend, timed by the benchmark matrix (cases `bvd_renewal`, `bvd_patches`,
 # `bvd_delay`, `bvd_zones`, `bvd_two_clock`, `bvd_abscond`, `bvd_onset`,
-# `bvd_bins`, `bvd_pre_zones`, `bvd_window_weights`, `bvd_bin_rows` and
-# `bvd_knots`) against the package's operators.
+# `bvd_onset_anchor`, `bvd_bins`, `bvd_pre_zones`, `bvd_window_weights`,
+# `bvd_bin_rows` and `bvd_knots`) against the package's operators.
 #
 # The forward loops follow `test/usecases/references/bvd.jl`. The reverse
 # passes are hand-written Mooncake rules, as the backend writes its own, so
@@ -23,7 +23,9 @@
 # and L123-L150 at commit 73c575bd) with the loops renamed, and
 # `sum_to_zero_knots_loop` and `sum_to_zero_ar1!`, copied from
 # BVDOutbreakSize's `sum_to_zero_knots` (`src/sum_to_zero.jl` at commit
-# 73c575bd) with the level given rather than built. The other loops follow
+# 73c575bd) with the level given rather than built, and `onset_anchor_loop`
+# and its rule, which follow BVDOutbreakSize main's hand kernel and rule for
+# `onset_report_anchor_series` with the names changed. The other loops follow
 # `references/bvd.jl`, a frozen copy of BVDOutbreakSize at commit 95be3b22,
 # and none is kept in step with BVDOutbreakSize.
 #
@@ -499,6 +501,47 @@ function onset_table_loop(
     return F
 end
 
+# A total that is not finite or is at most `eps` is replaced by `eps`, and
+# then has no slope.
+_safe_rate_on(x) = isfinite(x) && x > eps(typeof(x))
+_safe_rate(x) = _safe_rate_on(x) ? x : eps(typeof(x))
+_safe_rate_slope(x) = _safe_rate_on(x) ? one(x) : zero(x)
+
+@doc raw"""
+    onset_anchor_loop(F, u_lo, a)
+
+The anchor series of an onset-report delay: for onset date `k`, the delay's
+mass at each delay `d`, normalised by the table's last row, times `a` read
+at `u_lo + k - 1 + d` and held at the series' ends,
+
+```math
+y_k = \sum_{d=0}^{D-1} \frac{F_{d+1,k} - F_{d,k}}{F_{D,k}}
+    \, a_{\mathrm{clamp}(u_{lo} + k - 1 + d)},
+```
+
+with ``F_{0,k} = 0``. `F` is the CDF table, delays × onset dates, as from
+`onset_table_loop`.
+"""
+function onset_anchor_loop(F::AbstractMatrix, u_lo::Integer, a::AbstractVector)
+    D, nu = size(F)
+    T = promote_type(eltype(F), eltype(a))
+    na = length(a)
+    out = Vector{T}(undef, nu)
+    @inbounds for k in 1:nu
+        u = Int(u_lo) + k - 1
+        invden = inv(_safe_rate(D > 0 ? F[D, k] : zero(T)))
+        g_prev = zero(T)
+        acc = zero(T)
+        for d in 0:(D - 1)
+            g_cur = F[d + 1, k] * invden
+            acc += (g_cur - g_prev) * a[clamp(u + d, 1, na)]
+            g_prev = g_cur
+        end
+        out[k] = acc
+    end
+    return out
+end
+
 # ---- the same loops with hand-written Mooncake rules ------------------------
 
 # Each rule is a primitive for `Float64` arguments only (`_Vec`, `_Mat`); other
@@ -960,6 +1003,48 @@ function _onset_back!(z̄, γ̄, F̄, H, S)
         end
     end
     return nothing
+end
+
+"`onset_anchor_loop` with a hand-written Mooncake rule."
+onset_anchor_series(F, u_lo, a) = onset_anchor_loop(F, u_lo, a)
+
+Mooncake.@is_primitive(
+    Mooncake.DefaultCtx, Tuple{typeof(onset_anchor_series), _Mat, Int, _Vec}
+)
+function Mooncake.rrule!!(
+        ::CoDual{typeof(onset_anchor_series)}, F::CoDual{_Mat},
+        u_lo::CoDual{Int}, a::CoDual{_Vec}
+    )
+    Fp, ap, lo = primal(F), primal(a), primal(u_lo)
+    y = onset_anchor_loop(Fp, lo, ap)
+    ȳ = zero(y)
+    # Summed by parts: each table entry meets the difference of two reads,
+    # and the last row the normalisation's share.
+    function onset_anchor_series_pullback!!(::NoRData)
+        F̄, ā = tangent(F), tangent(a)
+        D = size(Fp, 1)
+        na = length(ap)
+        @inbounds for k in axes(Fp, 2)
+            u = lo + k - 1
+            FD = Fp[D, k]
+            invden = inv(_safe_rate(FD))
+            gi = ȳ[k] * invden
+            prev = 0.0
+            S = 0.0
+            for d in 0:(D - 1)
+                Fd = Fp[d + 1, k]
+                ad = ap[clamp(u + d, 1, na)]
+                anext = d < D - 1 ? ap[clamp(u + d + 1, 1, na)] : 0.0
+                F̄[d + 1, k] += gi * (ad - anext)
+                ā[clamp(u + d, 1, na)] += gi * (Fd - prev)
+                S += (Fd - prev) * ad
+                prev = Fd
+            end
+            F̄[D, k] -= gi * S * invden * _safe_rate_slope(FD)
+        end
+        return NoRData(), NoRData(), NoRData(), NoRData()
+    end
+    return CoDual(y, ȳ), onset_anchor_series_pullback!!
 end
 
 "`bin_loop` with a hand-written Mooncake rule."

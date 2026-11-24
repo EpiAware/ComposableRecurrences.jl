@@ -1,6 +1,6 @@
-# [Enzyme extension](@id extension-enzyme)
+# [Enzyme gradients](@id extension-enzyme)
 
-Loading Enzyme registers the [rule](@ref adjoint-routing) of every operator as an Enzyme reverse-mode rule.
+Loading Enzyme registers the [rule](@ref adjoint-routing) of every operator as an Enzyme reverse-mode rule, so Enzyme is one of the [backends](@ref adjoint-backends).
 Use reverse mode with runtime activity:
 
 ```jldoctest
@@ -30,7 +30,3 @@ round.(gradient(loss, backend, fill(1.1, 4)); digits = 3)
 | `IllegalTypeAnalysisException` from `hcat`, `vcat` or `[a b]` on a view | Use `cat(a, b; dims = 2)`, or `collect` the view | [#672](https://github.com/EpiAware/ComposableRecurrences.jl/issues/672), [#299](https://github.com/EpiAware/ComposableRecurrences.jl/issues/299) |
 | Julia 1.11 with several threads: reverse mode without runtime activity crashes in the garbage collector when it differentiates a `NoAdjoint` operator | Use `set_runtime_activity(Enzyme.Reverse)`, or drop `NoAdjoint` so the operator takes its rule | [#872](https://github.com/EpiAware/ComposableRecurrences.jl/issues/872) |
 | Julia 1.12 and later: forward mode crashes in the garbage collector after repeated gradients | Use reverse mode, or `Enzyme.gradient(Enzyme.Forward, f, θ; chunk = Val(1))` | [#321](https://github.com/EpiAware/ComposableRecurrences.jl/issues/321) |
-
-Enzyme's place among the other backends is in [Backends](@ref adjoint-backends).
-
-All extensions are listed in the [overview](@ref extensions-overview).

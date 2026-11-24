@@ -1,4 +1,4 @@
-# [ADTypes + Enzyme + EnzymeTestUtils extension](@id extension-enzyme-test-utils)
+# [Testing rules with EnzymeTestUtils](@id extension-enzyme-test-utils)
 
 Loading ADTypes, Enzyme and EnzymeTestUtils adds [`test_adjoint`](@ref ComposableRecurrences.test_adjoint) for `AutoEnzyme`.
 It runs `EnzymeTestUtils.test_reverse` on the rule of an operator at its positional arguments.
@@ -20,5 +20,3 @@ true
 ## Known issues
 
 The [Enzyme extension's known issues](@ref extension-enzyme) apply.
-
-All extensions are listed in the [overview](@ref extensions-overview).

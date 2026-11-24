@@ -7,7 +7,7 @@ module ComposableRecurrencesMooncakeExt
 using ADTypes: AutoMooncake
 using ComposableRecurrences: ComposableRecurrences, Run, Serial, _Current, _ad,
     _ad_wide, _check_flow_parts, _check_form, _check_given, _check_nonnegative,
-    _checked_call,
+    _checked_call, _growth_root,
     _check_now, _check_parts, _check_pieces, _check_secondary, _check_unit,
     _convolve_masses, _convolve_masses_back!, _current,
     _fft_convolve!, _fft_convolve_back!, _fit, _flat_groups, _hooked_plain,
@@ -102,6 +102,9 @@ Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_check_now), Any}
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_checked_call), Vararg,
 }
+# Nor is `growth_rate`'s root on primal values: its last Newton step carries
+# the derivative.
+Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{typeof(_growth_root), Any, Any}
 # Nor is its check that only the kernel takes `Primary()` indexing.
 Mooncake.@zero_derivative Mooncake.DefaultCtx Tuple{
     typeof(_check_secondary), Any, Tuple,

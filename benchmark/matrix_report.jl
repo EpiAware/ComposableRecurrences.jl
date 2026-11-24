@@ -572,6 +572,15 @@ const DOCS_BLOCKS = [
         ],
     ),
     (
+        "backend onset anchor", "bvd_onset_anchor", "ComposableRecurrences",
+        [
+            ("bvd_onset_anchor", "rule") => "ComposableRecurrences",
+            ("bvd_onset_anchor", "NoAdjoint") => "plain AD",
+            ("bvd_onset_anchor", "loop") => "hand loop",
+            ("bvd_onset_anchor", "handrule") => "hand rules",
+        ],
+    ),
+    (
         "backend bins", "bvd_bins", "ComposableRecurrences",
         [
             ("bvd_bins", "rule") => "ComposableRecurrences",
