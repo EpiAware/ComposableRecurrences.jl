@@ -36,6 +36,7 @@ The rows for a [blockwise step](@ref extending-blockwise), a [trace](@ref extend
 | Name | What it does | Returns |
 |:--|:--|:--|
 | [`ntrace(m, S)`](@ref ComposableRecurrences.ntrace) | how many rows a modifier's trace has | `Int` |
+| [`trace_rows(m, S)`](@ref ComposableRecurrences.trace_rows) | the names of a modifier's trace rows, so a call returns them by name | a named tuple of row counts, or `nothing` |
 | [`blocks(m)`](@ref ComposableRecurrences.blocks) | a modifier's groups of strata | a tuple, or `nothing` |
 | [`nstate(m, S)`](@ref ComposableRecurrences.nstate) | the number of state entries a modifier keeps for `S` strata | `Int` |
 | [`param_rows(m, S)`](@ref ComposableRecurrences.param_rows) | how many rows a whole-step modifier's parameters have, or `nothing` to skip the check | an `Int` or `nothing` |

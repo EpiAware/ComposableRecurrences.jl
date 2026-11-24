@@ -169,6 +169,33 @@ round.(y; digits = 3)
  2.0
 ```
 
+Its trace names its rows ([`trace_rows`](@ref ComposableRecurrences.trace_rows)): `spilled` and `pattern`, its state after each step, and `imports`, the part of each stratum's value the pattern placed.
+Named in the modifiers, it is read by name:
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+P = [0.0 0.0 0.2; 0.0 0.0 0.8; 0.0 0.0 0.0]
+within = CR.Redistribute([0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0])
+split = CR.Allocate(
+    [1:2, 3:3], PerStratum([10.0, 2.0]);
+    imports = (PerStratum([0.2, 0.0]), P), spill = within
+)
+r = Recurrence([1.0]; modifiers = (; split))
+out = r(ones(3, 1); history = [3.0; 1.0; 1.0;;], record = (:split,))
+round.(out.trace.modifiers.split.imports; digits = 3)
+
+# output
+
+3×1 Matrix{Float64}:
+ 0.4
+ 1.6
+ 0.0
+```
+
+The imports are the share ``\phi_{t,p} r_p T_{t,p}`` the step placed by the pattern.
+While a group's pattern sums to less than ``\epsilon`` that share is ``r_p < 1`` of ``\phi_{t,p} T_{t,p}``, and the rest of the total goes by the spilled values.
+
 ## [Choosing a modifier](@id explanation-choosing-modifier)
 
 - To bound values, `Transform(clamp, lo, hi)` cuts them, and a `Depletion` filled up to a capacity keeps account of what is cut.

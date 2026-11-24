@@ -292,8 +292,53 @@ end
 # With imports the state holds the import pattern, after the spilled values
 # when there is a spill.
 nstate(m::Allocate{<:Any, <:_AllocateImports}, S) = _nslots(m) * S
-# Its trace is its state after each step (the default).
+# Its trace is its state after each step (the default): the spilled values
+# when there is a spill, then the pattern. A call names those rows and adds
+# the imports built from the pattern (`_derived_rows`), so the run and its
+# reverse pass are unchanged.
 _trace_is_state(::Allocate) = true
+function trace_rows(m::Allocate{<:Any, <:_AllocateImports}, S)
+    m.imports.spill === nothing && return (; pattern = S)
+    return (; spilled = S, pattern = S)
+end
+function _derived_rows(m::Allocate{<:Any, <:_AllocateImports}, parts, τ0)
+    return (; imports = _import_rows(m, parts.pattern, τ0))
+end
+
+# The share of each stratum's value placed by the pattern at each step,
+# `ch * h_i` of the step (`_import_weights`): with `G` the groups' membership,
+# `c = T ⊙ φ ./ max.(G h, ε)` per group and step, and the imports `(G' c) ⊙ h`.
+# Built from arrays rather than a loop, so every backend differentiates it and
+# it runs on a device.
+function _import_rows(m::Allocate, h, τ0)
+    size(h, 1) == 0 && return h[1:0, :]
+    P, (S, T) = _ngroups(m), size(h)
+    τs = τ0:(τ0 + T - 1)
+    G = _membership(m, h, P, S)
+    tot = _group_steps(m.total, P, τs)
+    φ = _group_steps(m.imports.fraction, P, τs)
+    c = tot .* φ ./ max.(G * h, eps(eltype(h)))
+    return (transpose(G) * c) .* h
+end
+# Row `p` marks group `p`'s strata, on the device of `h`.
+function _membership(m::Allocate, h, P, S)
+    G = zeros(eltype(h), P, S)
+    for p in 1:P, k in _group(m, p)
+        G[p, k] = one(eltype(h))
+    end
+    return copyto!(similar(h, P, S), G)
+end
+# A parameter over groups at the times `τs`, shaped to broadcast against
+# groups × steps.
+_group_steps(x::Real, P, τs) = x
+_group_steps(x::PerStratum{<:AbstractVector}, P, τs) = x.x
+function _group_steps(x::TimeVarying{<:Any, <:AbstractVector}, P, τs)
+    return reshape(view(x.x, τs), 1, length(τs))
+end
+function _group_steps(x::TimeVarying{<:Any, <:PerStratum}, P, τs)
+    return view(x.x.x, :, τs)
+end
+_group_steps(x, P, τs) = [param(x, p, τ) for p in 1:P, τ in τs]
 
 function forward!(m::Allocate, ::Init, s, history)
     _check_imports(m.imports, _check_partition(m, length(s) ÷ _nslots(m)))

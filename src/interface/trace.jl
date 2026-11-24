@@ -91,6 +91,51 @@ CR.ntrace(CR.Transform(clamp, 0.0, 1.0), 3), CR.ntrace(CR.Depletion(100.0), 3)
 """
 ntrace(m, S) = isstateless(m) ? 0 : nstate(m, S)
 
+@doc raw"""
+Return the names of a modifier's trace rows for `S` strata, or `nothing`.
+
+A named tuple of row counts, in row order and summing to
+[`ComposableRecurrences.ntrace`](@ref), makes a call return the
+modifier's trace as a named tuple of matrices, one per name, each with a
+column per step.
+The default, `nothing`, returns the trace as one matrix.
+[`ComposableRecurrences.Allocate`](@ref) with imports names its rows, and
+adds `imports`, the share of each stratum's value placed by the import
+pattern, built after the run from its `pattern` rows.
+
+# Arguments
+- `m`: the modifier.
+- `S`: the number of strata.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+P = [0.0 1.0 0.0; 1.0 0.0 0.0; 0.0 0.0 1.0]
+CR.trace_rows(CR.Allocate([1:2, 3:3], 10.0; imports = (0.2, P)), 3)
+
+# output
+
+(pattern = 3,)
+```
+"""
+trace_rows(m, S) = nothing
+
+# A modifier's trace as a call returns it: one matrix, or a named tuple of
+# its rows (`trace_rows`) and the rows a built-in adds from them
+# (`_derived_rows`), read from absolute time `τ0`. A trace not built has no
+# rows, so each named part is empty too.
+_named_rows(m, x, S, τ0) = _named_rows(trace_rows(m, S), m, x, S, τ0)
+_named_rows(::Nothing, m, x, S, τ0) = x
+function _named_rows(rows::NamedTuple{N}, m, x, S, τ0) where {N}
+    stops = accumulate(+, values(rows))
+    starts = map((n, b) -> b - n + 1, values(rows), stops)
+    parts = NamedTuple{N}(map((a, b) -> _rows(x, a, b), starts, stops))
+    return merge(parts, _derived_rows(m, parts, τ0))
+end
+_rows(x, a, b) = size(x, 1) == 0 ? x[1:0, :] : x[a:b, :]
+_derived_rows(m, parts, τ0) = (;)
+
 # By default the trace is the state after the step.
 function forward!(m, ::Trace, r, v, s, v′, s′, t)
     _copy_trace!(r, s′)

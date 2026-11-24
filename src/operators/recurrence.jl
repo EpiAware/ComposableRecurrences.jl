@@ -789,7 +789,7 @@ end
 function _routed(traced, stated, rec, r, route, args, stop, sel)
     op = _call_op(traced, stated, _linear_parts(route, r, args[3]), sel)
     out = adjoint_call(_reroute(route, op), args..., stop)
-    return _recorded(rec, traced, stated, out, _names(r))
+    return _recorded(rec, traced, stated, out, (r, args[5]))
 end
 
 # What a call records beside `y`, checked once: `nothing` unless `record`
@@ -886,31 +886,34 @@ _call_op(::Val{false}, ::Val{true}, r, sel) = _WithState(r)
 _call_op(::Val{true}, ::Val{true}, r, sel) = _WithTrace(_WithState(r), sel)
 # Without `record` the call returns `y`; with it, a named tuple of `y` and
 # what it names, in the order `y`, `state`, `trace`.
-_recorded(::Nothing, traced, stated, y, names) = y
-function _recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{false}, y, names)
+_recorded(::Nothing, traced, stated, y, at) = y
+function _recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{false}, y, at)
     return (; y)
 end
 function _recorded(
-        ::Union{Tuple, Val}, ::Val{false}, ::Val{true}, (y, state), names
+        ::Union{Tuple, Val}, ::Val{false}, ::Val{true}, (y, state), at
     )
     return (; y, state)
 end
 function _recorded(
-        ::Union{Tuple, Val}, ::Val{true}, ::Val{false}, (y, trace), names
+        ::Union{Tuple, Val}, ::Val{true}, ::Val{false}, (y, trace), at
     )
-    return (; y, trace = _user_trace(trace, names))
+    return (; y, trace = _user_trace(trace, y, at...))
 end
 function _recorded(
-        ::Union{Tuple, Val}, ::Val{true}, ::Val{true}, ((y, state), trace),
-        names
+        ::Union{Tuple, Val}, ::Val{true}, ::Val{true}, ((y, state), trace), at
     )
-    return (; y, state, trace = _user_trace(trace, names))
+    return (; y, state, trace = _user_trace(trace, y, at...))
 end
 
-# The trace as a call returns it: the modifiers keyed by their names when
-# they have them. A part the call did not build is empty.
-function _user_trace(trace, names)
-    return (; modifiers = _named(trace.modifiers, names), trace.pressure)
+# The trace as a call returns it: each modifier's trace with its rows named
+# (`trace_rows`), and the modifiers keyed by their names when they have
+# them. A part the call did not build is empty. `r` and the first time `τ0`
+# are the call's.
+function _user_trace(trace, y, r, τ0)
+    S = _nstrata(y)
+    rows = map((m, x) -> _named_rows(m, x, S, τ0), r.modifiers, trace.modifiers)
+    return (; modifiers = _named(rows, _names(r)), trace.pressure)
 end
 _named(modifiers, ::Val{nothing}) = modifiers
 _named(modifiers, ::Val{N}) where {N} = NamedTuple{N}(modifiers)

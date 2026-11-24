@@ -535,7 +535,9 @@ end
         yt, tr = r(R; history = h, record = (:trace,))
         _, tr0 = r0(R; history = h, record = (:trace,))
         @test yt ≈ y
-        @test only(tr.modifiers) ≈ only(tr0.modifiers)
+        # With imports the trace's rows are named.
+        a, a0 = only(tr.modifiers), only(tr0.modifiers)
+        @test a isa NamedTuple ? all(map(≈, a, a0)) : a ≈ a0
         # The pullback of a step against a local Jacobian; the empty groups'
         # totals and fractions get zero cotangents.
         θ = case === :plain ? vec(pad(TT)) : vcat(vec(pad(TT)), vec(pad(FF)))
@@ -571,4 +573,81 @@ end
         ones(Float32, 2, 4); history = ones(Float32, 2, 2)
     )
     @test eltype(y) == Float32
+end
+
+@testitem "Allocate: a trace's rows are named and add the imports" begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra, Mooncake, Test
+    CR = ComposableRecurrences
+    S, T = 5, 12
+    P = [
+        0.6 0.2 0.1 0.05 0.05; 0.1 0.5 0.2 0.1 0.1; 0.1 0.1 0.6 0.1 0.1;
+        0.05 0.05 0.1 0.7 0.1; 0.1 0.1 0.1 0.1 0.6
+    ]
+    M = Matrix(0.9I, S, S) .+ 0.02
+    M ./= sum(M; dims = 1)
+    groups = [1:2, 3:5]
+    tot = [10.0 + t for p in 1:2, t in 1:(T + 2)]
+    fr = [0.2 + 0.01p for p in 1:2, t in 1:(T + 2)]
+    R, h = fill(1.2, S, T + 2), ones(S, 2)
+    # The share each stratum takes by the pattern, `ch * h_i` of the step.
+    function naive(H, tot, fr)
+        out = similar(H)
+        for t in axes(H, 2), (p, zs) in enumerate(groups)
+            c = tot[p, t + 2] * fr[p, t + 2] / max(sum(H[zs, t]), eps())
+            out[zs, t] .= c .* H[zs, t]
+        end
+        return out
+    end
+    split(f, spill) = CR.Allocate(
+        groups, TimeVarying(PerStratum(tot));
+        imports = (TimeVarying(PerStratum(f)), P), spill
+    )
+    for spill in (nothing, CR.Redistribute(M, 0.3))
+        names = spill === nothing ? (:pattern,) : (:spilled, :pattern)
+        @test keys(CR.trace_rows(split(fr, spill), S)) == names
+        r = Recurrence([0.5, 0.3]; modifiers = (; split = split(fr, spill)))
+        call = (r, R, h, stop) -> r(
+            R; history = h, start = 3, stop, record = (:split,)
+        )
+        out = @inferred call(r, R, h, T + 2)
+        a = out.trace.modifiers.split
+        @test keys(a) == (names..., :imports)
+        # The rows are the state's, in order, and the imports read the
+        # pattern at the call's times.
+        whole = CR.forward(
+            r, CR.Run(), R;
+            history = h, start = 3, stop = T + 2, record = (:trace,)
+        )
+        @test vcat(map(n -> a[n], names)...) == only(last(first(whole)).modifiers)
+        @test a.imports ≈ naive(a.pattern, tot, fr)
+        # A part not built is empty, as are its named rows.
+        empty = r(R; history = h, start = 3, stop = T + 2, record = (:pressure,))
+        @test all(x -> size(x) == (0, 0), empty.trace.modifiers.split)
+        @test typeof(empty.trace) == typeof(out.trace)
+        # The imports' gradient through the rule, against ForwardDiff of
+        # plain AD.
+        W = [sin(k + t) for k in 1:S, t in 1:T]
+        function loss(op, x)
+            q = Recurrence([0.5, 0.3]; modifiers = (; split = split(reshape(x, 2, T + 2), spill)))
+            o = op(q)(R; history = h, start = 3, stop = T + 2, record = (:split,))
+            return sum(W .* o.trace.modifiers.split.imports) + sum(o.y)
+        end
+        x = vec(fr)
+        expected = ForwardDiff.gradient(z -> loss(CR.NoAdjoint, z), x)
+        f = z -> loss(identity, z)
+        rule = Mooncake.build_rrule(f, x)
+        @test Mooncake.value_and_gradient!!(rule, f, x)[2][2] ≈ expected
+    end
+    # Below the floor the pattern places `φ r T` with `r = Σ h / ε`, and the
+    # imports are that share; the rest goes by the values.
+    m = CR.Allocate([1:2], 100.0; imports = (0.3, [1.0e-17 0.0; 0.0 2.0e-17]))
+    q = Recurrence(Float64[]; modifiers = (; m))
+    o = q(zeros(2, 1); history = zeros(2, 0), add = reshape([4.0, 6.0], 2, 1), record = (:m,))
+    (; pattern, imports) = o.trace.modifiers.m
+    @test sum(pattern) < eps()
+    @test sum(imports) ≈ 30 * sum(pattern) / eps()
+    @test sum(imports) < 30
+    @test sum(o.y) ≈ 100
+    # Without imports the trace stays one matrix.
+    @test CR.trace_rows(CR.Allocate(groups, 5.0), S) === nothing
 end

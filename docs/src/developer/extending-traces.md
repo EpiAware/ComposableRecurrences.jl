@@ -72,6 +72,17 @@ y, trace = r(2.0; history = [1.0, 2.0], stop = 4, record = (:trace,))
 only(trace.modifiers)
 ```
 
+## [Named rows](@id extending-trace-rows)
+
+A modifier can name its trace's rows with [`trace_rows`](@ref ComposableRecurrences.trace_rows), a named tuple of row counts in row order.
+A call then returns its trace as a named tuple of matrices, one per name, so a caller reads the rows by name rather than by position.
+
+```@example extending-traces
+CR.trace_rows(::Smooth, S) = (; smoothed = S, left = S)
+y, trace = r(2.0; history = [1.0, 2.0], stop = 4, record = (:trace,))
+only(trace.modifiers).left
+```
+
 A blockwise modifier records its trace per group, with `g` after `t` and tuples of one-entry views, as its step does.
 Its `pullback!(grads, m, Trace(), v, s, t, g)` adds `grads.trace`, a tuple of views, into the views in `v`, `s`, `v′` and `s′`, and is given the values before the step.
 One whose trace is not linear in the step's outputs computes them with the step's `forward!`.
