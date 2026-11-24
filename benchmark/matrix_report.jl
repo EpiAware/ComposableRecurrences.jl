@@ -581,6 +581,16 @@ const DOCS_BLOCKS = [
         ],
     ),
     (
+        "backend onset anchor, shared table", "bvd_onset_anchor_table",
+        "ComposableRecurrences",
+        [
+            ("bvd_onset_anchor_table", "rule") => "ComposableRecurrences",
+            ("bvd_onset_anchor_table", "NoAdjoint") => "plain AD",
+            ("bvd_onset_anchor_table", "loop") => "hand loop",
+            ("bvd_onset_anchor_table", "handrule") => "hand rules",
+        ],
+    ),
+    (
         "backend bins", "bvd_bins", "ComposableRecurrences",
         [
             ("bvd_bins", "rule") => "ComposableRecurrences",

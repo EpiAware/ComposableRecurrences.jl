@@ -1592,6 +1592,16 @@ if isfile(BVD_HANDRULE)
         conv = Convolution(TimeVarying(pmf, CR.Primary()))
         return wrap(conv')(a[1:nu]; tail = a[(nu + 1):end], stop = nu)
     end
+    # The same anchor from a table of the delay's distribution, as the
+    # backend builds it for its other readers: the lag maps read the table
+    # rather than walking the hazard again.
+    function _bvd_onset_anchor_table_rule(wrap, z0, γ, a, nu)
+        hazard = CR.Derived(_logistic_sum, z0, TimeVarying(γ))
+        cdf = TimeVarying(1 - CR.Survival(hazard), CR.Primary())
+        table = TimeVarying(wrap(CR._KernelWeights(cdf))(nu), CR.Primary())
+        conv = Convolution(TimeVarying(CR.Normalised(CR.Increments(table)), CR.Primary()))
+        return wrap(conv')(a[1:nu]; tail = a[(nu + 1):end], stop = nu)
+    end
     function _bvd_onset_anchor_hand((table, anchor))
         return function (wrap, z0, γ, a, nu)
             return anchor(table(collect(z0), collect(γ), nu), 1, collect(a))
@@ -1814,6 +1824,16 @@ if isfile(BVD_HANDRULE)
                 ), [1],
             ),
             (
+                "bvd_onset_anchor_table",
+                "BVD onset_report_anchor_series: lag maps over a shared table",
+                _bvd_onset_anchor, _bvd_onset_anchor_table_rule,
+                _bvd_onset_anchor_hand,
+                (
+                    (BVD.onset_table_loop, BVD.onset_anchor_loop),
+                    (BVD.onset_report_cdf_table, BVD.onset_anchor_series),
+                ), [1],
+            ),
+            (
                 "bvd_bins", "BVD bin_increments: window sums as a running total",
                 _bvd_bins, _bvd_bins_rule, _bvd_bins_hand,
                 (BVD.bin_loop, BVD.bin_increments), [1],
@@ -1857,6 +1877,7 @@ if isfile(BVD_HANDRULE)
     end
     # The backend's 101 onset dates and 28 delays.
     TIERS["docs"].bycase["bvd_onset_anchor"] = [(T = 101, L = 28)]
+    TIERS["docs"].bycase["bvd_onset_anchor_table"] = [(T = 101, L = 28)]
     # Weekly and 30-day bins over the backend's 220 days.
     TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
     # The backend's four patches over 227 days, with its two kernel lengths,

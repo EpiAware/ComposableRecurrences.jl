@@ -102,9 +102,9 @@ function clamped(lo, hi)
     return ComposableRecurrences.Transform(clamp, lo, hi)
 end
 
-# A call that also returns its state or its trace, as the loaded release
-# spells it: `record` on the call, `state = true` or `trace = true` before
-# it, and `with_state` before that.
+# A call that also returns its state, its trace or only its pressure, as
+# the loaded release spells it: `record` on the call, `state = true` or
+# `trace = true` before it, and `with_state` before that.
 const RECORD_KEYWORD = isdefined(ComposableRecurrences, :_recorded)
 const STATE_KEYWORD = !isdefined(ComposableRecurrences, :with_state)
 function returning_state(op, args...; kwargs...)
@@ -116,9 +116,7 @@ function returning_trace(op, args...; kwargs...)
     RECORD_KEYWORD && return op(args...; kwargs..., record = (:trace,))
     return op(args...; kwargs..., trace = true)
 end
-# The output and trace of a call that reads only the pressure: a release
-# with named records builds the pressure alone, an earlier one the whole
-# trace.
+# Pressure-only call; older releases return the whole trace.
 const NAMED_RECORDS = isdefined(ComposableRecurrences, :_RECORD_PARTS)
 function returning_pressure(op, args...; kwargs...)
     NAMED_RECORDS && return op(args...; kwargs..., record = (:pressure,))

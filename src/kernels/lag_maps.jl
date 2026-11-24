@@ -19,7 +19,10 @@ probability mass at each lag.
 
 # Arguments
 - `x`: the kernel to take the increments of, a [`Derived`](@ref), a
-  [`ComposableRecurrences.Survival`](@ref) or another computed kernel.
+  [`ComposableRecurrences.Survival`](@ref) or another computed kernel, or a
+  kernel's weights `TimeVarying(K, Primary())`, with `K` lags by cohorts or
+  strata by lags by cohorts as
+  [`kernel_weights`](@ref ComposableRecurrences.kernel_weights) returns them.
 
 # Examples
 ```jldoctest
@@ -67,7 +70,10 @@ lags a `TimeVarying(h)` argument needs the times up to ``n + L - 1`` in a
 
 # Arguments
 - `x`: the kernel to normalise, a [`Derived`](@ref), a
-  [`ComposableRecurrences.Survival`](@ref) or another computed kernel.
+  [`ComposableRecurrences.Survival`](@ref) or another computed kernel, or a
+  kernel's weights `TimeVarying(K, Primary())`, with `K` lags by cohorts or
+  strata by lags by cohorts as
+  [`kernel_weights`](@ref ComposableRecurrences.kernel_weights) returns them.
 
 # Examples
 ```jldoctest
@@ -98,14 +104,56 @@ end
 
 const _LagMap = Union{Increments, Normalised}
 
+# == A kernel's weights inside a lag map ==
+
+# The weights of a kernel `TimeVarying(K, Primary())` held as an array: lag
+# index by cohort (`L × n`), or stratum by lag index by cohort
+# (`S × L × n`), as `kernel_weights` returns them. A lag map reads them as
+# it reads a computed kernel's.
+const _KernelTable = TimeVarying{
+    Primary, <:Union{AbstractMatrix{<:Real}, AbstractArray{<:Real, 3}},
+}
+
 @noinline function _check_lag_map(x)
-    x isa Union{Derived, Survival, _LagMap} || throw(
+    x isa Union{Derived, Survival, _LagMap, _KernelTable} || throw(
         ArgumentError(
             "a lag map takes a computed kernel (a Derived, a Survival, " *
-                "Increments or Normalised); got $(_describe(x))"
+                "Increments or Normalised) or a kernel's weights, " *
+                "TimeVarying(K, Primary()) with K lags by cohorts or " *
+                "strata by lags by cohorts; got $(_describe(x))"
         )
     )
     return nothing
+end
+
+_coef_lags(x::_KernelTable) = size(x.x, ndims(x.x) - 1)
+_coef_strata(x::_KernelTable) = ndims(x.x) == 3 ? size(x.x, 1) : 0
+_stratified_type(::Type{<:TimeVarying{Primary, <:AbstractArray{<:Real, 3}}}) = true
+function _check_kernel_args(x::_KernelTable)
+    _require_one_based(x.x)
+    return nothing
+end
+Base.@propagate_inbounds function _value(
+        x::TimeVarying{Primary, <:AbstractMatrix{<:Real}}, sc, k, i, τ, l, b
+    )
+    return x.x[i, τ]
+end
+Base.@propagate_inbounds function _value(
+        x::TimeVarying{Primary, <:AbstractArray{<:Real, 3}}, sc, k, i, τ, l, b
+    )
+    return x.x[k, i, τ]
+end
+Base.@propagate_inbounds function _add_value!(
+        x̄, x::TimeVarying{Primary, <:AbstractMatrix{<:Real}}, sc, v, k, i,
+        τ, l, b
+    )
+    return add_cotangent!(cotangent(x̄, :x), v, i, τ)
+end
+Base.@propagate_inbounds function _add_value!(
+        x̄, x::TimeVarying{Primary, <:AbstractArray{<:Real, 3}}, sc, v, k, i,
+        τ, l, b
+    )
+    return add_cotangent!(cotangent(x̄, :x), v, k, i, τ)
 end
 
 # == The maps along one cohort's lags ==
