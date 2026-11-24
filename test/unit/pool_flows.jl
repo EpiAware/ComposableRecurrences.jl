@@ -379,8 +379,11 @@ end
     for (m, kept) in ((flows, false), (CR.Depletion(50.0), true))
         r = Recurrence([0.6, 0.3]; modifiers = (m,))
         _, cache = CR._run_forward(r, recargs(R, nothing, h)...)
+        # A guard on the memory saved: a matrix is a record per step.
         S = only(cache.rec).S
         @test (S isa AbstractMatrix) == kept
         @test pullback_matches(r, recargs(R, nothing, h)...)
+        # The trace reads the recorded state too.
+        @test pullback_matches(CR._WithTrace(r), recargs(R, nothing, h)...)
     end
 end
