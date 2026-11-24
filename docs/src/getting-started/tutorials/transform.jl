@@ -182,11 +182,12 @@ end
 #
 # A gradient's reverse pass uses these.
 # Without them it would evaluate ``G`` on dual numbers at every step, which costs more than the closed form.
+# Each partial derivative contains ``G`` itself, so `dG` takes the step's output ``y = G(s)`` as its third argument.
+# The reverse pass then passes the value from the forward pass instead of recomputing the power.
 
 G(s, θ) = (1 + θ.R / θ.κ * (1 - s))^(-θ.κ)
-function dG(s, θ)
+function dG(s, θ, y)
     u = 1 + θ.R / θ.κ * (1 - s)
-    y = u^(-θ.κ)
     return θ.R * y / u, (; R = -(1 - s) * y / u, κ = y * (θ.R * (1 - s) / (θ.κ * u) - log(u)))
 end
 function extinction(θ, n)

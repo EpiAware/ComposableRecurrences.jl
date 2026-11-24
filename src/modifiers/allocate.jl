@@ -486,7 +486,7 @@ function pullback!(
 end
 
 # On a device, through a method of `pullback!` on device arrays in the
-# GPUArraysCore extension, so the host method above holds no device code:
+# GPUArrays extension, so the host method above holds no device code:
 # the same steps, with each group one kernel index.
 function _device_imports_pullback!(grads, m, v, s, t)
     (; fraction, pattern, spill) = m.imports

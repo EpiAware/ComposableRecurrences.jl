@@ -16,7 +16,7 @@ function _convolve!(ex, Y, c::_ComputedKernel, X, m, start)
 end
 function _convolve_dense!(ex, Y, c::_ComputedKernel, X, m, start)
     stop = start + size(Y, 1) - 1
-    K, _ = _fill_kernel(c, 0, stop, stop, Val(false))
+    K, _ = _fill_kernel(c, 0, _cohorts(X, m, stop), stop, Val(false))
     return _convolve!(ex, Y, _dense_kernel(K), X, m, start)
 end
 function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
@@ -26,10 +26,12 @@ function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
     T = eltype(Y)
     stop = start + size(Y, 1) - 1
     sc = _walk_scratch(x, T, (L,), Val(false))
+    last = stop
+    stop = _cohorts(X, m, stop)
     xr = _lags_contiguous(x)
     ks = axes(Y, 2)
     for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):stop
-        imax = _imax(τ, L, 0, stop)
+        imax = _imax(τ, L, 0, last)
         # Lag index `i` of cohort `τ` lands in row `τ + i - start`.
         i0 = max(1, start - τ + 1)
         kw = _walk_strata(x, ks, k0)
@@ -66,6 +68,18 @@ end
     return nothing
 end
 
+# The cohorts up to `stop` whose rows the input or its cotangent `X` holds,
+# lags from `m`: all of them in a call, and in a transposed call those of
+# the outputs it keeps, so no coefficient is read past them.
+_cohorts(X, m, stop) = min(stop, size(X, 1) - m)
+
+# A transposed call keeps the outputs up to `stop` and reads the times up to
+# `last`: a computed kernel's cohorts to `stop` and its times to `last`.
+_transposed_rows(::_ComputedKernel, last, stop) = stop
+function _check_transposed_times(k::_ComputedKernel, stop, last)
+    return _check_coef_times(k.x, stop, last)
+end
+
 # Contiguous lags let a loop over one stratum's lags vectorise; decided from
 # the type, so other coefficients cost nothing.
 _lags_contiguous(x) = x
@@ -92,7 +106,7 @@ function _convolve_back_dense!(
         ex, X̄, c̄, c::_ComputedKernel, X, Ȳ, m, start
     )
     stop = start + size(Ȳ, 1) - 1
-    K, sc = _fill_kernel(c, 0, stop, stop)
+    K, sc = _fill_kernel(c, 0, _cohorts(X̄, m, stop), stop)
     x̄ = cotangent(c̄, :x)
     K̄ = _dense_convolve_back!(ex, X̄, x̄, K, X, Ȳ, m, start)
     _weights_back!(x̄, c, K̄, 0, stop, sc)
@@ -118,9 +132,11 @@ function _convolve_back!(
     T = eltype(X̄)
     stop = start + size(Ȳ, 1) - 1
     sc = _walk_scratch(x, T, (L,), Val(false))
+    last = stop
+    stop = _cohorts(X̄, m, stop)
     ks = axes(Ȳ, 2)
     for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):stop
-        imax = _imax(τ, L, 0, stop)
+        imax = _imax(τ, L, 0, last)
         _walk_cohort!(x, sc, k0, τ, 0, imax, T)
         for k in _walk_strata(x, ks, k0)
             xk = @inbounds X[m + τ, k]
