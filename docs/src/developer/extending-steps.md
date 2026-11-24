@@ -9,6 +9,7 @@ const CR = ComposableRecurrences
 
 The trait [`blocks`](@ref ComposableRecurrences.blocks) sets the scope of a step: `(1, 1)` for a [pointwise](@ref extending-pointwise-rules) step, `(nv, ns)` for groups of `nv` values and `ns` state entries, and `nothing`, the default, for whole vectors.
 [`nstate`](@ref ComposableRecurrences.nstate) is read from `blocks`.
+A whole-step modifier, one with `blocks(m) === nothing`, declares how many rows its `PerStratum` parameters have with [`param_rows(m, S)`](@ref ComposableRecurrences.param_rows), so each call checks them.
 
 ## [A vector step](@id extending-vector)
 

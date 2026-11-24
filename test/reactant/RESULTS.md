@@ -111,6 +111,7 @@ Total run time 26.3 min, timeout 600 s a case.
 | Kernel weights of a survival against a delay and calendar hazard | works (2.6 s / 9.7 µs) | works (1.7 s / 32.6 µs) |
 | Recurrence kernel shortened by a survival | works (2.6 s / 9.3 µs) | works (2.2 s / 71.0 µs) |
 | Window sums of each series, either way round | works (2.4 s / 13.2 µs) | works (1.1 s / 13.7 µs) |
+| Growth rate from a reproduction number | error: MethodError | error: MethodError |
 | Recurrence user coupling without a pullback | works (1.8 s / 9.9 µs) | works (1.1 s / 14.8 µs) |
 | Recurrence per-stratum modifier without a pullback | works (2.6 s / 14.6 µs) | works (1.2 s / 14.6 µs) |
 | Recurrence pointwise modifier with an Init without a pullback | works (4.1 s / 11.3 µs) | works (1.4 s / 10.8 µs) |
@@ -421,6 +422,8 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | cases | conv_derived_kernel | reverse | cpu | 400 | works | 3.4e-16 | 13.7 | 440.9 | 2644.2 |  |  |
 | cases | rec_cp_strata_const | forward | cpu | 400 | works | 3.6e-16 | 2.2 | 13.8 | 8.8 |  |  |
 | cases | rec_cp_strata_const | reverse | cpu | 400 | works | 4.8e-15 | 1.1 | 342.7 | 5788.6 |  |  |
+| registry | Growth rate from a reproduction number | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching growth_rate(::Reactant.TracedRNumber{Float64}, ::SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, |
+| registry | Growth rate from a reproduction number | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching growth_rate(::Reactant.TracedRNumber{Float64}, ::SubArray{Reactant.TracedRNumber{Float64}, 1, Reactant.TracedRArray{Float64, 1}, |
 
 ## The Reactant extension
 
