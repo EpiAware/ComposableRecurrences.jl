@@ -116,6 +116,14 @@ function returning_trace(op, args...; kwargs...)
     RECORD_KEYWORD && return op(args...; kwargs..., record = (:trace,))
     return op(args...; kwargs..., trace = true)
 end
+# The output and trace of a call that reads only the pressure: a release
+# with named records builds the pressure alone, an earlier one the whole
+# trace.
+const NAMED_RECORDS = isdefined(ComposableRecurrences, :_RECORD_PARTS)
+function returning_pressure(op, args...; kwargs...)
+    NAMED_RECORDS && return op(args...; kwargs..., record = (:pressure,))
+    return returning_trace(op, args...; kwargs...)
+end
 # The output of a call resumed from a state, which some releases before
 # `record` returned with the next state.
 function resumed(op, args...; kwargs...)
@@ -2076,6 +2084,19 @@ push!(
     ),
 )
 
+# The growth rate of a renewal from its reproduction number and generation
+# interval. It is a solve with no rule: every backend takes plain AD through
+# one Newton step from the root, which carries the implicit derivative.
+function _growth_rate(w, θ)
+    logR, g = _unpack(θ, (1,), (L,))
+    return ComposableRecurrences.growth_rate(exp(only(logR)), g)^2
+end
+
+push!(
+    _SCENARIOS,
+    ("Growth rate from a reproduction number", _growth_rate, () -> _flat([log(1.6)], G0)),
+)
+
 """
     supports(features...)
 
@@ -2166,6 +2187,7 @@ const _PROBES = Dict{Symbol, Function}(
 # that uses a new feature, named by a public or internal name that came
 # with it, e.g. `"..." => (:Transform,)`.
 const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
+    "Growth rate from a reproduction number" => (:growth_rate,),
     "Recurrence grouped totals (Allocate)" => (:Allocate,),
     "Recurrence grouped totals with imports and a spill (Allocate)" =>
         (:_AllocateImports,),
@@ -3084,6 +3106,11 @@ const REACTANT_BROKEN = Dict(
         "Recurrence negative binomial generation interval per stratum",
         "Recurrence negative binomial generation interval per pair of strata",
     ],
+    # `growth_rate` takes `Real` arguments, and its Newton solve stops on a
+    # comparison of values, which a trace cannot drive.
+    "a Newton solve on traced values" => [
+        "Growth rate from a reproduction number",
+    ],
 )
 
 """
@@ -3130,14 +3157,15 @@ parameters, more than two passes; over five steps it seeds 39, within two.
 """
 function backend_plain_scenarios()
     coupling = "Recurrence user coupling across 30 strata"
+    growth = "Growth rate from a reproduction number"
     supports(:_reads_fewer) && return Dict(
-        "Enzyme reverse" => Set([coupling]), "Mooncake reverse" => Set{String}()
+        "Enzyme reverse" => Set([coupling, growth]), "Mooncake reverse" => Set([growth])
     )
     occupancy = "Recurrence whole-step modifier branching at a tie (occupancy)"
     short = "Recurrence whole-step modifier branching at a tie over five steps (occupancy)"
     return Dict(
-        "Enzyme reverse" => Set([coupling, occupancy, short]),
-        "Mooncake reverse" => Set([occupancy]),
+        "Enzyme reverse" => Set([coupling, occupancy, short, growth]),
+        "Mooncake reverse" => Set([occupancy, growth]),
     )
 end
 

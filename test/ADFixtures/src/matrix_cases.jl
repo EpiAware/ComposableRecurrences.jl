@@ -17,7 +17,7 @@ using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, dot, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
-    added, clamped, returning_state, returning_trace, resumed
+    added, clamped, returning_state, returning_trace, returning_pressure, resumed
 using ..ADFixtures: AddMean, AddMeanHand, Pool, Renorm
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
@@ -774,7 +774,7 @@ function reproduction(wrap, z::Size)
         g, logR = _unpack(θ, (L,), (S, T))
         r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(PerStratum(pop)),))
         if TRACE_PRESSURE
-            y, tr = returning_trace(wrap(r), exp.(logR); history = seed)
+            y, tr = returning_pressure(wrap(r), exp.(logR); history = seed)
             return sum(W .* y ./ tr.pressure)
         end
         y = wrap(r)(exp.(logR); history = seed)

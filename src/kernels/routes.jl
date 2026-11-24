@@ -194,7 +194,7 @@ function _kwork(k::_RouteKernels, S, L)
 end
 
 # The routes mix strata, so the strata do not run on their own.
-_independent(::_PointwiseCoupling, ::_RouteKernels, ::Tuple) = false
+_independent(::_PointwiseCoupling, ::_RouteKernels, ::Tuple, rec, H) = false
 
 # The routes' pressure fills `p` before each step, under coupling `I`. Route
 # `r` reads buffer rows `t + L - L_r` to `t + L - 1`.

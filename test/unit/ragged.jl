@@ -194,3 +194,51 @@ end
             Convolution(TimeVarying(pad(KS), I))(X)
     end
 end
+
+@testitem "Ragged PerStratum rows: equal the padded kernel, values and gradients" setup = [ReferenceAD] begin
+    using ComposableRecurrences, Test
+    rows = [[0.2, 0.5, 0.3], [0.6], [0.1, 0.2, 0.3, 0.4]]
+    padded = [0.2 0.5 0.3 0.0; 0.6 0.0 0.0 0.0; 0.1 0.2 0.3 0.4]
+    @test PerStratum(rows).x == padded
+    @test PerStratum(rows).x isa Matrix{Float64}
+    @test PerStratum([[1, 2], [3]]).x == [1 2; 3 0]
+    # Rows of one length stack too, and an empty row is all zeros.
+    @test PerStratum([[1.0, 2.0], [3.0, 4.0]]).x == [1.0 2.0; 3.0 4.0]
+    @test PerStratum([[1.0], Float64[]]).x == reshape([1.0, 0.0], 2, 1)
+    # Rows of mixed types promote, and rows are copied, not held.
+    mixed = PerStratum([view([0.5, 0.5], 1:2), [1.0f0]])
+    @test mixed.x == [0.5 0.5; 1.0 0.0]
+    row = [0.2, 0.8]
+    held = PerStratum([row, [1.0]])
+    row[1] = 9.0
+    @test held.x == [0.2 0.8; 1.0 0.0]
+    @test_throws "at least one row" PerStratum(Vector{Float64}[])
+    # The rows' eltype is checked, so rows of `Any` holding numbers are not
+    # taken.
+    @test_throws "number eltype" PerStratum([[0.5], ["a"]])
+    @test_throws "number eltype" PerStratum([Any[0.5], [1.0]])
+    R = [1.1 + 0.1 * k * t for k in 1:3, t in 1:8]
+    H = [1.0 + 0.1 * k * l for k in 1:3, l in 1:4]
+    X = [1.0 + 0.2 * sin(k + t) for k in 1:3, t in 1:8]
+    @test Recurrence(PerStratum(rows))(R; history = H) ==
+        Recurrence(PerStratum(padded))(R; history = H)
+    @test Convolution(PerStratum(rows))(X) ==
+        Convolution(PerStratum(padded))(X)
+    # A padded weight multiplies its input, so 0 * Inf gives NaN, as the
+    # padded kernel does.
+    Xinf = copy(X)
+    Xinf[2, 3] = Inf
+    y = Convolution(PerStratum(rows))(Xinf)
+    @test isequal(y, Convolution(PerStratum(padded))(Xinf))
+    @test isnan(y[2, 4])
+    # Gradients through the rows equal the padded kernel's.
+    o = cumsum([0; length.(rows)])
+    split(v) = [v[(o[i] + 1):o[i + 1]] for i in eachindex(rows)]
+    pad(v) = permutedims(
+        reduce(hcat, [[r; zeros(eltype(v), 4 - length(r))] for r in split(v)])
+    )
+    v = reduce(vcat, rows)
+    rec(K) = sum(Recurrence(K)(R; history = H))
+    @test ReferenceAD.gradient(v -> rec(PerStratum(split(v))), v) ≈
+        ReferenceAD.gradient(v -> rec(PerStratum(pad(v))), v)
+end
