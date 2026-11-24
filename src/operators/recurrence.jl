@@ -782,7 +782,7 @@ end
 
 # The call builds the positional arguments `(gain, add, h, s0, τ0, stop)`
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
-Base.@constprop :aggressive function _invoke(
+Base.@constprop :aggressive @inline function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
         add = nothing, start = _start(state), stop = nothing, record = nothing
     )
@@ -794,7 +794,13 @@ Base.@constprop :aggressive function _invoke(
     return _routed(traced, stated, rec, r, route, args, stop, sel)
 end
 # One call over both flags, so that a rule derived from types alone splits.
-function _routed(traced, stated, rec, r, route, args, stop, sel)
+# Inlined, as `_run_args` is, so a backend that differentiates the call
+# builds no shadow of the argument tuple.
+@inline function _routed(traced, stated, rec, r, route, args, stop, sel)
+    if _scans(traced, stated, r, args)
+        y = _scan_call(route, r, args, stop)
+        return _recorded(rec, traced, stated, y, _names(r))
+    end
     op = _call_op(traced, stated, _linear_parts(route, r, args[3]), sel)
     out = adjoint_call(_reroute(route, op), args..., stop)
     return _recorded(rec, traced, stated, out, _names(r))
@@ -923,7 +929,7 @@ end
 _named(modifiers, ::Val{nothing}) = modifiers
 _named(modifiers, ::Val{N}) where {N} = NamedTuple{N}(modifiers)
 
-function _run_args(r, gain, history, state, add, start)
+@inline function _run_args(r, gain, history, state, add, start)
     _check_start(start)
     _check_unwrapped(:gain, gain)
     _check_unwrapped(:add, add)
@@ -1440,6 +1446,13 @@ end
 function _recur(
         r::Recurrence, gain, add, h, s0, τ0, stop, cache::Val
     )
+    (; L, D, S, T) = _checked_call(r, gain, add, h, s0, τ0, stop)
+    Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
+    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache)
+end
+# The checks of a call against its recurrence, which the buffer run and the
+# scan share, and the sizes they settle.
+function _checked_call(r::Recurrence, gain, add, h, s0, τ0, stop)
     (; kernel, coupling, modifiers) = r
     L = _nlags(kernel)
     D = _buffer_depth(r, L)
@@ -1466,9 +1479,7 @@ function _recur(
     _check_times(:modifiers, modifiers, stop)
     _check_device(h, (kernel, coupling, modifiers, gain, add, s0))
     _check_device_moves(h, modifiers)
-    T = stop - τ0 + 1
-    Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
-    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache)
+    return (; L, D, S, T = stop - τ0 + 1, stop)
 end
 
 # The buffer eltype from the promoted eltype `E` of every input and part:
@@ -2099,3 +2110,128 @@ end
         args = ([1.1 0.9 1.2; 0.8 1.3 1.1],), kwargs = (; history = ones(2, 2))
     ),
 ]
+
+# == A one-lag recurrence as a scan ==
+
+# A recurrence with one fixed lag, a pointwise scalar coupling and no
+# modifiers is a first-order linear scan of each stratum,
+#
+#     y_t = c_t y_{t-1} + a_t,    c_t = λ k γ_t,
+#
+# so it runs with the running value in a register rather than read back from
+# a buffer. Random walks, cumulative sums from a seed and AR(1) series all
+# take it. Its reverse pass is the same scan run backwards.
+struct _Scan{K, C} <: AbstractOperator
+    kernel::K
+    coupling::C
+end
+uses_adjoint(::_Scan, ::Run) = true
+
+# Whether a call runs as a scan: read from the types, apart from the one
+# lag and one stratum, so a call that cannot take it folds the check away.
+# Recorded calls and device arrays take the buffer run. So do several
+# strata: each stratum's scan strides the output by the number of strata,
+# where the buffer run steps every stratum at each time.
+_scans(traced, stated, r, args) = false
+function _scans(
+        ::Val{false}, ::Val{false},
+        r::Recurrence{<:AbstractVector{<:Real}, <:UniformScaling, Tuple{}}, args
+    )
+    gain, add, h, s0 = args
+    return length(r.kernel) == 1 && _one_stratum(h) &&
+        s0 isa Union{Nothing, Tuple{}} &&
+        _on_host(r.kernel) && _on_host(gain) && _on_host(add) && _on_host(h)
+end
+
+_one_stratum(h::AbstractVector) = true
+_one_stratum(h::AbstractMatrix) = size(h, 1) == 1
+_one_stratum(h) = false
+
+# The call through the scan, with the same checks and output as the buffer
+# run.
+@inline function _scan_call(route, r, (gain, add, h, s0, τ0), stop)
+    (; stop) = _checked_call(r, gain, add, h, s0, τ0, stop)
+    return _scan_route(route, r.kernel, r.coupling, gain, add, h, τ0, stop)
+end
+# One reverse-mode extension makes `_scan_rule` a rule primitive, the
+# operator's pullback; the other puts its rule on each stratum's `_scan!`.
+# Elsewhere the scan takes its coefficient as a scalar, so no shadow of the
+# operator is built. Under `NoAdjoint` the backend differentiates the bare
+# loop, without the rule on `_scan!`.
+function _scan_route(::NoAdjoint, kernel, C, args::Vararg{Any, N}) where {N}
+    return _scan(_scan_coef(kernel, C), args..., _scan_steps!)
+end
+@inline function _scan_route(route, kernel, C, args::Vararg{Any, N}) where {N}
+    _gate(kernel, C, args...) && return _scan_rule(kernel, C, args...)
+    return _scan(_scan_coef(kernel, C), args...)
+end
+function _scan_rule(kernel, C, args::Vararg{Any, N}) where {N}
+    return _scan(_scan_coef(kernel, C), args...)
+end
+
+function _run_forward(op::_Scan, gain, add, h, τ0, stop)
+    y = _scan(_scan_coef(op), gain, add, h, τ0, stop)
+    return y, (; y = copy(y), gain = _tape(gain), h, τ0)
+end
+function _primal(op::_Scan, args::Vararg{Any, N}) where {N}
+    return _scan(_scan_coef(op), args...)
+end
+
+function _scan_eltype(c, gain, add, h)
+    return _buffer_eltype(param_eltype((c, gain, add, h)), ())
+end
+_scan_coef(op::_Scan) = _scan_coef(op.kernel, op.coupling)
+_scan_coef(kernel, C) = C.λ * only(kernel)
+# The last history value of stratum `k`, or zero for an empty history. It
+# is added to `+0.0`, as the buffer run's sum starts there, so a seed of
+# `-0.0` gives `+0.0` as that run does.
+function _scan_seed(h::AbstractVector, ::Type{Tp}, k) where {Tp}
+    return isempty(h) ? zero(Tp) : zero(Tp) + Tp(h[end])
+end
+function _scan_seed(h::AbstractMatrix, ::Type{Tp}, k) where {Tp}
+    return size(h, 2) == 0 ? zero(Tp) : zero(Tp) + Tp(h[k, end])
+end
+
+function _scan(c, gain, add, h::AbstractVector, τ0, stop, step! = _scan!)
+    Tp = _scan_eltype(c, gain, add, h)
+    y = Vector{Tp}(undef, stop - τ0 + 1)
+    step!(y, c, gain, add, _scan_seed(h, Tp, 1), τ0, 1, 1)
+    return y
+end
+function _scan(c, gain, add, h::AbstractMatrix, τ0, stop, step! = _scan!)
+    Tp = _scan_eltype(c, gain, add, h)
+    S = size(h, 1)
+    y = Matrix{Tp}(undef, S, stop - τ0 + 1)
+    for k in 1:S
+        step!(y, c, gain, add, _scan_seed(h, Tp, k), τ0, k, S)
+    end
+    return y
+end
+
+# Stratum `k` of `y` from seed `v`, its entry at step `j` in linear position
+# `(j - 1) S + k`. Two steps at a time, as
+# `y_{t+1} = d_{t+1} d_t y_{t-1} + (d_{t+1} a_t + a_{t+1})` with
+# `d_t = c γ_t`, so the chain from one value to the next has one
+# multiply-add per two steps and the rest runs beside it. A backend
+# extension's rule is on `_scan!`; `_scan_steps!` is the loop itself.
+function _scan!(y, c, gain, add, v, τ0, k, S)
+    return _scan_steps!(y, c, gain, add, v, τ0, k, S)
+end
+function _scan_steps!(y, c, gain, add, v, τ0, k, S)
+    n = length(y) ÷ S
+    j = 1
+    @inbounds while j < n
+        t = τ0 + j - 1
+        d₁, d₂ = c * _at(gain, k, t), c * _at(gain, k, t + 1)
+        a₁ = _at(add, k, t)
+        y[(j - 1) * S + k] = muladd(d₁, v, a₁)
+        v = muladd(d₂ * d₁, v, muladd(d₂, a₁, _at(add, k, t + 1)))
+        y[j * S + k] = v
+        j += 2
+    end
+    @inbounds if j == n
+        t = τ0 + j - 1
+        y[(j - 1) * S + k] = muladd(c * _at(gain, k, t), v, _at(add, k, t))
+    end
+    return nothing
+end
