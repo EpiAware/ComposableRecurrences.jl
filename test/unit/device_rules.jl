@@ -1311,7 +1311,7 @@ end
 
 @testitem "JLArrays: a device sparse coupling runs as CSR, and a CSC one is converted" setup = [DeviceRules] begin
     using SparseArrays: SparseArrays, sparse
-    using GPUArrays: AbstractGPUSparseMatrixCOO
+    using GPUArrays: AbstractGPUSparseMatrixCOO, csr_type
     S = 4
     C = sparse([0.0 0.1 0.0 0.2; 0.3 0.0 0.0 0.0; 0.0 0.2 0.0 0.1; 0.1 0.0 0.4 0.0])
     x, h = inputs(S), fill(1.0, S, L)
@@ -1319,8 +1319,15 @@ end
     for (name, Cd) in (
             "CSR" => JLSparseMatrixCSR(C), "CSC" => JLSparseMatrixCSC(C),
         )
+        # Older JLArrays give a CSC matrix no `csr_type`, so it is refused.
+        if !(Cd isa JLSparseMatrixCSR) &&
+                !hasmethod(csr_type, Tuple{Type{typeof(Cd)}})
+            @test_throws r"has no conversion" Recurrence(
+                JLArray(pmf); coupling = Cd
+            )
+            continue
+        end
         r = Recurrence(JLArray(pmf); coupling = Cd)
-        # Stored in CSR form, whose rows the device runs one per index.
         @test r.coupling isa JLSparseMatrixCSR
         @test Matrix(SparseArrays.SparseMatrixCSC(r.coupling)) == Matrix(C)
         y1 = r(JLArray(x); history = JLArray(h))
@@ -1328,10 +1335,11 @@ end
         @test Array(y1) ≈ y0
     end
     # A device sparse form with no conversion to CSR is refused when the
-    # recurrence is built.
-    struct NoCSR <: AbstractGPUSparseMatrixCOO{Float64, Int} end
-    Base.size(::NoCSR) = (S, S)
-    @test_throws r"runs in CSR form, and a NoCSR has no conversion" Recurrence(
-        JLArray(pmf); coupling = NoCSR()
+    # recurrence is built. JLArrays has no such form, so a stub with no
+    # `csr_type` stands in for one.
+    struct NoCSRStub <: AbstractGPUSparseMatrixCOO{Float64, Int} end
+    Base.size(::NoCSRStub) = (S, S)
+    @test_throws r"runs in CSR form, and a NoCSRStub has no conversion" Recurrence(
+        JLArray(pmf); coupling = NoCSRStub()
     )
 end
