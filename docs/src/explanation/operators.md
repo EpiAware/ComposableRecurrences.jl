@@ -71,8 +71,19 @@ A recurrence `renewal` takes its gain first, and a convolution `delay` takes its
 | [`ComposableRecurrences.kernel_weights(TimeVarying(w, Primary()), n)`](@ref ComposableRecurrences.kernel_weights) | the weights a computed kernel `w` gives cohorts 1 to `n` |
 
 The keyword `stop` defaults to the common length of the time-indexed inputs, and inputs of different lengths without a `stop` are an error.
+An operator can be built inside a model, once for each draw of its parameters: its constructor's checks read only types, so building it adds no measurable cost to a call or a gradient.
 Without a gain, a recurrence takes a gain of 1.
 A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per step, and the pressure of each step in `trace.pressure`, shaped like `y`.
+Pass the modifiers as a named tuple, as `modifiers = (; pool, imports)`, and `trace.modifiers` is keyed by those names, as `trace.modifiers.pool`.
+`record` can also name a part of the trace alone, `:pressure` or a modifier's name.
+The parts it does not name are not built and come back empty, so the call's return type stays that of a whole trace.
+
+```@example operators
+pool = ComposableRecurrences.Depletion(100.0)
+named = Recurrence([0.2, 0.5, 0.3]; modifiers = (; pool))
+parts = named(fill(1.3, 10); history = ones(3), record = (:pool, :pressure))
+size(parts.trace.modifiers.pool), size(parts.trace.pressure)
+```
 
 The transpose sums forward in time from each ``t``.
 For a reporting delay ``w_l`` over ``L_w`` lags and data up to time ``T``, the share of the infections at time ``t`` reported by ``T`` is
@@ -115,6 +126,7 @@ Operators return only their outputs, so recompute an intermediate this way rathe
 Every time-indexed input is read at absolute time ``t``, counted from 1.
 This holds for `gain`, `add`, a convolution's `x` and every [`TimeVarying`](@ref) kernel, coupling or parameter.
 `start` and `stop` choose which times are computed, not how the inputs are read.
+So a run over a window of longer time-varying inputs needs no slicing: pass them whole and set `start` and `stop`.
 So a call from `start = 4` reads `gain[4]` at its first step, and the output has `stop - start + 1` entries.
 With ``h_{t}`` the history value at time ``t``, that first step is
 

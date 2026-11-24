@@ -165,9 +165,11 @@ end
     R = [0.8 + 0.1 * sin(k + t) for k in 1:S, t in 1:12]
     h = fill(0.1, S, 3)
     K = fill(0.1, S, S) + 0.7I
-    # Strata on their own, strata mixed by a coupling, and a map after it.
+    # Strata on their own, alone and with a map after it, and strata mixed by
+    # a coupling, alone and with a map after it.
     for r in (
             Recurrence(g; modifiers = (m,)),
+            Recurrence(g; modifiers = (m, CR.Transform(+, 0.01))),
             Recurrence(g; coupling = K, modifiers = (m,)),
             Recurrence(g; coupling = K, modifiers = (m, CR.Transform(+, 0.01))),
         )

@@ -548,8 +548,10 @@ function _fill_kernel(
     end
     return K, sc
 end
+# `keep` is the run's cache flag: `true` or `:traced` keep a reverse cache.
 function _block_size(x, n, ::Val{keep}) where {keep}
-    return keep && _keeps_fill(x) ? max(n, 1) : _BLOCK
+    keeps = keep === true || keep === :traced
+    return keeps && _keeps_fill(x) ? max(n, 1) : _BLOCK
 end
 function _weights_array(::Val{false}, ::Type{Tp}, ns, L, n) where {Tp}
     return zeros(Tp, L, n)

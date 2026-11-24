@@ -87,6 +87,12 @@ the call covers the absolute times `start:stop`:
         `trace.pressure` the pressure ``K_t p_t`` each step drew against,
         laid out as `y`, as [`ComposableRecurrences.pressure`](@ref)
         returns it; both differentiable as the output is.
+        Named modifiers give `trace.modifiers` as a named tuple keyed by
+        their names, and a tuple of modifiers gives a tuple;
+      - `:pressure`, or a modifier's name, for that part of the trace alone,
+        read as above, as `trace.pressure` or `trace.modifiers.name`.
+        The parts not named are not built: they come back empty, so the
+        call returns the type a whole trace has, and add no cotangent.
     `record = ()` returns `(; y)`, and without `record` the call returns
     `y`.
     Pass the tuple as a literal, or in a `Val`, as
@@ -112,7 +118,9 @@ part it differentiates and stores the result in the field `rebuilds`; see
 
 # Keyword Arguments
 - `coupling`: how the strata's kernel convolutions mix; `I` by default.
-- `modifiers`: a tuple of modifiers applied after the core of each step.
+- `modifiers`: a tuple of modifiers applied after the core of each step,
+  or a named tuple, as `modifiers = (; pool, imports)`, whose names key
+  their traces and `record` reads.
 - `lags`: for a kernel of delays only, the number of lags from lag 0.
 - `step`: for a kernel of delays only, the width of a lag in the delays'
   own unit; `1` by default.
@@ -139,7 +147,7 @@ y ≈ hcat(fit.y, r(R; state = fit.state))
 true
 ```
 """
-struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
+struct Recurrence{K, C, M <: Tuple, B, N} <: AbstractOperator
     "The kernel, lag 1 first."
     kernel::K
     "How the strata's kernel convolutions mix."
@@ -148,23 +156,24 @@ struct Recurrence{K, C, M <: Tuple, B} <: AbstractOperator
     modifiers::M
     "Whether the local step rebuilds the parts that use it."
     rebuilds::B
-    function Recurrence(kernel::K, coupling::C, modifiers::M) where {
-            K, C, M <: Tuple,
-        }
+    function Recurrence(
+            kernel::K, coupling::C, modifiers::M, names::Val = Val(nothing)
+        ) where {K, C, M <: Tuple}
         _check_kernel_shape(kernel)
         _check_coupling_shape(coupling)
         _check_pairwise_coupling(kernel, coupling)
         _check_secondary(coupling, modifiers)
         return Recurrence(
             _Checked(), kernel, coupling, modifiers,
-            _check_parts(kernel, coupling, modifiers)
+            _check_parts(kernel, coupling, modifiers), names
         )
     end
     function Recurrence(
-            ::_Checked, kernel::K, coupling, modifiers::M, rebuilds::B
-        ) where {K, M <: Tuple, B}
+            ::_Checked, kernel::K, coupling, modifiers::M, rebuilds::B,
+            ::Val{N} = Val(nothing)
+        ) where {K, M <: Tuple, B, N}
         C = _stored_coupling(coupling)
-        return new{K, typeof(C), M, B}(kernel, C, modifiers, rebuilds)
+        return new{K, typeof(C), M, B, N}(kernel, C, modifiers, rebuilds)
     end
 end
 
@@ -177,8 +186,29 @@ function Recurrence(
     _check_no_step(step)
     _check_no_delays(kernel)
     k, C = _fold(kernel, coupling)
-    return Recurrence(k, C, Tuple(modifiers))
+    return Recurrence(k, C, Tuple(modifiers), _modifier_names(modifiers))
 end
+
+# The modifiers' names, the keys of a named tuple of modifiers; a tuple
+# names none. A name cannot be one that `record` reads for another part.
+_modifier_names(modifiers) = Val(nothing)
+function _modifier_names(modifiers::NamedTuple{N}) where {N}
+    foreach(_check_modifier_name, N)
+    return Val(N)
+end
+function _check_modifier_name(name::Symbol)
+    name in _RECORD_PARTS || return nothing
+    throw(
+        ArgumentError(
+            "a modifier cannot be named $(repr(name)), which record reads " *
+                "as $(join(map(repr, _RECORD_PARTS), ", ", " or "))"
+        )
+    )
+end
+# The names `record` reads for the parts of a call other than modifiers.
+const _RECORD_PARTS = (:state, :trace, :pressure)
+# The modifiers' names as a `Val`, `Val(nothing)` when they have none.
+_names(::Recurrence{K, C, M, B, N}) where {K, C, M, B, N} = Val(N)
 
 # The identity coupling is stored with an integer scale: reverse AD on Julia
 # 1.11 loses a scalar field's gradient beside a field wrapping a `Bool` in
@@ -211,9 +241,17 @@ _check_not_form(m) = nothing
     )
 end
 
-# A rebuild of a `Recurrence` from its fields checks its parts again.
-_recurrence_flat(kernel, coupling, modifiers, rebuilds) = Recurrence(kernel, coupling, modifiers)
-ConstructionBase.constructorof(::Type{<:Recurrence}) = _recurrence_flat
+# A rebuild of a `Recurrence` from its fields checks its parts again and
+# keeps the modifiers' names, which its type carries.
+struct _RecurrenceFlat{N} end
+function (::_RecurrenceFlat{N})(kernel, coupling, modifiers, rebuilds) where {N}
+    return Recurrence(kernel, coupling, modifiers, Val(N))
+end
+function ConstructionBase.constructorof(
+        ::Type{<:Recurrence{K, C, M, B, N}}
+    ) where {K, C, M, B, N}
+    return _RecurrenceFlat{N}()
+end
 
 # A kernel and coupling with a cheaper equivalent form, such as routes that
 # fold into one kernel, are replaced by it.
@@ -741,54 +779,67 @@ Base.@constprop :aggressive function _invoke(
         add = nothing, start = _start(state), stop = nothing, record = nothing
     )
     args = _run_args(r, gain, history, state, add, start)
-    rec = _record(record)
-    traced, stated = _recording(rec, Val(:trace)), _recording(rec, Val(:state))
-    return _routed(traced, stated, rec, r, route, args, stop)
+    names = _names(r)
+    rec = _record(record, names)
+    traced, stated = _tracing(rec, names), _recording(rec, Val(:state))
+    sel = _selection(rec, names, Val(length(r.modifiers)))
+    return _routed(traced, stated, rec, r, route, args, stop, sel)
 end
 # One call over both flags, so that a rule derived from types alone splits.
-function _routed(traced, stated, rec, r, route, args, stop)
-    op = _call_op(traced, stated, _linear_parts(route, r, args[3]))
+function _routed(traced, stated, rec, r, route, args, stop, sel)
+    op = _call_op(traced, stated, _linear_parts(route, r, args[3]), sel)
     out = adjoint_call(_reroute(route, op), args..., stop)
-    return _recorded(rec, traced, stated, out)
+    return _recorded(rec, traced, stated, out, _names(r))
 end
 
 # What a call records beside `y`, checked once: `nothing` unless `record`
-# is given, so that a call without it compiles without its arms.
-_record(::Nothing) = nothing
-Base.@constprop :aggressive function _record(record::Tuple{Vararg{Symbol}})
-    foreach(_check_record, record)
+# is given, so that a call without it compiles without its arms. Besides
+# `:state` and `:trace` it may name parts of the trace alone: `:pressure`,
+# or a modifier by its name.
+_record(::Nothing, names) = nothing
+Base.@constprop :aggressive function _record(
+        record::Tuple{Vararg{Symbol}}, names
+    )
+    foreach(name -> _check_record(name, names), record)
     allunique(record) || _duplicate_record(record)
     return record
 end
-function _record(rec::Val{R}) where {R}
+function _record(rec::Val{R}, names) where {R}
     R isa Tuple{Vararg{Symbol}} || _bad_record(rec)
-    _record(R)
+    _record(R, names)
     return rec
 end
 @noinline function _duplicate_record(record)
-    throw(ArgumentError("record names each of :state and :trace once, got $(record)"))
+    throw(ArgumentError("record names each part once, got $(record)"))
 end
-_record(record) = _bad_record(record)
+_record(record, names) = _bad_record(record)
 @noinline function _bad_record(record)
     throw(
         ArgumentError(
             "record is a tuple of the names to return beside y, such as " *
-                "(:state,), (:trace,) or (:state, :trace), or such a tuple in a " *
-                "Val; got $(_describe(record))"
+                "(:state,), (:trace,), (:pressure,) or (:state, :trace), or " *
+                "such a tuple in a Val; got $(_describe(record))"
         )
     )
 end
-_check_record(name::Symbol) = name in (:state, :trace) || _record_error(name)
-@noinline function _record_error(name)
+function _check_record(name::Symbol, ::Val{N}) where {N}
+    name in (:state, :trace, :pressure) && return true
+    N !== nothing && name in N && return true
+    return _record_error(name, N)
+end
+@noinline function _record_error(name, N)
     name === :pressures && throw(
         ArgumentError(
-            "the pressures are in the trace: record = (:trace,) and read " *
-                "trace.pressure"
+            "the pressures are a part of the trace: record = (:pressure,) " *
+                "and read trace.pressure"
         )
     )
+    known = N === nothing ? "" : ", or a modifier's name, $(join(N, ", "))"
     throw(
         ArgumentError(
-            "record names :state or :trace, got $(repr(name))"
+            "record names :state, :trace or :pressure$(known); got " *
+                "$(repr(name)). Name the modifiers, as " *
+                "modifiers = (; name = m), to record one modifier's trace"
         )
     )
 end
@@ -800,21 +851,69 @@ Base.@constprop :aggressive function _recording(rec::Tuple, ::Val{name}) where {
     return name in rec ? Val(true) : Val(false)
 end
 _recording(::Val{R}, ::Val{name}) where {R, name} = Val(name in R)
+# Whether a call records any part of its trace.
+_tracing(::Nothing, names) = Val(false)
+Base.@constprop :aggressive function _tracing(rec::Tuple, names)
+    return _traces_any(rec, names) ? Val(true) : Val(false)
+end
+function _traces_any(rec::Tuple, ::Val{N}) where {N}
+    (:trace in rec || :pressure in rec) && return true
+    N === nothing && return false
+    return any(n -> n in rec, N)
+end
+# The parts of the trace a call builds: a flag for each of its `m`
+# modifiers and one for the pressure, all set for `:trace`. It is a value,
+# not a type, so a call returns the same type whichever parts it builds.
+_selection(::Nothing, names, m) = _all_parts(m)
+_selection(::Val{R}, names, m) where {R} = _selection(R, names, m)
+function _selection(rec::Tuple, ::Val{N}, ::Val{m}) where {N, m}
+    :trace in rec && return _all_parts(Val(m))
+    mods = N === nothing ? ntuple(_ -> false, Val(m)) : map(n -> n in rec, N)
+    return (mods, :pressure in rec)
+end
+_all_parts(::Val{m}) where {m} = (ntuple(_ -> true, Val(m)), true)
+# Generated after its helper, so a record in a `Val` answers from the types
+# alone.
+@generated function _tracing(::Val{R}, names::Val) where {R}
+    return :(Val{$(_traces_any(R, names()))}())
+end
 
 # The operator a call routes: the recurrence, with its state, its trace or
 # both in its output.
-_call_op(::Val{false}, ::Val{false}, r) = r
-_call_op(::Val{true}, ::Val{false}, r) = _WithTrace(r)
-_call_op(::Val{false}, ::Val{true}, r) = _WithState(r)
-_call_op(::Val{true}, ::Val{true}, r) = _WithTrace(_WithState(r))
+_call_op(::Val{false}, ::Val{false}, r, sel) = r
+_call_op(::Val{true}, ::Val{false}, r, sel) = _WithTrace(r, sel)
+_call_op(::Val{false}, ::Val{true}, r, sel) = _WithState(r)
+_call_op(::Val{true}, ::Val{true}, r, sel) = _WithTrace(_WithState(r), sel)
 # Without `record` the call returns `y`; with it, a named tuple of `y` and
 # what it names, in the order `y`, `state`, `trace`.
-_recorded(::Nothing, traced, stated, y) = y
-_recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{false}, y) = (; y)
-_recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{true}, (y, state)) = (; y, state)
-_recorded(::Union{Tuple, Val}, ::Val{true}, ::Val{false}, (y, trace)) = (; y, trace)
-_recorded(::Union{Tuple, Val}, ::Val{true}, ::Val{true}, ((y, state), trace)) =
-    (; y, state, trace)
+_recorded(::Nothing, traced, stated, y, names) = y
+function _recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{false}, y, names)
+    return (; y)
+end
+function _recorded(
+        ::Union{Tuple, Val}, ::Val{false}, ::Val{true}, (y, state), names
+    )
+    return (; y, state)
+end
+function _recorded(
+        ::Union{Tuple, Val}, ::Val{true}, ::Val{false}, (y, trace), names
+    )
+    return (; y, trace = _user_trace(trace, names))
+end
+function _recorded(
+        ::Union{Tuple, Val}, ::Val{true}, ::Val{true}, ((y, state), trace),
+        names
+    )
+    return (; y, state, trace = _user_trace(trace, names))
+end
+
+# The trace as a call returns it: the modifiers keyed by their names when
+# they have them. A part the call did not build is empty.
+function _user_trace(trace, names)
+    return (; modifiers = _named(trace.modifiers, names), trace.pressure)
+end
+_named(modifiers, ::Val{nothing}) = modifiers
+_named(modifiers, ::Val{N}) where {N} = NamedTuple{N}(modifiers)
 
 function _run_args(r, gain, history, state, add, start)
     _check_start(start)
@@ -832,13 +931,26 @@ Base.@constprop :aggressive function forward(
         r::Recurrence, ::Run, gain = true; history = nothing, state = nothing,
         add = nothing, start = _start(state), stop = nothing, record = nothing
     )
-    op = _trace_op(_forward_record(_record(record)), r)
+    op = _trace_op(_forward_record(_record(record, _names(r))), r)
     return _run_forward(op, _run_args(r, gain, history, state, add, start)..., stop)
 end
-# `forward` returns no state, so `:trace` is the one name it records.
+# `forward` returns no state, so `:trace` is the one name it records. It is
+# the operator's own entry point, so its trace is the rule's: every part,
+# with the modifiers' traces in a tuple; only a call names them or picks
+# parts.
 _forward_record(rec) = _forward_record(rec, _recording(rec, Val(:state)))
-_forward_record(rec, ::Val{false}) = _recording(rec, Val(:trace))
-@noinline function _forward_record(rec, ::Val{true})
+function _forward_record(rec, ::Val{false})
+    _only_trace(rec)
+    return _recording(rec, Val(:trace))
+end
+_forward_record(rec, ::Val{true}) = _forward_record_error(rec)
+_only_trace(::Nothing) = nothing
+_only_trace(::Val{R}) where {R} = _only_trace(R)
+function _only_trace(rec::Tuple)
+    all(==(:trace), rec) || _forward_record_error(rec)
+    return nothing
+end
+@noinline function _forward_record_error(rec)
     throw(
         ArgumentError(
             "forward(r, Run(); record) records :trace only, got $(repr(rec))"
@@ -1233,7 +1345,7 @@ function _linear_parts(route, r::Recurrence, h)
     S = _nstrata(h)
     C = _as_matrix(Val(_linear_coupling(r.coupling)), r.coupling, S)
     ms = map(m -> _as_step(Val(_linear_step(m)), m, S), r.modifiers)
-    return Recurrence(_Checked(), r.kernel, C, ms, r.rebuilds)
+    return Recurrence(_Checked(), r.kernel, C, ms, r.rebuilds, _names(r))
 end
 _as_matrix(::Val{false}, C, S) = C
 _as_matrix(::Val{true}, C, S) = _coupling_matrix(C, S)
@@ -1373,17 +1485,81 @@ end
 _all_pointwise(::Tuple{}) = true
 _all_pointwise(ms::Tuple) = _strata_loop(first(ms)) && _all_pointwise(Base.tail(ms))
 
+# Modifiers the series step runs stratum by stratum: pointwise ones, and a
+# blockwise one whose groups are single strata (`_group_series`). The latter
+# only on host arrays and with no trace written or read per stratum, as its
+# trace and device steps run on the whole vectors, and for one stratum: with
+# more, the vector step over all of them is as fast or faster.
+_all_series(::Tuple{}, rec, H) = true
+function _all_series(ms::Tuple, rec, H)
+    return _series_ok(first(ms), _first(rec), H) &&
+        _all_series(Base.tail(ms), _tail(rec), H)
+end
+function _series_ok(m, R, H)
+    return _strata_loop(m) ||
+        (_group_series(m) && _plain_record(R) && !_on_gpu(H) && size(H, 2) == 1)
+end
+# A blockwise modifier with one value per group that the series step may run
+# through its group step; a modifier type opts in, as its group step and
+# pullback must be the whole of its step.
+_group_series(m) = false
+_one_value(::Val{B}) where {B} = B[1] == 1
+_one_value(::Nothing) = false
+_plain_record(::Nothing) = true
+_plain_record(::NamedTuple{(:V, :S, :A)}) = true
+_plain_record(R) = false
+_first(::Nothing) = nothing
+_first(rec::Tuple) = first(rec)
+
 # `rec` holds records or trace sinks (see `_TraceSink`).
 @inline _thread(::Tuple{}, ::Tuple{}, rec, v, τ, t, k) = v
 @inline function _thread(ms::Tuple, states::Tuple, rec, v, τ, t, k)
-    m, s = first(ms), first(states)
-    sk = s[k]
-    rec === nothing || _record!(first(rec), v, sk, t, k)
-    v′, s′ = _step(m, v, sk, τ, k)
-    s[k] = s′
-    rec === nothing || _trace_step!(first(rec), m, v, sk, v′, s′, τ, t, k)
+    m = first(ms)
+    v′ = _series_stage!(
+        Val(_strata_loop(m)), m, first(states), _first(rec), v, τ, t, k
+    )
     return _thread(Base.tail(ms), Base.tail(states), _tail(rec), v′, τ, t, k)
 end
+@inline function _series_stage!(::Val{true}, m, s, R, v, τ, t, k)
+    sk = s[k]
+    R === nothing || _record!(R, v, sk, t, k)
+    v′, s′ = _step(m, v, sk, τ, k)
+    s[k] = s′
+    R === nothing || _trace_step!(R, m, v, sk, v′, s′, τ, t, k)
+    return v′
+end
+# Group `k` of a modifier with one value per group is stratum `k`, so its
+# state entries are gathered and stepped as the vector step's group body does.
+@inline function _series_stage!(::Val{false}, m, s, R, v, τ, t, k)
+    ns, G = _group_entries(m, s)
+    sk = _gather(s, Val(ns), G, k)
+    R === nothing || _record_group!(R, v, sk, t, k, G)
+    (v′,), s′ = @inline _block_step(m, (v,), sk, τ, k)
+    _scatter!(s, s′, G, k)
+    return v′
+end
+# The state entries per group and the number of groups.
+function _group_entries(m, s)
+    ns = _state_entries(_blocks(m))
+    return ns, length(s) ÷ ns
+end
+_state_entries(::Val{B}) where {B} = B[2]
+function _state_entries(::Nothing)
+    throw(ArgumentError("a modifier without blocks has no group state entries"))
+end
+function _record_group!(R, v, s, t, k, G)
+    R.V[k, t] = v
+    _record_group_state!(R.S, s, t, k, G)
+    return nothing
+end
+function _record_group_state!(R::AbstractMatrix, s, t, k, G)
+    _scatter!(view(R, :, t), s, G, k)
+    return nothing
+end
+_record_group_state!(R::AbstractVector, s, t, k, G) = nothing
+# Group `k`'s recorded state entering step `t`.
+_group_state_at(R::AbstractMatrix, n, G, k, t) = _gather(view(R, :, t), n, G, k)
+_group_state_at(R::AbstractVector, n, G, k, t) = _gather(R, n, G, k)
 _tail(::Nothing) = nothing
 _tail(rec::Tuple) = Base.tail(rec)
 function _record!(rec, v, s, t, k)
@@ -1450,12 +1626,12 @@ function _init_state(::Type{Tp}, m, h, S) where {Tp}
     return s
 end
 
-# No step reads another stratum.
-_independent(coupling, kernel, modifiers) = false
+# No step reads another stratum, with the run's records `rec` and buffer `H`.
+_independent(coupling, kernel, modifiers, rec, H) = false
 function _independent(
-        ::_PointwiseCoupling, kernel, modifiers::Tuple
+        ::_PointwiseCoupling, kernel, modifiers::Tuple, rec, H
     )
-    return !(kernel isa _PairwiseKernel) && _all_pointwise(modifiers) &&
+    return !(kernel isa _PairwiseKernel) && _all_series(modifiers, rec, H) &&
         !_reads_across(modifiers)
 end
 
@@ -1782,7 +1958,7 @@ function _run(
     rec = keep ? map((m, s) -> _records(h, Tp, m, s, S, T), modifiers, init) :
         _sinks(Val(C), h, Tp, modifiers, states, S, T)
     work = S * _kwork(kernel, S, L)
-    if _independent(coupling, kernel, modifiers)
+    if _independent(coupling, kernel, modifiers, rec, H)
         # A stratum on its own reads only its kernel convolution, so the run
         # needs no pressure vectors.
         _blocks!(
@@ -1841,6 +2017,8 @@ oldest first, so ``h_L = I_0``.
 - `I0`: the value at the last step; a vector gives one per stratum.
 - `r`: the rate per step; with a vector `I0`, a scalar or one per
   stratum.
+  [`ComposableRecurrences.growth_rate`](@ref) gives it from a
+  reproduction number and generation interval.
 - `L`: the number of steps, at least 1, usually the kernel length.
 
 # Examples

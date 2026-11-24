@@ -225,16 +225,6 @@ end
 _nchunks(ex::Threaded, n) = min(ex.ntasks > 0 ? ex.ntasks : Threads.nthreads(), n)
 _splits(ex::Threaded, n, work) = _nchunks(ex, n) > 1 && work >= ex.min_work
 
-# The work a loop of each kind passes for `w` multiply-adds on elements like
-# those of `x`, scaled as the `Threaded` docstring sets out.
-struct _StepLoop end
-struct _RunLoop end
-struct _ConvLoop end
-_words(::Type{T}) where {T} = isbitstype(T) ? max(1, sizeof(T) ÷ 8) : 1
-_work(::_StepLoop, x, w) = w
-_work(::_RunLoop, x, w) = w * _words(eltype(x)) ÷ 8
-_work(::_ConvLoop, x, w) = w * _words(eltype(x)) ÷ 16
-
 # Chunk `c` of `m` contiguous chunks of `1:n`.
 _chunk(c, n, m) = ((c - 1) * n ÷ m + 1):(c * n ÷ m)
 
@@ -470,6 +460,16 @@ true
 const Device = Parallel
 
 # == Running operator loops ==
+
+# The work a loop of each kind passes for `w` multiply-adds on elements like
+# those of `x`, scaled as the `Threaded` docstring sets out.
+struct _StepLoop end
+struct _RunLoop end
+struct _ConvLoop end
+_words(::Type{T}) where {T} = isbitstype(T) ? max(1, sizeof(T) ÷ 8) : 1
+_work(::_StepLoop, x, w) = w
+_work(::_RunLoop, x, w) = w * _words(eltype(x)) ÷ 8
+_work(::_ConvLoop, x, w) = w * _words(eltype(x)) ÷ 16
 
 # The executor a call on arrays like `x` uses under `ex`; the GPU extension
 # makes a device array select its device.

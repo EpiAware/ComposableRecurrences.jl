@@ -107,6 +107,8 @@ with ``k_{i,l}`` = `x[i, l]` the weight on lag ``l``, ``y_{t-l,i}`` the
 output of stratum ``i`` at absolute time ``t - l`` and ``p_{t,i}`` the
 value passed on to the coupling.
 A [`Convolution`](@ref) kernel is read the same way from lag 0.
+Rows of any lengths, `PerStratum([k1, k2])`, are stacked into one `S × L`
+array, with the shorter rows padded with zero weights.
 As a modifier parameter it is a length-`S` vector, ``\theta_i`` = `x[i]`.
 A coefficient per stratum and per time is `TimeVarying(PerStratum(x))`.
 
@@ -126,6 +128,21 @@ Recurrence(PerStratum(G))(ones(2, 4); history = ones(2, 2))
 struct PerStratum{A <: AbstractArray}
     "The coefficients, strata on the first axis."
     x::A
+end
+
+# Each row copied into its slice of one zeroed `L × S` array (`_stack`),
+# which AD backends differentiate as block copies, then put strata first.
+function PerStratum(ks::AbstractVector{<:AbstractVector})
+    Base.require_one_based_indexing(ks)
+    isempty(ks) && throw(ArgumentError("PerStratum needs at least one row"))
+    all(k -> eltype(k) <: Real, ks) || throw(
+        ArgumentError(
+            "PerStratum rows are vectors with a number eltype, got " *
+                _describe(ks)
+        )
+    )
+    L = maximum(length, ks)
+    return PerStratum(permutedims(_stack(eltype(ks), identity, ks, (L,))))
 end
 
 @doc raw"""
@@ -256,6 +273,9 @@ it.
 `TimeVarying(Pairwise(A))`.
 Values and gradients equal those of the dense array that repeats each
 value over its segment.
+Inside a differentiated function, build the pairs as
+`Pair.(starts, values)` or a comma-separated literal, not by `vcat`
+([one backend loses their derivatives](@ref adjoint-backends)).
 
 The indexing sets which time a kernel's column belongs to, and is held as
 a type parameter so nothing branches on it:
