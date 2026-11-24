@@ -1324,3 +1324,44 @@ end
     @test_throws "lags × time" Recurrence(ones(2, 3))
     @test_throws "strata × strata × lags" Convolution(ones(2, 3, 4))
 end
+
+@testitem "Shapes with one reading: Depletion, Flow and Allocate take bare matrices" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    S, T = 3, 6
+    R = [1.2 + 0.05 * k + 0.01 * t for k in 1:S, t in 1:T]
+    h = [1.0 + 0.1 * k for k in 1:S, l in 1:2]
+    wrap(x) = TimeVarying(PerStratum(x))
+    run(m) = Recurrence([0.5, 0.3]; modifiers = (m,))(R; history = h)
+    # A population and a flow's demand over strata and time, not symmetric,
+    # so a transposed read would show.
+    N = [100.0 + 10 * k + t for k in 1:S, t in 1:T]
+    rate = [0.01 * k + 0.002 * t for k in 1:S, t in 1:T]
+    pool(N, r) = CR.Depletion(
+        N, CR.Hazard(; weights = (S = 1, V = 0.5)), CR.Flow(:S => :V, r);
+        pools = (S = nothing, V = 0.0)
+    )
+    @test typeof(pool(N, rate)) == typeof(pool(wrap(N), wrap(rate)))
+    @test run(pool(N, rate)) == run(pool(wrap(N), wrap(rate)))
+    # A group's total and import fraction over groups and time, and an
+    # import pattern over time.
+    groups = [1:2, 3:3]
+    total = [5.0 + g + 0.5 * t for g in 1:2, t in 1:T]
+    frac = [0.1 * g + 0.01 * t for g in 1:2, t in 1:T]
+    P = cat(fill([0.0 0.5 0.5; 0.5 0.0 0.5; 0.5 0.5 0.0], T)...; dims = 3)
+    bare = CR.Allocate(groups, total; imports = (frac, P))
+    wrapped = CR.Allocate(
+        groups, wrap(total); imports = (wrap(frac), TimeVarying(P))
+    )
+    @test typeof(bare) == typeof(wrapped)
+    @test run(bare) == run(wrapped)
+    # A fixed S × S pattern stays a matrix.
+    P1 = P[:, :, 1]
+    fixed = CR.Allocate(groups, total; imports = (frac, P1))
+    @test fixed.imports.pattern === P1
+    @test run(fixed) == run(bare)
+    # A vector still has two readings and is refused.
+    @test_throws "one value per stratum or one per time" CR.Flow(
+        :S => :V, [0.1, 0.2]
+    )
+end
