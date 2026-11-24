@@ -12,6 +12,7 @@ The role is the second argument of `forward!` and the third of `pullback!`, and 
 - [`Init()`](@ref ComposableRecurrences.Init) computes the starting state.
 - [`Pressure()`](@ref ComposableRecurrences.Pressure) is a coupling's mixing.
 - [`Trace()`](@ref ComposableRecurrences.Trace) is a modifier's record for a call with `record = (:trace,)`.
+- [`Local()`](@ref ComposableRecurrences.Local) is a map's own derivative rule; [Local rules for maps](@ref extending-local-rules) gives its arguments.
 
 Both methods write their outputs in place and return `nothing`, and a method that returns anything else is an error.
 `pullback!` receives the named tuple `grads`.
