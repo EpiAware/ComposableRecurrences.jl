@@ -1664,14 +1664,13 @@ if isfile(BVD_HANDRULE)
     end
 
     # A construction case, not a downstream comparison: the window weights
-    # BVD's `zone_window_weights` builds, what one infection on each of `T`
-    # grid days adds to each vintage window through a delay PMF of `L` lags,
-    # lag 0 first. BVD no longer builds them: it convolves and sums each
-    # window with `window_sums`, which `bvd_window_reports` models and is
-    # the BVD reference. The windows are the backend's: the first runs to
-    # day `T - 100` and the other 100 are single days. The package arm is
-    # the old port's spelling: a `Convolution` of each window's indicator in
-    # reversed time, then reversed back and transposed.
+    # of BVD's `zone_window_weights`, what one infection on each of `T` grid
+    # days adds to each vintage window through a delay PMF of `L` lags, lag
+    # 0 first. The BVD reference is `bvd_window_reports`, which convolves
+    # and sums each window with `window_sums`. The windows are the
+    # backend's: the first runs to day `T - 100` and the other 100 are
+    # single days. The package arm is a `Convolution` of each window's
+    # indicator in reversed time, then reversed back and transposed.
     function _bvd_window_rows(T)
         stops = collect(max(1, T - 100):T)
         return [1; stops[1:(end - 1)] .+ 1], stops
@@ -1829,7 +1828,7 @@ if isfile(BVD_HANDRULE)
             ),
             (
                 "window_weights_construction",
-                "Window weights from a delay PMF (construction; see bvd_window_reports)",
+                "Window weights from a delay PMF (construction case)",
                 _window_weights_construction, _window_weights_construction_rule,
                 _window_weights_construction_hand,
                 (BVD.zone_window_loop, BVD.zone_window_weights), [1],
