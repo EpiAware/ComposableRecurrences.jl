@@ -1339,3 +1339,39 @@ end
     stub = NoCSRStub()
     @test Recurrence(JLArray(pmf); coupling = stub).coupling === stub
 end
+
+@testitem "JLArrays: the rule passes of a CSR coupling match the CPU" setup = [DeviceRules] begin
+    using SparseArrays: SparseArrays, SparseMatrixCSC, sparse
+    # The host stores the coupling's cotangent by column and the device by
+    # row, so the two are compared as matrices. More strata than blocks
+    # covers the products at size.
+    function csr_case(S, kernel)
+        mixes(a, b) = a == b || (a + b) % 3 == 0
+        C = sparse([mixes(a, b) ? 0.5 / S : 0.0 for a in 1:S, b in 1:S])
+        Cd = JLSparseMatrixCSR(C)
+        dev = Recurrence(adapt(JLArray, kernel); coupling = Cd)
+        return C, Recurrence(kernel; coupling = C), dev
+    end
+    kernels = ("a fixed kernel" => pmf, "a kernel over time" => tv_kernel())
+    for S in (4, CR._KERNEL_BLOCKS + 1), (name, k) in kernels
+        C, op0, op1 = csr_case(S, k)
+        x, h = inputs(S), fill(1.0, S, L)
+        args0 = (CR._run_args(op0, x, h, nothing, nothing, 1)..., nothing)
+        args1 = (
+            CR._run_args(op1, JLArray(x), JLArray(h), nothing, nothing, 1)..., nothing,
+        )
+        @testset "$name, $S strata" begin
+            @test inferred_route(op1, args1...) === Val(:rule)
+            m0, m1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
+            y0, x̄0, _ = rule_cotangents(op0, args0, m0, S, false)
+            y1, x̄1, _ = rule_cotangents(op1, args1, m1, S, true)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test agree(m1.kernel, m0.kernel)
+            C̄0 = SparseMatrixCSC(S, S, C.colptr, C.rowval, m0.coupling.nzval)
+            c = op1.coupling
+            C̄1 = JLSparseMatrixCSR(c.rowPtr, c.colVal, m1.coupling.nzVal, c.dims)
+            @test Matrix(SparseMatrixCSC(C̄1)) ≈ Matrix(C̄0)
+        end
+    end
+end
