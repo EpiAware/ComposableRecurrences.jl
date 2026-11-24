@@ -362,4 +362,96 @@ function _csr_row_body!(a, q, rowptr, colval, nzval, p)
     return nothing
 end
 
+# A CSR coupling's reverse runs over a CSR copy of its transpose, so each
+# stratum's sum is one row with no shared writes. Its cotangent is added
+# after the loop from the recorded `q̄`.
+CR._device_coupling(::AbstractGPUSparseMatrixCSR) = true
+function CR._zero_mirror(C::AbstractGPUSparseMatrixCSR{<:AbstractFloat})
+    return (; nzVal = zero(C.nzVal))
+end
+CR._pressure_buffers(C̄, ::AbstractGPUSparseMatrixCSR, Tp) = nothing
+struct _SparseSteps{I, V, Q}
+    tptr::I
+    tcol::I
+    tnz::V
+    rows::I
+    cols::I
+    Q̄::Q
+end
+function CR._coupling_steps(
+        C̄, C::AbstractGPUSparseMatrixCSR, kernel, H::AnyGPUArray, pr
+    )
+    tptr, tcol, perm, rows = _csr_transpose(Array(C.rowPtr), Array(C.colVal), size(C))
+    dev(x) = copyto!(similar(C.colVal, length(x)), x)
+    Q̄ = CR.cotangent(C̄, :nzVal) === nothing ? nothing :
+        fill!(similar(pr.P), false)
+    return _SparseSteps(
+        dev(tptr), dev(tcol), C.nzVal[dev(perm)], dev(rows), C.colVal, Q̄
+    )
+end
+@doc raw"""
+    _csr_transpose(rowptr, colval, (n, m))
+
+Return the row pointers and columns of the transpose of an `n × m` CSR
+matrix, the entry of the matrix each of the transpose's entries reads, and
+the row of each of the matrix's entries.
+"""
+function _csr_transpose(rowptr, colval, (n, m))
+    tptr = ones(Int, m + 1)
+    for c in colval
+        tptr[c + 1] += 1
+    end
+    tptr = cumsum(tptr) .- (0:m)
+    next, tcol = tptr[1:m], similar(colval)
+    perm, rows = similar(colval), similar(colval)
+    for a in 1:n, e in rowptr[a]:(rowptr[a + 1] - 1)
+        c = colval[e]
+        f = next[c]
+        tcol[f], perm[f], rows[e] = a, e, a
+        next[c] = f + 1
+    end
+    return tptr, tcol, perm, rows
+end
+function CR._coupling_steps_done!(C̄, pr, f::_SparseSteps)
+    f.Q̄ === nothing && return nothing
+    C̄nz, n = CR.cotangent(C̄, :nzVal), length(f.rows)
+    CR._each!(
+        _sparse_entry_back!, Serial(), C̄nz, n, n * size(f.Q̄, 2),
+        C̄nz, f.rows, f.cols, f.Q̄, pr.P
+    )
+    return nothing
+end
+function _sparse_entry_back!(e, C̄nz, rows, cols, Q̄, P)
+    a, b = rows[e], cols[e]
+    acc = zero(eltype(C̄nz))
+    for t in axes(Q̄, 2)
+        acc += Q̄[a, t] * P[b, t]
+    end
+    C̄nz[e] += acc
+    return nothing
+end
+function CR._coupling_kernels_back!(
+        accs, kb, g, p̄, C, q̄, pr, H, H̄, t, τ, D, L, pbufs, f::_SparseSteps
+    )
+    CR._reduce_blocks!(
+        _sparse_back!, accs, length(p̄), kb, g, p̄, f.tptr, f.tcol, f.tnz, f.Q̄,
+        q̄, H, H̄, t, t + D - L, τ, L
+    )
+    return nothing
+end
+function _sparse_back!(
+        ks, acc, kb, g, p̄, tptr, tcol, tnz, Q̄, q̄, H, H̄, t, j, τ, L
+    )
+    for k in ks
+        s = zero(eltype(p̄))
+        for e in tptr[k]:(tptr[k + 1] - 1)
+            s += @inbounds tnz[e] * q̄[tcol[e]]
+        end
+        @inbounds p̄[k] = s
+        Q̄ === nothing || @inbounds(Q̄[k, t] = q̄[k])
+        CR._kernel_back_at!(kb, acc.ḡ, g, s, H, H̄, j, τ, L, k)
+    end
+    return nothing
+end
+
 end

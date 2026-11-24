@@ -231,6 +231,7 @@ Float types:
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
 - A sparse coupling is a device sparse matrix in CSR form, and each stratum's row is one index of a kernel.
   A CSC or other device sparse coupling is converted to CSR when the recurrence is built, where the array package can convert it.
+  In the rule's reverse pass each stratum sums its row of a CSR copy of the transpose, made once per call.
 - Modifiers with a vector step (`Redistribute`, `Allocate` and a `Depletion` with several pools or without a draw) run each stratum, or each `Allocate` group, as one index of a kernel.
   `Allocate` copies its groups to the device each step.
 - A modifier or wrapper that holds arrays is rebuilt with its device arrays inside a kernel through Adapt.jl; a new modifier type that holds arrays needs an `Adapt.adapt_structure` method.
