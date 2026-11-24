@@ -129,12 +129,13 @@ struct Transform{F, P, D}
 end
 
 function Transform(f, θ = nothing; derivative = nothing)
+    p = _as_params(θ)
     d = _output_form(derivative)
-    return Transform{typeof(f), typeof(θ), typeof(d)}(f, θ, d)
+    return Transform{typeof(f), typeof(p), typeof(d)}(f, p, d)
 end
 # The bounds are held as `θ = (lo, hi)`, and passed only as `lo, hi`.
 function Transform(::typeof(clamp), lo, hi)
-    θ = (_check_param(:lo, lo), _check_param(:hi, hi))
+    θ = (_check_param(:lo, _as_param(lo)), _check_param(:hi, _as_param(hi)))
     return Transform{typeof(clamp), typeof(θ), Nothing}(clamp, θ, nothing)
 end
 @noinline function Transform(::typeof(clamp), θ = nothing; derivative = nothing)
@@ -176,7 +177,14 @@ end
 blocks(::Transform) = (1, 1)
 isstateless(::Transform) = true
 uses_adjoint(m::Transform, ::Step) = _local_derivative(m)
-_needs_duals(m::Transform) = m.derivative === nothing && _local_derivative(m)
+# `+` without `b` and `clamp` have their own pullbacks (`_own_pullback`), so
+# a call needs no dual numbers for them.
+function _needs_duals(m::Transform)
+    return m.derivative === nothing && _local_derivative(m) && !_own_pullback(m)
+end
+_own_pullback(::Transform) = false
+_own_pullback(::Transform{typeof(+), Nothing, Nothing}) = true
+_own_pullback(::Transform{typeof(clamp), <:Tuple{Any, Any}, Nothing}) = true
 function _dual_why(::Transform)
     return "a `Transform` without a `derivative` takes its local derivative " *
         "with `ForwardDiff`; add `using ForwardDiff` for the faster rule"
@@ -231,7 +239,8 @@ function pullback!(grads, m::Transform, ::Step, v, s, t)
     return nothing
 end
 
-# Without `b`, `Transform(+)` is the identity.
+# Without `b`, `Transform(+)` is the identity. A map given its own pullback
+# here is listed in `_own_pullback` too, or it still asks for `ForwardDiff`.
 function pullback!(
         grads, ::Transform{typeof(+), Nothing, Nothing}, ::Step, v, s, t
     )

@@ -625,6 +625,8 @@ end
 # the group step is slower. `blocks` always gives positive integers.
 _blocks(m::_Pointwise) = nothing
 _blocks(m::Depletion) = Val(blocks(m))
+# One value per group runs in the series step.
+_group_series(m::Depletion) = _one_value(_blocks(m))
 
 # The groups of `S` strata.
 _pool_groups(m::Depletion, S) = _pool_groups(_blocks(m), S)
@@ -825,7 +827,6 @@ end
     _hold!(s, _with_queue(q, x′, Q′))
     return nothing
 end
-
 
 # The pools and the queue in a group's state, `nothing` without a queue,
 # and the second value with an overflow into a stratum.

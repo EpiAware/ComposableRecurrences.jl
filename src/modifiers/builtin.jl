@@ -94,6 +94,14 @@ x̄.x
 """
 function add_param! end
 
+# A matrix has one reading as a parameter, strata × time, so it is wrapped
+# here; a vector has two, so `_check_param` rejects it.
+# Only the top-level entries of a tuple are wrapped.
+_as_param(x) = x
+_as_param(x::AbstractMatrix{<:Real}) = TimeVarying(PerStratum(x))
+_as_params(θ::Union{Tuple, NamedTuple}) = map(_as_param, θ)
+_as_params(θ) = _as_param(θ)
+
 param(x::Real, k, t) = x
 param(x::PerStratum, k, t) = x.x[k]
 param(x::TimeVarying{<:Any, <:AbstractVector}, k, t) = x.x[t]
@@ -128,18 +136,29 @@ function _check_param(
     return x
 end
 _check_param(name, x::TimeVarying{Primary}) = _primary_error(name, x)
+# A bare vector could be one value per stratum or one per time, so the
+# error names both.
+_check_param(name, x::AbstractVector{<:Real}) = _vector_param_error(name, x)
 _check_param(name, x) = _param_error(name, x)
-@noinline function _param_error(name, x)
+@noinline function _vector_param_error(name, x)
     throw(
         ArgumentError(
-            "$name is one value, PerStratum($name) with one per stratum, " *
-                "TimeVarying($name) with one per time, " *
-                "TimeVarying(PerStratum($name)) strata × time, or " *
-                "Derived(f, args...) computed from other parameters, or " *
-                "Recent(w) read from the recurrence's outputs; got " *
+            "$name is a vector, which could hold one value per stratum or " *
+                "one per time: wrap it as PerStratum($name) or " *
+                "TimeVarying($name). $(_param_forms(name)); got " *
                 _describe(x)
         )
     )
+end
+@noinline function _param_error(name, x)
+    throw(ArgumentError("$(_param_forms(name)); got $(_describe(x))"))
+end
+function _param_forms(name)
+    return "$name is one value, PerStratum($name) with one per stratum, " *
+        "TimeVarying($name) with one per time, " *
+        "TimeVarying(PerStratum($name)) strata × time, or " *
+        "Derived(f, args...) computed from other parameters, or " *
+        "Recent(w) read from the recurrence's outputs"
 end
 
 # Check a parameter against `S` strata.

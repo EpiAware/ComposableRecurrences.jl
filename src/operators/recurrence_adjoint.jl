@@ -90,7 +90,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     ādd, ḡain = _slots(ādd), _slots(ḡain)
     kslots = _kernel_slots(ḡ, kernel)
     work = S * _kwork(kernel, S, L)
-    if _independent(coupling, kernel, modifiers)
+    if _independent(coupling, kernel, modifiers, rec, H)
         acc = (; ādd, ḡain, C̄, ḡ = kslots, m̄s)
         accs = _accumulators(ex, H, S, _work(_RunLoop(), H, T * work), acc)
         _reduce_blocks!(
@@ -591,8 +591,16 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k, y)
         Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t, k,
         y
     )
-    R, s̄ = first(rec), first(s̄s)
-    m, m̄, vk, sk = first(ms), first(m̄s), R.V[k, t], _state_at(R.S, k, t)
+    m = first(ms)
+    return _series_stage_back!(
+        Val(_strata_loop(m)), m, first(m̄s), rec, first(s̄s), v̄, τ, t, k, y
+    )
+end
+# `rec` holds this modifier's records first, then those of the modifiers
+# after it, which give its output (see `_output_at`).
+function _series_stage_back!(::Val{true}, m, m̄, rec, s̄, v̄, τ, t, k, y)
+    R = first(rec)
+    vk, sk = R.V[k, t], _state_at(R.S, k, t)
     v̄, s̄k, a, b = _trace_out(R, m, m̄, v̄, s̄[k], vk, sk, τ, t, k)
     g = _with_output(
         Val(_wants_output(m)), (; piece = m̄, v = v̄, s = s̄k), Base.tail(rec), y,
@@ -601,6 +609,17 @@ function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k, y)
     v̄, s̄k = _step_pullback(g, m, vk, sk, τ, k)
     s̄[k] = _trace_in(b, s̄k)
     return _trace_in(a, v̄)
+end
+# A modifier with one value per group, as `_group_back!` reverses group `k`;
+# the series step takes it only with plain records, so no trace to add.
+function _series_stage_back!(::Val{false}, m, m̄, rec, s̄, v̄, τ, t, k, y)
+    R = first(rec)
+    ns, G = _group_entries(m, s̄)
+    sk = _group_state_at(R.S, Val(ns), G, k, t)
+    gg = (; piece = m̄, v = (v̄,), s = _gather(s̄, Val(ns), G, k))
+    (v̄k,), s̄k = @inline _block_back(gg, m, (R.V[k, t],), sk, τ, k)
+    _scatter!(s̄, s̄k, G, k)
+    return v̄k
 end
 
 # `grads.after` and `grads.pass` go to a modifier that asks (`_pass_buffer`).

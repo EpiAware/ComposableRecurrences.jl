@@ -407,7 +407,7 @@ end
         @test r(R; history = h) ≈ naive(C)
         # Threaded, the strata no longer run on their own.
         @test CR._reads_across(r.modifiers)
-        @test !CR._independent(I, g, r.modifiers)
+        @test !CR._independent(I, g, r.modifiers, nothing, zeros(2, S))
         # Split into one task per stratum, so a stratum run on its own
         # would read the others' outputs before they are written.
         y = Base.ScopedValues.with(CR.EXECUTOR => CR.Threaded(; min_work = 0, ntasks = S)) do
