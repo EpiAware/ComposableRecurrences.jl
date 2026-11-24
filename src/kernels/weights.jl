@@ -272,6 +272,8 @@ _first_array(a::Tuple) = first(a)
 _pieces_type(::Type) = false
 _pieces_type(::Type{<:_TVPiecewise}) = true
 _pieces_type(::Type{<:Survival{H}}) where {H} = _pieces_type(H)
+_pieces_type(::Type{<:Increments{X}}) where {X} = _pieces_type(X)
+_pieces_type(::Type{<:Normalised{X}}) where {X} = _pieces_type(X)
 function _pieces_type(::Type{<:Derived{F, A}}) where {F, A}
     return any(_pieces_type, fieldtypes(A))
 end
@@ -287,6 +289,16 @@ _dense_coef(x, last) = x
 function _dense_coef(x::Survival{H}, last::Integer) where {H}
     return Survival(_dense_coef(x.hazard::H, last); from = x.from)
 end
+function _dense_coef(x::Increments{X}, last::Integer) where {X}
+    return Increments(_dense_coef(x.x::X, _inner_span(x, last)))
+end
+function _dense_coef(x::Normalised{X}, last::Integer) where {X}
+    return Normalised(_dense_coef(x.x::X, _inner_span(x, last)))
+end
+# The last time a map reads the kernel inside at: a total reads every lag of
+# the last cohort, one step on for a recurrence's offset.
+_inner_span(::Increments, last) = last
+_inner_span(x::Normalised, last) = last + _coef_lags(x.x) + 1
 function _dense_coef(x::Derived{F, A}, last::Integer) where {F, A}
     return Derived(x.f, map(a -> _dense_coef(a, last), x.args::A))
 end
@@ -327,6 +339,10 @@ function _dense_mirror_of(x̄, x::Survival, last)
     h̄ = _dense_mirror_of(cotangent(x̄, :hazard), x.hazard, last)
     return (; hazard = h̄)
 end
+function _dense_mirror_of(x̄, x::_LagMap, last)
+    x̄ === nothing && return nothing
+    return (; x = _dense_mirror_of(cotangent(x̄, :x), x.x, _inner_span(x, last)))
+end
 function _dense_mirror_of(x̄, x::Derived, last)
     x̄ === nothing && return nothing
     ā = cotangent(x̄, :args)
@@ -350,6 +366,10 @@ _fold!(x̄, x, x̄d) = nothing
 function _fold!(x̄, x::Survival, x̄d)
     x̄ === nothing && return nothing
     return _fold!(cotangent(x̄, :hazard), x.hazard, cotangent(x̄d, :hazard))
+end
+function _fold!(x̄, x::_LagMap, x̄d)
+    x̄ === nothing && return nothing
+    return _fold!(cotangent(x̄, :x), x.x, cotangent(x̄d, :x))
 end
 function _fold!(x̄, x::Derived, x̄d)
     x̄ === nothing && return nothing

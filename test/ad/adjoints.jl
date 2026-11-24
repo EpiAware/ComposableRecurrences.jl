@@ -2502,6 +2502,25 @@ end
     for mode in (Enzyme.Reverse, Enzyme.set_runtime_activity(Enzyme.Reverse))
         @test Enzyme.gradient(mode, Enzyme.Const(held), h)[1] ≈ g
     end
+    # The same inside the lag maps, `Increments` alone and normalised, whose
+    # total reads the hazard past the last cohort.
+    using ComposableRecurrences: Increments, Normalised
+    function mapped(W, tv)
+        x = [1.0 + 0.1 * sin(t) for t in 1:8]
+        k = W(ones(5) * (1 - Survival(tv; from = 1)))
+        return sum(Convolution(TimeVarying(k, Primary()))(x))
+    end
+    v = [0.2, 0.3, 0.4]
+    for W in (Increments, Normalised ∘ Increments)
+        hold(v) = mapped(W, TimeVarying(Pair.([1, 3, 5], v)))
+        pad(v) = mapped(W, TimeVarying(v[[1, 1, 2, 2, fill(3, 9)...]]))
+        @test hold(v) == pad(v)
+        g = ForwardDiff.gradient(pad, v)
+        rule = Mooncake.build_rrule(hold, v)
+        @test Mooncake.value_and_gradient!!(rule, hold, v)[2][2] ≈ g
+        mode = Enzyme.set_runtime_activity(Enzyme.Reverse)
+        @test Enzyme.gradient(mode, Enzyme.Const(hold), v)[1] ≈ g
+    end
 end
 
 @testitem "Ragged PerStratum rows: reverse gradients come back to each row as given" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin

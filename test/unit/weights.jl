@@ -688,4 +688,12 @@ end
     check(kw, (T,), reshape(sin.(1:(L * T)), L, T))
     @test CR.kernel_weights(computed(surv(pw())), T) ==
         CR.kernel_weights(computed(surv(tv())), T)
+    # Inside the lag maps, whose normalised total reads the hazard past the
+    # last cohort.
+    for W in (CR.Increments, CR.Normalised ∘ CR.Increments)
+        mapped(h) = W(q * (1 - CR.Survival(h; from = 1)))
+        @test conv(mapped(pw()))(x) ==
+            conv(mapped(TimeVarying(dense(starts, v, 2 * n))))(x)
+        check(conv(mapped(pw())), args, sin.(1:T))
+    end
 end
