@@ -373,6 +373,21 @@ end
     @test rule(CR.Transform(Shift(0.1), 2.0; derivative = (v, θ) -> (θ, v)))
 end
 
+@testitem "Transform: maps with their own pullbacks need no dual numbers" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    whys(m) = CR._dual_whys([0.5], CR.I, (m,))
+    # `clamp` and `+` without `b` take their own pullbacks, so a call
+    # without `ForwardDiff` still takes the rule.
+    @test isempty(whys(CR.Transform(clamp, 0.0, 2.0)))
+    @test isempty(whys(CR.Transform(clamp, 0.0, TimeVarying([1.0, 2.0]))))
+    @test isempty(whys(CR.Transform(+)))
+    # Other maps take the local derivative, which needs `ForwardDiff`.
+    @test length(whys(CR.Transform(*, 0.5))) == 1
+    @test length(whys(CR.Transform(+, 0.5))) == 1
+    @test isempty(whys(CR.Transform(*, 0.5; derivative = (v, θ) -> (θ, v))))
+end
+
 @testitem "Transform implements the role interface" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
