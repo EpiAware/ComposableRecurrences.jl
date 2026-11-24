@@ -1592,6 +1592,14 @@ if isfile(BVD_HANDRULE)
         conv = Convolution(TimeVarying(pmf, CR.Primary()))
         return wrap(conv')(a[1:nu]; tail = a[(nu + 1):end], stop = nu)
     end
+    # The same anchor from lag maps over a table of the delay's distribution.
+    function _bvd_onset_anchor_table_rule(wrap, z0, γ, a, nu)
+        hazard = CR.Derived(_logistic_sum, z0, TimeVarying(γ))
+        cdf = TimeVarying(1 - CR.Survival(hazard), CR.Primary())
+        table = TimeVarying(wrap(CR._KernelWeights(cdf))(nu), CR.Primary())
+        conv = Convolution(TimeVarying(CR.Normalised(CR.Increments(table)), CR.Primary()))
+        return wrap(conv')(a[1:nu]; tail = a[(nu + 1):end], stop = nu)
+    end
     function _bvd_onset_anchor_hand((table, anchor))
         return function (wrap, z0, γ, a, nu)
             return anchor(table(collect(z0), collect(γ), nu), 1, collect(a))
@@ -1663,17 +1671,19 @@ if isfile(BVD_HANDRULE)
         end
     end
 
-    # BVD's `zone_window_weights`: what one infection on each of `T` grid days
-    # adds to each vintage window through a delay PMF of `L` lags, lag 0
-    # first. The windows are the backend's: the first runs to day `T - 100`
-    # and the other 100 are single days. The package arm is the port's
-    # spelling: a `Convolution` of each window's indicator in reversed time,
-    # then reversed back and transposed.
+    # A construction case, not a downstream comparison: the window weights
+    # of BVD's `zone_window_weights`, what one infection on each of `T` grid
+    # days adds to each vintage window through a delay PMF of `L` lags, lag
+    # 0 first. The BVD reference is `bvd_window_reports`, which convolves
+    # and sums each window with `window_sums`. The windows are the
+    # backend's: the first runs to day `T - 100` and the other 100 are
+    # single days. The package arm is a `Convolution` of each window's
+    # indicator in reversed time, then reversed back and transposed.
     function _bvd_window_rows(T)
         stops = collect(max(1, T - 100):T)
         return [1; stops[1:(end - 1)] .+ 1], stops
     end
-    function _bvd_window_weights(run)
+    function _window_weights_construction(run)
         return function (wrap, z::Size)
             (; T, L) = z
             starts, stops = _bvd_window_rows(T)
@@ -1684,7 +1694,7 @@ if isfile(BVD_HANDRULE)
             return f, _gi(L)
         end
     end
-    function _bvd_window_weights_rule(wrap, f, starts, stops, nd)
+    function _window_weights_construction_rule(wrap, f, starts, stops, nd)
         nv = length(starts)
         (nv == 0 || nd == 0) && return zeros(eltype(f), nd, nv)
         windows = [
@@ -1694,7 +1704,7 @@ if isfile(BVD_HANDRULE)
         ]
         return permutedims(reverse(wrap(Convolution(f))(windows); dims = 2))
     end
-    function _bvd_window_weights_hand(kernel)
+    function _window_weights_construction_hand(kernel)
         return function (wrap, f, starts, stops, nd)
             return kernel(collect(f), starts, stops, nd)
         end
@@ -1814,6 +1824,16 @@ if isfile(BVD_HANDRULE)
                 ), [1],
             ),
             (
+                "bvd_onset_anchor_table",
+                "BVD onset_report_anchor_series: lag maps over a shared table",
+                _bvd_onset_anchor, _bvd_onset_anchor_table_rule,
+                _bvd_onset_anchor_hand,
+                (
+                    (BVD.onset_table_loop, BVD.onset_anchor_loop),
+                    (BVD.onset_report_cdf_table, BVD.onset_anchor_series),
+                ), [1],
+            ),
+            (
                 "bvd_bins", "BVD bin_increments: window sums as a running total",
                 _bvd_bins, _bvd_bins_rule, _bvd_bins_hand,
                 (BVD.bin_loop, BVD.bin_increments), [1],
@@ -1825,10 +1845,10 @@ if isfile(BVD_HANDRULE)
                 (BVD.zone_pre_loop, BVD.zone_pre_convolution), [5],
             ),
             (
-                "bvd_window_weights",
-                "BVD zone_window_weights: window weights from a delay PMF",
-                _bvd_window_weights, _bvd_window_weights_rule,
-                _bvd_window_weights_hand,
+                "window_weights_construction",
+                "Window weights from a delay PMF (construction case)",
+                _window_weights_construction, _window_weights_construction_rule,
+                _window_weights_construction_hand,
                 (BVD.zone_window_loop, BVD.zone_window_weights), [1],
             ),
             (
@@ -1857,6 +1877,7 @@ if isfile(BVD_HANDRULE)
     end
     # The backend's 101 onset dates and 28 delays.
     TIERS["docs"].bycase["bvd_onset_anchor"] = [(T = 101, L = 28)]
+    TIERS["docs"].bycase["bvd_onset_anchor_table"] = [(T = 101, L = 28)]
     # Weekly and 30-day bins over the backend's 220 days.
     TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
     # The backend's four patches over 227 days, with its two kernel lengths,
@@ -1871,7 +1892,7 @@ if isfile(BVD_HANDRULE)
     )
     # The backend's timing call, 161 grid days with a 45-lag PMF, and its
     # model's 202 grid days with a 50-lag PMF.
-    TIERS["docs"].bycase["bvd_window_weights"] = [
+    TIERS["docs"].bycase["window_weights_construction"] = [
         (T = 161, L = 45), (T = 202, L = 50),
     ]
     TIERS["docs"].bycase["bvd_window_reports"] = [

@@ -102,9 +102,9 @@ function clamped(lo, hi)
     return ComposableRecurrences.Transform(clamp, lo, hi)
 end
 
-# A call that also returns its state or its trace, as the loaded release
-# spells it: `record` on the call, `state = true` or `trace = true` before
-# it, and `with_state` before that.
+# A call that also returns its state, its trace or only its pressure, as
+# the loaded release spells it: `record` on the call, `state = true` or
+# `trace = true` before it, and `with_state` before that.
 const RECORD_KEYWORD = isdefined(ComposableRecurrences, :_recorded)
 const STATE_KEYWORD = !isdefined(ComposableRecurrences, :with_state)
 function returning_state(op, args...; kwargs...)
@@ -116,9 +116,7 @@ function returning_trace(op, args...; kwargs...)
     RECORD_KEYWORD && return op(args...; kwargs..., record = (:trace,))
     return op(args...; kwargs..., trace = true)
 end
-# The output and trace of a call that reads only the pressure: a release
-# with named records builds the pressure alone, an earlier one the whole
-# trace.
+# Pressure-only call; older releases return the whole trace.
 const NAMED_RECORDS = isdefined(ComposableRecurrences, :_RECORD_PARTS)
 function returning_pressure(op, args...; kwargs...)
     NAMED_RECORDS && return op(args...; kwargs..., record = (:pressure,))
@@ -2142,6 +2140,28 @@ push!(
     ("Growth rate from a reproduction number", _growth_rate, () -> _flat([log(1.6)], G0)),
 )
 
+# The same over windows given by their first and last times: a gap, two
+# that overlap, one that starts before the series, an empty one and one
+# past the series.
+const SPAN_STARTS = [1, 4, 6, 0, 9, 11]
+const SPAN_STOPS = [2, 7, 9, 3, 8, T + 2]
+const WWS = [sin(a + 0.3 * v) for a in 1:S, v in eachindex(SPAN_STARTS)]
+function _window_spans(w, θ)
+    X = exp.(reshape(θ, S, T))
+    op(dims) = ComposableRecurrences._WindowSums(SPAN_STOPS, T, dims, SPAN_STARTS)
+    rows = w(op(2))(X)
+    down = w(op(1))(permutedims(X))
+    return sum(WWS .* rows) + sum(permutedims(WWS) .* down .^ 2)
+end
+
+push!(
+    _SCENARIOS,
+    (
+        "Window sums over gapped and overlapping windows", _window_spans,
+        () -> vec(LOGR),
+    ),
+)
+
 """
     supports(features...)
 
@@ -2171,6 +2191,10 @@ function _accepts(build)
     return true
 end
 const _PROBES = Dict{Symbol, Function}(
+    # `window_sums` over windows given by their first and last times.
+    :window_spans => () -> _accepts(
+        () -> ComposableRecurrences.window_sums([1.0, 2.0], [1], [2])
+    ),
     :primary_recurrence => () -> _accepts(
         () -> Recurrence(TimeVarying(ones(1, 2), ComposableRecurrences.Primary()))
     ),
@@ -2327,6 +2351,7 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
         (:Survival, :_KernelWeights),
     "Recurrence kernel shortened by a survival" => (:Survival,),
     "Window sums of each series, either way round" => (:window_sums,),
+    "Window sums over gapped and overlapping windows" => (:window_spans,),
 )
 
 # A `NoAdjoint` twin compares the analytic adjoint with plain AD of the same

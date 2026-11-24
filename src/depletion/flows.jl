@@ -742,19 +742,23 @@ function _passed_back(d̄, u, w::NTuple{n}, W) where {n}
     ū = ntuple(Val(n)) do j
         sum(ntuple(i -> i == j ? zero(d̄[i]) : d̄[i] * _passed_share(w, W, i, j), Val(n)))
     end
-    w̄ = ntuple(_ -> zero(first(d̄)), Val(n))
-    for j in 1:n
-        Q = W - w[j]
-        _primal_value(Q) > 0 || continue
-        Q̄ = zero(Q)
-        for i in 1:n
-            i == j && continue
-            f̄ = d̄[i] * u[j]
-            w̄ = _set(w̄, i, w̄[i] + f̄ / Q)
-            Q̄ -= f̄ * w[i] / Q^2
-        end
-        w̄ = map(x -> x + Q̄, w̄)
-        w̄ = _set(w̄, j, w̄[j] - Q̄)
+    # Through `Q_j = W - w_j` for each `j` with `Q_j > 0`: `d̄_i u_j / Q_j`
+    # into each other source's weight, and `Q̄_j` into every weight but
+    # source `j`'s. Straight-line, so the cotangents keep their type.
+    Q = ntuple(j -> W - w[j], Val(n))
+    on = ntuple(j -> _primal_value(Q[j]) > 0, Val(n))
+    Qd = ntuple(j -> ifelse(on[j], Q[j], one(Q[j])), Val(n))
+    Q̄ = ntuple(Val(n)) do j
+        s = sum(ntuple(i -> i == j ? zero(d̄[i]) : d̄[i] * w[i], Val(n)))
+        return ifelse(on[j], -s * u[j] / Qd[j]^2, zero(s))
+    end
+    w̄ = ntuple(Val(n)) do i
+        sum(
+            ntuple(Val(n)) do j
+                (j == i || !on[j]) && return zero(d̄[i])
+                return d̄[i] * u[j] / Qd[j] + Q̄[j]
+            end
+        )
     end
     return ū, w̄
 end

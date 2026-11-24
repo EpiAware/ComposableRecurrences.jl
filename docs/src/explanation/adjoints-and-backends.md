@@ -153,6 +153,14 @@ The [rule timings](@ref rule-timings) are each rule's time over its twin's, at `
 
 Rules for building components before the call, the masses of a chain of delays and the movement of `Redistribute(K, ε)`, are not the operator's and stay too.
 
+A recurrence of one stratum with one fixed lag, an `I` or `λ * I` coupling and no modifiers runs as a scan that keeps its running value in a register.
+Random walks, cumulative sums from a seed and AR(1) series take it.
+Several strata take the buffer run, which steps every stratum at each time.
+Its rule splits by backend.
+Mooncake takes the operator's rule.
+Enzyme takes a rule on the scan alone, as the operator's rule cost 1.7 to 2.3 times `accumulate` at 30 to 300 steps, mostly in its glue.
+`NoAdjoint` differentiates the scan's loop on both.
+
 ## [Checking a rule](@id adjoint-checks)
 
 A rule is checked against [plain AD](@ref compare-plain-ad) through its [`NoAdjoint`](@ref ComposableRecurrences.NoAdjoint) twin.
@@ -231,6 +239,7 @@ Float types:
 - Dense and time-varying couplings mix the strata with one `mul!` per step; `I` and `Diagonal` couplings scale each stratum inside the strata kernel.
 - A sparse coupling is a device sparse matrix in CSR form, and each stratum's row is one index of a kernel.
   A CSC or other device sparse coupling is converted to CSR when the recurrence is built, where the array package can convert it.
+  In the rule's reverse pass each stratum sums its row of a CSR copy of the transpose, made once per call.
 - Modifiers with a vector step (`Redistribute`, `Allocate` and a `Depletion` with several pools or without a draw) run each stratum, or each `Allocate` group, as one index of a kernel.
   `Allocate` copies its groups to the device each step.
 - A modifier or wrapper that holds arrays is rebuilt with its device arrays inside a kernel through Adapt.jl; a new modifier type that holds arrays needs an `Adapt.adapt_structure` method.

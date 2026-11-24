@@ -192,6 +192,8 @@ works	6.3e-16	2.6	9.3	2.4				Recurrence kernel shortened by a survival	forward	r
 works	2.0e-14	2.2	71.0	65.3				Recurrence kernel shortened by a survival	reverse	registry	cpu	12	0.0
 works	2.1e-16	2.4	13.2	0.7				Window sums of each series, either way round	forward	registry	cpu	12	0.0
 works	2.9e-16	1.1	13.7	26.9				Window sums of each series, either way round	reverse	registry	cpu	12	0.0
+works	2.0e-16	30.1	14.5	1.2				Window sums over gapped and overlapping windows	forward	registry	cpu	12	0.0
+works	3.1e-16	3.1	11.8	13.5				Window sums over gapped and overlapping windows	reverse	registry	cpu	12	0.0
 works	1.2e-15	1.8	9.9	2.1				Recurrence user coupling without a pullback	forward	registry	cpu	12	0.0
 works	3.9e-15	1.1	14.8	42.7				Recurrence user coupling without a pullback	reverse	registry	cpu	12	0.0
 works	7.4e-16	2.6	14.6	2.8				Recurrence per-stratum modifier without a pullback	forward	registry	cpu	12	0.0
