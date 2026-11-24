@@ -17,7 +17,7 @@ using ComposableRecurrences: ComposableRecurrences as CR, NoAdjoint
 using LinearAlgebra: I, dot, mul!
 using SparseArrays: SparseMatrixCSC, nonzeros, sparse
 using ..ADFixtures: supports, _TWIN_REQUIRES, IN_PLACE, @in_place, @pointwise, depletion,
-    added, clamped, returning_state, returning_trace, resumed
+    added, clamped, returning_state, returning_trace, returning_pressure, resumed
 using ..ADFixtures: AddMean, AddMeanHand, Pool, Renorm
 
 export Size, Case, CASES, TIERS, case, sizes, build, arms, pending_cases,
@@ -774,7 +774,7 @@ function reproduction(wrap, z::Size)
         g, logR = _unpack(θ, (L,), (S, T))
         r = Recurrence(g; coupling = K, modifiers = (CR.Depletion(PerStratum(pop)),))
         if TRACE_PRESSURE
-            y, tr = returning_trace(wrap(r), exp.(logR); history = seed)
+            y, tr = returning_pressure(wrap(r), exp.(logR); history = seed)
             return sum(W .* y ./ tr.pressure)
         end
         y = wrap(r)(exp.(logR); history = seed)
@@ -1566,6 +1566,38 @@ if isfile(BVD_HANDRULE)
         return (wrap, z0, γ, nu) -> kernel(collect(z0), collect(γ), nu)
     end
 
+    # BVD's `onset_report_anchor_series`: each onset date's delay mass over
+    # its total, against an anchor series held at its end. The package arm
+    # computes the normalised mass as a kernel and takes its transpose; the
+    # hand arms build the CDF table, then sum the anchor by parts.
+    function _bvd_onset_anchor(run)
+        return function (wrap, z::Size)
+            (; T, L) = z
+            W = _weights(T)
+            f = function (θ)
+                z0, γ, a = _unpack(θ, (L,), (T + L - 1,), (T + L - 1,))
+                return sum(W .* run(wrap, z0, γ, a, T))
+            end
+            θ = _flat(
+                [-3.0 + 0.5 * _noise(j, 37) for j in 1:L],
+                [0.2 * _noise(t, 38) for t in 1:(T + L - 1)],
+                [1.0 + 0.3 * _noise(t, 39) for t in 1:(T + L - 1)]
+            )
+            return f, θ
+        end
+    end
+    function _bvd_onset_anchor_rule(wrap, z0, γ, a, nu)
+        hazard = CR.Derived(_logistic_sum, z0, TimeVarying(γ))
+        pmf = CR.Normalised(CR.Increments(1 - CR.Survival(hazard)))
+        conv = Convolution(TimeVarying(pmf, CR.Primary()))
+        return wrap(conv')(a[1:nu]; tail = a[(nu + 1):end], stop = nu)
+    end
+    function _bvd_onset_anchor_hand((table, anchor))
+        return function (wrap, z0, γ, a, nu)
+            return anchor(table(collect(z0), collect(γ), nu), 1, collect(a))
+        end
+    end
+
     # BVD's `bin_increments`: sums of a positive daily series over the
     # windows between report days, `L` days apart, the last window cut at the
     # series' end. The package arm is the running-total recipe of the
@@ -1773,6 +1805,15 @@ if isfile(BVD_HANDRULE)
                 (BVD.onset_table_loop, BVD.onset_report_cdf_table), [1],
             ),
             (
+                "bvd_onset_anchor",
+                "BVD onset_report_anchor_series: a normalised mass, transposed",
+                _bvd_onset_anchor, _bvd_onset_anchor_rule, _bvd_onset_anchor_hand,
+                (
+                    (BVD.onset_table_loop, BVD.onset_anchor_loop),
+                    (BVD.onset_report_cdf_table, BVD.onset_anchor_series),
+                ), [1],
+            ),
+            (
                 "bvd_bins", "BVD bin_increments: window sums as a running total",
                 _bvd_bins, _bvd_bins_rule, _bvd_bins_hand,
                 (BVD.bin_loop, BVD.bin_increments), [1],
@@ -1814,6 +1855,8 @@ if isfile(BVD_HANDRULE)
         push!(TIERS["docs"].cases, name)
         TIERS["docs"].bycase[name] = [(T = 200, L = 20), (T = 400, L = 60)]
     end
+    # The backend's 101 onset dates and 28 delays.
+    TIERS["docs"].bycase["bvd_onset_anchor"] = [(T = 101, L = 28)]
     # Weekly and 30-day bins over the backend's 220 days.
     TIERS["docs"].bycase["bvd_bins"] = [(T = 220, L = 7), (T = 220, L = 30)]
     # The backend's four patches over 227 days, with its two kernel lengths,

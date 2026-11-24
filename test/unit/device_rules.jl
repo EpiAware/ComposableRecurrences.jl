@@ -1308,3 +1308,34 @@ end
         end
     end
 end
+
+@testitem "JLArrays: a device sparse coupling runs as CSR, and a CSC one is converted where it can be" setup = [DeviceRules] begin
+    using SparseArrays: SparseArrays, sparse
+    using GPUArrays: AbstractGPUSparseMatrixCOO, csr_type
+    S = 4
+    C = sparse([0.0 0.1 0.0 0.2; 0.3 0.0 0.0 0.0; 0.0 0.2 0.0 0.1; 0.1 0.0 0.4 0.0])
+    x, h = inputs(S), fill(1.0, S, L)
+    y0 = Recurrence(pmf; coupling = C)(x; history = h)
+    for (name, Cd) in (
+            "CSR" => JLSparseMatrixCSR(C), "CSC" => JLSparseMatrixCSC(C),
+        )
+        # Older JLArrays give a CSC matrix no `csr_type`, so it is kept.
+        if !(Cd isa JLSparseMatrixCSR) &&
+                !hasmethod(csr_type, Tuple{Type{typeof(Cd)}})
+            @test Recurrence(JLArray(pmf); coupling = Cd).coupling === Cd
+            continue
+        end
+        r = Recurrence(JLArray(pmf); coupling = Cd)
+        @test r.coupling isa JLSparseMatrixCSR
+        @test Matrix(SparseArrays.SparseMatrixCSC(r.coupling)) == Matrix(C)
+        y1 = r(JLArray(x); history = JLArray(h))
+        @test y1 isa JLArray
+        @test Array(y1) ≈ y0
+    end
+    # A device sparse form with no conversion to CSR is kept as given.
+    # JLArrays has no such form, so a stub with no `csr_type` stands in.
+    struct NoCSRStub <: AbstractGPUSparseMatrixCOO{Float64, Int} end
+    Base.size(::NoCSRStub) = (S, S)
+    stub = NoCSRStub()
+    @test Recurrence(JLArray(pmf); coupling = stub).coupling === stub
+end

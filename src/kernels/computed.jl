@@ -26,12 +26,11 @@ function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
     L = _nlags(c)
     T = eltype(Y)
     sc = _walk_scratch(x, T, (L,), Val(false))
-    last = stop
-    stop = _cohorts(X, m, stop)
+    cohorts = _cohorts(X, m, stop)
     xr = _lags_contiguous(x)
     ks = axes(Y, 2)
-    for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):stop
-        imax = _imax(τ, L, 0, last)
+    for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):cohorts
+        imax = _imax(τ, L, 0, stop)
         # Lag index `i` of cohort `τ` lands in row `τ + i - start`.
         i0 = max(1, start - τ + 1)
         kw = _walk_strata(x, ks, k0)
@@ -68,16 +67,127 @@ end
     return nothing
 end
 
-# The cohorts up to `stop` whose rows the input or its cotangent `X` holds,
-# lags from `m`: all of them in a call, and in a transposed call those of
-# the outputs it keeps, so no coefficient is read past them.
+# The last cohort whose input row `X` holds, rows `m` on: `stop` in a plain
+# call, whose input covers every output, and fewer in a transposed call,
+# whose buffer holds only the outputs it keeps. A cohort's coefficients are
+# read only up to it.
 _cohorts(X, m, stop) = min(stop, size(X, 1) - m)
 
-# A transposed call keeps the outputs up to `stop` and reads the times up to
-# `last`: a computed kernel's cohorts to `stop` and its times to `last`.
+# A transposed call keeps the outputs up to `stop`, whose weights read the
+# series and the times up to `last`: so a computed kernel's buffer holds
+# the cohorts up to `stop`, and its coefficients cover those cohorts and the
+# times up to `last`.
 _transposed_rows(::_ComputedKernel, last, stop) = stop
 function _check_transposed_times(k::_ComputedKernel, stop, last)
-    return _check_coef_times(k.x, stop, last)
+    _check_coef_times(k.x, stop, last)
+    return _check_lag_times(k.x, stop, 0)
+end
+
+# == A normalised kernel ==
+
+# A kernel whose weights are a `Normalised` kernel's scales each cohort by
+# one number, so its bodies walk the kernel inside once per cohort, keeping
+# its values and their total, and scale once.
+const _NormalisedKernel = TimeVarying{Primary, <:Normalised}
+
+# The values of cohort `τ`'s kernel inside, lags from 0, into `U`, and their
+# total.
+function _walk_inner!(U, x::Normalised, sc, k, τ, ::Type{T}) where {T}
+    st = _walk_state(x.x, T)
+    total = zero(T)
+    for i in eachindex(U)
+        st = _walk(x.x, sc, st, k, i, τ, i - 1)
+        u = _walk_value(x.x, st, k, i, τ, i - 1)
+        @inbounds U[i] = u
+        total += u
+    end
+    return total
+end
+
+function _convolve!(ex::Serial, Y, c::_NormalisedKernel, X, m, start)
+    _on_gpu(Y) && return _convolve_dense!(ex, Y, c, X, m, start)
+    x = c.x
+    T = eltype(Y)
+    stop = start + size(Y, 1) - 1
+    sc = _walk_scratch(x, T, (_nlags(c),), Val(false))
+    inner, U = _no_record(sc.inner), sc.U
+    ks = axes(Y, 2)
+    for k0 in _walk_groups(x, ks), τ in max(1, start - length(U) + 1):_cohorts(X, m, stop)
+        imax, i0 = _imax(τ, length(U), 0, stop), max(1, start - τ + 1)
+        invs = inv(_safe_total(_walk_inner!(U, x, inner, k0, τ, T)))
+        for k in _walk_strata(x, ks, k0)
+            xk = @inbounds X[m + τ, k] * invs
+            @inbounds @simd for i in i0:imax
+                Y[τ + i - start, k] += U[i] * xk
+            end
+        end
+    end
+    return Y
+end
+
+function _convolve_back!(
+        ex::Serial, X̄, c̄, c::_NormalisedKernel, X, Ȳ, m, start
+    )
+    _on_gpu(Ȳ) && return _convolve_back_dense!(ex, X̄, c̄, c, X, Ȳ, m, start)
+    return _normalised_back!(X̄, nothing, _inner_mirror(c̄), c, X, Ȳ, m, start)
+end
+# The kernel's mirror's share for the kernel inside the `Normalised`.
+_inner_mirror(::Nothing) = nothing
+_inner_mirror(c̄) = cotangent(cotangent(c̄, :x), :x)
+
+# In a transposed call's reverse pass the series' cotangent and the
+# kernel's come from the same walk of each cohort.
+function _transposed_back!(ex::Serial, Ā, k̄, c::_NormalisedKernel, Z̄, A, o, start)
+    _on_gpu(A) && return _transposed_split!(ex, Ā, k̄, c, Z̄, A, o, start)
+    return _normalised_back!(nothing, Ā, _inner_mirror(k̄), c, Z̄, A, o, start)
+end
+
+# Each cohort `τ`, its kernel inside walked once: `X̄[m + τ]` (when given)
+# takes `Σ_i w_i Ȳ[τ + i - start]`, `Y` (when given) takes `w_i X[m + τ]` at
+# `τ + i - start`, and the weights' cotangents `Ȳ X[m + τ]` go back through
+# the normalisation to the kernel inside, mirror `x̄`.
+function _normalised_back!(X̄, Y, x̄, c::_NormalisedKernel, X, Ȳ, m, start)
+    x = c.x
+    T = eltype(Ȳ)
+    L = _nlags(c)
+    stop = start + size(Ȳ, 1) - 1
+    sc = _walk_scratch(x, T, (L,), Val(false))
+    inner = x̄ === nothing ? _no_record(sc.inner) : sc.inner
+    U, W̄ = sc.U, sc.W̄
+    ks = axes(Ȳ, 2)
+    rows = X̄ === nothing ? X : X̄
+    for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):_cohorts(rows, m, stop)
+        imax, i0 = _imax(τ, L, 0, stop), max(1, start - τ + 1)
+        total = _walk_inner!(U, x, inner, k0, τ, T)
+        invs = inv(_safe_total(total))
+        x̄ === nothing || fill!(W̄, zero(T))
+        for k in _walk_strata(x, ks, k0)
+            xk = @inbounds X[m + τ, k]
+            acc = zero(T)
+            @inbounds for i in i0:imax
+                ȳ = Ȳ[τ + i - start, k]
+                acc += U[i] * ȳ
+                Y === nothing || (Y[τ + i - start, k] += U[i] * (xk * invs))
+                x̄ === nothing || (W̄[i] += ȳ * xk)
+            end
+            X̄ === nothing || @inbounds(X̄[m + τ, k] += acc * invs)
+        end
+        x̄ === nothing && continue
+        imax >= i0 || continue
+        # `w_i = u_i / s` sends `w̄_i / s - (Σ_j w̄_j u_j) / s^2` to `u_i`, the
+        # second term only where the total is above its floor.
+        dot = zero(T)
+        @inbounds for i in i0:imax
+            dot += W̄[i] * U[i]
+        end
+        c2 = _safe_slope(total) * dot * invs^2
+        for i in 1:L
+            v = @inbounds W̄[i] * invs - c2
+            _add_value!(x̄, x.x, inner, v, k0, i, τ, i - 1, 1)
+        end
+        _walk_cohort_back!(x̄, x.x, inner, k0, τ, 0, L, T)
+    end
+    return nothing
 end
 
 # Contiguous lags let a loop over one stratum's lags vectorise; decided from
@@ -132,11 +242,10 @@ function _convolve_back!(
     L = _nlags(c)
     T = eltype(X̄)
     sc = _walk_scratch(x, T, (L,), Val(false))
-    last = stop
-    stop = _cohorts(X̄, m, stop)
+    cohorts = _cohorts(X̄, m, stop)
     ks = axes(Ȳ, 2)
-    for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):stop
-        imax = _imax(τ, L, 0, last)
+    for k0 in _walk_groups(x, ks), τ in max(1, start - L + 1):cohorts
+        imax = _imax(τ, L, 0, stop)
         _walk_cohort!(x, sc, k0, τ, 0, imax, T)
         for k in _walk_strata(x, ks, k0)
             xk = @inbounds X[m + τ, k]
@@ -312,6 +421,7 @@ function _weights_walk(op::_KernelWeights, n, keep)
     Tp = float(param_eltype(x))
     L = _coef_lags(x)
     like = _coef_array(x)
+    _on_gpu(like) && _lag_mapped(x) && _device_lag_map_error()
     if _on_gpu(like)
         ns = max(_coef_strata(x), 1)
         return _device_fill(x, like, Tp, ns, L, n, 0, last)

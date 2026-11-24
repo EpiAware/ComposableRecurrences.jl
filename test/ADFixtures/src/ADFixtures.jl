@@ -116,6 +116,14 @@ function returning_trace(op, args...; kwargs...)
     RECORD_KEYWORD && return op(args...; kwargs..., record = (:trace,))
     return op(args...; kwargs..., trace = true)
 end
+# The output and trace of a call that reads only the pressure: a release
+# with named records builds the pressure alone, an earlier one the whole
+# trace.
+const NAMED_RECORDS = isdefined(ComposableRecurrences, :_RECORD_PARTS)
+function returning_pressure(op, args...; kwargs...)
+    NAMED_RECORDS && return op(args...; kwargs..., record = (:pressure,))
+    return returning_trace(op, args...; kwargs...)
+end
 # The output of a call resumed from a state, which some releases before
 # `record` returned with the next state.
 function resumed(op, args...; kwargs...)
@@ -1999,6 +2007,23 @@ push!(
     ),
 )
 
+# One input series per stratum, passed as a tuple, with a kernel per
+# stratum; the output is a tuple of series.
+function _series_per_stratum(w, θ)
+    g, X = _unpack(θ, (S, L), (S, T))
+    ys = w(Convolution(PerStratum(g)))(ntuple(k -> X[k, :], Val(S)))
+    # Each stratum's index is a constant, which Reactant can index by.
+    return sum(ntuple(k -> sum(view(WS, k, :) .* ys[k]), Val(S)))
+end
+push!(
+    _SCENARIOS,
+    (
+        "Convolution of one series per stratum as a tuple",
+        _series_per_stratum,
+        () -> _flat(repeat(G0', S) .* (0.8 .+ 0.1 .* (1:S)), 1 .+ LOGR),
+    ),
+)
+
 # Kernels computed from their coefficients: a cohort's weight on each lag
 # from a hazard over calendar time and a profile over the lags. One small
 # scenario for each operator's rule; the unit tests check each pullback.
@@ -2296,6 +2321,8 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
         (:Survival, :_densified),
     "Recurrence kernel shortened by a survival on change points" =>
         (:Survival, :_densified),
+    # One series per stratum came with `_StackRows`.
+    "Convolution of one series per stratum as a tuple" => (:_StackRows,),
     "Kernel weights of a survival against a delay and calendar hazard" =>
         (:Survival, :_KernelWeights),
     "Recurrence kernel shortened by a survival" => (:Survival,),

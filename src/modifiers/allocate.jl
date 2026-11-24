@@ -59,7 +59,8 @@ The groups are stored flat, in the fields `strata` (each group's strata in
 turn) and `offsets` (where each group starts), so the rule sees
 only integer arrays and the parameters.
 `total` and `fraction` are [parameters](@ref ComposableRecurrences.param)
-over groups, not strata: `PerStratum` holds one value per group.
+over groups, not strata: `PerStratum` holds one value per group, and a
+bare matrix is read as groups × time.
 It reads every stratum of a group, so it is not pointwise, and its groups
 differ in size and are set by the value, so it is not blockwise
 ([`ComposableRecurrences.blocks`](@ref) is `nothing`).
@@ -103,7 +104,7 @@ sum is below ``\epsilon``, then
 - `imports`: `nothing` (the default), or `(fraction, pattern)` with
   `fraction` the share of each group's total placed by the import pattern
   and `pattern` an `S × S` coupling, or `TimeVarying` of an `S × S × T`
-  array.
+  array; a bare `S × S × T` array is read as the latter.
 - `spill`: `nothing` (the default), or a
   [`ComposableRecurrences.Redistribute`](@ref) applied after the pattern
   reads the values; it needs `imports`.
@@ -138,12 +139,13 @@ struct Allocate{T, I}
     "The import fraction, pattern and spill, or `nothing`."
     imports::I
     function Allocate(
-            groups::AbstractVector, total::T; imports = nothing, spill = nothing
-        ) where {T}
+            groups::AbstractVector, total; imports = nothing, spill = nothing
+        )
         strata, offsets = _flat_groups(groups)
-        _check_group_param(:total, total, length(groups))
+        p = _as_param(total)
+        _check_group_param(:total, p, length(groups))
         im = _imports(imports, spill, length(groups))
-        return new{T, typeof(im)}(strata, offsets, total, im)
+        return new{typeof(p), typeof(im)}(strata, offsets, p, im)
     end
     function Allocate(
             ::_Flat, strata, offsets, total::T, imports::I
@@ -197,7 +199,7 @@ function _imports(imports, spill, P)
             "imports is (fraction, pattern), got $(_describe(imports))"
         )
     )
-    fraction, pattern = imports
+    fraction, pattern = _as_param(imports[1]), _as_coupling(imports[2])
     _check_group_param(:fraction, fraction, P)
     _check_pattern(pattern)
     spill isa Union{Nothing, Redistribute} || throw(
@@ -223,6 +225,28 @@ function _check_pattern(P)
     end
     return nothing
 end
+
+@implements PieceInterface{(:nstate, :pullback)} Allocate [
+    Arguments(;
+        piece = Allocate(
+            [1:2, 3:3], TimeVarying(PerStratum([4.0 5.0; 1.0 2.0]))
+        ),
+        role = Step(), args = ([2.0, 3.0, 0.5], [0.0, 0.0, 0.0], 2),
+        pullback = false
+    ),
+    Arguments(;
+        piece = Allocate([1:2, 3:3], 1.0), role = Init(),
+        args = (zeros(3), ones(3, 2))
+    ),
+    Arguments(;
+        piece = Allocate(
+            [1:2, 3:3], PerStratum([4.0, 1.0]);
+            imports = (0.2, [0.0 0.0 0.5; 0.0 0.0 0.5; 1.0 0.0 0.0]),
+            spill = Redistribute([0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0])
+        ),
+        role = Step(), args = ([2.0, 3.0, 0.5], zeros(6), 2)
+    ),
+]
 
 # == Groups, state and traits ==
 
@@ -679,25 +703,3 @@ function _spill_back!(
     fill!(ū, zero(eltype(ū)))
     return nothing
 end
-
-@implements PieceInterface{(:nstate, :pullback)} Allocate [
-    Arguments(;
-        piece = Allocate(
-            [1:2, 3:3], TimeVarying(PerStratum([4.0 5.0; 1.0 2.0]))
-        ),
-        role = Step(), args = ([2.0, 3.0, 0.5], [0.0, 0.0, 0.0], 2),
-        pullback = false
-    ),
-    Arguments(;
-        piece = Allocate([1:2, 3:3], 1.0), role = Init(),
-        args = (zeros(3), ones(3, 2))
-    ),
-    Arguments(;
-        piece = Allocate(
-            [1:2, 3:3], PerStratum([4.0, 1.0]);
-            imports = (0.2, [0.0 0.0 0.5; 0.0 0.0 0.5; 1.0 0.0 0.0]),
-            spill = Redistribute([0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0])
-        ),
-        role = Step(), args = ([2.0, 3.0, 0.5], zeros(6), 2)
-    ),
-]

@@ -114,8 +114,8 @@ flows' the amount each moves.
 # Arguments
 - `N`: the population a draw reads, or the capacity a draw fills up to,
   a [parameter](@ref ComposableRecurrences.param) read at each step's group
-  and time; left out for a `Depletion` without a draw, or whose truncated
-  draws from its pools do not read it.
+  and time, a bare matrix being groups × time; left out for a `Depletion`
+  without a draw, or whose truncated draws from its pools do not read it.
 - `pieces`: the draws and flows, in the order they act; `Hazard()` alone
   when none are given.
 
@@ -625,6 +625,8 @@ end
 # the group step is slower. `blocks` always gives positive integers.
 _blocks(m::_Pointwise) = nothing
 _blocks(m::Depletion) = Val(blocks(m))
+# One value per group runs in the series step.
+_group_series(m::Depletion) = _one_value(_blocks(m))
 
 # The groups of `S` strata.
 _pool_groups(m::Depletion, S) = _pool_groups(_blocks(m), S)
@@ -747,6 +749,9 @@ function _initials_back!(ks, m̄, m, s̄, G)
     return nothing
 end
 pullback!(grads, m::_Drawless, ::Init, s, history) = nothing
+# Its flows act on the values alone, so the reverse pass needs no record of
+# its state.
+_reads_state(::_Drawless) = false
 
 # The mirrors of the first part and of the run of flows after it.
 _draw_mirror(m̄) = _head(cotangent(m̄, :pieces))
@@ -822,7 +827,6 @@ end
     _hold!(s, _with_queue(q, x′, Q′))
     return nothing
 end
-
 
 # The pools and the queue in a group's state, `nothing` without a queue,
 # and the second value with an overflow into a stratum.
