@@ -59,7 +59,8 @@ The groups are stored flat, in the fields `strata` (each group's strata in
 turn) and `offsets` (where each group starts), so the rule sees
 only integer arrays and the parameters.
 `total` and `fraction` are [parameters](@ref ComposableRecurrences.param)
-over groups, not strata: `PerStratum` holds one value per group.
+over groups, not strata: `PerStratum` holds one value per group, and a
+bare matrix is read as groups × time.
 It reads every stratum of a group, so it is not pointwise, and its groups
 differ in size and are set by the value, so it is not blockwise
 ([`ComposableRecurrences.blocks`](@ref) is `nothing`).
@@ -103,7 +104,7 @@ sum is below ``\epsilon``, then
 - `imports`: `nothing` (the default), or `(fraction, pattern)` with
   `fraction` the share of each group's total placed by the import pattern
   and `pattern` an `S × S` coupling, or `TimeVarying` of an `S × S × T`
-  array.
+  array; a bare `S × S × T` array is read as the latter.
 - `spill`: `nothing` (the default), or a
   [`ComposableRecurrences.Redistribute`](@ref) applied after the pattern
   reads the values; it needs `imports`.

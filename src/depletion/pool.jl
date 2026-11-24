@@ -114,8 +114,8 @@ flows' the amount each moves.
 # Arguments
 - `N`: the population a draw reads, or the capacity a draw fills up to,
   a [parameter](@ref ComposableRecurrences.param) read at each step's group
-  and time; left out for a `Depletion` without a draw, or whose truncated
-  draws from its pools do not read it.
+  and time, a bare matrix being groups × time; left out for a `Depletion`
+  without a draw, or whose truncated draws from its pools do not read it.
 - `pieces`: the draws and flows, in the order they act; `Hazard()` alone
   when none are given.
 

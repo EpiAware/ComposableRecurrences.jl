@@ -1355,6 +1355,11 @@ end
     )
     @test typeof(bare) == typeof(wrapped)
     @test run(bare) == run(wrapped)
+    # A fixed S × S pattern stays a matrix.
+    P1 = P[:, :, 1]
+    fixed = CR.Allocate(groups, total; imports = (frac, P1))
+    @test fixed.imports.pattern === P1
+    @test run(fixed) == run(bare)
     # A vector still has two readings and is refused.
     @test_throws "one value per stratum or one per time" CR.Flow(
         :S => :V, [0.1, 0.2]

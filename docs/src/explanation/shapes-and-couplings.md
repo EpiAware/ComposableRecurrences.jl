@@ -77,7 +77,8 @@ It can also be change points: `start => value` pairs, each value holding from it
 
 Most wrappers hold the stored array without copying it.
 Where a bare array's shape has one reading, the wrapper can be left out: a coupling's third axis can only be time, and a modifier parameter's matrix can only be strata × time.
-The same holds for a `Depletion`'s population, a `Flow`'s demand, and an `Allocate`'s total, import fraction and import pattern, whose rows are groups.
+The same holds for a `Depletion`'s population and a `Flow`'s demand, and for an `Allocate`'s total and import fraction, whose rows are groups.
+An `Allocate`'s import pattern is a coupling, so its bare third axis is time too.
 Where it has two, the wrapper names the reading, and a bare array is an error that names both.
 These shapes have two readings:
 

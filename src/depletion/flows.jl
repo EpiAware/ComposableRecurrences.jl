@@ -156,7 +156,8 @@ Rates are not checked.
   `Split()`, `from` is a tuple of two or more pools.
 - `demand`: the rate, share or count, a
   [parameter](@ref ComposableRecurrences.param) read at each step's group
-  and time, with `PerStratum` holding one per group.
+  and time, with `PerStratum` holding one per group; a bare matrix is
+  read as groups × time.
 
 # Keyword Arguments
 - `form`: `Hazard()`, the default, `Share()`, `Truncate()`,
