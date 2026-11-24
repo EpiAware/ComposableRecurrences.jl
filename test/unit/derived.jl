@@ -171,3 +171,39 @@ end
     @test CR._fit(conv(open_map)) === expect
     @test CR._fit(conv(closed)) === :one
 end
+
+@testitem "Derived: the notes on plain AD name the part and the operator" begin
+    using ComposableRecurrences, LinearAlgebra, Test
+    CR = ComposableRecurrences
+    # The reasons a note gives, read directly: the call takes the rule here,
+    # as the unit tests load dual numbers.
+    open_map = CR.Derived((a, b) -> a * exp(b), 0.5, 0.2)
+    m = CR.Transform((v, θ) -> v * θ, open_map)
+    @test CR._needs_duals(m)
+    @test occursin("Transform holds a Derived map", CR._dual_why(m))
+    plain = CR.Transform((v, p) -> p * v, 0.5)
+    @test occursin("`Transform` without a `derivative`", CR._dual_why(plain))
+    flow = CR.Flow(:S => :V, CR.Derived((b, c) -> b * exp(c), 0.5, 0.1))
+    pool = CR.Depletion(
+        100.0, CR.Hazard(0.02; weights = (S = 1, V = 0.3)), flow;
+        pools = (S = nothing, V = 0.0)
+    )
+    @test occursin("Depletion holds a Derived map", CR._dual_why(pool))
+    k = TimeVarying(
+        CR.Derived((a, s) -> exp(-a * s), 0.3, [1.0, 2.0, 3.0]), CR.Primary()
+    )
+    @test length(CR._dual_whys(k, I, ())) == 1
+    @test length(CR._dual_whys(k, I, (m, plain))) == 3
+    c = Convolution(k)
+    @test CR._operator_name(c) == "Convolution"
+    @test CR._operator_name(Recurrence([0.5])) == "Recurrence"
+    # The note says it once, naming the operator.
+    empty!(CR._PLAIN_NOTED)
+    why = (CR._dual_why(c),)
+    @test_logs (:info, r"^Convolution gradients use plain AD") CR._note_plain(
+        why, CR._operator_name(c)
+    )
+    @test_logs CR._note_plain(why, CR._operator_name(c))
+    # With dual numbers loaded, the hook notes nothing.
+    @test CR._note_missing_duals(c) === nothing
+end
