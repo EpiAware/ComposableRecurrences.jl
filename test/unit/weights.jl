@@ -736,16 +736,23 @@ end
     @test !CR._derived_duals(Derived(LogisticSum(), -1.0, γ0))
     @test !CR._derived_duals(Derived(logistic, Derived(+, -1.0, γ0)))
     @test CR._derived_duals(Derived((a, b) -> logistic(a + b), -1.0, γ0))
-    # The link functions' rules against forward mode, in the tails too.
+    # The link functions' rules against forward mode inside the range, and
+    # against their closed forms in the tails, where an older forward-mode
+    # rule can round to zero.
     using LogExpFunctions: log1pexp, logit
-    for (f, x) in (
-            (logistic, -40.0), (logistic, 0.3), (logistic, 40.0),
-            (log1pexp, -40.0), (log1pexp, 0.3), (log1pexp, 40.0),
-            (logit, 1.0e-12), (logit, 0.3), (logit, 1 - 1.0e-12),
+    dlogistic(x) = exp(-abs(x)) / (1 + exp(-abs(x)))^2
+    for (f, df) in (
+            (logistic, dlogistic), (log1pexp, logistic),
+            (logit, x -> inv(x * (1 - x))),
         )
+        x = 0.3
         local_d = CR.pullback!((;), f, CR.Local(), f(x), x)[1]
         dual_d = CR._forward_value_and_derivative(f, (x,))[2][1]
         @test local_d ≈ dual_d rtol = 1.0e-10
+        tails = f === logit ? (1.0e-12, 1 - 1.0e-12) : (-40.0, 40.0)
+        for t in tails
+            @test CR.pullback!((;), f, CR.Local(), f(t), t)[1] ≈ df(t) rtol = 1.0e-10
+        end
     end
     args = (0.3, -1.2)
     local_dy = CR._value_and_partials(LogisticSum(), args)[2]
