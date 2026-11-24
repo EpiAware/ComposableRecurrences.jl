@@ -42,7 +42,7 @@ Values captured by `f` (a closure, or a callable struct with float fields)
 are not in ``\theta``, so without `derivative` the AD backend
 differentiates the [`Recurrence`](@ref) holding such a map.
 
-Two maps have their own pullbacks, used unless `derivative` is given.
+Three maps have their own pullbacks, used unless `derivative` is given.
 `Transform(+, b)` adds ``b_{t,i}`` where it sits in the tuple.
 After a [`ComposableRecurrences.Depletion`](@ref), the added values are
 neither scaled by nor drawn from the pool.
@@ -53,10 +53,15 @@ passing `B` as `add`.
 ``\ell_{t,i} \le u_{t,i}``.
 Its pullback sends the cotangent to the active bound, or to ``v_i`` when
 neither is.
+`Transform(*, γ)` scales each value by ``\gamma_{t,i}``.
+First in the modifiers, it scales the `add` values with the kernel's, so
+the gain acts on both before an [`ComposableRecurrences.Allocate`](@ref) or
+a draw.
+A `γ` that is a plain number has no cotangent, so its pullback adds none.
 
 It acts on a [`Recurrence`](@ref) and is pointwise.
 Its rule takes the local forward-mode derivative or `derivative`, or a
-hand-written pullback for `+` and `clamp`.
+hand-written pullback for `+`, `clamp` and `*`.
 
 # Arguments
 - `f`: the map, called as `f(v)` or `f(v, θ)`.
@@ -166,6 +171,9 @@ function _check_theta(θ::Union{Tuple, NamedTuple})
 end
 _check_theta(θ) = (_check_param(:θ, θ); nothing)
 
+# The gain of `Transform(*, γ)`: one parameter, not a tuple of them.
+const _GainParam = Union{Real, PerStratum, TimeVarying}
+
 # == Traits ==
 
 # Whether the local derivative covers every parameter. A closure's float
@@ -188,6 +196,7 @@ end
 _own_pullback(::Transform) = false
 _own_pullback(::Transform{typeof(+), Nothing, Nothing}) = true
 _own_pullback(::Transform{typeof(clamp), <:Tuple{Any, Any}, Nothing}) = true
+_own_pullback(::Transform{typeof(*), <:_GainParam, Nothing}) = true
 function _local_why(::Transform)
     return "a `Transform` without a `derivative` takes its local derivative " *
         "with `ForwardDiff`; add `using ForwardDiff` for the faster rule"
@@ -247,6 +256,18 @@ end
 function pullback!(
         grads, ::Transform{typeof(+), Nothing, Nothing}, ::Step, v, s, t
     )
+    return nothing
+end
+
+# `y = γ v`.
+function pullback!(
+        grads, m::Transform{typeof(*), <:_GainParam, Nothing}, ::Step, v, s, t
+    )
+    v̄, γ̄ = grads.v, cotangent(grads.piece, :θ)
+    for k in eachindex(v)
+        add_param!(γ̄, m.θ, v̄[k] * v[k], k, t)
+        v̄[k] *= param(m.θ, k, t)
+    end
     return nothing
 end
 

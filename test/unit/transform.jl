@@ -379,19 +379,65 @@ end
     using ComposableRecurrences
     CR = ComposableRecurrences
     whys(m) = CR._dual_whys([0.5], CR.I, (m,))
-    # `clamp` and `+` without `b` take their own pullbacks, so a call
+    # `clamp`, `+` without `b` and `*` take their own pullbacks, so a call
     # without `ForwardDiff` still takes the rule.
     @test isempty(whys(CR.Transform(clamp, 0.0, 2.0)))
     @test isempty(whys(CR.Transform(clamp, 0.0, TimeVarying([1.0, 2.0]))))
     @test isempty(whys(CR.Transform(+)))
+    @test isempty(whys(CR.Transform(*, 0.5)))
     # Other maps take the local derivative, which needs `ForwardDiff`.
-    @test length(whys(CR.Transform(*, 0.5))) == 1
+    @test length(whys(CR.Transform(-, 0.5))) == 1
     @test length(whys(CR.Transform(+, 0.5))) == 1
-    @test isempty(whys(CR.Transform(*, 0.5; derivative = (v, θ) -> (θ, v))))
+    @test isempty(whys(CR.Transform(-, 0.5; derivative = (v, θ) -> (1, -1))))
 end
 
 @testitem "Transform implements the role interface" begin
     using ComposableRecurrences, Interfaces
     CR = ComposableRecurrences
     @test Interfaces.implements(CR.PieceInterface, CR.Transform)
+end
+
+@testitem "Transform(*, γ): its own pullback, and a gain on the added values" setup = [ModifierChecks] begin
+    using ComposableRecurrences, ForwardDiff, Mooncake, Test
+    CR = ComposableRecurrences
+    v, s = [0.3, 0.6, 0.9], [0.1, 0.2, 0.3]
+    for (γ, θ, t) in (
+            (θ -> θ[1], [1.5], 1),
+            (θ -> PerStratum(θ), [0.5, 0.8, 1.2], 1),
+            (θ -> TimeVarying(PerStratum(reshape(θ, 3, 2))), 0.5:0.1:1.0, 2),
+        )
+        m = CR.Transform(*, γ(θ))
+        @test CR._own_pullback(m)
+        @test !CR._needs_duals(m)
+        c = ModifierChecks.check_pullback(θ -> CR.Transform(*, γ(θ)), θ, v, s, t)
+        @test c.v && c.s && c.θ
+        @test any(!iszero, c.θ̄)
+    end
+    # Before the other modifiers, it scales the added values with the
+    # kernel's: the same as passing γ as the gain and γ .* a as `add`.
+    T = 8
+    γ = [1.0 + 0.1 * k + 0.02 * t for k in 1:2, t in 1:T]
+    a = [0.3 + 0.05 * k * t for k in 1:2, t in 1:T]
+    h = ones(2, 2)
+    m = CR.Transform(*, TimeVarying(PerStratum(γ)))
+    scaled = Recurrence([0.5, 0.3]; modifiers = (m,))
+    @test scaled(1.0; history = h, add = a, stop = T) ≈
+        Recurrence([0.5, 0.3])(γ; history = h, add = γ .* a)
+    # The rule's gradients in γ and in the added values, against ForwardDiff
+    # of plain AD.
+    W = [sin(k + t) for k in 1:2, t in 1:T]
+    function loss(op, x)
+        γx, ax = reshape(x[1:(2T)], 2, T), reshape(x[(2T + 1):end], 2, T)
+        r = Recurrence(
+            [0.5, 0.3]; modifiers = (CR.Transform(*, TimeVarying(PerStratum(γx))),)
+        )
+        return sum(W .* op(r)(1.0; history = h, add = ax, stop = T))
+    end
+    x = vcat(vec(γ), vec(a))
+    expected = ForwardDiff.gradient(x -> loss(CR.NoAdjoint, x), x)
+    f = x -> loss(identity, x)
+    n0 = CR._PULLBACK_CALLS[]
+    rule = Mooncake.build_rrule(f, x)
+    @test Mooncake.value_and_gradient!!(rule, f, x)[2][2] ≈ expected
+    @test CR._PULLBACK_CALLS[] > n0
 end
