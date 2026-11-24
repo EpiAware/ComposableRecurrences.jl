@@ -86,14 +86,16 @@ the call covers the absolute times `start:stop`:
         its [`ComposableRecurrences.Trace`](@ref) records, and
         `trace.pressure` the pressure ``K_t p_t`` each step drew against,
         laid out as `y`, as [`ComposableRecurrences.pressure`](@ref)
-        returns it, and `trace.force` the value ``\gamma_t \odot K_t p_t +
-        a_t`` of each step before the modifiers, laid out as `y`; all
-        differentiable as the output is.
+        returns it; both differentiable as the output is.
         Named modifiers give `trace.modifiers` as a named tuple keyed by
         their names, and a tuple of modifiers gives a tuple;
-      - `:pressure`, `:force`, or a modifier's name, for that part of the
-        trace alone, read as above, as `trace.pressure`, `trace.force` or
-        `trace.modifiers.name`.
+      - `:pressure`, or a modifier's name, for that part of the trace alone,
+        read as above, as `trace.pressure` or `trace.modifiers.name`;
+      - `:force`, for `trace.force`, the value
+        ``\gamma_t \odot K_t p_t + a_t`` of each step before the modifiers,
+        laid out as `y` and differentiable as it is. It is built only when
+        named, so `:trace` alone leaves it empty; record
+        `(:trace, :force)` for both.
         The parts not named are not built: they come back empty, so the
         call returns the type a whole trace has, and add no cotangent.
     `record = ()` returns `(; y)`, and without `record` the call returns
@@ -866,21 +868,20 @@ function _traces_any(rec::Tuple, ::Val{N}) where {N}
     return any(n -> n in rec, N)
 end
 # The parts of the trace a call builds: a flag for each of its `m`
-# modifiers, one for the pressure and one for the force, all set for
-# `:trace`. It is a value, not a type, so a call returns the same type
-# whichever parts it builds.
+# modifiers and one for the pressure, all set for `:trace`, and one for the
+# force, set only when it is named. They are values, so a call returns the
+# same type whichever parts it builds.
 _selection(::Nothing, names, m) = _all_parts(m)
 _selection(::Val{R}, names, m) where {R} = _selection(R, names, m)
 function _selection(rec::Tuple, ::Val{N}, ::Val{m}) where {N, m}
-    :trace in rec && return _all_parts(Val(m))
+    force = :force in rec
+    :trace in rec && return (; _all_parts(Val(m))..., force)
     mods = N === nothing ? ntuple(_ -> false, Val(m)) : map(n -> n in rec, N)
-    return (;
-        modifiers = mods, pressure = :pressure in rec, force = :force in rec,
-    )
+    return (; modifiers = mods, pressure = :pressure in rec, force)
 end
 function _all_parts(::Val{m}) where {m}
     modifiers = ntuple(_ -> true, Val(m))
-    return (; modifiers, pressure = true, force = true)
+    return (; modifiers, pressure = true, force = false)
 end
 # Generated after its helper, so a record in a `Val` answers from the types
 # alone.

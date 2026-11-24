@@ -659,7 +659,10 @@ end
     R, h = fill(1.1, 2, 6), ones(2, 2)
     named = Recurrence([0.6, 0.3]; coupling = K, modifiers = (; pool, imports))
     plain = Recurrence([0.6, 0.3]; coupling = K, modifiers = (pool, imports))
-    full = named(R; history = h, record = (:trace,))
+    full = named(R; history = h, record = (:trace, :force))
+    # The force is built only when named: `:trace` alone leaves it empty.
+    @test named(R; history = h, record = (:trace,)).trace.force == zeros(2, 0)
+    @test size(full.trace.force) == (2, 6)
     ref = plain(R; history = h, record = (:trace,))
     # A tuple of modifiers keeps a tuple of traces; names key them.
     @test ref.trace.modifiers isa Tuple

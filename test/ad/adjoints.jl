@@ -2516,7 +2516,7 @@ end
             abs2,
             part(
                 NoAdjoint(build(θ))(
-                    gain(θ); history = h, record = (:trace,)
+                    gain(θ); history = h, record = (:trace, :force)
                 ).trace
             )
         )
