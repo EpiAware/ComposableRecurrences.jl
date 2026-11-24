@@ -57,7 +57,7 @@ struct Survival{H}
     hazard::H
     "The first lag the hazard acts at."
     from::Int
-    function Survival(hazard::H, from::Integer) where {H}
+    function Survival(::_Checked, hazard::H, from::Integer) where {H}
         _check_coefficient(hazard)
         from >= 0 || throw(
             ArgumentError(
@@ -68,7 +68,11 @@ struct Survival{H}
         return new{H}(hazard, Int(from))
     end
 end
-Survival(hazard; from::Integer = 0) = Survival(hazard, from)
+Survival(hazard; from::Integer = 0) = Survival(_Checked(), hazard, from)
+
+# Rebuilt from its fields, as `constructorof` gives it.
+_survival_flat(hazard, from) = Survival(_Checked(), hazard, from)
+ConstructionBase.constructorof(::Type{<:Survival}) = _survival_flat
 
 # == Coefficients ==
 

@@ -36,8 +36,7 @@ None is needed to build or run a model.
 | `using FFTW` | FFT lag sums for `Convolution` | Long kernels over long series | [FFTW](@ref extension-fftw) |
 | `using Functors` | `convert_floats` | Runs in `Float32` | [Functors](@ref extension-functors) |
 | `using KernelAbstractions` | `Parallel` executor and Adapt rules | Kernels without a GPU package | [KernelAbstractions](@ref extension-kernel-abstractions) |
-| `using CUDA, KernelAbstractions`, or any GPUArrays backend | Calls on device arrays run as kernels | GPUs | [GPU arrays](@ref extension-gpuarrays-core) |
-| As above | Device CSR couplings | Sparse couplings on a GPU | [GPU sparse couplings](@ref extension-gpuarrays) |
+| `using CUDA, KernelAbstractions`, or any GPUArrays backend | Calls on device arrays, including CSR couplings, run as kernels | GPUs | [GPUArrays](@ref extension-gpuarrays) |
 | `using Reactant, KernelAbstractions, CUDA` | Compiled calls on traced arrays | Compiling a model with Reactant | [Reactant](@ref extension-reactant) |
 
 ## Getting help

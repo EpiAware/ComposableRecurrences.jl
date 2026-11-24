@@ -293,7 +293,7 @@ end
     εs = [0.1, 0.2, 0.15, 0.05, 0.3]
     PT = cat((P0 .* (1 + 0.1 * t) for t in 1:8)...; dims = 3)
     θ0 = [4.0, 2.0, 1.0, 0.1, 0.3, 0.2]
-    M0 = CR._kernel_movement(K0, εs)
+    M0 = CR.Redistribute(K0, εs).M
     # θ is the total, the fraction, the pattern, then the spill's movement
     # matrix, the order of the mirror's fields.
     for spilled in (false, true), P in (P0, PT), t in (1, 5)
@@ -360,7 +360,7 @@ end
     using ComposableRecurrences, SparseArrays
     CR = ComposableRecurrences
     (; g, R, h, groups, TT, P0, K0) = AllocateChecks
-    M0 = CR._kernel_movement(K0, [0.1, 0.2, 0.15, 0.05, 0.3])
+    M0 = CR.Redistribute(K0, [0.1, 0.2, 0.15, 0.05, 0.3]).M
     split(P, M) = CR.Allocate(
         groups, TimeVarying(PerStratum(TT));
         imports = (0.2, P), spill = CR.Redistribute(M)
@@ -484,7 +484,7 @@ end
         Y[kept, :] .= X
         return Y
     end
-    M0 = CR._kernel_movement(K0, [0.1, 0.2, 0.15, 0.05, 0.3])
+    M0 = CR.Redistribute(K0, [0.1, 0.2, 0.15, 0.05, 0.3]).M
     # Without imports, with them, and with a spill too.
     function split(gs, tot, fr, case)
         total = TimeVarying(PerStratum(tot))
