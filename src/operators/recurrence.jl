@@ -93,9 +93,9 @@ the call covers the absolute times `start:stop`:
         read as above, as `trace.pressure` or `trace.modifiers.name`;
       - `:force`, for `trace.force`, the value
         ``\gamma_t \odot K_t p_t + a_t`` of each step before the modifiers,
-        laid out as `y` and differentiable as it is. It is built only when
-        named, so `:trace` alone leaves it empty; record
-        `(:trace, :force)` for both.
+        laid out as `y` and differentiable as it is.
+        It is built only when named, so `:trace` alone leaves it empty;
+        record `(:trace, :force)` for both.
         The parts not named are not built: they come back empty, so the
         call returns the type a whole trace has, and add no cotangent.
     `record = ()` returns `(; y)`, and without `record` the call returns
