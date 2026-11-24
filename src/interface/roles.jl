@@ -422,13 +422,17 @@ pullback!(grads, ::typeof(*), ::Local, y, a::Real, b::Real) = (b, a)
 pullback!(grads, ::typeof(/), ::Local, y, a::Real, b::Real) = (inv(b), -a / b^2)
 pullback!(grads, ::typeof(exp), ::Local, y, a::Real) = (y,)
 pullback!(grads, ::typeof(log), ::Local, y, a::Real) = (inv(a),)
-# The argument `min` or `max` returns takes the cotangent, and the first on
-# a tie, as the forward-mode derivative the operators took before gives.
+# The argument `min` or `max` returns takes the cotangent, a NaN or a signed
+# zero included, and the first when both are equal, as the forward-mode
+# derivative the operators took before gives.
 function pullback!(grads, ::typeof(min), ::Local, y, a::Real, b::Real)
-    return a <= b ? (one(a), zero(b)) : (zero(a), one(b))
+    return _returned(isequal(min(a, b), a), a, b)
 end
 function pullback!(grads, ::typeof(max), ::Local, y, a::Real, b::Real)
-    return a >= b ? (one(a), zero(b)) : (zero(a), one(b))
+    return _returned(isequal(max(a, b), a), a, b)
+end
+function _returned(isa, a, b)
+    return ifelse(isa, one(a), zero(a)), ifelse(isa, zero(b), one(b))
 end
 
 # == Modifier traits ==
