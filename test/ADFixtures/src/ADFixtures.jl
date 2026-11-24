@@ -2004,7 +2004,8 @@ push!(
 function _series_per_stratum(w, θ)
     g, X = _unpack(θ, (S, L), (S, T))
     ys = w(Convolution(PerStratum(g)))(ntuple(k -> X[k, :], Val(S)))
-    return sum(k -> sum(view(WS, k, :) .* ys[k]), 1:S)
+    # Each stratum's index is a constant, which Reactant can index by.
+    return sum(ntuple(k -> sum(view(WS, k, :) .* ys[k]), Val(S)))
 end
 push!(
     _SCENARIOS,
