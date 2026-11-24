@@ -338,6 +338,9 @@ The operators look for the method with `Float64` arguments, so it should
 accept any `Real` arguments.
 Without one the partials come from a local forward-mode derivative, which
 needs `ForwardDiff` loaded.
+The package's rules for `min` and `max` give the first argument the
+cotangent on a tie, so a NaN or a tie of `0.0` and `-0.0` can differ from
+`ForwardDiff`'s convention.
 
 # Examples
 ```jldoctest
@@ -427,6 +430,14 @@ pullback!(grads, ::typeof(*), ::Local, y, a::Real, b::Real) = (b, a)
 pullback!(grads, ::typeof(/), ::Local, y, a::Real, b::Real) = (inv(b), -a / b^2)
 pullback!(grads, ::typeof(exp), ::Local, y, a::Real) = (y,)
 pullback!(grads, ::typeof(log), ::Local, y, a::Real) = (inv(a),)
+# The smaller or larger argument takes the cotangent, and the first on a tie,
+# as the forward-mode derivative the operators took before gives.
+function pullback!(grads, ::typeof(min), ::Local, y, a::Real, b::Real)
+    return a <= b ? (one(a), zero(b)) : (zero(a), one(b))
+end
+function pullback!(grads, ::typeof(max), ::Local, y, a::Real, b::Real)
+    return a >= b ? (one(a), zero(b)) : (zero(a), one(b))
+end
 
 # == Modifier traits ==
 
