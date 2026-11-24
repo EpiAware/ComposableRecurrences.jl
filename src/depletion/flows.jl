@@ -708,10 +708,10 @@ end
     return ifelse(on, q, ifelse(i == first_other, one(q), zero(q)))
 end
 
-# Its cotangents `(b̄, w̄, ȳ)` from those `m̄` of what each source loses,
-# given the step's parts `c, u, W` and demands `d`, which the caller
-# computes once.
-@inline function _split_back(b, w::NTuple{n}, y::NTuple{n}, m̄, c, u, W, d) where {n}
+# Its cotangents `(b̄, w̄, ȳ)` from those `m̄` of what each source loses.
+function _split_back(b, w::NTuple{n}, y::NTuple{n}, m̄) where {n}
+    c, u, W = _split_parts(b, w, y)
+    d = ntuple(i -> c[i] + _passed(u, w, W, i), Val(n))
     r̄s = map(_removal_pullback, d, y, m̄)
     d̄ = map(first, r̄s)
     ȳ0 = map(last, r̄s)
@@ -721,11 +721,9 @@ end
         j -> ȳ0[j] - ifelse(_uncovered(c[j], y[j]), ū[j], zero(ū[j])), Val(n)
     )
     if _primal_value(W) > 0
-        iW = inv(W)
-        b̄ = sum(ntuple(j -> c̄[j] * w[j], Val(n))) * iW
-        W̄ = -sum(ntuple(j -> c̄[j] * c[j], Val(n))) * iW
-        bW = b * iW
-        w̄ = ntuple(j -> w̄q[j] + c̄[j] * bW + W̄, Val(n))
+        b̄ = sum(ntuple(j -> c̄[j] * w[j], Val(n))) / W
+        W̄ = -sum(ntuple(j -> c̄[j] * c[j], Val(n))) / W
+        w̄ = ntuple(j -> w̄q[j] + c̄[j] * b / W + W̄, Val(n))
     else
         b̄ = first(c̄)
         w̄ = w̄q
@@ -963,18 +961,16 @@ end
 # A split's cotangents from those of the pools after it, `ȳ`, of the
 # arrivals into `to`, `āj`, and of its amount, `r̄`: those of its count, of
 # the pools before it, and of the pools the step starts from.
-@inline function _split_count_back(f, b, r̄, x, y, ȳ, x̄, āj)
+function _split_count_back(f, b, r̄, x, y, ȳ, x̄, āj)
     I, j = _from(f), _to(f)
     ys = map(i -> y[i], I)
     w = map(i -> x[i], I)
-    c, u, W = _split_parts(b, w, ys)
-    d = ntuple(i -> c[i] + _passed(u, w, W, i), Val(length(I)))
-    m = map(_removal, d, ys)
+    m = map(_removal, _split_demands(b, w, ys), ys)
     m̄ = map(m, I) do mk, i
         into = j > 0 && _primal_value(mk) >= 0
         return r̄ - ȳ[i] + ifelse(into, ȳ[max(j, 1)] + āj, zero(r̄))
     end
-    b̄, w̄, ȳs = _split_back(b, w, ys, m̄, c, u, W, d)
+    b̄, w̄, ȳs = _split_back(b, w, ys, m̄)
     ȳ′ = ntuple(l -> ȳ[l] + _at_sources(ȳs, I, l), Val(length(ȳ)))
     x̄′ = ntuple(l -> x̄[l] + _at_sources(w̄, I, l), Val(length(x̄)))
     return b̄, ȳ′, x̄′
