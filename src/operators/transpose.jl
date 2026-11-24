@@ -100,7 +100,7 @@ function _run_forward(t::_TransposedConvolution, x, tail, start, stop)
     tail === nothing ||
         _load_input!(A, tail, n + 1 - start, last - n, start - n)
     o = 1 - clamp(start - _nlags(kernel) + 1, 1, last + 1)
-    Z = _zeros(x, Tp, o + max(last, stop), S)
+    Z = _zeros(x, Tp, o + _transposed_rows(kernel, last, stop), S)
     _with_executor(_convolve_back!, Z, nothing, kernel, Z, A, o, start)
     out = _public(Z, (o + start):(o + stop), x)
     return out, (; A, n, o, start, stop, last)
@@ -113,7 +113,7 @@ function pullback!(grads, t::_TransposedConvolution, ::Run, cache)
     (; A, n, o, start, stop, last) = cache
     x̄, t̄ = grads.args
     kernel = t.c.kernel
-    Z̄ = _zeros(A, eltype(A), o + max(last, stop), size(A, 2))
+    Z̄ = _zeros(A, eltype(A), o + _transposed_rows(kernel, last, stop), size(A, 2))
     _load_input!(Z̄, grads.y, o + start - 1, stop - start + 1)
     Ā = zero(A)
     _with_executor(_convolve!, Ā, kernel, Z̄, o, start)
@@ -167,12 +167,19 @@ function _check_transpose(kernel, x, tail, start, stop)
     # Times past the end of `x` and `tail` read zeros, so outputs that read
     # only those are zero.
     last = min(stop + _nlags(kernel) - 1, n + m)
-    # A `Primary()` kernel's column is the time of the output; any other's is
-    # the time it reads.
-    _check_kernel_times(kernel, kernel isa TimeVarying{Primary} ? stop : last)
+    _check_transposed_times(kernel, stop, last)
     _check_device(x, (kernel, tail))
     Tp = float(param_eltype((kernel, x, tail)))
     return Tp, S, n, stop, last
+end
+
+# The rows the bodies fill and read for the outputs: past `stop` for most
+# kernels, and only up to it for a computed kernel (see `_cohorts`).
+_transposed_rows(kernel, last, stop) = max(last, stop)
+# A `Primary()` kernel's column is the time of the output; any other's is
+# the time it reads.
+function _check_transposed_times(kernel, stop, last)
+    return _check_kernel_times(kernel, kernel isa TimeVarying{Primary} ? stop : last)
 end
 
 # Its forward pass and pullback run the convolution's bodies, so it takes
