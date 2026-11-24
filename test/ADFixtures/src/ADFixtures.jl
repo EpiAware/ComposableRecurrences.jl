@@ -116,6 +116,14 @@ function returning_trace(op, args...; kwargs...)
     RECORD_KEYWORD && return op(args...; kwargs..., record = (:trace,))
     return op(args...; kwargs..., trace = true)
 end
+# The output and trace of a call that reads only the pressure: a release
+# with named records builds the pressure alone, an earlier one the whole
+# trace.
+const NAMED_RECORDS = isdefined(ComposableRecurrences, :_RECORD_PARTS)
+function returning_pressure(op, args...; kwargs...)
+    NAMED_RECORDS && return op(args...; kwargs..., record = (:pressure,))
+    return returning_trace(op, args...; kwargs...)
+end
 # The output of a call resumed from a state, which some releases before
 # `record` returned with the next state.
 function resumed(op, args...; kwargs...)
