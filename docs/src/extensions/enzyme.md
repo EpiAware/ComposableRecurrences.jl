@@ -29,4 +29,3 @@ round.(gradient(loss, backend, fill(1.1, 4)); digits = 3)
 | `EnzymeRuntimeActivityError` when an operator holds a constant array defined outside the loss | Use runtime activity, as above, or build the array inside the loss | |
 | `IllegalTypeAnalysisException` from `hcat`, `vcat` or `[a b]` on a view | Use `cat(a, b; dims = 2)`, or `collect` the view | [#672](https://github.com/EpiAware/ComposableRecurrences.jl/issues/672), [#299](https://github.com/EpiAware/ComposableRecurrences.jl/issues/299) |
 | Julia 1.12 and later: forward mode crashes in the garbage collector after repeated gradients | Use reverse mode, or `Enzyme.gradient(Enzyme.Forward, f, θ; chunk = Val(1))` | [#321](https://github.com/EpiAware/ComposableRecurrences.jl/issues/321) |
-

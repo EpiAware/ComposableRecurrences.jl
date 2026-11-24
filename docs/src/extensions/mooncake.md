@@ -18,4 +18,3 @@ round.(gradient(loss, backend, fill(1.1, 4)); digits = 3)
  1.04
  0.613
 ```
-
