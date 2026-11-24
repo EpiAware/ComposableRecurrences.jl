@@ -20,8 +20,7 @@ probability mass at each lag.
 # Arguments
 - `x`: the kernel to take the increments of, a [`Derived`](@ref), a
   [`ComposableRecurrences.Survival`](@ref) or another computed kernel, or a
-  kernel's weights `TimeVarying(K, Primary())`, with `K` lags by cohorts or
-  strata by lags by cohorts as
+  kernel's weights, `TimeVarying(K, Primary())`, as
   [`kernel_weights`](@ref ComposableRecurrences.kernel_weights) returns them.
 
 # Examples
@@ -71,8 +70,7 @@ lags a `TimeVarying(h)` argument needs the times up to ``n + L - 1`` in a
 # Arguments
 - `x`: the kernel to normalise, a [`Derived`](@ref), a
   [`ComposableRecurrences.Survival`](@ref) or another computed kernel, or a
-  kernel's weights `TimeVarying(K, Primary())`, with `K` lags by cohorts or
-  strata by lags by cohorts as
+  kernel's weights, `TimeVarying(K, Primary())`, as
   [`kernel_weights`](@ref ComposableRecurrences.kernel_weights) returns them.
 
 # Examples
@@ -119,8 +117,7 @@ const _KernelTable = TimeVarying{
         ArgumentError(
             "a lag map takes a computed kernel (a Derived, a Survival, " *
                 "Increments or Normalised) or a kernel's weights, " *
-                "TimeVarying(K, Primary()) with K lags by cohorts or " *
-                "strata by lags by cohorts; got $(_describe(x))"
+                "TimeVarying(K, Primary()); got $(_describe(x))"
         )
     )
     return nothing

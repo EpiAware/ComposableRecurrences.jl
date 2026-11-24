@@ -1592,9 +1592,7 @@ if isfile(BVD_HANDRULE)
         conv = Convolution(TimeVarying(pmf, CR.Primary()))
         return wrap(conv')(a[1:nu]; tail = a[(nu + 1):end], stop = nu)
     end
-    # The same anchor from a table of the delay's distribution, as the
-    # backend builds it for its other readers: the lag maps read the table
-    # rather than walking the hazard again.
+    # The same anchor from lag maps over a table of the delay's distribution.
     function _bvd_onset_anchor_table_rule(wrap, z0, γ, a, nu)
         hazard = CR.Derived(_logistic_sum, z0, TimeVarying(γ))
         cdf = TimeVarying(1 - CR.Survival(hazard), CR.Primary())

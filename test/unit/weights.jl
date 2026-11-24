@@ -650,8 +650,10 @@ end
     # The weights cover the cohorts the call reads; a series over time is
     # not a kernel's weights.
     @test_throws DimensionMismatch conv(CR.Normalised(computed(kw(cdf, T - 1))))(x)
-    @test_throws "or a kernel's weights" CR.Increments(computed(hs))
-    @test startswith(CR._formula(CR.Normalised(CR.Increments(K))), "Normalised(Increments(")
+    @test_throws ArgumentError CR.Increments(computed(hs))
+    # The table sets the kernel's lags and strata.
+    @test CR._coef_lags(K) == L && CR._coef_strata(K) == 0
+    @test CR._coef_lags(KS) == L && CR._coef_strata(KS) == size(Ps, 1)
 end
 
 @testitem "Computed kernels: a transposed call with a tail reads only what its outputs need" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
