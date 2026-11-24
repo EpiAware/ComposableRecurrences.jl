@@ -260,6 +260,25 @@ function _trace_out!(R::_TracedRecord, m, m̄, v̄, s̄, v, s, τ, t)
     _trace_back!(_blocks(m), R, m, m̄, v̄, s̄, view(R.T̄, :, t), v, s, τ)
     return nothing
 end
+# An `Allocate` with imports records its state, then the imports. While a
+# step's imports have no cotangent its trace folds into the state's
+# cotangent, as a state trace does, and its buffers stay zero for
+# `_trace_in!`.
+function _trace_out!(
+        R::_TracedRecord, m::Allocate{<:Any, <:_AllocateImports}, m̄, v̄, s̄,
+        v, s, τ, t
+    )
+    R.live || return nothing
+    n, col = length(s̄), view(R.T̄, :, t)
+    if iszero(view(col, (n + 1):length(col)))
+        s̄ .+= view(col, 1:n)
+        R.V̄ .= zero(eltype(R.V̄))
+        R.S̄ .= zero(eltype(R.S̄))
+        return nothing
+    end
+    _trace_back!(_blocks(m), R, m, m̄, v̄, s̄, col, v, s, τ)
+    return nothing
+end
 _trace_in!(R, m, v̄, s̄) = nothing
 function _trace_in!(R::_TracedRecord, m, v̄, s̄)
     (_trace_is_state(m) || !R.live) && return nothing

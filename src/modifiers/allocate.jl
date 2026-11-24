@@ -347,17 +347,19 @@ end
 function pullback!(
         grads, m::Allocate{<:Any, <:_AllocateImports}, ::Trace, v, s, t
     )
-    _on_gpu(v) && throw(
-        ArgumentError(
-            "the trace of an Allocate with imports has no pullback on a " *
-                "device; read it on the host"
-        )
-    )
     (; fraction, pattern, spill) = m.imports
     S, s̄′, r̄ = length(v), grads.s′, grads.trace
     n = length(s̄′)
     _add_trace!(s̄′, view(r̄, 1:n))
     ī = view(r̄, (n + 1):(n + S))
+    # A loss that reads only the state's rows sends the imports nothing.
+    iszero(ī) && return nothing
+    _on_gpu(v) && throw(
+        ArgumentError(
+            "the imports in the trace of an Allocate have no pullback on a " *
+                "device; read them on the host"
+        )
+    )
     u, h = _spilled_and_pattern(nothing, spill, pattern, v, t)
     ū = spill === nothing ? grads.v : view(s̄′, 1:S)
     h̄ = view(s̄′, (n - S + 1):n)
