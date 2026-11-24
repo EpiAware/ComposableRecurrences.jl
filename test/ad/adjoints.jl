@@ -2503,3 +2503,56 @@ end
         @test Enzyme.gradient(mode, Enzyme.Const(held), h)[1] ≈ g
     end
 end
+
+@testitem "Recurrence: a record of some trace parts against plain AD of the whole trace" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    using ComposableRecurrences: Depletion, Transform, NoAdjoint,
+        _PULLBACK_CALLS
+    using ADTypes: AutoMooncake, AutoEnzyme
+    import DifferentiationInterface as DI
+    import Mooncake, Enzyme
+    T = 8
+    # The pool's size, the imports and the gain are differentiated through
+    # one part of the trace, recorded alone, against ForwardDiff of plain AD
+    # of the whole trace.
+    function build(θ)
+        pool = Depletion(PerStratum(θ[1:2] .* 50))
+        rate = reshape(θ[3:(2 + 2T)], 2, T)
+        imports = Transform(+, TimeVarying(PerStratum(rate)))
+        return Recurrence(
+            [0.6, 0.3]; coupling = [0.9 0.1; 0.2 0.8],
+            modifiers = (; pool, imports)
+        )
+    end
+    gain(θ) = reshape(θ[(3 + 2T):end], 2, T)
+    h = ones(2, 2)
+    pressure(tr) = tr.pressure
+    pool(tr) = tr.modifiers.pool
+    θ = vcat([1.0, 1.2], fill(0.1, 2T), fill(1.1, 2T))
+    backends = (
+        AutoMooncake(; config = nothing),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Duplicated
+        ),
+    )
+    for (record, part) in ((:pressure,) => pressure, (:pool,) => pool)
+        f = θ -> sum(
+            abs2, part(build(θ)(gain(θ); history = h, record).trace)
+        )
+        ref = θ -> sum(
+            abs2,
+            part(
+                NoAdjoint(build(θ))(
+                    gain(θ); history = h, record = (:trace,)
+                ).trace
+            )
+        )
+        expected = ForwardDiff.gradient(ref, θ)
+        for b in backends
+            n0 = _PULLBACK_CALLS[]
+            @test DI.gradient(f, b, θ) ≈ expected
+            @test _PULLBACK_CALLS[] > n0
+        end
+    end
+end

@@ -247,14 +247,16 @@ end
 _check_piece_pools(fs::Tuple, n) = _tuple_foreach(f -> _check_pool(f, n), fs)
 _check_piece_pools(d::_DrawFrom, n) = _check_drawn_pool(d.first, n)
 _check_piece_pools(d::_DrawInto, n) = _check_drawn_pool(d.pool, n)
+# The last pool a flow names, among its sources too for a split.
+_top_pool(f) = max(maximum(_from(f)), _to(f))
 function _check_pool(f, n)
-    max(_from(f), _to(f)) <= n || _too_many_pools(f, n)
+    _top_pool(f) <= n || _too_many_pools(f, n)
     return nothing
 end
 @noinline function _too_many_pools(f, n)
     throw(
         ArgumentError(
-            "the flows name pool $(max(_from(f), _to(f))), but there " *
+            "the flows name pool $(_top_pool(f)), but there " *
                 (n == 1 ? "is 1 pool" : "are $n pools")
         )
     )

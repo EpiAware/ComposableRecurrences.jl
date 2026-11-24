@@ -184,7 +184,8 @@ end
 
 function _with_kernel(r::Recurrence, K)
     return Recurrence(
-        _Checked(), _dense_kernel(K), r.coupling, r.modifiers, r.rebuilds
+        _Checked(), _dense_kernel(K), r.coupling, r.modifiers, r.rebuilds,
+        _names(r)
     )
 end
 
@@ -200,10 +201,10 @@ function _recur(
     return Y, H, states, _with_computed(inner, r.kernel, n, sc)
 end
 # A plain call keeps nothing: the weights are filled in blocks and the run
-# returns only its output.
+# returns only its output, or with `:trace` the trace its steps write.
 function _recur(
         r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop,
-        cache::Val{:primal}
+        cache::Union{Val{:primal}, Val{:trace}}
     )
     n = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
     K, _ = _fill_kernel(r.kernel, 1, n, n, Val(false))

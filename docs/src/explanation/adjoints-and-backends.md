@@ -126,6 +126,8 @@ The local step and plain AD can pick different sides, as for `abs` at zero and, 
 Forward-mode backends run the same forward code with the rule or plain AD, so a rule only changes the cost of reverse mode.
 The targets are ForwardDiff, Mooncake and Enzyme.
 The AD tests also run ReverseDiff, which is not a target, so it appears in the README's coverage badges.
+Enzyme reverse loses the derivatives of values passed through `vcat` of pair vectors, as in change points written `[1 => a; pairs]`.
+The `vcat` runs before the package sees the pairs, so build them with `Pair.(starts, values)` or a comma-separated literal.
 
 Reactant traces a call into one compiled program and Enzyme differentiates that program, so the package's rules never run under it.
 DifferentiationInterface has no Reactant extension, so Reactant is not one of the AD jobs.
