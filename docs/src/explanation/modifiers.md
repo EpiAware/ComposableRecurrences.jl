@@ -46,11 +46,13 @@ total(floored)
 | [`Floor(α)`](@ref ComposableRecurrences.Floor) | scales the value by the share of the pool left, with a floor |
 | [`Truncate(κ)`](@ref ComposableRecurrences.Truncate) | draws what is asked for, up to what is left; `κ` in [0, 1) smooths the cap |
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool at each step |
+| [`Split()`](@ref ComposableRecurrences.Split) | a flow that draws one count from several pools, in proportion to the pools the step starts from |
 
 - `α` in `Hazard(α)` and `Floor(α)` is the heterogeneity exponent, one by default.
   Above one, infections slow sooner as the pool shrinks, as when the most susceptible are infected first.
 - A flow's form is `Hazard()` by default, a rate that competes with the pool's other flows.
   With `Truncate()` or `Truncate(κ)` a flow is a count, capped by what remains.
+  With `Split()` a flow from a tuple of pools, `(:a, :b) => to`, is one count split between them.
 - The docstring of each form gives its formula, and [A depletion form](@ref extending-form) shows how to write a new one.
 
 ## [Order](@id explanation-modifier-order)

@@ -117,6 +117,8 @@ k = \lfloor (c - 1) n / m \rfloor + 1, \ldots, \lfloor c n / m \rfloor,
 
 There are `m = min(ntasks, n)` chunks, with `ntasks` the number of threads
 unless it is set.
+`ntasks` fixes the number of chunks whatever the thread count, so a test can
+exercise the split paths the same way on any machine.
 A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 The threshold applies to each loop.
@@ -402,7 +404,7 @@ arrays one entry at a time from the host.
 The default `0` launches every loop.
 Needs `KernelAbstractions` to be loaded.
 Under the default [`Serial`](@ref) executor, or [`Threaded`](@ref),
-operator calls on arrays that live on a GPU (with `GPUArraysCore` loaded)
+operator calls on arrays that live on a GPU (with GPUArrays loaded)
 run their strata loops with it without being asked.
 Every array a call reads must live on the device.
 Independent strata run as [one kernel per call](@ref gpu-arrays), and

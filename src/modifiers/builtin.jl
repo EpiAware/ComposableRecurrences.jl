@@ -146,10 +146,15 @@ end
 _check_param_strata(name, x, S) = _check_rows(name, x, S, "strata")
 
 # Check a modifier's per-stratum fields against the call's strata
-# (pointwise) or groups (blockwise); whole-step modifiers are skipped.
+# (pointwise), groups (blockwise) or declared rows (whole-step).
 _check_modifier_params(m, S) = _check_modifier_params(m, blocks(m), S)
 # A malformed `blocks` is reported where the state is sized.
 _check_modifier_params(m, b, S) = nothing
+function _check_modifier_params(m, ::Nothing, S)
+    n = param_rows(m, S)
+    n === nothing || _check_field_rows(m, n, "rows")
+    return nothing
+end
 function _check_modifier_params(m, b::Tuple{Int, Int}, S)
     nv = first(b)
     # A count that is not a multiple of the group size is reported later.

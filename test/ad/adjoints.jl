@@ -362,7 +362,7 @@
                     "patch model",
                     Recurrence(
                         g; modifiers = (
-                            ADFixtures._leaky(CR._kernel_movement(K, 0.4)),
+                            ADFixtures._leaky(CR.Redistribute(K, 0.4).M),
                             CR.Depletion(
                                 PerStratum(fill(80.0, S)); pools = (S = pool(80.0, h),)
                             ),
@@ -388,7 +388,7 @@
                     Recurrence(
                         g; modifiers = (
                             ADFixtures._leaky(
-                                sparse(CR._kernel_movement(K, [0.4, 0.3, 0.2]))
+                                sparse(CR.Redistribute(K, [0.4, 0.3, 0.2]).M)
                             ),
                         )
                     ),
@@ -2488,10 +2488,18 @@ end
         return sum(abs2, y) + sum(sin, y)
     end
     modes = (Reverse, set_runtime_activity(Reverse))
+    # On Julia 1.11 with threads, plain reverse mode of a `NoAdjoint`
+    # operator can crash in the garbage collector, so there its
+    # reference takes runtime activity alone; the rule takes both modes.
+    plain_modes = VERSION < v"1.12" ? (set_runtime_activity(Reverse),) : modes
+    arms = (
+        (mode, wrap) for wrap in (identity, CR.NoAdjoint)
+            for mode in (wrap === identity ? modes : plain_modes)
+    )
     for T in (6, 7), row in (false, true)
         θ = vcat(0.8, 1 .+ 0.1 .* sin.(1:T), 0.3, cos.(1:T))
         ref = ForwardDiff.gradient(θ -> loss(θ, T, row, CR.NoAdjoint, 2), θ)
-        for mode in modes, wrap in (identity, CR.NoAdjoint)
+        for (mode, wrap) in arms
             n0 = CR._PULLBACK_CALLS[]
             g = Enzyme.gradient(mode, θ -> loss(θ, T, row, wrap, 1), θ)[1]
             @test g ≈ ref
@@ -2593,6 +2601,59 @@ end
         for b in backends
             g = DifferentiationInterface.gradient(joined_strata, b, θ)
             @test g ≈ ref
+        end
+    end
+end
+
+@testitem "Recurrence: a record of some trace parts against plain AD of the whole trace" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, ForwardDiff, LinearAlgebra
+    using ComposableRecurrences: Depletion, Transform, NoAdjoint,
+        _PULLBACK_CALLS
+    using ADTypes: AutoMooncake, AutoEnzyme
+    import DifferentiationInterface as DI
+    import Mooncake, Enzyme
+    T = 8
+    # The pool's size, the imports and the gain are differentiated through
+    # one part of the trace, recorded alone, against ForwardDiff of plain AD
+    # of the whole trace.
+    function build(θ)
+        pool = Depletion(PerStratum(θ[1:2] .* 50))
+        rate = reshape(θ[3:(2 + 2T)], 2, T)
+        imports = Transform(+, TimeVarying(PerStratum(rate)))
+        return Recurrence(
+            [0.6, 0.3]; coupling = [0.9 0.1; 0.2 0.8],
+            modifiers = (; pool, imports)
+        )
+    end
+    gain(θ) = reshape(θ[(3 + 2T):end], 2, T)
+    h = ones(2, 2)
+    pressure(tr) = tr.pressure
+    pool(tr) = tr.modifiers.pool
+    θ = vcat([1.0, 1.2], fill(0.1, 2T), fill(1.1, 2T))
+    backends = (
+        AutoMooncake(; config = nothing),
+        AutoEnzyme(;
+            mode = Enzyme.set_runtime_activity(Enzyme.Reverse),
+            function_annotation = Enzyme.Duplicated
+        ),
+    )
+    for (record, part) in ((:pressure,) => pressure, (:pool,) => pool)
+        f = θ -> sum(
+            abs2, part(build(θ)(gain(θ); history = h, record).trace)
+        )
+        ref = θ -> sum(
+            abs2,
+            part(
+                NoAdjoint(build(θ))(
+                    gain(θ); history = h, record = (:trace,)
+                ).trace
+            )
+        )
+        expected = ForwardDiff.gradient(ref, θ)
+        for b in backends
+            n0 = _PULLBACK_CALLS[]
+            @test DI.gradient(f, b, θ) ≈ expected
+            @test _PULLBACK_CALLS[] > n0
         end
     end
 end
