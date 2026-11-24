@@ -86,11 +86,14 @@ the call covers the absolute times `start:stop`:
         its [`ComposableRecurrences.Trace`](@ref) records, and
         `trace.pressure` the pressure ``K_t p_t`` each step drew against,
         laid out as `y`, as [`ComposableRecurrences.pressure`](@ref)
-        returns it; both differentiable as the output is.
+        returns it, and `trace.force` the value ``\gamma_t \odot K_t p_t +
+        a_t`` of each step before the modifiers, laid out as `y`; all
+        differentiable as the output is.
         Named modifiers give `trace.modifiers` as a named tuple keyed by
         their names, and a tuple of modifiers gives a tuple;
-      - `:pressure`, or a modifier's name, for that part of the trace alone,
-        read as above, as `trace.pressure` or `trace.modifiers.name`.
+      - `:pressure`, `:force`, or a modifier's name, for that part of the
+        trace alone, read as above, as `trace.pressure`, `trace.force` or
+        `trace.modifiers.name`.
         The parts not named are not built: they come back empty, so the
         call returns the type a whole trace has, and add no cotangent.
     `record = ()` returns `(; y)`, and without `record` the call returns
@@ -206,7 +209,7 @@ function _check_modifier_name(name::Symbol)
     )
 end
 # The names `record` reads for the parts of a call other than modifiers.
-const _RECORD_PARTS = (:state, :trace, :pressure)
+const _RECORD_PARTS = (:state, :trace, :pressure, :force)
 # The modifiers' names as a `Val`, `Val(nothing)` when they have none.
 _names(::Recurrence{K, C, M, B, N}) where {K, C, M, B, N} = Val(N)
 
@@ -795,7 +798,7 @@ end
 # What a call records beside `y`, checked once: `nothing` unless `record`
 # is given, so that a call without it compiles without its arms. Besides
 # `:state` and `:trace` it may name parts of the trace alone: `:pressure`,
-# or a modifier by its name.
+# `:force`, or a modifier by its name.
 _record(::Nothing, names) = nothing
 Base.@constprop :aggressive function _record(
         record::Tuple{Vararg{Symbol}}, names
@@ -823,7 +826,7 @@ _record(record, names) = _bad_record(record)
     )
 end
 function _check_record(name::Symbol, ::Val{N}) where {N}
-    name in (:state, :trace, :pressure) && return true
+    name in _RECORD_PARTS && return true
     N !== nothing && name in N && return true
     return _record_error(name, N)
 end
@@ -837,7 +840,8 @@ end
     known = N === nothing ? "" : ", or a modifier's name, $(join(N, ", "))"
     throw(
         ArgumentError(
-            "record names :state, :trace or :pressure$(known); got " *
+            "record names :state, :trace, :pressure or :force$(known); " *
+                "got " *
                 "$(repr(name)). Name the modifiers, as " *
                 "modifiers = (; name = m), to record one modifier's trace"
         )
@@ -857,21 +861,22 @@ Base.@constprop :aggressive function _tracing(rec::Tuple, names)
     return _traces_any(rec, names) ? Val(true) : Val(false)
 end
 function _traces_any(rec::Tuple, ::Val{N}) where {N}
-    (:trace in rec || :pressure in rec) && return true
+    (:trace in rec || :pressure in rec || :force in rec) && return true
     N === nothing && return false
     return any(n -> n in rec, N)
 end
 # The parts of the trace a call builds: a flag for each of its `m`
-# modifiers and one for the pressure, all set for `:trace`. It is a value,
+# modifiers, one for the pressure and one for the force, all set for
+# `:trace`. It is a value,
 # not a type, so a call returns the same type whichever parts it builds.
 _selection(::Nothing, names, m) = _all_parts(m)
 _selection(::Val{R}, names, m) where {R} = _selection(R, names, m)
 function _selection(rec::Tuple, ::Val{N}, ::Val{m}) where {N, m}
     :trace in rec && return _all_parts(Val(m))
     mods = N === nothing ? ntuple(_ -> false, Val(m)) : map(n -> n in rec, N)
-    return (mods, :pressure in rec)
+    return (mods, :pressure in rec, :force in rec)
 end
-_all_parts(::Val{m}) where {m} = (ntuple(_ -> true, Val(m)), true)
+_all_parts(::Val{m}) where {m} = (ntuple(_ -> true, Val(m)), true, true)
 # Generated after its helper, so a record in a `Val` answers from the types
 # alone.
 @generated function _tracing(::Val{R}, names::Val) where {R}
@@ -910,7 +915,9 @@ end
 # The trace as a call returns it: the modifiers keyed by their names when
 # they have them. A part the call did not build is empty.
 function _user_trace(trace, names)
-    return (; modifiers = _named(trace.modifiers, names), trace.pressure)
+    return (;
+        modifiers = _named(trace.modifiers, names), trace.pressure, trace.force,
+    )
 end
 _named(modifiers, ::Val{nothing}) = modifiers
 _named(modifiers, ::Val{N}) where {N} = NamedTuple{N}(modifiers)

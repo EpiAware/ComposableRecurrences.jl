@@ -2495,6 +2495,8 @@ end
     h = ones(2, 2)
     pressure(tr) = tr.pressure
     pool(tr) = tr.modifiers.pool
+    force(tr) = tr.force
+    both(tr) = vcat(vec(tr.force), vec(tr.pressure))
     θ = vcat([1.0, 1.2], fill(0.1, 2T), fill(1.1, 2T))
     backends = (
         AutoMooncake(; config = nothing),
@@ -2503,7 +2505,10 @@ end
             function_annotation = Enzyme.Duplicated
         ),
     )
-    for (record, part) in ((:pressure,) => pressure, (:pool,) => pool)
+    for (record, part) in (
+            (:pressure,) => pressure, (:pool,) => pool, (:force,) => force,
+            (:force, :pressure) => both,
+        )
         f = θ -> sum(
             abs2, part(build(θ)(gain(θ); history = h, record).trace)
         )
