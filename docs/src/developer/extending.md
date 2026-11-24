@@ -158,7 +158,7 @@ gradient(abs2_loss(smooth), backend, [0.3]) ≈
 
 ## [Where next](@id extending-next)
 
-- [Parameters and gradients](@ref extending-parameters): parameters of any form, and `grads.piece`.
+- [Parameters and gradients](@ref extending-parameters): parameters of any form, `grads.piece`, and local rules for maps.
 - [Couplings](@ref extending-coupling): new ways to mix strata.
 - [Steps across strata](@ref extending-steps): steps that read other strata.
 - [Traces](@ref extending-trace): what a modifier records.

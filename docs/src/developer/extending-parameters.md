@@ -89,4 +89,3 @@ round.(CR.kernel_weights(delay, 2); digits = 3)
 The operators find the method from the types, so a map without one costs nothing to check.
 A `Transform` map `f(v, θ)` returns `(∂f/∂v, ∂f/∂θ)`, the second shaped as `θ`.
 A map with float fields of its own keeps taking plain AD, as the rule gives no gradient for those fields; pass them in `θ`.
-
