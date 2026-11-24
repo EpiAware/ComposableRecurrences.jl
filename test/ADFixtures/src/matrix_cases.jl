@@ -1663,17 +1663,20 @@ if isfile(BVD_HANDRULE)
         end
     end
 
-    # BVD's `zone_window_weights`: what one infection on each of `T` grid days
-    # adds to each vintage window through a delay PMF of `L` lags, lag 0
-    # first. The windows are the backend's: the first runs to day `T - 100`
-    # and the other 100 are single days. The package arm is the port's
-    # spelling: a `Convolution` of each window's indicator in reversed time,
-    # then reversed back and transposed.
+    # A construction case, not a downstream comparison: the window weights
+    # BVD's `zone_window_weights` builds, what one infection on each of `T`
+    # grid days adds to each vintage window through a delay PMF of `L` lags,
+    # lag 0 first. BVD no longer builds them: it convolves and sums each
+    # window with `window_sums`, which `bvd_window_reports` models and is
+    # the BVD reference. The windows are the backend's: the first runs to
+    # day `T - 100` and the other 100 are single days. The package arm is
+    # the old port's spelling: a `Convolution` of each window's indicator in
+    # reversed time, then reversed back and transposed.
     function _bvd_window_rows(T)
         stops = collect(max(1, T - 100):T)
         return [1; stops[1:(end - 1)] .+ 1], stops
     end
-    function _bvd_window_weights(run)
+    function _window_weights_construction(run)
         return function (wrap, z::Size)
             (; T, L) = z
             starts, stops = _bvd_window_rows(T)
@@ -1684,7 +1687,7 @@ if isfile(BVD_HANDRULE)
             return f, _gi(L)
         end
     end
-    function _bvd_window_weights_rule(wrap, f, starts, stops, nd)
+    function _window_weights_construction_rule(wrap, f, starts, stops, nd)
         nv = length(starts)
         (nv == 0 || nd == 0) && return zeros(eltype(f), nd, nv)
         windows = [
@@ -1694,7 +1697,7 @@ if isfile(BVD_HANDRULE)
         ]
         return permutedims(reverse(wrap(Convolution(f))(windows); dims = 2))
     end
-    function _bvd_window_weights_hand(kernel)
+    function _window_weights_construction_hand(kernel)
         return function (wrap, f, starts, stops, nd)
             return kernel(collect(f), starts, stops, nd)
         end
@@ -1825,10 +1828,10 @@ if isfile(BVD_HANDRULE)
                 (BVD.zone_pre_loop, BVD.zone_pre_convolution), [5],
             ),
             (
-                "bvd_window_weights",
-                "BVD zone_window_weights: window weights from a delay PMF",
-                _bvd_window_weights, _bvd_window_weights_rule,
-                _bvd_window_weights_hand,
+                "window_weights_construction",
+                "Window weights from a delay PMF (construction; see bvd_window_reports)",
+                _window_weights_construction, _window_weights_construction_rule,
+                _window_weights_construction_hand,
                 (BVD.zone_window_loop, BVD.zone_window_weights), [1],
             ),
             (
@@ -1871,7 +1874,7 @@ if isfile(BVD_HANDRULE)
     )
     # The backend's timing call, 161 grid days with a 45-lag PMF, and its
     # model's 202 grid days with a 50-lag PMF.
-    TIERS["docs"].bycase["bvd_window_weights"] = [
+    TIERS["docs"].bycase["window_weights_construction"] = [
         (T = 161, L = 45), (T = 202, L = 50),
     ]
     TIERS["docs"].bycase["bvd_window_reports"] = [

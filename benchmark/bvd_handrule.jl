@@ -1,7 +1,7 @@
 # Hand-written reference kernels in the style of the BVDOutbreakSize
 # backend, timed by the benchmark matrix (cases `bvd_renewal`, `bvd_patches`,
 # `bvd_delay`, `bvd_zones`, `bvd_two_clock`, `bvd_abscond`, `bvd_onset`,
-# `bvd_onset_anchor`, `bvd_bins`, `bvd_pre_zones`, `bvd_window_weights`,
+# `bvd_onset_anchor`, `bvd_bins`, `bvd_pre_zones`, `window_weights_construction`,
 # `bvd_bin_rows` and `bvd_knots`) against the package's operators.
 #
 # The forward loops follow `test/usecases/references/bvd.jl`. The reverse
