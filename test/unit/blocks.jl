@@ -241,7 +241,9 @@ end
     )
 end
 
-@testitem "Blocks: a protected pool runs one stratum in the series step" setup = [AdjointCheck] begin
+@testitem "Blocks: a protected pool runs one stratum in the series step" tags = [:threads] setup = [
+    AdjointCheck,
+] begin
     using ComposableRecurrences, LinearAlgebra, JLArrays
     using Base.ScopedValues: with
     pools(N) = CR.Depletion(
