@@ -64,6 +64,8 @@ Each slot accepts its own set of wrappers.
 - [`TimeVarying(x)`](@ref TimeVarying): a kernel, coupling or parameter that changes over time, time last.
 - [`Derived(f, args...)`](@ref ComposableRecurrences.Derived): a parameter computed by `f`, or a cohort kernel computed inside the operator.
 - [`Survival(h)`](@ref ComposableRecurrences.Survival): each cohort's survival against a hazard `h`, for a computed kernel.
+- [`Increments(x)`](@ref ComposableRecurrences.Increments): a computed kernel's differences along its lags, such as a delay's mass from its distribution, `Increments(1 - Survival(h))`.
+- [`Normalised(x)`](@ref ComposableRecurrences.Normalised): a computed kernel's weights over each cohort's total across its lags; it fills on the host only.
 - [`Recent(n)`](@ref ComposableRecurrences.Recent): a parameter that sums the recurrence's own last `n` outputs.
 
 A `TimeVarying` kernel can be a vector with one kernel per step, each of any length.
