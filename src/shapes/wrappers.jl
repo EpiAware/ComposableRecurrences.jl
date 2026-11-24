@@ -256,6 +256,9 @@ it.
 `TimeVarying(Pairwise(A))`.
 Values and gradients equal those of the dense array that repeats each
 value over its segment.
+Inside a differentiated function, build the pairs as
+`Pair.(starts, values)` or a comma-separated literal, not by `vcat`
+([one backend loses their derivatives](@ref adjoint-backends)).
 
 The indexing sets which time a kernel's column belongs to, and is held as
 a type parameter so nothing branches on it:
