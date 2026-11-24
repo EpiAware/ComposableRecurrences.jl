@@ -364,3 +364,23 @@ end
     r(f) = Recurrence([0.5]; modifiers = (CR.Depletion(500.0, CR.Hazard(), f; pools = (:S, :V)),))
     @test r(g)(fill(2.0, 6); history = [5.0]) == r(f)(fill(2.0, 6); history = [5.0])
 end
+
+@testitem "Depletion flows: the rule records no state flows never read" setup = [AdjointCheck] begin
+    using ComposableRecurrences, Test
+    # Flows alone act on the values, so the forward pass keeps only the
+    # starting state; a draw reads its pool, so it keeps one per step.
+    flows = CR.Depletion(
+        CR.Flow(:u => :c, 0.3; form = CR.Share()),
+        CR.Flow(0 => :u, TimeVarying(fill(1.0, 8)); form = CR.Truncate());
+        pools = (:u, :c)
+    )
+    R = [1.0 + 0.1 * sin(k + t) for k in 1:2, t in 1:8]
+    h = [2.0 1.0; 3.0 1.5]
+    for (m, kept) in ((flows, false), (CR.Depletion(50.0), true))
+        r = Recurrence([0.6, 0.3]; modifiers = (m,))
+        _, cache = CR._run_forward(r, recargs(R, nothing, h)...)
+        S = only(cache.rec).S
+        @test (S isa AbstractMatrix) == kept
+        @test pullback_matches(r, recargs(R, nothing, h)...)
+    end
+end

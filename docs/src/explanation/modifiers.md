@@ -46,11 +46,13 @@ total(floored)
 | [`Floor(α)`](@ref ComposableRecurrences.Floor) | scales the value by the share of the pool left, with a floor |
 | [`Truncate(κ)`](@ref ComposableRecurrences.Truncate) | draws what is asked for, up to what is left; `κ` in [0, 1) smooths the cap |
 | [`Share()`](@ref ComposableRecurrences.Share) | a flow that moves a share of its pool at each step |
+| [`Split()`](@ref ComposableRecurrences.Split) | a flow that draws one count from several pools, in proportion to the pools the step starts from |
 
 - `α` in `Hazard(α)` and `Floor(α)` is the heterogeneity exponent, one by default.
   Above one, infections slow sooner as the pool shrinks, as when the most susceptible are infected first.
 - A flow's form is `Hazard()` by default, a rate that competes with the pool's other flows.
   With `Truncate()` or `Truncate(κ)` a flow is a count, capped by what remains.
+  With `Split()` a flow from a tuple of pools, `(:a, :b) => to`, is one count split between them.
 - The docstring of each form gives its formula, and [A depletion form](@ref extending-form) shows how to write a new one.
 
 ## [Order](@id explanation-modifier-order)
@@ -135,7 +137,8 @@ The scope sets how much the step can do, and how well it runs under [`Threaded`]
 | [`Transform`](@ref ComposableRecurrences.Transform) | one stratum | nothing | where the map applies |
 
 With `overflow = :stratum` a `Depletion` also reads a second stratum.
-Without a draw it reads one group of pools held in the stratum, its state holds what flowed into each pool, and it sits on a kernel of `[1.0]`, which carries the pools forward.
+Without a draw it reads one group of pools held in the stratum, and its state holds what flowed into each pool.
+It then sits on a kernel of `[1.0]`, which carries the pools forward.
 A `Transform(+, b)` after an `Allocate` adds to its totals, and a spill whose pattern reads the values before the `Allocate` goes in its `spill`.
 A `Transform(+, b)` goes where the addition should enter, and a `Transform(clamp, lo, hi)` after what it bounds.
 
@@ -144,7 +147,8 @@ A modifier's parameters take every form in [Slots](@ref explanation-slots).
 ## [Allocate with imports](@id explanation-allocate-imports)
 
 [`Allocate`](@ref ComposableRecurrences.Allocate) with `imports` places a share of each group's total by an import pattern, read before an optional `spill`.
-A fifth of the first group's total lands where the third stratum sends, read before the first two strata spill a tenth of their values to each other; the second group imports nothing:
+A fifth of the first group's total lands where the third stratum sends, read before the first two strata spill a tenth of their values to each other.
+The second group imports nothing:
 
 ```jldoctest
 using ComposableRecurrences

@@ -4,9 +4,17 @@
 
 # == _WithTrace ==
 
-struct _WithTrace{O <: AbstractOperator} <: AbstractOperator
+# `sel` holds the parts of the trace it builds, a flag for each modifier and
+# one for the pressure (see `_selection`); a part it does not build is an
+# empty array of the same type, so it costs nothing in the cotangent.
+struct _WithTrace{O <: AbstractOperator, P} <: AbstractOperator
     op::O
+    sel::P
 end
+# The whole trace, as `forward` records it.
+_WithTrace(op) = _WithTrace(op, _all_parts(Val(_nmodifiers(op))))
+_nmodifiers(r::Recurrence) = length(r.modifiers)
+_nmodifiers(w::_WithState) = _nmodifiers(w.r)
 
 # Routed as its operator is, on a device too.
 uses_adjoint(w::_WithTrace, ::Run) = uses_adjoint(w.op, Run())
@@ -17,7 +25,7 @@ _long_kernel(w::_WithTrace, args...) = _long_kernel(w.op, args...)
 
 function _run_forward(w::_WithTrace, gain, add, h, s0, τ0, stop)
     y, cache = _run_forward(w.op, gain, add, h, s0, τ0, stop, Val(:traced))
-    return (y, _traces(_traced_recurrence(w.op), cache)), cache
+    return (y, _traces(_traced_recurrence(w.op), cache, w.sel)), cache
 end
 # The modifiers are read from the operator, not the cache: plain reverse AD
 # on Julia 1.11 can lose a scalar field's cotangent read back from the cache.
@@ -27,7 +35,8 @@ _traced_recurrence(w::_WithState) = w.r
 # (`_TraceSink`); elsewhere it runs the traced rule's forward pass.
 _primal(w::_WithTrace, args...) = first(_run_forward(w, args...))
 function _primal(w::_WithTrace, gain, add, h::_CPUArray, s0, τ0, stop)
-    return _traced_primal(w.op, gain, add, h, s0, τ0, stop)
+    y, tr = _traced_primal(w.op, gain, add, h, s0, τ0, stop)
+    return y, _selected_trace(tr, w.sel)
 end
 function _traced_primal(r::Recurrence, gain, add, h, s0, τ0, stop)
     Y, _, _, tr = _recur(r, gain, add, h, s0, τ0, stop, Val(:trace))
@@ -115,31 +124,62 @@ end
 
 # == Traces from the records ==
 
-# A step's outputs are the next modifier's inputs, or the buffer's row for the
-# last.
-function _traces(r, c)
+# Only the parts a selection names are built; the others are empty.
+function _traces(r, c, sel)
     (; H, rec, D, S, T, τ0) = c
     ms = _bind(r.modifiers, H, nothing, D - τ0 + 1)
-    modifiers = _traces(ms, rec, c.states, H, D, S, T, τ0)
-    pressure = _output_layout(_pressures(r.coupling, c.pr), c.h)
+    modifiers = _traces(ms, rec, c.states, first(sel), H, D, S, T, τ0)
+    pressure = _pressure_trace(last(sel), r, c)
     return (; modifiers, pressure)
 end
-_traces(::Tuple{}, ::Tuple{}, ::Tuple{}, H, D, S, T, τ0) = ()
-function _traces(ms::Tuple, rec::Tuple, finals::Tuple, H, D, S, T, τ0)
-    m, R = first(ms), first(rec)
-    out = _zeros(H, eltype(H), ntrace(m, S), T)
+# A pressure not built comes from records with no steps, so it has the type
+# of one that is.
+function _pressure_trace(keep, r, c)
+    pr = keep ? c.pr : map(_no_times, c.pr)
+    return _output_layout(_pressures(r.coupling, pr), c.h)
+end
+# An array like `x` with no columns, or with no rows or columns: the trace
+# of a part not built.
+_no_times(x::AbstractVector) = similar(x, 0)
+_no_times(x::AbstractMatrix) = similar(x, size(x, 1), 0)
+_no_times(::Nothing) = nothing
+_no_parts(x::AbstractMatrix) = similar(x, 0, 0)
+# A step's outputs are the next modifier's inputs, or the buffer's row for the
+# last.
+_traces(::Tuple{}, ::Tuple{}, ::Tuple{}, ::Tuple{}, H, D, S, T, τ0) = ()
+function _traces(
+        ms::Tuple, rec::Tuple, finals::Tuple, picks::Tuple, H, D, S, T, τ0
+    )
     rest = Base.tail(rec)
-    if !isstateless(m)
+    out = _trace_of(
+        first(picks), first(ms), first(rec), rest, first(finals), H, D, S,
+        T, τ0
+    )
+    others = _traces(
+        Base.tail(ms), rest, Base.tail(finals), Base.tail(picks), H, D, S, T,
+        τ0
+    )
+    return (out, others...)
+end
+function _trace_of(keep::Bool, m, R, rest, final, H, D, S, T, τ0)
+    out = _zeros(H, eltype(H), keep ? ntrace(m, S) : 0, keep ? T : 0)
+    if keep && !isstateless(m)
         for t in 1:(T - 1)
             _trace_at!(out, m, R, rest, _states_at(R.S, t + 1), H, D, t, τ0)
         end
         # The final state on its own, so each call sees one type.
-        _trace_at!(out, m, R, rest, first(finals), H, D, T, τ0)
+        _trace_at!(out, m, R, rest, final, H, D, T, τ0)
     end
-    others = _traces(
-        Base.tail(ms), rest, Base.tail(finals), H, D, S, T, τ0
-    )
-    return (out, others...)
+    return out
+end
+# A trace written in the run's steps, with the parts a selection does not
+# name dropped.
+function _selected_trace(tr, sel)
+    modifiers = map(tr.modifiers, first(sel)) do x, keep
+        keep ? x : _no_parts(x)
+    end
+    pressure = last(sel) ? tr.pressure : _no_times(tr.pressure)
+    return (; modifiers, pressure)
 end
 function _trace_at!(out, m, R, rest, s′, H, D, t, τ0)
     v, s = view(R.V, :, t), _states_at(R.S, t)

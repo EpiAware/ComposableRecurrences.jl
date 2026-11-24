@@ -6,7 +6,7 @@
 const _Summarised = Union{
     Recurrence, Convolution, PerStratum, Pairwise, TimeVarying, Depletion,
     Flow, Transform, Redistribute, Allocate, Recent, State, Derived,
-    Survival, NoAdjoint,
+    Survival, Increments, Normalised, NoAdjoint,
 }
 
 function Base.show(io::IO, ::MIME"text/plain", x::_Summarised)
@@ -23,7 +23,7 @@ _brief(J::UniformScaling) = _is_identity(J) ? "I" : string(J.λ, "I")
 # The identity coupling, stored as `I` with an integer scale.
 _is_identity(J::UniformScaling) = J.λ isa Integer && isone(J.λ)
 _is_identity(C) = false
-_brief(x::Union{Derived, Survival}) = _formula(x)
+_brief(x::Union{Derived, Survival, _LagMap}) = _formula(x)
 
 # A computed parameter or kernel as the arithmetic that builds it.
 const _Infix = Union{typeof(+), typeof(-), typeof(*), typeof(/), typeof(^)}
@@ -40,6 +40,7 @@ function _formula(s::Survival)
     from = s.from == 0 ? "" : string("; from = ", s.from)
     return string("Survival(", _formula(s.hazard), from, ")")
 end
+_formula(x::_LagMap) = string(nameof(typeof(x)), "(", _formula(x.x), ")")
 # An argument of an infix operation, bracketed when it is one itself.
 _operand(x) = _formula(x)
 function _operand(d::Derived)
@@ -126,9 +127,13 @@ function _piece_summary(d::_Drawing, names)
     return "draw " * form * N
 end
 function _piece_summary(fs::_Flows, names)
-    pair(f) = string(names[f.from], " => ", f.to == 0 ? "0" : names[f.to])
+    pair(f) = string(_pool_names(names, f.from), " => ", f.to == 0 ? "0" : names[f.to])
     return "flows (" * join(map(pair, fs), ", ") * ")"
 end
+
+# A flow's sources by name: one, or a split's tuple of them.
+_pool_names(names, i::Int) = string(names[i])
+_pool_names(names, I::Tuple) = "(" * join(map(i -> names[i], I), ", ") * ")"
 
 function _summary(d::Depletion)
     names = keys(d.pools)
@@ -172,7 +177,7 @@ end
 function _summary(t::Transform)
     parts = String[_brief(t.f)]
     _theta_summary!(parts, t.f, t.θ)
-    d = t.derivative
+    d = _user_derivative(t.derivative)
     d === nothing || push!(parts, "derivative " * _brief(d))
     return _summary_string(:Transform, parts)
 end
@@ -180,6 +185,7 @@ end
 _summary(r::Recent) = _describe(r)
 _summary(d::Derived) = string("Derived(", _formula(d), ")")
 _summary(s::Survival) = _formula(s)
+_summary(x::_LagMap) = _formula(x)
 _summary(n::NoAdjoint) = string("NoAdjoint(", _summary(n.op), ")")
 
 function _summary(s::State)

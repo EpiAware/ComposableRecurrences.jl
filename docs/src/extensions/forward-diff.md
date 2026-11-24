@@ -1,4 +1,4 @@
-# [ForwardDiff extension](@id extension-forwarddiff)
+# [ForwardDiff local steps](@id extension-forwarddiff)
 
 Loading ForwardDiff gives each coupling and modifier without its own [`pullback!`](@ref ComposableRecurrences.pullback!) a dual-number [local step](@ref adjoint-routing) in the reverse-mode rules.
 Without it, a gradient through such a coupling or modifier falls back to plain AD, which is [slower](@ref adjoint-local-step).
@@ -18,5 +18,3 @@ round.(ForwardDiff.gradient(loss, fill(1.1, 4)); digits = 3)
  1.04
  0.613
 ```
-
-All extensions are listed in the [overview](@ref extensions-overview).

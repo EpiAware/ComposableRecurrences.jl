@@ -52,8 +52,8 @@ Each slot accepts its own set of wrappers.
 |---|---|---|---|---|---|---|---|
 | `Recurrence` kernel | lags | yes | yes | yes | yes | in `TimeVarying(d, Primary())` | no |
 | `Convolution` kernel | lags | yes | yes | no | no | in `TimeVarying(d, Primary())` | no |
-| coupling | `S × S` or `λI` | no | yes | no | no | no | no |
-| modifier parameter | one value | yes | yes | no | no | yes | yes |
+| coupling | `S × S` or `λI`; `S × S × T` read as `TimeVarying` | no | yes | no | no | no | no |
+| modifier parameter | one value; `S × T` read as `TimeVarying(PerStratum(x))` | yes | yes | no | no | yes | yes |
 
 [`Primary`](@ref ComposableRecurrences.Primary) indexing is for kernels only; anywhere else it is an `ArgumentError`.
 
@@ -64,10 +64,13 @@ Each slot accepts its own set of wrappers.
 - [`TimeVarying(x)`](@ref TimeVarying): a kernel, coupling or parameter that changes over time, time last.
 - [`Derived(f, args...)`](@ref ComposableRecurrences.Derived): a parameter computed by `f`, or a cohort kernel computed inside the operator.
 - [`Survival(h)`](@ref ComposableRecurrences.Survival): each cohort's survival against a hazard `h`, for a computed kernel.
+- [`Increments(x)`](@ref ComposableRecurrences.Increments): a computed kernel's differences along its lags, such as a delay's mass from its distribution, `Increments(1 - Survival(h))`.
+- [`Normalised(x)`](@ref ComposableRecurrences.Normalised): a computed kernel's weights over each cohort's total across its lags; it fills on the host only.
 - [`Recent(n)`](@ref ComposableRecurrences.Recent): a parameter that sums the recurrence's own last `n` outputs.
 
 A `TimeVarying` kernel can be a vector with one kernel per step, each of any length.
 It can also be change points: `start => value` pairs, each value holding from its start time.
+Inside a differentiated function, build them as [`TimeVarying`](@ref) says.
 
 - By default, column ``\tau`` of a time-varying kernel belongs to output time ``\tau``, [`ComposableRecurrences.Secondary()`](@ref ComposableRecurrences.Secondary).
   It holds the weights the output at ``\tau`` puts on earlier times, such as the delays of the reports at ``\tau``.
@@ -76,7 +79,23 @@ It can also be change points: `start => value` pairs, each value holding from it
   For a recurrence, the value at ``\tau`` is its own output.
 
 Most wrappers hold the stored array without copying it.
-A bare vector where a single value is expected is an error that names the wrapper to use.
+Where a bare array's shape has one reading, the wrapper can be left out: a coupling's third axis can only be time, and a modifier parameter's matrix can only be strata × time.
+The same holds for a `Depletion`'s population and a `Flow`'s demand, and for an `Allocate`'s total and import fraction, whose rows are groups.
+An `Allocate`'s import pattern is a coupling, so its bare third axis is time too.
+Where it has two, the wrapper names the reading, and a bare array is an error that names both.
+These shapes have two readings:
+
+- a modifier parameter's vector: one value per stratum, or one per time;
+- a kernel matrix: strata × lags, or lags × time;
+- a three-dimensional kernel: strata × lags × time, or strata × strata × lags.
+
+A `Derived` argument always takes its wrapper, as it can feed a kernel or a modifier.
+
+```@example shapes
+rate = fill(0.1, 2, 10)
+imports = ComposableRecurrences.Transform(+, rate)
+imports.θ isa TimeVarying
+```
 
 ## [Data shapes](@id explanation-data-shapes)
 
@@ -161,6 +180,7 @@ Recurrence(GeometricDelay(0.5); lags = 3, step = 2).kernel
 ```
 
 Delays take the same wrappers as arrays, such as `PerStratum(ds)` or `TimeVarying(ds, Primary())`, with `Pairwise` for `Recurrence` only.
+`Pairwise(D)` is a matrix of delays with `D[i, j]` the delay of stratum `j` in stratum `i`, and `TimeVarying` also takes `PerStratum` or `Pairwise` of delays, with time last.
 A tuple `(d₁, d₂)` is a [chain of delays](@ref time-units-chained), one after another, and is itself a delay.
 
 ## [Where the coupling acts](@id explanation-coupling)

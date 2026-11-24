@@ -457,6 +457,19 @@ end
 
 # == One-entry views ==
 
+# `x` read and written `o` entries on: a group's compartment of a strata
+# vector, at the group's own index, for a one-entry view of it.
+struct _Shifted{T, A <: AbstractVector{T}} <: AbstractVector{T}
+    x::A
+    o::Int
+end
+@inline Base.size(a::_Shifted) = (length(a.x) - a.o,)
+@inline Base.getindex(a::_Shifted, i::Int) = @inbounds a.x[i + a.o]
+@inline function Base.setindex!(a::_Shifted, y, i::Int)
+    @inbounds a.x[i + a.o] = y
+    return a
+end
+
 # Axes `k:k` let a step written over `eachindex(v)` touch only entry `k`; the
 # identity axis keeps Base's linear indices `k` too.
 struct _At{T, A} <: AbstractVector{T}

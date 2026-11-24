@@ -80,7 +80,7 @@ end
     import ForwardDiff
 
     for (q, r, p) in ((0.0, 0.5, 0.3), (0.4, 1.7, 0.6), (0.9, 0.2, 0.8))
-        ∂q, ∂θ = MC._nb_pgf_derivative(q, (; r, p))
+        ∂q, ∂θ = MC._nb_pgf_derivative(q, (; r, p), MC._nb_pgf(q, (; r, p)))
         ref = ForwardDiff.gradient(x -> MC._nb_pgf(x[1], (; r = x[2], p = x[3])), [q, r, p])
         @test [∂q, ∂θ.r, ∂θ.p] ≈ ref rtol = 1.0e-12
     end

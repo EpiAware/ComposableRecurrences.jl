@@ -136,6 +136,165 @@ end
     @test "traced true" in lines
 end
 
+# A `Derived` map with no closed-form partials needs dual numbers.
+# Without `ForwardDiff` loaded, an operator holding one takes plain AD at
+# the call, says so once, and gives the right gradient.
+@testitem "Loading: Derived pieces without ForwardDiff take plain AD" tags = [:ad, :mooncake, :mooncake_reverse] begin
+    script = raw"""
+    using ComposableRecurrences, Mooncake, DifferentiationInterface
+    CR = ComposableRecurrences
+    loaded(name) = any(k -> k.name == name, keys(Base.loaded_modules))
+    println(loaded("ForwardDiff"))
+    backend = AutoMooncake(; config = nothing)
+    function fd(f, x; h = 1.0e-6)
+        return map(eachindex(x)) do i
+            e = zero(x)
+            e[i] = h
+            (f(x + e) - f(x - e)) / 2h
+        end
+    end
+    noted(s) = any(m -> occursin(s, m), CR._PLAIN_NOTED)
+    function flow(x)
+        pool = CR.Depletion(
+            x[1], CR.Hazard(x[2]; weights = (S = 1, V = 0.3)),
+            CR.Flow(
+                :S => :V, CR.Derived((b, c) -> b * exp(c), x[3], x[4]);
+                form = CR.Truncate()
+            );
+            pools = (S = nothing, V = 0.0)
+        )
+        r = Recurrence([0.6, 0.3]; modifiers = (pool,))
+        return sum(r(fill(1.2, 10); history = [1.0, 2.0]))
+    end
+    decay(a, s) = exp(-a * s)
+    function kernel(x)
+        k = TimeVarying(CR.Derived(decay, x[1], [1.0, 2.0, 3.0]), CR.Primary())
+        return sum(Recurrence(k)(fill(1.1, 8); history = [1.0], start = 2))
+    end
+    function conv(x)
+        k = TimeVarying(CR.Derived(decay, x[1], [0.0, 1.0, 2.0]), CR.Primary())
+        return sum(Convolution(k)(fill(1.1, 8)))
+    end
+    function scaled(x)
+        θ = CR.Derived((a, b) -> a * exp(-b), x[1], x[2])
+        m = CR.Transform((v, θ) -> v * θ, θ)
+        r = Recurrence([0.5, 0.3]; modifiers = (m,))
+        return sum(r(fill(1.1, 8); history = [1.0, 1.0]))
+    end
+    for (f, x, what) in (
+            (flow, [100.0, 0.02, 0.5, 0.1], "Recurrence"),
+            (scaled, [0.9, 0.2], "Transform"),
+            (kernel, [0.3], "Recurrence"), (conv, [0.3], "Convolution"),
+        )
+        empty!(CR._PLAIN_NOTED)
+        g = gradient(f, backend, x)
+        println(
+            isapprox(g, fd(f, x); rtol = 1.0e-5), " ",
+            noted("Derived map") && noted(what) && noted("using ForwardDiff")
+        )
+    end
+    """
+    project = Base.active_project()
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
+    lines = split(read(cmd, String), '\n'; keepempty = false)
+    @test lines[1] == "false"
+    @test lines[2:5] == fill("true true", 4)
+end
+
+@testitem "Loading: an Init without a pullback! takes plain AD without ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin
+    script = raw"""
+    using ComposableRecurrences, Mooncake, DifferentiationInterface
+    CR = ComposableRecurrences
+    loaded(name) = any(k -> k.name == name, keys(Base.loaded_modules))
+    println(loaded("ForwardDiff"))
+    backend = AutoMooncake(; config = nothing)
+    function fd(f, x; h = 1.0e-6)
+        return map(eachindex(x)) do i
+            e = zero(x)
+            e[i] = h
+            (f(x + e) - f(x - e)) / 2h
+        end
+    end
+    # A pool that sets its own initial state, with a `pullback!` for its
+    # step, its methods typed on a supertype. `Pool` has no `pullback!` for
+    # its `Init`; `PoolInit` has one, typed on its own supertype.
+    abstract type AbstractPool end
+    abstract type InitPool <: AbstractPool end
+    struct Pool{T} <: AbstractPool
+        N::T
+    end
+    struct PoolInit{T} <: InitPool
+        N::T
+    end
+    CR.blocks(::AbstractPool) = (1, 1)
+    CR.uses_adjoint(::AbstractPool, ::CR.Step) = true
+    CR.forward!(m::AbstractPool, ::CR.Init, s, history) = (fill!(s, m.N); nothing)
+    function CR.forward!(m::AbstractPool, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            x = v[k] / m.N
+            v[k], s[k] = -s[k] * expm1(-x), s[k] * exp(-x)
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, m::AbstractPool, ::CR.Step, v, s, t)
+        for k in eachindex(v, s)
+            v̄, s̄ = grads.v[k], grads.s[k]
+            x = v[k] / m.N
+            e = exp(-x)
+            x̄ = s[k] * e * (v̄ - s̄)
+            CR.add_cotangent!(CR.cotangent(grads.piece, :N), -x̄ * x / m.N)
+            grads.v[k], grads.s[k] = x̄ / m.N, -v̄ * expm1(-x) + s̄ * e
+        end
+        return nothing
+    end
+    function CR.pullback!(grads, m::InitPool, ::CR.Init, s, history)
+        CR.add_cotangent!(CR.cotangent(grads.piece, :N), sum(grads.s))
+        return nothing
+    end
+    run(P) = θ -> sum(
+        Recurrence([0.3, 0.2]; modifiers = (P(θ[1]),))(
+            fill(1.5, 6); history = [1.0, 2.0]
+        )
+    )
+    θ = [50.0]
+    # Without the dual-number extension, `Pool` takes plain AD, says why
+    # once, and gives the right gradient.
+    f = run(Pool)
+    n0 = CR._PULLBACK_CALLS[]
+    g = gradient(f, backend, θ)
+    noted = any(CR._PLAIN_NOTED) do m
+        occursin("Pool sets its own initial state", m) &&
+            occursin("add `using ForwardDiff`", m)
+    end
+    println("plain rule skipped ", CR._PULLBACK_CALLS[] == n0)
+    println("plain gradient ", isapprox(g, fd(f, θ); rtol = 1.0e-5))
+    println("plain noted ", noted)
+    # With a `pullback!` for its `Init`, the rule.
+    fi = run(PoolInit)
+    n0 = CR._PULLBACK_CALLS[]
+    g = gradient(fi, backend, θ)
+    println("rule taken ", CR._PULLBACK_CALLS[] > n0)
+    println("rule gradient ", isapprox(g, fd(fi, θ); rtol = 1.0e-5))
+    # With the dual-number extension, `Pool` takes the rule too.
+    using ForwardDiff
+    n0 = CR._PULLBACK_CALLS[]
+    g = gradient(f, backend, θ)
+    println("duals rule taken ", CR._PULLBACK_CALLS[] > n0)
+    println("duals gradient ", isapprox(g, fd(f, θ); rtol = 1.0e-5))
+    """
+    project = Base.active_project()
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$project -e $script`
+    lines = split(read(cmd, String), '\n'; keepempty = false)
+    @test lines[1] == "false"
+    @test "plain rule skipped true" in lines
+    @test "plain gradient true" in lines
+    @test "plain noted true" in lines
+    @test "rule taken true" in lines
+    @test "rule gradient true" in lines
+    @test "duals rule taken true" in lines
+    @test "duals gradient true" in lines
+end
+
 @testitem "Trace, Mooncake reverse: gradients through the traces of built-in modifiers and flows, the rule against ForwardDiff" tags = [:ad, :mooncake, :mooncake_reverse] begin
     using ComposableRecurrences, ForwardDiff, Mooncake
     using DifferentiationInterface: gradient, AutoMooncake

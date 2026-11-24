@@ -63,9 +63,11 @@ end
 @testitem "Transform: argument validation" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    # Per stratum is PerStratum, strata × time is TimeVarying(PerStratum(x)).
+    # Per stratum is PerStratum, and a plain matrix is strata × time.
     @test_throws ArgumentError CR.Transform(*, [1.0, 2.0])
-    @test_throws ArgumentError CR.Transform(*, ones(2, 3))
+    θ = CR.Transform(*, ones(2, 3)).θ
+    @test θ isa TimeVarying{CR.Secondary, <:PerStratum{<:Matrix}}
+    @test θ.x.x == ones(2, 3)
     @test_throws ArgumentError CR.Transform(*, (; a = [1.0, 2.0]))
     # Entries are flat.
     @test_throws ArgumentError CR.Transform(*, (; a = (1.0, 2.0)))
@@ -144,6 +146,61 @@ end
     )
     @test c.v && c.s && c.θ
     @test calls[] == length(v)
+end
+
+@testitem "Transform: a derivative of the step's output skips recomputing it" setup = [AdjointCheck] begin
+    using ComposableRecurrences, LinearAlgebra
+    calls, wrong = Ref(0), Ref(0)
+    nb(v, θ) = (θ.p / (1 - (1 - θ.p) * v))^θ.r
+    f(v, θ) = (calls[] += 1; nb(v, θ))
+    # The output `y` replaces the power in both partial derivatives.
+    function df(v, θ, y)
+        y == nb(v, θ) || (wrong[] += 1)
+        D = 1 - (1 - θ.p) * v
+        return y * θ.r * (1 - θ.p) / D,
+            (; r = y * log(θ.p / D), p = y * θ.r * (1 - v) / (θ.p * D))
+    end
+    S = 3
+    θ = (; r = PerStratum([0.5, 0.7, 0.9]), p = PerStratum([0.3, 0.4, 0.5]))
+    m = CR.Transform(f, θ; derivative = df)
+    g = [0.5, 0.3, 0.2]
+    R = [0.8 + 0.1 * sin(k + t) for k in 1:S, t in 1:12]
+    h = fill(0.1, S, 3)
+    K = fill(0.1, S, S) + 0.7I
+    # Strata on their own, alone and with a map after it, and strata mixed by
+    # a coupling, alone and with a map after it.
+    for r in (
+            Recurrence(g; modifiers = (m,)),
+            Recurrence(g; modifiers = (m, CR.Transform(+, 0.01))),
+            Recurrence(g; coupling = K, modifiers = (m,)),
+            Recurrence(g; coupling = K, modifiers = (m, CR.Transform(+, 0.01))),
+        )
+        args = recargs(R, nothing, h)
+        @test pullback_matches(r, args...)
+        y, cache = CR._run_forward(r, args...)
+        calls[], wrong[] = 0, 0
+        ms = zero_mirror((r, args...))
+        grads = (; piece = first(ms), y = one.(y), args = Base.tail(ms))
+        CR._run_pullback!(grads, r, cache)
+        @test calls[] == 0
+        @test wrong[] == 0
+    end
+    # Without a step output, as in a single step's pullback, it is
+    # recomputed, giving the local derivative's cotangents.
+    mirror() = (;
+        f = (;), θ = (; r = (; x = zeros(S)), p = (; x = zeros(S))),
+        derivative = nothing,
+    )
+    m̄, m̄0 = mirror(), mirror()
+    calls[] = 0
+    out = CR._step_back((; piece = m̄, v = 1.0, s = 0.0), m, 0.3, 0.0, 1, 2)
+    @test calls[] == 1
+    @test wrong[] == 0
+    m0 = CR.Transform(nb, θ)
+    @test all(out .≈ CR._step_back((; piece = m̄0, v = 1.0, s = 0.0), m0, 0.3, 0.0, 1, 2))
+    @test m̄.θ.r.x ≈ m̄0.θ.r.x && m̄.θ.p.x ≈ m̄0.θ.p.x
+    # It shows the derivative it was given.
+    @test occursin("derivative df", repr(MIME"text/plain"(), m))
 end
 
 @testitem "Transform: Float32 and no allocation in the pullback" begin
@@ -316,6 +373,21 @@ end
     @test !rule(CR.Transform(Shift(0.1), 2.0))
     @test !rule(CR.Transform(Shift(0.1), PerStratum([1.0, 2.0])))
     @test rule(CR.Transform(Shift(0.1), 2.0; derivative = (v, θ) -> (θ, v)))
+end
+
+@testitem "Transform: maps with their own pullbacks need no dual numbers" begin
+    using ComposableRecurrences
+    CR = ComposableRecurrences
+    whys(m) = CR._dual_whys([0.5], CR.I, (m,))
+    # `clamp` and `+` without `b` take their own pullbacks, so a call
+    # without `ForwardDiff` still takes the rule.
+    @test isempty(whys(CR.Transform(clamp, 0.0, 2.0)))
+    @test isempty(whys(CR.Transform(clamp, 0.0, TimeVarying([1.0, 2.0]))))
+    @test isempty(whys(CR.Transform(+)))
+    # Other maps take the local derivative, which needs `ForwardDiff`.
+    @test length(whys(CR.Transform(*, 0.5))) == 1
+    @test length(whys(CR.Transform(+, 0.5))) == 1
+    @test isempty(whys(CR.Transform(*, 0.5; derivative = (v, θ) -> (θ, v))))
 end
 
 @testitem "Transform implements the role interface" begin

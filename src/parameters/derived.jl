@@ -232,6 +232,28 @@ end
 # After its helpers: a generator sees only the methods defined before it.
 @generated _derived_local(x) = _derived_local_type(x)
 
+# Whether a type holds a `Derived` map whose partials are not in closed form
+# (`_partials`), so a rule takes them with dual numbers. Type-only, so it
+# folds at compile time.
+# It sees only concretely typed fields: a map held in an abstractly typed
+# field or captured by a closure is not found, and its rule still asks for
+# `ForwardDiff` in the reverse pass.
+function _derived_duals_type(::Type{T}) where {T}
+    T <: Derived && return !_closed_partials(fieldtype(T, :f)) ||
+        _derived_duals_type(fieldtype(T, :args))
+    T <: Union{Real, Nothing, Symbol, AbstractString, Function} && return false
+    T <: AbstractArray && return _derived_duals_type(eltype(T))
+    isconcretetype(T) && isstructtype(T) || return false
+    return any(_derived_duals_type, fieldtypes(T))
+end
+_closed_partials(::Type) = false
+function _closed_partials(
+        ::Type{<:Union{typeof.((identity, +, -, *, /))...}}
+    )
+    return true
+end
+@generated _derived_duals(x) = _derived_duals_type(x)
+
 # == Arithmetic ==
 
 # Arithmetic with a `Derived` on either side lowers to `Derived`; the other

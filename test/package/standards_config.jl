@@ -30,13 +30,11 @@ const MAX_CODE_CHARS = 80
 # Sources still holding a longer sentence or code line, marked broken, in
 # the form of `PENDING_WORDING`.
 const PENDING_SENTENCE_LENGTH = (
-    "docs/src/developer/extending.md",
     "docs/src/developer/testing.md",
-    "docs/src/explanation/adjoints-and-backends.md",
 )
 const PENDING_CODE_LENGTH = (
     "README.md",
-    "docs/src/developer/extending.md",
+    "docs/src/developer/extending-performance.md",
     "docs/src/developer/testing.md",
     "docs/src/explanation/adjoints-and-backends.md",
     "docs/src/getting-started/three-towns.md",
@@ -94,6 +92,12 @@ const MATHS_FIRST_PAGES = (
     "README.md",
     "docs/src/getting-started/three-towns.md",
     "docs/src/developer/extending.md",
+    "docs/src/developer/extending-couplings.md",
+    "docs/src/developer/extending-forms.md",
+    "docs/src/developer/extending-parameters.md",
+    "docs/src/developer/extending-performance.md",
+    "docs/src/developer/extending-steps.md",
+    "docs/src/developer/extending-traces.md",
     "docs/src/getting-started/tutorials/backend-case-study.jl",
     "docs/src/getting-started/tutorials/clinical-outcomes.jl",
     "docs/src/getting-started/tutorials/forecasting.jl",
@@ -149,9 +153,9 @@ const ONE_HOME = (
         "docs/src/explanation/operators.md",
         ("The two placements give the same run",),
     ),
-    "extending" => (
-        "docs/src/developer/extending.md",
-        ("selects the role by dispatch",),
+    "extending-roles" => (
+        "docs/src/developer/extending-api.md",
+        ("is the second argument of `forward!` and the third of `pullback!`",),
     ),
     "explanation-step" => (
         "docs/src/explanation/operators.md",

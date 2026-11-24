@@ -117,6 +117,8 @@ k = \lfloor (c - 1) n / m \rfloor + 1, \ldots, \lfloor c n / m \rfloor,
 
 There are `m = min(ntasks, n)` chunks, with `ntasks` the number of threads
 unless it is set.
+`ntasks` fixes the number of chunks whatever the thread count, so a test can
+exercise the split paths the same way on any machine.
 A loop whose `work` is below `min_work`, or with one chunk, runs in order on
 the calling task, as [`Serial`](@ref) does.
 The threshold applies to each loop.
@@ -222,16 +224,6 @@ end
 # whether it splits one of cost `work`.
 _nchunks(ex::Threaded, n) = min(ex.ntasks > 0 ? ex.ntasks : Threads.nthreads(), n)
 _splits(ex::Threaded, n, work) = _nchunks(ex, n) > 1 && work >= ex.min_work
-
-# The work a loop of each kind passes for `w` multiply-adds on elements like
-# those of `x`, scaled as the `Threaded` docstring sets out.
-struct _StepLoop end
-struct _RunLoop end
-struct _ConvLoop end
-_words(::Type{T}) where {T} = isbitstype(T) ? max(1, sizeof(T) ÷ 8) : 1
-_work(::_StepLoop, x, w) = w
-_work(::_RunLoop, x, w) = w * _words(eltype(x)) ÷ 8
-_work(::_ConvLoop, x, w) = w * _words(eltype(x)) ÷ 16
 
 # Chunk `c` of `m` contiguous chunks of `1:n`.
 _chunk(c, n, m) = ((c - 1) * n ÷ m + 1):(c * n ÷ m)
@@ -402,7 +394,7 @@ arrays one entry at a time from the host.
 The default `0` launches every loop.
 Needs `KernelAbstractions` to be loaded.
 Under the default [`Serial`](@ref) executor, or [`Threaded`](@ref),
-operator calls on arrays that live on a GPU (with `GPUArraysCore` loaded)
+operator calls on arrays that live on a GPU (with GPUArrays loaded)
 run their strata loops with it without being asked.
 Every array a call reads must live on the device.
 Independent strata run as [one kernel per call](@ref gpu-arrays), and
@@ -468,6 +460,16 @@ true
 const Device = Parallel
 
 # == Running operator loops ==
+
+# The work a loop of each kind passes for `w` multiply-adds on elements like
+# those of `x`, scaled as the `Threaded` docstring sets out.
+struct _StepLoop end
+struct _RunLoop end
+struct _ConvLoop end
+_words(::Type{T}) where {T} = isbitstype(T) ? max(1, sizeof(T) ÷ 8) : 1
+_work(::_StepLoop, x, w) = w
+_work(::_RunLoop, x, w) = w * _words(eltype(x)) ÷ 8
+_work(::_ConvLoop, x, w) = w * _words(eltype(x)) ÷ 16
 
 # The executor a call on arrays like `x` uses under `ex`; the GPU extension
 # makes a device array select its device.

@@ -95,13 +95,14 @@ include("docstrings.jl")
 
 export Recurrence, Convolution, TimeVarying, PerStratum, Pairwise
 
-public Derived, Recent, Depletion, Flow, Share, Redistribute,
+public Derived, Recent, Depletion, Flow, Share, Split, Redistribute,
     Allocate, Transform, Hazard, Floor, Truncate,
     Primary, exponential_history, forward!, pullback!, Step, Init, Pressure,
     blocks, nstate, NoAdjoint, PieceInterface, cotangent, Serial, Threaded,
     Parallel, Device, EXECUTOR, param, add_param!, Direct, FFTMethod,
     delay_masses, pressure, Survival, convert_floats, islinear, isstateless,
-    window_sums, Trace, ntrace, add_cotangent!
+    window_sums, Trace, ntrace, add_cotangent!, param_rows, kernel_weights,
+    Increments, Normalised, growth_rate
 
 # shapes: slot wrappers and shape and eltype helpers.
 # Time-varying, per-stratum and pairwise coefficients.
@@ -164,14 +165,20 @@ include("operators/convolution.jl")
 include("operators/transpose.jl")
 # The pressure a recurrence's steps draw against, from given outputs.
 include("operators/pressure.jl")
+# The growth rate of a renewal from its reproduction number.
+include("operators/growth.jl")
 # Sums over consecutive windows of a series, read off at their last times.
 include("operators/windows.jl")
+# A Convolution of one input series per stratum, passed as a tuple.
+include("operators/rows.jl")
 
 # kernels: routes kernels, delay masses and computed kernels.
 # The routes kernel: a sum of (coupling, kernel) routes.
 include("kernels/routes.jl")
 # The masses of a delay on whole lags, the hook delay types extend.
 include("kernels/delays.jl")
+# Maps of a computed kernel along its lags: `Increments` and `Normalised`.
+include("kernels/lag_maps.jl")
 # Kernels computed from coefficients: `Survival` and the fill of the weights.
 include("kernels/weights.jl")
 # The weights walked one cohort at a time, for calls that read each once.

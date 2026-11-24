@@ -161,7 +161,7 @@ function _route_val(op, args...)
     return Val(_type_adjoint(op) && ok ? :rule : :plain)
 end
 
-# The GPUArraysCore extension says which arrays live on a device
+# The GPUArrays extension says which arrays live on a device
 # (`_on_gpu`). Each part folds from the types, so the route stays a constant.
 function _device_gate(op, args...)
     return _device_ready(op) && _any_on_gpu(args...) &&
@@ -169,7 +169,7 @@ function _device_gate(op, args...)
 end
 _any_on_gpu() = false
 _any_on_gpu(x, rest...) = _on_gpu(x) || _any_on_gpu(rest...)
-# Whether `x` lives on a GPU; the GPUArraysCore extension says so for its
+# Whether `x` lives on a GPU; the GPUArrays extension says so for its
 # arrays.
 _on_gpu(x) = false
 # Whether operator `op`'s reverse pass runs on a device; each operator file
@@ -188,9 +188,12 @@ function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
     fit = _fit(op, args...)
     fit === :one && return _ad(op, args...)
     fit === :wide && return _ad_wide(op, args...)
+    # `:none`: no rule fits, so the call takes plain AD.
     return _hooked_plain(op, args...)
 end
-_fit(op, args...) = :one
+# Without the dual-number extension an operator that holds a `Derived` map
+# whose partials need dual numbers takes plain AD.
+_fit(op, args...) = _duals_loaded(nothing) || !_derived_duals(op) ? :one : :none
 
 # Plain AD, unless a backend extension makes it a rule primitive or its
 # reverse pass takes the rule for a long kernel (`_wide_rule`,
