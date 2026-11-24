@@ -516,3 +516,36 @@ end
     @test Convolution(computed(landed(h)))'(x; tail) ≈ dense'(x; tail)
     @test_throws DimensionMismatch Convolution(computed(landed(h[1:T])))'(x; tail)
 end
+
+@testitem "Computed kernels: link maps take closed-form partials" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
+    using ComposableRecurrences, ForwardDiff, LogExpFunctions
+    using ComposableRecurrences: Derived
+    CR = ComposableRecurrences
+    (; rule_vjp, reference_vjp) = PullbackChecks
+    # Each map's value and derivative from one evaluation, against forward
+    # mode, without dual numbers.
+    maps = ((exp, 0.3), (log, 1.7), (logistic, -2.1), (log1pexp, 0.8), (logit, 0.2))
+    fallback = which(CR._value_and_partials, Tuple{typeof(sin), Tuple{Float64}})
+    for (f, x) in maps
+        v, ∂ = @inferred CR._value_and_partials(f, (x,))
+        @test v == f(x)
+        @test only(∂) ≈ ForwardDiff.derivative(f, x)
+        @test only(CR._partials(f, (x,))) == only(∂)
+        @test which(CR._value_and_partials, Tuple{typeof(f), Tuple{Float64}}) !== fallback
+    end
+    # A Derived parameter's value and partials take the same path.
+    θ = TimeVarying([0.1, 0.4])
+    @test CR._param_partials((; args = (zeros(2),)), Derived(exp, θ), 1, 2) == (exp(0.4), (exp(0.4),))
+    # A survival with a logistic hazard of a sum, written as nested maps, and
+    # the same hazard's complement through `exp` and `log1pexp`, against the
+    # Jacobian.
+    T, L = 8, 5
+    h0, γ = [-2.0 + 0.1 * i for i in 1:L], [0.3 * sin(t) for t in 1:(T + L)]
+    computed(x) = TimeVarying(x, CR.Primary())
+    x = Derived(+, h0, TimeVarying(γ))
+    for η in (Derived(logistic, x), Derived(exp, Derived(-, Derived(log1pexp, x))))
+        kw = CR._KernelWeights(computed(1 - CR.Survival(η)))
+        ȳ = reshape(sin.(1:(L * T)), L, T)
+        @test rule_vjp(kw, (T,), ȳ) ≈ reference_vjp(ReferenceAD.jacobian, kw, (T,), ȳ)
+    end
+end

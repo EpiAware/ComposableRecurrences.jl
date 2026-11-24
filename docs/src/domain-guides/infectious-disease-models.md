@@ -39,6 +39,10 @@ Within one step a hazard flow acts before a count flow, so waning comes before t
 | Reporting delay ``w_l`` | ``C_t = \sum_{l=0}^{L-1} w_l I_{t-l}`` | [`Convolution(w)`](@ref Convolution) | [Three towns](@ref overview-build) |
 | Clinical transitions, each with probability ``h`` | ``A_t = h \sum_l w_l O_{t-l}``, one `Convolution` per transition | `Convolution(w)(O; gain = h)`, chained | [Clinical outcomes](@ref tutorial-clinical-outcomes) |
 | Delay that changes over time | ``C_t = \sum_l w_l(t) I_{t-l}`` or ``\sum_l w_l(t - l) I_{t-l}`` | [`Convolution(TimeVarying(W))`](@ref TimeVarying), or `TimeVarying(W, Primary())` | [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) |
+| Delay from a daily hazard on the logit scale, ``h_l = \operatorname{logistic}(a_l + \gamma_{t+l})`` | ``F_l(t) = 1 - \prod_{i \le l} (1 - h_i)`` | [`TimeVarying(1 - Survival(Derived(logistic, Derived(+, a, TimeVarying(γ)))), Primary())`](@ref ComposableRecurrences.Survival) | [Time-varying delays and kernels](@ref tutorial-time-varying-kernels) |
+
+Write a link such as `logistic` as its own `Derived` around the sum, as in the hazard row above, rather than in one function of both arguments.
+The reverse pass then takes the link's derivative from its value in closed form; `logistic`, `log1pexp` and `logit` need LogExpFunctions loaded (StatsFuns loads it).
 
 ## [Places and groups](@id domain-places)
 

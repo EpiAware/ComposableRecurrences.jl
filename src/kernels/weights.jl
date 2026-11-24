@@ -444,8 +444,11 @@ end
     end
 end
 
-# The partial derivatives of `f` at `xs`: closed forms for the arithmetic,
-# and a local forward-mode derivative otherwise.
+# The four arithmetic maps, whose partials have closed forms.
+const _Arithmetic = Union{typeof(+), typeof(-), typeof(*), typeof(/)}
+
+# The partial derivatives of `f` at `xs`: closed forms for the arithmetic
+# and the maps below, and a local forward-mode derivative otherwise.
 _partials(f, xs::Tuple) = _forward_derivative(f, xs)
 _partials(::typeof(identity), (a,)::Tuple{Real}) = (one(a),)
 _partials(::typeof(+), (a, b)::Tuple{Real, Real}) = (one(a), one(b))
@@ -453,6 +456,24 @@ _partials(::typeof(-), (a, b)::Tuple{Real, Real}) = (one(a), -one(b))
 _partials(::typeof(-), (a,)::Tuple{Real}) = (-one(a),)
 _partials(::typeof(*), (a, b)::Tuple{Real, Real}) = (b, a)
 _partials(::typeof(/), (a, b)::Tuple{Real, Real}) = (inv(b), -a / b^2)
+
+# The value of `f` at `xs` and its partial derivatives there, from one
+# local forward-mode evaluation for a map without closed forms.
+_value_and_partials(f, xs::Tuple) = _forward_value_and_derivative(f, xs)
+function _value_and_partials(
+        f::Union{_Arithmetic, typeof(identity)}, xs::Tuple
+    )
+    return f(xs...), _partials(f, xs)
+end
+# Maps whose derivative reads their value, which is computed once. The
+# LogExpFunctions extension adds `logistic`, `log1pexp` and `logit`.
+const _ClosedForm = Union{typeof(exp), typeof(log)}
+_partials(f::_ClosedForm, xs::Tuple{Real}) = last(_value_and_partials(f, xs))
+function _value_and_partials(::typeof(exp), (a,)::Tuple{Real})
+    y = exp(a)
+    return y, (y,)
+end
+_value_and_partials(::typeof(log), (a,)::Tuple{Real}) = log(a), (inv(a),)
 
 # `η̄_i = -s_{i-1} a_i`, with `a` the survival's cotangent carried back along
 # the lags. Cotangents are cleared for the next block.
@@ -596,7 +617,6 @@ end
 
 # Whether a coefficient of type `T` has a map other than `+`, `-`, `*` and
 # `/`, from the type.
-const _Arithmetic = Union{typeof(+), typeof(-), typeof(*), typeof(/)}
 _keeps_fill_type(::Type) = false
 function _keeps_fill_type(::Type{<:Derived{F, A}}) where {F, A}
     return !(F <: _Arithmetic) || any(_keeps_fill_type, fieldtypes(A))

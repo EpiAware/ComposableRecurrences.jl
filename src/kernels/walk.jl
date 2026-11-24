@@ -123,15 +123,6 @@ end
     return v
 end
 
-# The value of `f` at `xs` and its partial derivatives there, from one
-# local forward-mode evaluation for a map without closed forms.
-_value_and_partials(f, xs::Tuple) = _forward_value_and_derivative(f, xs)
-function _value_and_partials(
-        f::Union{_Arithmetic, typeof(identity)}, xs::Tuple
-    )
-    return f(xs...), _partials(f, xs)
-end
-
 # The value of a coefficient at an entry, from the walk's state.
 @inline function _walk_value(x, st, k, i, τ, l)
     return @inbounds _value(x, nothing, k, i, τ, l, 1)

@@ -58,9 +58,13 @@ The reverse pass, for the cotangent ``\bar u`` of a value read, is
     \frac{\partial f}{\partial a_j}\big(a_1, \dots, a_n\big)\, \bar u,
 ```
 
-with the partial derivatives in closed form for `+`, `-`, `*` and `/` in a
-kernel, and otherwise from one local forward-mode derivative of `f`, which
+with the partial derivatives in closed form for `+`, `-`, `*`, `/`, `exp`
+and `log`, and for `logistic`, `log1pexp` and `logit` with LogExpFunctions
+loaded, and otherwise from one local forward-mode derivative of `f`, which
 needs the dual-number extension loaded.
+A closed form reads the value already computed, so a link written as its own
+`Derived`, `Derived(logistic, Derived(+, a, b))`, costs less to differentiate
+than the same map in one function, `Derived((x, y) -> logistic(x + y), a, b)`.
 Values captured inside `f` (a closure, or a callable struct with float
 fields) are not arguments: an operator with such a map is differentiated by
 the AD backend instead, so they keep their gradients.
@@ -171,7 +175,7 @@ function _param_partials(x̄, x::Derived, k, t)
     xs = _params_at(x.args, k, t)
     ā = _arg_mirrors(cotangent(x̄, :args), x.args)
     ā === nothing && return (x.f(xs...), nothing)
-    return (x.f(xs...), _partials(x.f, xs))
+    return _value_and_partials(x.f, xs)
 end
 _add_param_partials!(x̄, x, v, ::Nothing, k, t) = add_param!(x̄, x, v, k, t)
 function _add_param_partials!(x̄, x::Derived, v, ∂::Tuple, k, t)
