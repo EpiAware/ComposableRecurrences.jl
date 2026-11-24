@@ -342,9 +342,9 @@ Add a method for the type of a function you own, a named function or a
 callable struct; the operators find it from the types alone.
 Without one the partials come from a local forward-mode derivative, which
 needs `ForwardDiff` loaded.
-The package adds methods for `+`, `-`, `*`, `/`, `identity`, `exp` and
-`log`, and, with `LogExpFunctions` loaded, for `logistic`, `log1pexp` and
-`logit`.
+The package adds methods for `+`, `-`, `*`, `/`, `identity`, `exp`,
+`log`, `min` and `max`, and, with `LogExpFunctions` loaded, for
+`logistic`, `log1pexp` and `logit`.
 
 # Examples
 ```jldoctest
@@ -422,6 +422,14 @@ pullback!(grads, ::typeof(*), ::Local, y, a::Real, b::Real) = (b, a)
 pullback!(grads, ::typeof(/), ::Local, y, a::Real, b::Real) = (inv(b), -a / b^2)
 pullback!(grads, ::typeof(exp), ::Local, y, a::Real) = (y,)
 pullback!(grads, ::typeof(log), ::Local, y, a::Real) = (inv(a),)
+# The argument `min` or `max` returns takes the cotangent, the first on a tie
+# for `min` and the second for `max`, as `Base` picks them.
+function pullback!(grads, ::typeof(min), ::Local, y, a::Real, b::Real)
+    return a <= b ? (one(a), zero(b)) : (zero(a), one(b))
+end
+function pullback!(grads, ::typeof(max), ::Local, y, a::Real, b::Real)
+    return b < a ? (one(a), zero(b)) : (zero(a), one(b))
+end
 
 # == Modifier traits ==
 

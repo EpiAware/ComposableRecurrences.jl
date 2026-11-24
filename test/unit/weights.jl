@@ -627,12 +627,17 @@ end
             (+, (0.3, -1.2)), (-, (0.3, -1.2)), (-, (0.7,)), (*, (0.3, -1.2)),
             (/, (0.3, -1.2)), (identity, (0.4,)), (exp, (0.4,)), (log, (0.4,)),
             (logistic, (-0.8,)), (log1pexp, (-0.8,)), (logit, (0.3,)),
+            (min, (0.3, -1.2)), (min, (-1.2, 0.3)), (max, (0.3, -1.2)),
+            (max, (-1.2, 0.3)),
         )
         @test CR._has_local(f, xs)
         y, ∂ = CR._value_and_partials(f, xs)
         y0, ∂0 = CR._forward_value_and_derivative(f, xs)
         @test y ≈ y0 && all(∂ .≈ ∂0)
     end
+    # On a tie the argument `Base` returns takes the cotangent.
+    @test CR._partials(min, (0.5, 0.5)) == (1.0, 0.0)
+    @test CR._partials(max, (0.5, 0.5)) == (0.0, 1.0)
     # A user's rule for a type they own, read from the map's value; a closure
     # has none and keeps the forward-mode derivative.
     struct LogisticSum end
