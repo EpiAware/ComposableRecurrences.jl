@@ -1590,9 +1590,13 @@ end
 _keeps_after(m) = false
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,
-    # so sharing it is safe; a stateless modifier's state never changes.
-    return isstateless(m) ? s : _unset(h, Tp, length(s), T)
+    # so sharing it is safe; a stateless modifier's state never changes,
+    # and one whose steps never read it need not see it change.
+    keep = isstateless(m) || !_reads_state(m)
+    return keep ? s : _unset(h, Tp, length(s), T)
 end
+# Whether a modifier's step, pullback or trace reads its incoming state.
+_reads_state(m) = true
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
 _record_states!(R::AbstractMatrix, s, t) = _copy_column!(R, s, t)

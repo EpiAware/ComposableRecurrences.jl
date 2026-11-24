@@ -749,6 +749,9 @@ function _initials_back!(ks, m̄, m, s̄, G)
     return nothing
 end
 pullback!(grads, m::_Drawless, ::Init, s, history) = nothing
+# Its flows act on the values alone, so the reverse pass needs no record of
+# its state.
+_reads_state(::_Drawless) = false
 
 # The mirrors of the first part and of the run of flows after it.
 _draw_mirror(m̄) = _head(cotangent(m̄, :pieces))
