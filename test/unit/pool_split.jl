@@ -160,3 +160,27 @@ end
     d = CR.Depletion(f; pools = (:u, :c, :d))
     @test occursin("(u, c) => 0", sprint(show, MIME"text/plain"(), d))
 end
+
+@testitem "Split flows: the step's pullback infers and allocates nothing" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    # Two, three and four sources, after a share and a count.
+    function flows(I)
+        return (
+            CR.Flow(1 => 2, 0.3; form = CR.Share()),
+            CR.Flow(0 => 1, 1.0; form = CR.Truncate()),
+            CR.Flow(I => 0, 6.0; form = CR.Split()),
+        )
+    end
+    # The module by name: a function reading the global `CR` does not infer.
+    function back(fs, f̄s, x, ȳ, ā)
+        return ComposableRecurrences._flows_pullback(fs, f̄s, x, ȳ, ā, 1, 1)
+    end
+    x, ȳ, ā = (1.0, 8.0, 1.0, 2.0), (0.7, -0.4, 1.1, 0.2), (0.3, 0.5, -0.8, 0.1)
+    for I in ((1, 2), (1, 2, 3), (1, 2, 3, 4))
+        fs = flows(I)
+        f̄s = map(_ -> (; demand = Ref(0.0), form = (; κ = Ref(0.0))), fs)
+        @test (@inferred back(fs, f̄s, x, ȳ, ā)) isa NTuple{4, Float64}
+        @test (@allocations back(fs, f̄s, x, ȳ, ā)) == 0
+    end
+end

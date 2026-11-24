@@ -708,10 +708,9 @@ end
     return ifelse(on, q, ifelse(i == first_other, one(q), zero(q)))
 end
 
-# Its cotangents `(b̄, w̄, ȳ)` from those `m̄` of what each source loses.
-function _split_back(b, w::NTuple{n}, y::NTuple{n}, m̄) where {n}
-    c, u, W = _split_parts(b, w, y)
-    d = ntuple(i -> c[i] + _passed(u, w, W, i), Val(n))
+# Its cotangents `(b̄, w̄, ȳ)` from those `m̄` of what each source loses,
+# with the parts `c, u, W` and demands `d` the forward step computed.
+@inline function _split_back(b, w::NTuple{n}, y::NTuple{n}, m̄, c, u, W, d) where {n}
     r̄s = map(_removal_pullback, d, y, m̄)
     d̄ = map(first, r̄s)
     ȳ0 = map(last, r̄s)
@@ -721,9 +720,11 @@ function _split_back(b, w::NTuple{n}, y::NTuple{n}, m̄) where {n}
         j -> ȳ0[j] - ifelse(_uncovered(c[j], y[j]), ū[j], zero(ū[j])), Val(n)
     )
     if _primal_value(W) > 0
-        b̄ = sum(ntuple(j -> c̄[j] * w[j], Val(n))) / W
-        W̄ = -sum(ntuple(j -> c̄[j] * c[j], Val(n))) / W
-        w̄ = ntuple(j -> w̄q[j] + c̄[j] * b / W + W̄, Val(n))
+        iW = inv(W)
+        b̄ = sum(ntuple(j -> c̄[j] * w[j], Val(n))) * iW
+        W̄ = -sum(ntuple(j -> c̄[j] * c[j], Val(n))) * iW
+        bW = b * iW
+        w̄ = ntuple(j -> w̄q[j] + c̄[j] * bW + W̄, Val(n))
     else
         b̄ = first(c̄)
         w̄ = w̄q
@@ -740,19 +741,23 @@ function _passed_back(d̄, u, w::NTuple{n}, W) where {n}
     ū = ntuple(Val(n)) do j
         sum(ntuple(i -> i == j ? zero(d̄[i]) : d̄[i] * _passed_share(w, W, i, j), Val(n)))
     end
-    w̄ = ntuple(_ -> zero(first(d̄)), Val(n))
-    for j in 1:n
-        Q = W - w[j]
-        _primal_value(Q) > 0 || continue
-        Q̄ = zero(Q)
-        for i in 1:n
-            i == j && continue
-            f̄ = d̄[i] * u[j]
-            w̄ = _set(w̄, i, w̄[i] + f̄ / Q)
-            Q̄ -= f̄ * w[i] / Q^2
-        end
-        w̄ = map(x -> x + Q̄, w̄)
-        w̄ = _set(w̄, j, w̄[j] - Q̄)
+    # Through `Q_j = W - w_j` for each `j` with `Q_j > 0`: `d̄_i u_j / Q_j`
+    # into each other source's weight, and `Q̄_j` into every weight but
+    # source `j`'s. Straight-line, so the cotangents keep their type.
+    Q = ntuple(j -> W - w[j], Val(n))
+    on = ntuple(j -> _primal_value(Q[j]) > 0, Val(n))
+    Qd = ntuple(j -> ifelse(on[j], Q[j], one(Q[j])), Val(n))
+    Q̄ = ntuple(Val(n)) do j
+        s = sum(ntuple(i -> i == j ? zero(d̄[i]) : d̄[i] * w[i], Val(n)))
+        return ifelse(on[j], -s * u[j] / Qd[j]^2, zero(s))
+    end
+    w̄ = ntuple(Val(n)) do i
+        sum(
+            ntuple(Val(n)) do j
+                (j == i || !on[j]) && return zero(d̄[i])
+                return d̄[i] * u[j] / Qd[j] + Q̄[j]
+            end
+        )
     end
     return ū, w̄
 end
@@ -957,16 +962,18 @@ end
 # A split's cotangents from those of the pools after it, `ȳ`, of the
 # arrivals into `to`, `āj`, and of its amount, `r̄`: those of its count, of
 # the pools before it, and of the pools the step starts from.
-function _split_count_back(f, b, r̄, x, y, ȳ, x̄, āj)
+@inline function _split_count_back(f, b, r̄, x, y, ȳ, x̄, āj)
     I, j = _from(f), _to(f)
     ys = map(i -> y[i], I)
     w = map(i -> x[i], I)
-    m = map(_removal, _split_demands(b, w, ys), ys)
+    c, u, W = _split_parts(b, w, ys)
+    d = ntuple(i -> c[i] + _passed(u, w, W, i), Val(length(I)))
+    m = map(_removal, d, ys)
     m̄ = map(m, I) do mk, i
         into = j > 0 && _primal_value(mk) >= 0
         return r̄ - ȳ[i] + ifelse(into, ȳ[max(j, 1)] + āj, zero(r̄))
     end
-    b̄, w̄, ȳs = _split_back(b, w, ys, m̄)
+    b̄, w̄, ȳs = _split_back(b, w, ys, m̄, c, u, W, d)
     ȳ′ = ntuple(l -> ȳ[l] + _at_sources(ȳs, I, l), Val(length(ȳ)))
     x̄′ = ntuple(l -> x̄[l] + _at_sources(w̄, I, l), Val(length(x̄)))
     return b̄, ȳ′, x̄′
