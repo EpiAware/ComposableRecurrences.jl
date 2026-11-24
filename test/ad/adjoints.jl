@@ -2489,7 +2489,7 @@ end
     end
     modes = (Reverse, set_runtime_activity(Reverse))
     # On Julia 1.11 with threads, plain reverse mode of a `NoAdjoint`
-    # operator can crash in the garbage collector (#872), so there its
+    # operator can crash in the garbage collector, so there its
     # reference takes runtime activity alone; the rule takes both modes.
     plain_modes = VERSION < v"1.12" ? (set_runtime_activity(Reverse),) : modes
     arms = (
