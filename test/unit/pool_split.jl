@@ -176,12 +176,16 @@ end
     function back(fs, f̄s, x, ȳ, ā)
         return ComposableRecurrences._flows_pullback(fs, f̄s, x, ȳ, ā, 1, 1)
     end
+    # Counted inside a function: on Julia 1.11 a tuple returned to the test's
+    # global scope is boxed, which `@allocations` would count.
+    allocs(fs, f̄s, x, ȳ, ā) = @allocations back(fs, f̄s, x, ȳ, ā)
     x, ȳ, ā = (1.0, 8.0, 1.0, 2.0), (0.7, -0.4, 1.1, 0.2), (0.3, 0.5, -0.8, 0.1)
     coverage = Base.JLOptions().code_coverage != 0
     for I in ((1, 2), (1, 2, 3), (1, 2, 3, 4))
         fs = flows(I)
         f̄s = map(_ -> (; demand = Ref(0.0), form = (; κ = Ref(0.0))), fs)
         @test (@inferred back(fs, f̄s, x, ȳ, ā)) isa NTuple{4, Float64}
-        @test (@allocations back(fs, f̄s, x, ȳ, ā)) == 0 skip = coverage
+        allocs(fs, f̄s, x, ȳ, ā)
+        @test allocs(fs, f̄s, x, ȳ, ā) == 0 skip = coverage
     end
 end
