@@ -166,6 +166,7 @@ include("operators/transpose.jl")
 include("operators/pressure.jl")
 # Sums over consecutive windows of a series, read off at their last times.
 include("operators/windows.jl")
+# A Convolution of one input series per stratum, passed as a tuple.
 include("operators/rows.jl")
 
 # kernels: routes kernels, delay masses and computed kernels.
