@@ -471,7 +471,7 @@ function _show_draw_args(io, form)
 end
 
 # The population: any parameter, read at each step's stratum and time.
-_population(N) = _float_param(_check_param(:N, N))
+_population(N) = _float_param(_check_param(:N, _as_param(N)))
 
 # A form is a type with an in-place Step on one-entry views, for a scalar
 # `N` of any real type or of one float type.

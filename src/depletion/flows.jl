@@ -224,8 +224,9 @@ end
 # The checks on a flow's ends, form and demand that read no demand entries;
 # returns the demand.
 function _check_flow(from, to, demand, form)
-    _check_flow_parts(from, to, demand, form)
-    return demand
+    d = _as_param(demand)
+    _check_flow_parts(from, to, d, form)
+    return d
 end
 # The checks alone, returning nothing, so that AD can take them as having
 # no derivative.

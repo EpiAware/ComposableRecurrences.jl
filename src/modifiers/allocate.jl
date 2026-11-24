@@ -138,12 +138,13 @@ struct Allocate{T, I}
     "The import fraction, pattern and spill, or `nothing`."
     imports::I
     function Allocate(
-            groups::AbstractVector, total::T; imports = nothing, spill = nothing
-        ) where {T}
+            groups::AbstractVector, total; imports = nothing, spill = nothing
+        )
         strata, offsets = _flat_groups(groups)
-        _check_group_param(:total, total, length(groups))
+        p = _as_param(total)
+        _check_group_param(:total, p, length(groups))
         im = _imports(imports, spill, length(groups))
-        return new{T, typeof(im)}(strata, offsets, total, im)
+        return new{typeof(p), typeof(im)}(strata, offsets, p, im)
     end
     function Allocate(
             ::_Flat, strata, offsets, total::T, imports::I
@@ -197,7 +198,7 @@ function _imports(imports, spill, P)
             "imports is (fraction, pattern), got $(_describe(imports))"
         )
     )
-    fraction, pattern = imports
+    fraction, pattern = _as_param(imports[1]), _as_coupling(imports[2])
     _check_group_param(:fraction, fraction, P)
     _check_pattern(pattern)
     spill isa Union{Nothing, Redistribute} || throw(
