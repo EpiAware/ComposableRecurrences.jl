@@ -867,16 +867,21 @@ function _traces_any(rec::Tuple, ::Val{N}) where {N}
 end
 # The parts of the trace a call builds: a flag for each of its `m`
 # modifiers, one for the pressure and one for the force, all set for
-# `:trace`. It is a value,
-# not a type, so a call returns the same type whichever parts it builds.
+# `:trace`. It is a value, not a type, so a call returns the same type
+# whichever parts it builds.
 _selection(::Nothing, names, m) = _all_parts(m)
 _selection(::Val{R}, names, m) where {R} = _selection(R, names, m)
 function _selection(rec::Tuple, ::Val{N}, ::Val{m}) where {N, m}
     :trace in rec && return _all_parts(Val(m))
     mods = N === nothing ? ntuple(_ -> false, Val(m)) : map(n -> n in rec, N)
-    return (mods, :pressure in rec, :force in rec)
+    return (;
+        modifiers = mods, pressure = :pressure in rec, force = :force in rec,
+    )
 end
-_all_parts(::Val{m}) where {m} = (ntuple(_ -> true, Val(m)), true, true)
+function _all_parts(::Val{m}) where {m}
+    modifiers = ntuple(_ -> true, Val(m))
+    return (; modifiers, pressure = true, force = true)
+end
 # Generated after its helper, so a record in a `Val` answers from the types
 # alone.
 @generated function _tracing(::Val{R}, names::Val) where {R}

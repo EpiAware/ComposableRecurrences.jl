@@ -130,12 +130,12 @@ end
 function _traces(r, c, sel)
     (; H, rec, D, S, T, τ0) = c
     ms = _bind(r.modifiers, H, nothing, D - τ0 + 1)
-    modifiers = _traces(ms, rec, c.states, first(sel), H, D, S, T, τ0)
+    modifiers = _traces(ms, rec, c.states, sel.modifiers, H, D, S, T, τ0)
     pressure = _pressure_trace(_builds_pressure(sel), r, c)
     return (; modifiers, pressure)
 end
 # The force is built from the pressure, so either needs it.
-_builds_pressure(sel) = sel[2] | sel[3]
+_builds_pressure(sel) = sel.pressure | sel.force
 # A pressure not built comes from records with no steps, so it has the type
 # of one that is.
 function _pressure_trace(keep, r, c)
@@ -179,7 +179,7 @@ end
 # A trace written in the run's steps, with the parts a selection does not
 # name dropped.
 function _selected_trace(tr, sel)
-    modifiers = map(tr.modifiers, first(sel)) do x, keep
+    modifiers = map(tr.modifiers, sel.modifiers) do x, keep
         keep ? x : _no_parts(x)
     end
     pressure = _builds_pressure(sel) ? tr.pressure : _no_times(tr.pressure)
@@ -188,16 +188,13 @@ end
 
 # == The force ==
 
-# The trace with its force, the value `γ_t ⊙ q_t + a_t` of each step before
-# the modifiers, from the pressure `q_t` the run built. It is a broadcast
-# over the steps, so the run's loops do not change, and its cotangent joins
-# each step's value cotangent in the reverse pass (`_traced_force`). A
+# The trace with its force, `γ_t ⊙ q_t + a_t`, from the pressure `q_t`. A
 # pressure the selection does not name was built only for the force, so it
 # is dropped here.
 function _with_force(tr, sel, gain, add, τ0)
     Q = tr.pressure
-    force = sel[3] ? _force(Q, gain, add, τ0) : _no_times(Q)
-    pressure = sel[2] ? Q : _no_times(Q)
+    force = sel.force ? _force(Q, gain, add, τ0) : _no_times(Q)
+    pressure = sel.pressure ? Q : _no_times(Q)
     return (; tr.modifiers, pressure, force)
 end
 function _force(Q, gain, add, τ0)
