@@ -1,6 +1,7 @@
 # [Depletion forms](@id extending-form)
 
 A new depletion form sets how a pool gives up what a step asks for, building on [Writing new types](@ref extending).
+[Depletion forms](@ref explanation-depletion-forms) lists the built-in forms.
 
 ```@example extending-forms
 using ComposableRecurrences
