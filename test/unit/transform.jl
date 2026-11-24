@@ -389,6 +389,14 @@ end
     @test isempty(whys(CR.Transform(Times(), 0.5)))
     @test CR._wants_output(CR.Transform(Times(), 0.5))
     @test !CR._wants_output(CR.Transform((v, θ) -> θ * v, 0.5))
+    # The reasons infer concretely when no modifier needs dual numbers, so a
+    # trimmed build resolves the call.
+    gain = CR.Transform(*, CR.Derived(exp, -0.01 * CR.Recent(7)))
+    ms = (gain, CR.Depletion(10.0))
+    @test isempty(whys(gain))
+    @test Base.return_types(
+        CR._dual_whys, (Vector{Float64}, typeof(CR.I), typeof(ms))
+    ) == [Vector{String}]
 end
 
 @testitem "Transform implements the role interface" begin

@@ -1098,7 +1098,7 @@ end
 # numbers included, log nothing more.
 const _PLAIN_NOTED = Set{String}()
 const _PLAIN_LOCK = ReentrantLock()
-function _note_plain(whys::Tuple, what = "Recurrence")
+function _note_plain(whys::Union{Tuple, AbstractVector}, what = "Recurrence")
     msg = string(
         what, " gradients use plain AD of the whole operator: ",
         join(unique(whys), "; ")
@@ -1210,9 +1210,17 @@ function _dual_whys(kernel, C, ms)
     Cp = _primary_adjoint(C) === :local || _derived_duals(C) ? (C,) : ()
     Ck = filter(K -> _coupling_adjoint(K) === :local, _kernel_couplings(kernel))
     k = _derived_duals(kernel) ? (kernel,) : ()
-    Ms = filter(m -> _needs_duals(m) || _init_needs_duals(m), ms)
-    Mw = map(m -> _needs_duals(m) ? _dual_why(m) : _init_dual_why(m), Ms)
-    return (map(_dual_why, (k..., Cp..., Ck...))..., Mw...)
+    whys = String[map(_dual_why, (k..., Cp..., Ck...))...]
+    # A modifier's own-init check reads the method table at run time, so the
+    # reasons are collected into a vector rather than a filtered tuple.
+    foreach(ms) do m
+        if _needs_duals(m)
+            push!(whys, _dual_why(m))
+        elseif _init_needs_duals(m)
+            push!(whys, _init_dual_why(m))
+        end
+    end
+    return whys
 end
 function _needs_duals(m)
     return _modifier_adjoint(m) === :local || _local_modifier(m) !== () ||

@@ -650,7 +650,9 @@ end
     CR.pullback!(grads, ::Untyped, ::CR.Local, y, a) = (2.0,)
     @test CR._has_local(Untyped(), (1.0,))
     ci = only(code_typed(CR._has_local, Tuple{Untyped, Tuple{Float64}}))[1]
-    @test ci.code == Any[Core.ReturnNode(true)]
+    # Coverage runs add markers, which are not calls.
+    body = filter(s -> !Meta.isexpr(s, :code_coverage_effect), ci.code)
+    @test body == Any[Core.ReturnNode(true)]
     # A rule that may fall back to `nothing` at the inferred types is not
     # taken: the forward-mode derivative is used instead.
     struct TypedOutput end

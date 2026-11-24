@@ -373,22 +373,22 @@ pullback!(grads, f, ::Local, y, xs...) = nothing
 # also when `f` itself does not infer. A rule counts only when it cannot
 # return `nothing`, so an inferred union with the fallback, or a rule whose
 # result does not infer, takes the forward-mode derivative instead.
-function _has_local(f::F, xs::Tuple) where {F}
-    Y = Core.Compiler.return_type(f, Tuple{map(typeof, xs)...})
-    R = Core.Compiler.return_type(
-        pullback!, Tuple{typeof((;)), F, Local, Y, map(typeof, xs)...}
-    )
-    return _is_rule(R)
+function _has_local(f::F, xs::X) where {F, X <: Tuple}
+    Y = Core.Compiler.return_type(f, X)
+    return _is_rule(Core.Compiler.return_type(pullback!, _local_sig(F, Y, X)))
 end
 # The same check from a map's type and argument count, with `Float64`
 # arguments, for a type that holds the map.
 function _has_local_type(::Type{F}, ::Val{N}) where {F, N}
-    R = Core.Compiler.return_type(
-        pullback!, Tuple{typeof((;)), F, Local, Float64, Vararg{Float64, N}}
-    )
-    return _is_rule(R)
+    sig = _local_sig(F, Float64, NTuple{N, Float64})
+    return _is_rule(Core.Compiler.return_type(pullback!, sig))
 end
 _is_rule(R) = R !== Union{} && !(Nothing <: R)
+# The signature as a constant, so the check folds without building the type
+# at run time.
+@generated function _local_sig(::Type{F}, ::Type{Y}, ::Type{X}) where {F, Y, X}
+    return Tuple{typeof((;)), F, Local, Y, fieldtypes(X)...}
+end
 
 # The value of `f` at `xs` and its partial derivatives there: from its local
 # rule when it has one, or from one local forward-mode evaluation.
