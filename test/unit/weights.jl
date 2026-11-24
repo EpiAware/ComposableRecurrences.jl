@@ -635,9 +635,11 @@ end
         y0, ∂0 = CR._forward_value_and_derivative(f, xs)
         @test y ≈ y0 && all(∂ .≈ ∂0)
     end
-    # On a tie the argument `Base` returns takes the cotangent.
-    @test CR._partials(min, (0.5, 0.5)) == (1.0, 0.0)
-    @test CR._partials(max, (0.5, 0.5)) == (0.0, 1.0)
+    # On a tie the partials are the forward-mode derivative's.
+    for f in (min, max)
+        @test CR._partials(f, (0.5, 0.5)) ==
+            CR._forward_value_and_derivative(f, (0.5, 0.5))[2]
+    end
     # A user's rule for a type they own, read from the map's value; a closure
     # has none and keeps the forward-mode derivative.
     struct LogisticSum end
