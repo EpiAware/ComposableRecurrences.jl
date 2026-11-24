@@ -176,8 +176,8 @@ end
 blocks(::Transform) = (1, 1)
 isstateless(::Transform) = true
 uses_adjoint(m::Transform, ::Step) = _local_derivative(m)
-# Only the local derivative takes dual numbers: `+` without `b` and `clamp`
-# have their own pullbacks.
+# `+` without `b` and `clamp` have their own pullbacks (`_own_pullback`), so
+# a call needs no dual numbers for them.
 function _needs_duals(m::Transform)
     return m.derivative === nothing && _local_derivative(m) && !_own_pullback(m)
 end
@@ -238,7 +238,8 @@ function pullback!(grads, m::Transform, ::Step, v, s, t)
     return nothing
 end
 
-# Without `b`, `Transform(+)` is the identity.
+# Without `b`, `Transform(+)` is the identity. A map given its own pullback
+# here is listed in `_own_pullback` too, or it still asks for `ForwardDiff`.
 function pullback!(
         grads, ::Transform{typeof(+), Nothing, Nothing}, ::Step, v, s, t
     )
