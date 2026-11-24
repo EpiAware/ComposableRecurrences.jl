@@ -362,11 +362,9 @@ function _csr_row_body!(a, q, rowptr, colval, nzval, p)
     return nothing
 end
 
-# A CSR coupling takes the rule as a dense one does: each step and the
-# kernels' reverse run as one kernel, over the rows of a CSR copy of the
-# transpose made once per call, so each stratum sums its own row. Its
-# cotangent is one pass over the stored entries after the loop, from the
-# recorded `q̄`.
+# A CSR coupling's reverse runs over a CSR copy of its transpose, so each
+# stratum's sum is one row with no shared writes. Its cotangent is added
+# after the loop from the recorded `q̄`.
 CR._device_coupling(::AbstractGPUSparseMatrixCSR) = true
 function CR._zero_mirror(C::AbstractGPUSparseMatrixCSR{<:AbstractFloat})
     return (; nzVal = zero(C.nzVal))
@@ -391,8 +389,13 @@ function CR._coupling_steps(
         dev(tptr), dev(tcol), C.nzVal[dev(perm)], dev(rows), C.colVal, Q̄
     )
 end
-# The transpose's row pointers and columns, the entry of `C` each of its
-# entries reads, and the row of each entry of `C`.
+@doc raw"""
+    _csr_transpose(rowptr, colval, (n, m))
+
+Return the row pointers and columns of the transpose of an `n × m` CSR
+matrix, the entry of the matrix each of the transpose's entries reads, and
+the row of each of the matrix's entries.
+"""
 function _csr_transpose(rowptr, colval, (n, m))
     tptr = ones(Int, m + 1)
     for c in colval

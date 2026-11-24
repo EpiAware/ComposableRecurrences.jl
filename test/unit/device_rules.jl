@@ -1341,26 +1341,28 @@ end
 end
 
 @testitem "JLArrays: the rule passes of a CSR coupling match the CPU" setup = [DeviceRules] begin
-    using SparseArrays: SparseArrays, SparseMatrixCSC, sparse
+    using SparseArrays: SparseArrays, SparseMatrixCSC, nnz, sparse
     # The host stores the coupling's cotangent by column and the device by
     # row, so the two are compared as matrices. More strata than blocks
-    # covers the products at size.
-    function csr_case(S, kernel)
-        mixes(a, b) = a == b || (a + b) % 3 == 0
+    # covers the products at size, and a stratum with no entries covers an
+    # empty row and column.
+    mixes(a, b) = a == b || (a + b) % 3 == 0
+    patterns = ("", mixes), (", stratum 2 unmixed", (a, b) -> mixes(a, b) && 2 ∉ (a, b))
+    function csr_case(S, kernel, mixes)
         C = sparse([mixes(a, b) ? 0.5 / S : 0.0 for a in 1:S, b in 1:S])
         Cd = JLSparseMatrixCSR(C)
         dev = Recurrence(adapt(JLArray, kernel); coupling = Cd)
         return C, Recurrence(kernel; coupling = C), dev
     end
     kernels = ("a fixed kernel" => pmf, "a kernel over time" => tv_kernel())
-    for S in (4, CR._KERNEL_BLOCKS + 1), (name, k) in kernels
-        C, op0, op1 = csr_case(S, k)
+    for S in (4, CR._KERNEL_BLOCKS + 1), (name, k) in kernels, (tag, f) in patterns
+        C, op0, op1 = csr_case(S, k, f)
         x, h = inputs(S), fill(1.0, S, L)
         args0 = (CR._run_args(op0, x, h, nothing, nothing, 1)..., nothing)
         args1 = (
             CR._run_args(op1, JLArray(x), JLArray(h), nothing, nothing, 1)..., nothing,
         )
-        @testset "$name, $S strata" begin
+        @testset "$name, $S strata$tag" begin
             @test inferred_route(op1, args1...) === Val(:rule)
             m0, m1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
             y0, x̄0, _ = rule_cotangents(op0, args0, m0, S, false)
@@ -1372,6 +1374,8 @@ end
             c = op1.coupling
             C̄1 = JLSparseMatrixCSR(c.rowPtr, c.colVal, m1.coupling.nzVal, c.dims)
             @test Matrix(SparseMatrixCSC(C̄1)) ≈ Matrix(C̄0)
+            # The pattern does leave stratum 2's row and column empty.
+            isempty(tag) || @test nnz(C[2, :]) == nnz(C[:, 2]) == 0
         end
     end
 end
