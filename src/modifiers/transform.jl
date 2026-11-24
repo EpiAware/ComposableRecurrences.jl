@@ -37,7 +37,7 @@ Values captured by `f` (a closure, or a callable struct with float fields)
 are not in ``\theta``, so the AD backend differentiates the
 [`Recurrence`](@ref) holding such a map.
 
-Two maps have their own pullbacks.
+Three maps have their own pullbacks.
 `Transform(+, b)` adds ``b_{t,i}`` where it sits in the tuple.
 After a [`ComposableRecurrences.Depletion`](@ref), the added values are
 neither scaled by nor drawn from the pool.
@@ -48,10 +48,15 @@ passing `B` as `add`.
 ``\ell_{t,i} \le u_{t,i}``.
 Its pullback sends the cotangent to the active bound, or to ``v_i`` when
 neither is.
+`Transform(*, γ)` scales each value by ``\gamma_{t,i}``.
+First in the modifiers, it scales the `add` values with the kernel's, so
+the gain acts on both before an [`ComposableRecurrences.Allocate`](@ref) or
+a draw.
+A `γ` that is a plain number has no cotangent, so its pullback adds none.
 
 It acts on a [`Recurrence`](@ref) and is pointwise.
 Its rule takes the map's local rule or the local forward-mode derivative,
-or a hand-written pullback for `+` and `clamp`.
+or a hand-written pullback for `+`, `clamp` and `*`.
 
 # Arguments
 - `f`: the map, called as `f(v)` or `f(v, θ)`.
@@ -140,6 +145,9 @@ function _check_theta(θ::Union{Tuple, NamedTuple})
 end
 _check_theta(θ) = (_check_param(:θ, θ); nothing)
 
+# The gain of `Transform(*, γ)`: one parameter, not a tuple of them.
+const _GainParam = Union{Real, PerStratum, TimeVarying}
+
 # == Traits ==
 
 # Whether the local derivative covers every parameter. A closure's float
@@ -150,19 +158,23 @@ blocks(::Transform) = (1, 1)
 isstateless(::Transform) = true
 uses_adjoint(m::Transform, ::Step) = _local_derivative(m)
 # `+` without `b` and `clamp` have their own pullbacks (`_own_pullback`), so
-# a call needs no dual numbers for them.
+# a call needs no dual numbers for them, unless a parameter holds a
+# `Derived` map without closed-form partials.
 function _needs_duals(m::Transform)
-    return _local_derivative(m) && !_own_pullback(m) &&
-        !_has_local(m.f, _probe(m.θ))
+    return (
+        _local_derivative(m) && !_own_pullback(m) &&
+            !_has_local(m.f, _probe(m.θ))
+    ) || _derived_duals(m.θ)
 end
 _own_pullback(::Transform) = false
 _own_pullback(::Transform{typeof(+), Nothing}) = true
 _own_pullback(::Transform{typeof(clamp), <:Tuple{Any, Any}}) = true
+_own_pullback(::Transform{typeof(*), <:_GainParam}) = true
 # Float arguments shaped as the map's, to ask whether it has a local rule.
 _probe(::Nothing) = (0.0,)
 _probe(θ::Union{Tuple, NamedTuple}) = (0.0, map(_ -> 0.0, θ))
 _probe(θ) = (0.0, 0.0)
-function _dual_why(::Transform)
+function _local_why(::Transform)
     return "a `Transform` without a local rule for its map takes its local " *
         "derivative with `ForwardDiff`; add `using ForwardDiff` for the " *
         "faster rule"
@@ -222,6 +234,18 @@ end
 function pullback!(
         grads, ::Transform{typeof(+), Nothing}, ::Step, v, s, t
     )
+    return nothing
+end
+
+# `y = γ v`.
+function pullback!(
+        grads, m::Transform{typeof(*), <:_GainParam}, ::Step, v, s, t
+    )
+    v̄, γ̄ = grads.v, cotangent(grads.piece, :θ)
+    for k in eachindex(v)
+        add_param!(γ̄, m.θ, v̄[k] * v[k], k, t)
+        v̄[k] *= param(m.θ, k, t)
+    end
     return nothing
 end
 
@@ -311,7 +335,10 @@ _restructure(::NamedTuple{K}, x) where {K} = NamedTuple{K}(x)
 # The seeds and the partials of the map's output are in the dual-number
 # extension; an output without the seeds' tag is constant in `(v, θ)`.
 function _transform_seeds(xs...)
-    return _need_forwarddiff("`Transform` without a `derivative`")
+    return _need_forwarddiff(
+        "the local derivative of a `Transform` without a local rule, or " *
+            "of a `Derived` map,"
+    )
 end
 _transform_partials(y::Real, ::Val{N}) where {N} = ntuple(_ -> zero(y), Val(N))
 _transform_value(y::Real) = y

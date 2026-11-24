@@ -188,9 +188,12 @@ function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
     fit = _fit(op, args...)
     fit === :one && return _ad(op, args...)
     fit === :wide && return _ad_wide(op, args...)
+    # `:none`: no rule fits, so the call takes plain AD.
     return _hooked_plain(op, args...)
 end
-_fit(op, args...) = :one
+# Without the dual-number extension an operator that holds a `Derived` map
+# whose partials need dual numbers takes plain AD.
+_fit(op, args...) = _duals_loaded(nothing) || !_derived_duals(op) ? :one : :none
 
 # Plain AD, unless a backend extension makes it a rule primitive or its
 # reverse pass takes the rule for a long kernel (`_wide_rule`,
