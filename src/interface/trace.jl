@@ -101,9 +101,9 @@ summing to [`ComposableRecurrences.ntrace`](@ref),
 \sum_{j=1}^{J} n_j = n_r ,
 ```
 
-makes a call return the modifier's trace as a named tuple of matrices,
-the ``j``th holding rows ``\sum_{i<j} n_i + 1`` to ``\sum_{i \le j} n_i``,
-each with a column per step.
+makes a call return the modifier's trace as a named tuple of views of
+its matrix, the ``j``th holding rows ``\sum_{i<j} n_i + 1`` to
+``\sum_{i \le j} n_i``, each with a column per step.
 The default, `nothing`, returns the trace as one matrix.
 [`ComposableRecurrences.Allocate`](@ref) with imports names its rows,
 with `imports` the part of each stratum's value its import term placed.
@@ -127,8 +127,8 @@ CR.trace_rows(CR.Allocate([1:2, 3:3], 10.0; imports = (0.2, P)), 3)
 trace_rows(m, S) = nothing
 
 # A modifier's trace as a call returns it: one matrix, or a named tuple of
-# its rows (`trace_rows`). A trace not built has no rows, so each named part
-# is empty too.
+# views of its rows (`trace_rows`), so naming them copies nothing. A trace
+# not built has no rows, so each named part is empty too.
 _named_rows(m, x, S) = _named_rows(trace_rows(m, S), x)
 _named_rows(::Nothing, x) = x
 function _named_rows(rows::NamedTuple{N}, x) where {N}
@@ -136,7 +136,7 @@ function _named_rows(rows::NamedTuple{N}, x) where {N}
     starts = map((n, b) -> b - n + 1, values(rows), stops)
     return NamedTuple{N}(map((a, b) -> _rows(x, a, b), starts, stops))
 end
-_rows(x, a, b) = size(x, 1) == 0 ? x[1:0, :] : x[a:b, :]
+_rows(x, a, b) = view(x, size(x, 1) == 0 ? (1:0) : (a:b), :)
 
 # By default the trace is the state after the step.
 function forward!(m, ::Trace, r, v, s, v′, s′, t)

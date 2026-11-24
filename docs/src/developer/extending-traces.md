@@ -75,7 +75,7 @@ only(trace.modifiers)
 ## [Named rows](@id extending-trace-rows)
 
 A modifier can name its trace's rows with [`trace_rows`](@ref ComposableRecurrences.trace_rows), a named tuple of row counts in row order.
-A call then returns its trace as a named tuple of matrices, one per name, so a caller reads the rows by name rather than by position.
+A call then returns its trace as a named tuple of views of its matrix, one per name, so a caller reads the rows by name rather than by position.
 
 ```@example extending-traces
 CR.trace_rows(::Smooth, S) = (; smoothed = S, left = S)
