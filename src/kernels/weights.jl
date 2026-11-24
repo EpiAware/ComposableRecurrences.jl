@@ -259,7 +259,7 @@ end
 _dense_coef(x, last) = x
 # Typed on their parts, so each rebuild infers its arguments.
 function _dense_coef(x::Survival{H}, last::Integer) where {H}
-    return Survival(_dense_coef(x.hazard::H, last), x.from)
+    return Survival(_dense_coef(x.hazard::H, last); from = x.from)
 end
 function _dense_coef(x::Derived{F, A}, last::Integer) where {F, A}
     return Derived(x.f, map(a -> _dense_coef(a, last), x.args::A))
