@@ -176,7 +176,14 @@ end
 blocks(::Transform) = (1, 1)
 isstateless(::Transform) = true
 uses_adjoint(m::Transform, ::Step) = _local_derivative(m)
-_needs_duals(m::Transform) = m.derivative === nothing && _local_derivative(m)
+# Only the local derivative takes dual numbers: `+` without `b` and `clamp`
+# have their own pullbacks.
+function _needs_duals(m::Transform)
+    return m.derivative === nothing && _local_derivative(m) && !_own_pullback(m)
+end
+_own_pullback(::Transform) = false
+_own_pullback(::Transform{typeof(+), Nothing, Nothing}) = true
+_own_pullback(::Transform{typeof(clamp), <:Tuple{Any, Any}, Nothing}) = true
 function _dual_why(::Transform)
     return "a `Transform` without a `derivative` takes its local derivative " *
         "with `ForwardDiff`; add `using ForwardDiff` for the faster rule"

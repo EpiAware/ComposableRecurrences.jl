@@ -823,7 +823,6 @@ end
     return nothing
 end
 
-
 # The pools and the queue in a group's state, `nothing` without a queue,
 # and the second value with an overflow into a stratum.
 _pools_queue(q, s, ::Val{n}) where {n} = s, nothing
