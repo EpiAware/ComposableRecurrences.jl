@@ -102,9 +102,9 @@ function clamped(lo, hi)
     return ComposableRecurrences.Transform(clamp, lo, hi)
 end
 
-# A call that also returns its state or its trace, as the loaded release
-# spells it: `record` on the call, `state = true` or `trace = true` before
-# it, and `with_state` before that.
+# A call that also returns its state, its trace or only its pressure, as
+# the loaded release spells it: `record` on the call, `state = true` or
+# `trace = true` before it, and `with_state` before that.
 const RECORD_KEYWORD = isdefined(ComposableRecurrences, :_recorded)
 const STATE_KEYWORD = !isdefined(ComposableRecurrences, :with_state)
 function returning_state(op, args...; kwargs...)
@@ -115,6 +115,12 @@ end
 function returning_trace(op, args...; kwargs...)
     RECORD_KEYWORD && return op(args...; kwargs..., record = (:trace,))
     return op(args...; kwargs..., trace = true)
+end
+# Pressure-only call; older releases return the whole trace.
+const NAMED_RECORDS = isdefined(ComposableRecurrences, :_RECORD_PARTS)
+function returning_pressure(op, args...; kwargs...)
+    NAMED_RECORDS && return op(args...; kwargs..., record = (:pressure,))
+    return returning_trace(op, args...; kwargs...)
 end
 # The output of a call resumed from a state, which some releases before
 # `record` returned with the next state.
@@ -1999,6 +2005,23 @@ push!(
     ),
 )
 
+# One input series per stratum, passed as a tuple, with a kernel per
+# stratum; the output is a tuple of series.
+function _series_per_stratum(w, θ)
+    g, X = _unpack(θ, (S, L), (S, T))
+    ys = w(Convolution(PerStratum(g)))(ntuple(k -> X[k, :], Val(S)))
+    # Each stratum's index is a constant, which Reactant can index by.
+    return sum(ntuple(k -> sum(view(WS, k, :) .* ys[k]), Val(S)))
+end
+push!(
+    _SCENARIOS,
+    (
+        "Convolution of one series per stratum as a tuple",
+        _series_per_stratum,
+        () -> _flat(repeat(G0', S) .* (0.8 .+ 0.1 .* (1:S)), 1 .+ LOGR),
+    ),
+)
+
 # Kernels computed from their coefficients: a cohort's weight on each lag
 # from a hazard over calendar time and a profile over the lags. One small
 # scenario for each operator's rule; the unit tests check each pullback.
@@ -2089,6 +2112,28 @@ push!(
     ("Growth rate from a reproduction number", _growth_rate, () -> _flat([log(1.6)], G0)),
 )
 
+# The same over windows given by their first and last times: a gap, two
+# that overlap, one that starts before the series, an empty one and one
+# past the series.
+const SPAN_STARTS = [1, 4, 6, 0, 9, 11]
+const SPAN_STOPS = [2, 7, 9, 3, 8, T + 2]
+const WWS = [sin(a + 0.3 * v) for a in 1:S, v in eachindex(SPAN_STARTS)]
+function _window_spans(w, θ)
+    X = exp.(reshape(θ, S, T))
+    op(dims) = ComposableRecurrences._WindowSums(SPAN_STOPS, T, dims, SPAN_STARTS)
+    rows = w(op(2))(X)
+    down = w(op(1))(permutedims(X))
+    return sum(WWS .* rows) + sum(permutedims(WWS) .* down .^ 2)
+end
+
+push!(
+    _SCENARIOS,
+    (
+        "Window sums over gapped and overlapping windows", _window_spans,
+        () -> vec(LOGR),
+    ),
+)
+
 """
     supports(features...)
 
@@ -2118,6 +2163,10 @@ function _accepts(build)
     return true
 end
 const _PROBES = Dict{Symbol, Function}(
+    # `window_sums` over windows given by their first and last times.
+    :window_spans => () -> _accepts(
+        () -> ComposableRecurrences.window_sums([1.0, 2.0], [1], [2])
+    ),
     :primary_recurrence => () -> _accepts(
         () -> Recurrence(TimeVarying(ones(1, 2), ComposableRecurrences.Primary()))
     ),
@@ -2263,10 +2312,13 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence coupling from change points" => (:_Piecewise,),
     "Recurrence parameters from change points" => (:_Piecewise,),
     "Convolution kernel from a hazard and a survival" => (:Survival,),
+    # One series per stratum came with `_StackRows`.
+    "Convolution of one series per stratum as a tuple" => (:_StackRows,),
     "Kernel weights of a survival against a delay and calendar hazard" =>
         (:Survival, :_KernelWeights),
     "Recurrence kernel shortened by a survival" => (:Survival,),
     "Window sums of each series, either way round" => (:window_sums,),
+    "Window sums over gapped and overlapping windows" => (:window_spans,),
 )
 
 # A `NoAdjoint` twin compares the analytic adjoint with plain AD of the same

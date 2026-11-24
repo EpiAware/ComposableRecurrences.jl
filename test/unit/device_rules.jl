@@ -1308,3 +1308,74 @@ end
         end
     end
 end
+
+@testitem "JLArrays: a device sparse coupling runs as CSR, and a CSC one is converted where it can be" setup = [DeviceRules] begin
+    using SparseArrays: SparseArrays, sparse
+    using GPUArrays: AbstractGPUSparseMatrixCOO, csr_type
+    S = 4
+    C = sparse([0.0 0.1 0.0 0.2; 0.3 0.0 0.0 0.0; 0.0 0.2 0.0 0.1; 0.1 0.0 0.4 0.0])
+    x, h = inputs(S), fill(1.0, S, L)
+    y0 = Recurrence(pmf; coupling = C)(x; history = h)
+    for (name, Cd) in (
+            "CSR" => JLSparseMatrixCSR(C), "CSC" => JLSparseMatrixCSC(C),
+        )
+        # Older JLArrays give a CSC matrix no `csr_type`, so it is kept.
+        if !(Cd isa JLSparseMatrixCSR) &&
+                !hasmethod(csr_type, Tuple{Type{typeof(Cd)}})
+            @test Recurrence(JLArray(pmf); coupling = Cd).coupling === Cd
+            continue
+        end
+        r = Recurrence(JLArray(pmf); coupling = Cd)
+        @test r.coupling isa JLSparseMatrixCSR
+        @test Matrix(SparseArrays.SparseMatrixCSC(r.coupling)) == Matrix(C)
+        y1 = r(JLArray(x); history = JLArray(h))
+        @test y1 isa JLArray
+        @test Array(y1) ≈ y0
+    end
+    # A device sparse form with no conversion to CSR is kept as given.
+    # JLArrays has no such form, so a stub with no `csr_type` stands in.
+    struct NoCSRStub <: AbstractGPUSparseMatrixCOO{Float64, Int} end
+    Base.size(::NoCSRStub) = (S, S)
+    stub = NoCSRStub()
+    @test Recurrence(JLArray(pmf); coupling = stub).coupling === stub
+end
+
+@testitem "JLArrays: the rule passes of a CSR coupling match the CPU" setup = [DeviceRules] begin
+    using SparseArrays: SparseArrays, SparseMatrixCSC, nnz, sparse
+    # The host stores the coupling's cotangent by column and the device by
+    # row, so the two are compared as matrices. More strata than blocks
+    # covers the products at size, and a stratum with no entries covers an
+    # empty row and column.
+    mixes(a, b) = a == b || (a + b) % 3 == 0
+    patterns = ("", mixes), (", stratum 2 unmixed", (a, b) -> mixes(a, b) && 2 ∉ (a, b))
+    function csr_case(S, kernel, mixes)
+        C = sparse([mixes(a, b) ? 0.5 / S : 0.0 for a in 1:S, b in 1:S])
+        Cd = JLSparseMatrixCSR(C)
+        dev = Recurrence(adapt(JLArray, kernel); coupling = Cd)
+        return C, Recurrence(kernel; coupling = C), dev
+    end
+    kernels = ("a fixed kernel" => pmf, "a kernel over time" => tv_kernel())
+    for S in (4, CR._KERNEL_BLOCKS + 1), (name, k) in kernels, (tag, f) in patterns
+        C, op0, op1 = csr_case(S, k, f)
+        x, h = inputs(S), fill(1.0, S, L)
+        args0 = (CR._run_args(op0, x, h, nothing, nothing, 1)..., nothing)
+        args1 = (
+            CR._run_args(op1, JLArray(x), JLArray(h), nothing, nothing, 1)..., nothing,
+        )
+        @testset "$name, $S strata$tag" begin
+            @test inferred_route(op1, args1...) === Val(:rule)
+            m0, m1 = CR._zero_mirror(op0), CR._zero_mirror(op1)
+            y0, x̄0, _ = rule_cotangents(op0, args0, m0, S, false)
+            y1, x̄1, _ = rule_cotangents(op1, args1, m1, S, true)
+            @test y1 ≈ y0
+            @test x̄1 ≈ x̄0
+            @test agree(m1.kernel, m0.kernel)
+            C̄0 = SparseMatrixCSC(S, S, C.colptr, C.rowval, m0.coupling.nzval)
+            c = op1.coupling
+            C̄1 = JLSparseMatrixCSR(c.rowPtr, c.colVal, m1.coupling.nzVal, c.dims)
+            @test Matrix(SparseMatrixCSC(C̄1)) ≈ Matrix(C̄0)
+            # The pattern does leave stratum 2's row and column empty.
+            isempty(tag) || @test nnz(C[2, :]) == nnz(C[:, 2]) == 0
+        end
+    end
+end

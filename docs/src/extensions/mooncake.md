@@ -1,6 +1,6 @@
-# [ADTypes + Mooncake + Random extension](@id extension-mooncake)
+# [Mooncake gradients](@id extension-mooncake)
 
-Loading Mooncake registers the [rule](@ref adjoint-routing) of every operator as a Mooncake reverse-mode rule.
+Loading Mooncake registers the [rule](@ref adjoint-routing) of every operator as a Mooncake reverse-mode rule, so Mooncake is one of the [backends](@ref adjoint-backends).
 It also adds [`test_adjoint`](@ref ComposableRecurrences.test_adjoint) for `AutoMooncake`, which runs `Mooncake.TestUtils.test_rule` on an operator's rule.
 
 ```jldoctest
@@ -18,7 +18,3 @@ round.(gradient(loss, backend, fill(1.1, 4)); digits = 3)
  1.04
  0.613
 ```
-
-Mooncake's place among the other backends is in [Backends](@ref adjoint-backends).
-
-All extensions are listed in the [overview](@ref extensions-overview).

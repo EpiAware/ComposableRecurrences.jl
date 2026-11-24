@@ -54,6 +54,8 @@ routes that have a cheaper equivalent form.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
 struct with `forward!` on [`ComposableRecurrences.Pressure`](@ref).
+A bare `S × S × T` array is read as `TimeVarying`: its third axis is time,
+not lags.
 Modifiers are structs with `forward!` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 
@@ -185,9 +187,13 @@ function Recurrence(
     )
     _check_no_step(step)
     _check_no_delays(kernel)
-    k, C = _fold(kernel, coupling)
+    k, C = _fold(kernel, _as_coupling(coupling))
     return Recurrence(k, C, Tuple(modifiers), _modifier_names(modifiers))
 end
+
+# A coupling is strata × strata, so a bare third axis can only be time.
+_as_coupling(C) = C
+_as_coupling(C::AbstractArray{<:Real, 3}) = TimeVarying(C)
 
 # The modifiers' names, the keys of a named tuple of modifiers; a tuple
 # names none. A name cannot be one that `record` reads for another part.
@@ -353,9 +359,11 @@ end
 function _check_kernel_shape(k::AbstractArray)
     throw(
         ArgumentError(
-            "a kernel array is a vector of lag weights; wrap a strata × " *
-                "lags matrix as PerStratum(G) and a strata × strata × lags " *
-                "array as Pairwise(A); got $(_describe(k))"
+            "a kernel array is a vector of lag weights; a matrix could be " *
+                "strata × lags, PerStratum(G), or lags × time, " *
+                "TimeVarying(G), and a 3-dimensional array strata × lags × " *
+                "time, TimeVarying(PerStratum(G)), or strata × strata × " *
+                "lags, Pairwise(A), so wrap it as one; got $(_describe(k))"
         )
     )
 end
@@ -774,7 +782,7 @@ end
 
 # The call builds the positional arguments `(gain, add, h, s0, τ0, stop)`
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
-Base.@constprop :aggressive function _invoke(
+Base.@constprop :aggressive @inline function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
         add = nothing, start = _start(state), stop = nothing, record = nothing
     )
@@ -786,7 +794,13 @@ Base.@constprop :aggressive function _invoke(
     return _routed(traced, stated, rec, r, route, args, stop, sel)
 end
 # One call over both flags, so that a rule derived from types alone splits.
-function _routed(traced, stated, rec, r, route, args, stop, sel)
+# Inlined, as `_run_args` is, so a backend that differentiates the call
+# builds no shadow of the argument tuple.
+@inline function _routed(traced, stated, rec, r, route, args, stop, sel)
+    if _scans(traced, stated, r, args)
+        y = _scan_call(route, r, args, stop)
+        return _recorded(rec, traced, stated, y, r)
+    end
     op = _call_op(traced, stated, _linear_parts(route, r, args[3]), sel)
     out = adjoint_call(_reroute(route, op), args..., stop)
     return _recorded(rec, traced, stated, out, r)
@@ -917,7 +931,7 @@ end
 _named(modifiers, ::Val{nothing}) = modifiers
 _named(modifiers, ::Val{N}) where {N} = NamedTuple{N}(modifiers)
 
-function _run_args(r, gain, history, state, add, start)
+@inline function _run_args(r, gain, history, state, add, start)
     _check_start(start)
     _check_unwrapped(:gain, gain)
     _check_unwrapped(:add, add)
@@ -1092,9 +1106,9 @@ end
 # numbers included, log nothing more.
 const _PLAIN_NOTED = Set{String}()
 const _PLAIN_LOCK = ReentrantLock()
-function _note_plain(whys::Tuple)
+function _note_plain(whys::Tuple, what = "Recurrence")
     msg = string(
-        "Recurrence gradients use plain AD of the whole operator: ",
+        what, " gradients use plain AD of the whole operator: ",
         join(unique(whys), "; ")
     )
     new = @lock _PLAIN_LOCK (msg in _PLAIN_NOTED ? false : (push!(_PLAIN_NOTED, msg); true))
@@ -1201,13 +1215,17 @@ _long_kernel(w::_WithState, args...) = _long_kernel(w.r, args...)
 # The parts of `r` whose reverse pass takes a local derivative, each with why
 # it needs the dual-number extension.
 function _dual_whys(kernel, C, ms)
-    Cp = _primary_adjoint(C) === :local ? (C,) : ()
+    Cp = _primary_adjoint(C) === :local || _derived_duals(C) ? (C,) : ()
     Ck = filter(K -> _coupling_adjoint(K) === :local, _kernel_couplings(kernel))
+    k = _derived_duals(kernel) ? (kernel,) : ()
     Ms = filter(m -> _needs_duals(m) || _init_needs_duals(m), ms)
     Mw = map(m -> _needs_duals(m) ? _dual_why(m) : _init_dual_why(m), Ms)
-    return (map(_dual_why, (Cp..., Ck...))..., Mw...)
+    return (map(_dual_why, (k..., Cp..., Ck...))..., Mw...)
 end
-_needs_duals(m) = _modifier_adjoint(m) === :local || _local_modifier(m) !== ()
+function _needs_duals(m)
+    return _modifier_adjoint(m) === :local || _local_modifier(m) !== () ||
+        _derived_duals(m)
+end
 function _init_dual_why(m)
     return "$(nameof(typeof(m))) sets its own initial state without a " *
         "`pullback!` for `Init`, and its local derivative needs " *
@@ -1216,7 +1234,12 @@ end
 # Called by the reverse-mode rules of `_plain_hook`, so only a reverse pass
 # through plain AD logs, once, which parts need the dual-number extension.
 # A `NoAdjoint` call opted out of the rule, so it says nothing.
-_note_missing_duals(op) = nothing
+function _note_missing_duals(op)
+    _duals_loaded(nothing) || !_derived_duals(op) ||
+        _note_plain((_dual_why(op),), _operator_name(op))
+    return nothing
+end
+_operator_name(op) = string(nameof(typeof(op)))
 _note_missing_duals(w::_WithState) = _note_missing_duals(w.r)
 function _note_missing_duals(r::Recurrence)
     _duals_loaded(nothing) && return nothing
@@ -1224,14 +1247,22 @@ function _note_missing_duals(r::Recurrence)
     isempty(whys) || _note_plain(whys)
     return nothing
 end
-function _dual_why(p)
+# A held `Derived` map is named first; otherwise each part says why it takes
+# a local derivative.
+_dual_why(p) = _derived_duals(p) ? _derived_why(p) : _local_why(p)
+function _local_why(p)
     return "$(nameof(typeof(p))) has no `pullback!`, and its local " *
         "derivative needs `ForwardDiff`; add `using ForwardDiff` for the " *
         "faster rule"
 end
-function _dual_why(::Depletion)
+function _local_why(::Depletion)
     return "a Depletion form without a `pullback!` takes a local derivative, " *
         "which needs `ForwardDiff`; add `using ForwardDiff` for the faster rule"
+end
+function _derived_why(p)
+    return "$(nameof(typeof(p))) holds a Derived map whose partials are " *
+        "taken with dual numbers, which needs `ForwardDiff`; add " *
+        "`using ForwardDiff` for the faster rule"
 end
 function _coupling_fit(C, h)
     _coupling_adjoint(C) === :local || return :one
@@ -1417,6 +1448,13 @@ end
 function _recur(
         r::Recurrence, gain, add, h, s0, τ0, stop, cache::Val; picks = nothing
     )
+    (; L, D, S, T) = _checked_call(r, gain, add, h, s0, τ0, stop)
+    Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
+    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache; picks)
+end
+# The checks of a call against its recurrence, which the buffer run and the
+# scan share, and the sizes they settle.
+function _checked_call(r::Recurrence, gain, add, h, s0, τ0, stop)
     (; kernel, coupling, modifiers) = r
     L = _nlags(kernel)
     D = _buffer_depth(r, L)
@@ -1443,9 +1481,7 @@ function _recur(
     _check_times(:modifiers, modifiers, stop)
     _check_device(h, (kernel, coupling, modifiers, gain, add, s0))
     _check_device_moves(h, modifiers)
-    T = stop - τ0 + 1
-    Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
-    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache; picks)
+    return (; L, D, S, T = stop - τ0 + 1, stop)
 end
 
 # The buffer eltype from the promoted eltype `E` of every input and part:
@@ -1487,17 +1523,81 @@ end
 _all_pointwise(::Tuple{}) = true
 _all_pointwise(ms::Tuple) = _strata_loop(first(ms)) && _all_pointwise(Base.tail(ms))
 
+# Modifiers the series step runs stratum by stratum: pointwise ones, and a
+# blockwise one whose groups are single strata (`_group_series`). The latter
+# only on host arrays and with no trace written or read per stratum, as its
+# trace and device steps run on the whole vectors, and for one stratum: with
+# more, the vector step over all of them is as fast or faster.
+_all_series(::Tuple{}, rec, H) = true
+function _all_series(ms::Tuple, rec, H)
+    return _series_ok(first(ms), _first(rec), H) &&
+        _all_series(Base.tail(ms), _tail(rec), H)
+end
+function _series_ok(m, R, H)
+    return _strata_loop(m) ||
+        (_group_series(m) && _plain_record(R) && !_on_gpu(H) && size(H, 2) == 1)
+end
+# A blockwise modifier with one value per group that the series step may run
+# through its group step; a modifier type opts in, as its group step and
+# pullback must be the whole of its step.
+_group_series(m) = false
+_one_value(::Val{B}) where {B} = B[1] == 1
+_one_value(::Nothing) = false
+_plain_record(::Nothing) = true
+_plain_record(::NamedTuple{(:V, :S, :A)}) = true
+_plain_record(R) = false
+_first(::Nothing) = nothing
+_first(rec::Tuple) = first(rec)
+
 # `rec` holds records or trace sinks (see `_TraceSink`).
 @inline _thread(::Tuple{}, ::Tuple{}, rec, v, τ, t, k) = v
 @inline function _thread(ms::Tuple, states::Tuple, rec, v, τ, t, k)
-    m, s = first(ms), first(states)
-    sk = s[k]
-    rec === nothing || _record!(first(rec), v, sk, t, k)
-    v′, s′ = _step(m, v, sk, τ, k)
-    s[k] = s′
-    rec === nothing || _trace_step!(first(rec), m, v, sk, v′, s′, τ, t, k)
+    m = first(ms)
+    v′ = _series_stage!(
+        Val(_strata_loop(m)), m, first(states), _first(rec), v, τ, t, k
+    )
     return _thread(Base.tail(ms), Base.tail(states), _tail(rec), v′, τ, t, k)
 end
+@inline function _series_stage!(::Val{true}, m, s, R, v, τ, t, k)
+    sk = s[k]
+    R === nothing || _record!(R, v, sk, t, k)
+    v′, s′ = _step(m, v, sk, τ, k)
+    s[k] = s′
+    R === nothing || _trace_step!(R, m, v, sk, v′, s′, τ, t, k)
+    return v′
+end
+# Group `k` of a modifier with one value per group is stratum `k`, so its
+# state entries are gathered and stepped as the vector step's group body does.
+@inline function _series_stage!(::Val{false}, m, s, R, v, τ, t, k)
+    ns, G = _group_entries(m, s)
+    sk = _gather(s, Val(ns), G, k)
+    R === nothing || _record_group!(R, v, sk, t, k, G)
+    (v′,), s′ = @inline _block_step(m, (v,), sk, τ, k)
+    _scatter!(s, s′, G, k)
+    return v′
+end
+# The state entries per group and the number of groups.
+function _group_entries(m, s)
+    ns = _state_entries(_blocks(m))
+    return ns, length(s) ÷ ns
+end
+_state_entries(::Val{B}) where {B} = B[2]
+function _state_entries(::Nothing)
+    throw(ArgumentError("a modifier without blocks has no group state entries"))
+end
+function _record_group!(R, v, s, t, k, G)
+    R.V[k, t] = v
+    _record_group_state!(R.S, s, t, k, G)
+    return nothing
+end
+function _record_group_state!(R::AbstractMatrix, s, t, k, G)
+    _scatter!(view(R, :, t), s, G, k)
+    return nothing
+end
+_record_group_state!(R::AbstractVector, s, t, k, G) = nothing
+# Group `k`'s recorded state entering step `t`.
+_group_state_at(R::AbstractMatrix, n, G, k, t) = _gather(view(R, :, t), n, G, k)
+_group_state_at(R::AbstractVector, n, G, k, t) = _gather(R, n, G, k)
 _tail(::Nothing) = nothing
 _tail(rec::Tuple) = Base.tail(rec)
 function _record!(rec, v, s, t, k)
@@ -1518,10 +1618,15 @@ end
 # Whether a vector modifier's pullback reads its state after each step,
 # so the forward pass records it (see `_pass_buffer`).
 _keeps_after(m) = false
+# Whether a modifier's step, pullback or trace reads its incoming state.
+# `false` is a promise that none does: `_state_record` then shares the
+# starting state, so a step that read it would see the wrong one.
+_reads_state(m) = true
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,
     # so sharing it is safe; a stateless modifier's state never changes.
-    return isstateless(m) ? s : _unset(h, Tp, length(s), T)
+    keep = isstateless(m) || !_reads_state(m)
+    return keep ? s : _unset(h, Tp, length(s), T)
 end
 _record_state!(R::AbstractMatrix, s, t, k) = (R[k, t] = s; nothing)
 _record_state!(R::AbstractVector, s, t, k) = nothing
@@ -1564,12 +1669,12 @@ function _init_state(::Type{Tp}, m, h, S) where {Tp}
     return s
 end
 
-# No step reads another stratum.
-_independent(coupling, kernel, modifiers) = false
+# No step reads another stratum, with the run's records `rec` and buffer `H`.
+_independent(coupling, kernel, modifiers, rec, H) = false
 function _independent(
-        ::_PointwiseCoupling, kernel, modifiers::Tuple
+        ::_PointwiseCoupling, kernel, modifiers::Tuple, rec, H
     )
-    return !(kernel isa _PairwiseKernel) && _all_pointwise(modifiers) &&
+    return !(kernel isa _PairwiseKernel) && _all_series(modifiers, rec, H) &&
         !_reads_across(modifiers)
 end
 
@@ -1899,7 +2004,7 @@ function _run(
     rec = keep ? map((m, s) -> _records(h, Tp, m, s, S, T), modifiers, init) :
         _sinks(Val(C), h, Tp, modifiers, states, S, T, picks)
     work = S * _kwork(kernel, S, L)
-    if _independent(coupling, kernel, modifiers)
+    if _independent(coupling, kernel, modifiers, rec, H)
         # A stratum on its own reads only its kernel convolution, so the run
         # needs no pressure vectors.
         _blocks!(
@@ -2010,3 +2115,128 @@ end
         args = ([1.1 0.9 1.2; 0.8 1.3 1.1],), kwargs = (; history = ones(2, 2))
     ),
 ]
+
+# == A one-lag recurrence as a scan ==
+
+# A recurrence with one fixed lag, a pointwise scalar coupling and no
+# modifiers is a first-order linear scan of each stratum,
+#
+#     y_t = c_t y_{t-1} + a_t,    c_t = λ k γ_t,
+#
+# so it runs with the running value in a register rather than read back from
+# a buffer. Random walks, cumulative sums from a seed and AR(1) series all
+# take it. Its reverse pass is the same scan run backwards.
+struct _Scan{K, C} <: AbstractOperator
+    kernel::K
+    coupling::C
+end
+uses_adjoint(::_Scan, ::Run) = true
+
+# Whether a call runs as a scan: read from the types, apart from the one
+# lag and one stratum, so a call that cannot take it folds the check away.
+# Recorded calls and device arrays take the buffer run. So do several
+# strata: each stratum's scan strides the output by the number of strata,
+# where the buffer run steps every stratum at each time.
+_scans(traced, stated, r, args) = false
+function _scans(
+        ::Val{false}, ::Val{false},
+        r::Recurrence{<:AbstractVector{<:Real}, <:UniformScaling, Tuple{}}, args
+    )
+    gain, add, h, s0 = args
+    return length(r.kernel) == 1 && _one_stratum(h) &&
+        s0 isa Union{Nothing, Tuple{}} &&
+        _on_host(r.kernel) && _on_host(gain) && _on_host(add) && _on_host(h)
+end
+
+_one_stratum(h::AbstractVector) = true
+_one_stratum(h::AbstractMatrix) = size(h, 1) == 1
+_one_stratum(h) = false
+
+# The call through the scan, with the same checks and output as the buffer
+# run.
+@inline function _scan_call(route, r, (gain, add, h, s0, τ0), stop)
+    (; stop) = _checked_call(r, gain, add, h, s0, τ0, stop)
+    return _scan_route(route, r.kernel, r.coupling, gain, add, h, τ0, stop)
+end
+# One reverse-mode extension makes `_scan_rule` a rule primitive, the
+# operator's pullback; the other puts its rule on each stratum's `_scan!`.
+# Elsewhere the scan takes its coefficient as a scalar, so no shadow of the
+# operator is built. Under `NoAdjoint` the backend differentiates the bare
+# loop, without the rule on `_scan!`.
+function _scan_route(::NoAdjoint, kernel, C, args::Vararg{Any, N}) where {N}
+    return _scan(_scan_coef(kernel, C), args..., _scan_steps!)
+end
+@inline function _scan_route(route, kernel, C, args::Vararg{Any, N}) where {N}
+    _gate(kernel, C, args...) && return _scan_rule(kernel, C, args...)
+    return _scan(_scan_coef(kernel, C), args...)
+end
+function _scan_rule(kernel, C, args::Vararg{Any, N}) where {N}
+    return _scan(_scan_coef(kernel, C), args...)
+end
+
+function _run_forward(op::_Scan, gain, add, h, τ0, stop)
+    y = _scan(_scan_coef(op), gain, add, h, τ0, stop)
+    return y, (; y = copy(y), gain = _tape(gain), h, τ0)
+end
+function _primal(op::_Scan, args::Vararg{Any, N}) where {N}
+    return _scan(_scan_coef(op), args...)
+end
+
+function _scan_eltype(c, gain, add, h)
+    return _buffer_eltype(param_eltype((c, gain, add, h)), ())
+end
+_scan_coef(op::_Scan) = _scan_coef(op.kernel, op.coupling)
+_scan_coef(kernel, C) = C.λ * only(kernel)
+# The last history value of stratum `k`, or zero for an empty history. It
+# is added to `+0.0`, as the buffer run's sum starts there, so a seed of
+# `-0.0` gives `+0.0` as that run does.
+function _scan_seed(h::AbstractVector, ::Type{Tp}, k) where {Tp}
+    return isempty(h) ? zero(Tp) : zero(Tp) + Tp(h[end])
+end
+function _scan_seed(h::AbstractMatrix, ::Type{Tp}, k) where {Tp}
+    return size(h, 2) == 0 ? zero(Tp) : zero(Tp) + Tp(h[k, end])
+end
+
+function _scan(c, gain, add, h::AbstractVector, τ0, stop, step! = _scan!)
+    Tp = _scan_eltype(c, gain, add, h)
+    y = Vector{Tp}(undef, stop - τ0 + 1)
+    step!(y, c, gain, add, _scan_seed(h, Tp, 1), τ0, 1, 1)
+    return y
+end
+function _scan(c, gain, add, h::AbstractMatrix, τ0, stop, step! = _scan!)
+    Tp = _scan_eltype(c, gain, add, h)
+    S = size(h, 1)
+    y = Matrix{Tp}(undef, S, stop - τ0 + 1)
+    for k in 1:S
+        step!(y, c, gain, add, _scan_seed(h, Tp, k), τ0, k, S)
+    end
+    return y
+end
+
+# Stratum `k` of `y` from seed `v`, its entry at step `j` in linear position
+# `(j - 1) S + k`. Two steps at a time, as
+# `y_{t+1} = d_{t+1} d_t y_{t-1} + (d_{t+1} a_t + a_{t+1})` with
+# `d_t = c γ_t`, so the chain from one value to the next has one
+# multiply-add per two steps and the rest runs beside it. A backend
+# extension's rule is on `_scan!`; `_scan_steps!` is the loop itself.
+function _scan!(y, c, gain, add, v, τ0, k, S)
+    return _scan_steps!(y, c, gain, add, v, τ0, k, S)
+end
+function _scan_steps!(y, c, gain, add, v, τ0, k, S)
+    n = length(y) ÷ S
+    j = 1
+    @inbounds while j < n
+        t = τ0 + j - 1
+        d₁, d₂ = c * _at(gain, k, t), c * _at(gain, k, t + 1)
+        a₁ = _at(add, k, t)
+        y[(j - 1) * S + k] = muladd(d₁, v, a₁)
+        v = muladd(d₂ * d₁, v, muladd(d₂, a₁, _at(add, k, t + 1)))
+        y[j * S + k] = v
+        j += 2
+    end
+    @inbounds if j == n
+        t = τ0 + j - 1
+        y[(j - 1) * S + k] = muladd(c * _at(gain, k, t), v, _at(add, k, t))
+    end
+    return nothing
+end

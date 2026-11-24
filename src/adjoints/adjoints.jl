@@ -55,8 +55,14 @@ end
 # `route` is the operator itself or its `NoAdjoint`; an operator with a
 # keyword call adds an `_invoke` method that builds the positional arguments.
 _invoke(op::AbstractOperator, route, args...) = adjoint_call(route, args...)
-(op::AbstractOperator)(args...; kwargs...) = _invoke(op, op, args...; kwargs...)
-(n::NoAdjoint)(args...; kwargs...) = _invoke(n.op, n, args...; kwargs...)
+# Inlined so that a backend that differentiates the call builds no shadow of
+# the keywords.
+@inline function (op::AbstractOperator)(args...; kwargs...)
+    return _invoke(op, op, args...; kwargs...)
+end
+@inline function (n::NoAdjoint)(args...; kwargs...)
+    return _invoke(n.op, n, args...; kwargs...)
+end
 function forward(n::NoAdjoint, ::Run, args...; kwargs...)
     return forward(n.op, Run(), args...; kwargs...)
 end
@@ -188,9 +194,12 @@ function _route(::Val{:rule}, op, args::Vararg{Any, N}) where {N}
     fit = _fit(op, args...)
     fit === :one && return _ad(op, args...)
     fit === :wide && return _ad_wide(op, args...)
+    # `:none`: no rule fits, so the call takes plain AD.
     return _hooked_plain(op, args...)
 end
-_fit(op, args...) = :one
+# Without the dual-number extension an operator that holds a `Derived` map
+# whose partials need dual numbers takes plain AD.
+_fit(op, args...) = _duals_loaded(nothing) || !_derived_duals(op) ? :one : :none
 
 # Plain AD, unless a backend extension makes it a rule primitive or its
 # reverse pass takes the rule for a long kernel (`_wide_rule`,

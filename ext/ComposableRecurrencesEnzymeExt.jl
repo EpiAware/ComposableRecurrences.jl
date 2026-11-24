@@ -7,11 +7,13 @@
 module ComposableRecurrencesEnzymeExt
 
 using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
-    _Current, _check_form, _check_now, _growth_root, _check_parts, _check_secondary,
+    _Current, _check_form, _check_now, _checked_call, _count_pullback,
+    _growth_root, _check_parts, _check_secondary,
     _convolve_masses!, _convolve_masses_back!, _current, _fft_convolve!,
     _fft_convolve_back!, _fft_convolve_terms!, _flat_groups, _is_leaf,
     _keep_inputs, _leaf_paths, _note_missing_duals, _plain_hook, _probe_step_reads, _rebuild_leaves,
-    _route_forward!, _run_forward, _run_pullback!, _shared_shadow,
+    _route_forward!, _run_forward, _run_pullback!, _scan!, _scan_back!,
+    _shared_shadow,
     _spawn_blocks, _spawn_chunks, _untraced, _wide_rule
 using Enzyme: Enzyme, EnzymeRules, Annotation, Const, Active, BatchDuplicated,
     BatchDuplicatedNoNeed, Duplicated, DuplicatedNoNeed, MixedDuplicated
@@ -225,6 +227,8 @@ EnzymeRules.inactive(::typeof(_check_parts), args...) = nothing
 # Nor is the same check run by the call of an operator built before
 # ForwardDiff was loaded.
 EnzymeRules.inactive(::typeof(_check_now), args...) = nothing
+# Nor are a call's checks against its recurrence, which return only sizes.
+EnzymeRules.inactive(::typeof(_checked_call), args...) = nothing
 # Nor is `growth_rate`'s root on primal values: its last Newton step carries
 # the derivative.
 EnzymeRules.inactive(::typeof(_growth_root), args...) = nothing
@@ -473,6 +477,64 @@ function EnzymeRules.reverse(
         _convolve_masses_back!(_lane(a, i), _lane(b, i), c̄, av, bv)
     end
     return (nothing, nothing, nothing)
+end
+
+# One stratum's one-lag scan (`_scan!`) takes its own rule, without the
+# leaves and mirrors of the operators' rule; its reverse pass is the
+# package's `_scan_back!`. The outputs are copied only when the caller
+# overwrites them before the reverse pass, since the cotangents of the
+# coefficient and gain read them.
+const _ScanOut = Annotation{<:Array{<:_IEEEFloat}}
+function EnzymeRules.augmented_primal(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_scan!)},
+        ::Type{<:Const}, y::_ScanOut, c::Annotation, gain::Annotation,
+        add::Annotation, v::Annotation, τ0::Const, k::Const, S::Const
+    )
+    _scan!(y.val, c.val, gain.val, add.val, v.val, τ0.val, k.val, S.val)
+    tape = EnzymeRules.overwritten(config)[2] ? copy(y.val) : nothing
+    return EnzymeRules.AugmentedReturn(nothing, nothing, tape)
+end
+function EnzymeRules.reverse(
+        config::EnzymeRules.RevConfig, ::Const{typeof(_scan!)},
+        ::Type{<:Const}, tape, y::_ScanOut, c::Annotation, gain::Annotation,
+        add::Annotation, v::Annotation, τ0::Const, k::Const, S::Const
+    )
+    _count_pullback()
+    yv = something(tape, y.val)
+    w = EnzymeRules.width(config)
+    sums = ntuple(Val(w)) do i
+        ȳ = _lane(y, i)
+        ȳ === nothing && return nothing
+        out = _scan_back!(
+            _scan_slots(gain, i), _scan_slots(add, i), ȳ, yv, c.val,
+            gain.val, v.val, τ0.val, k.val, S.val
+        )
+        _scan_zero!(ȳ, k.val, S.val)
+        return out
+    end
+    return (
+        nothing, _scan_active(c, sums, :c̄), _scan_active(gain, sums, :ḡ),
+        _scan_active(add, sums, :ā), _scan_active(v, sums, :v̄),
+        nothing, nothing, nothing,
+    )
+end
+# An array input's cotangent lane, or `nothing` for a scalar or a constant.
+_scan_slots(x::Annotation{<:AbstractArray}, i) = _lane(x, i)
+_scan_slots(x::Annotation, i) = nothing
+# The cotangent an `Active` scalar returns, one per lane past the first.
+_scan_active(x::Annotation, sums, name) = nothing
+_scan_active(x::Active, sums::Tuple{Any}, name) = _scan_sum(x, only(sums), name)
+function _scan_active(x::Active, sums::Tuple, name)
+    return map(s -> _scan_sum(x, s, name), sums)
+end
+_scan_sum(x, ::Nothing, name) = zero(x.val)
+_scan_sum(x, s, name) = convert(typeof(x.val), getfield(s, name))
+# The overwritten outputs of stratum `k` pass no cotangent on.
+function _scan_zero!(ȳ, k, S)
+    @inbounds for j in k:S:length(ȳ)
+        ȳ[j] = zero(eltype(ȳ))
+    end
+    return nothing
 end
 
 # The mirrors of the operator and its arguments, assembled from the leaves'

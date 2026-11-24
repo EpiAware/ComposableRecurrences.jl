@@ -90,7 +90,7 @@ function _reverse!(ex, c, modifiers, H̄, Ȳ, r̄, ḡain, ādd, h̄, s̄0, st̄
     ādd, ḡain = _slots(ādd), _slots(ḡain)
     kslots = _kernel_slots(ḡ, kernel)
     work = S * _kwork(kernel, S, L)
-    if _independent(coupling, kernel, modifiers)
+    if _independent(coupling, kernel, modifiers, rec, H)
         acc = (; ādd, ḡain, C̄, ḡ = kslots, m̄s)
         accs = _accumulators(ex, H, S, _work(_RunLoop(), H, T * work), acc)
         _reduce_blocks!(
@@ -365,6 +365,45 @@ _stratum_buffer(kb::AbstractMatrix, ::AbstractVector, k) = view(kb, :, k)
 _stratum_buffer(kb::AbstractMatrix, ::PerStratum, k) = view(kb, k, :)
 _stratum_buffer(::Nothing, g, k) = nothing
 
+# `y` is the last modifier's output, the buffer's value; each other
+# modifier's output is the next one's recorded value.
+_thread_back(::Tuple{}, m̄s, rec, s̄s, v̄, τ, t, k, y) = v̄
+function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k, y)
+    v̄ = _thread_back(
+        Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t, k,
+        y
+    )
+    m = first(ms)
+    return _series_stage_back!(
+        Val(_strata_loop(m)), m, first(m̄s), rec, first(s̄s), v̄, τ, t, k, y
+    )
+end
+# `rec` holds this modifier's records first, then those of the modifiers
+# after it, which give its output (see `_output_at`).
+function _series_stage_back!(::Val{true}, m, m̄, rec, s̄, v̄, τ, t, k, y)
+    R = first(rec)
+    vk, sk = R.V[k, t], _state_at(R.S, k, t)
+    v̄, s̄k, a, b = _trace_out(R, m, m̄, v̄, s̄[k], vk, sk, τ, t, k)
+    g = _with_output(
+        Val(_wants_output(m)), (; piece = m̄, v = v̄, s = s̄k), Base.tail(rec), y,
+        t, k
+    )
+    v̄, s̄k = _step_pullback(g, m, vk, sk, τ, k)
+    s̄[k] = _trace_in(b, s̄k)
+    return _trace_in(a, v̄)
+end
+# A modifier with one value per group, as `_group_back!` reverses group `k`;
+# the series step takes it only with plain records, so no trace to add.
+function _series_stage_back!(::Val{false}, m, m̄, rec, s̄, v̄, τ, t, k, y)
+    R = first(rec)
+    ns, G = _group_entries(m, s̄)
+    sk = _group_state_at(R.S, Val(ns), G, k, t)
+    gg = (; piece = m̄, v = (v̄,), s = _gather(s̄, Val(ns), G, k))
+    (v̄k,), s̄k = @inline _block_back(gg, m, (R.V[k, t],), sk, τ, k)
+    _scatter!(s̄, s̄k, G, k)
+    return v̄k
+end
+
 # == One step back: values, gain, add and core ==
 
 # Stratum `k`'s output cotangent at step `t` back through the pointwise
@@ -583,26 +622,6 @@ Base.@propagate_inbounds _add_slot!(x̄::AbstractVector, v, k, t) = (x̄[t] += v
 Base.@propagate_inbounds _add_slot!(x̄::AbstractMatrix, v, k, t) = (x̄[k, t] += v; nothing)
 Base.@propagate_inbounds _add_slot!(x̄::_Owned, v, k, t) = _add_slot!(x̄.x, v, k, t)
 
-# `y` is the last modifier's output, the buffer's value; each other
-# modifier's output is the next one's recorded value.
-_thread_back(::Tuple{}, m̄s, rec, s̄s, v̄, τ, t, k, y) = v̄
-function _thread_back(ms::Tuple, m̄s, rec, s̄s, v̄, τ, t, k, y)
-    v̄ = _thread_back(
-        Base.tail(ms), Base.tail(m̄s), Base.tail(rec), Base.tail(s̄s), v̄, τ, t, k,
-        y
-    )
-    R, s̄ = first(rec), first(s̄s)
-    m, m̄, vk, sk = first(ms), first(m̄s), R.V[k, t], _state_at(R.S, k, t)
-    v̄, s̄k, a, b = _trace_out(R, m, m̄, v̄, s̄[k], vk, sk, τ, t, k)
-    g = _with_output(
-        Val(_wants_output(m)), (; piece = m̄, v = v̄, s = s̄k), Base.tail(rec), y,
-        t, k
-    )
-    v̄, s̄k = _step_pullback(g, m, vk, sk, τ, k)
-    s̄[k] = _trace_in(b, s̄k)
-    return _trace_in(a, v̄)
-end
-
 # `grads.after` and `grads.pass` go to a modifier that asks (`_pass_buffer`).
 _stages_back!(::Tuple{}, m̄s, rec, s̄s, bufs, v̄, τ, t, y) = nothing
 function _stages_back!(ms::Tuple, m̄s, rec, s̄s, bufs, v̄, τ, t, y)
@@ -621,7 +640,6 @@ function _stages_back!(ms::Tuple, m̄s, rec, s̄s, bufs, v̄, τ, t, y)
     _trace_in!(R, m, v̄, s̄)
     return nothing
 end
-_step_grads(m̄, v̄, s̄, ::Nothing, ::Nothing, t) = (; piece = m̄, v = v̄, s = s̄)
 # A modifier that reads its output (`_wants_output`) gets it in `grads.out`:
 # at stratum `k`, or the column for `k = :`.
 _with_output(::Val{false}, g, rest, y, t, k) = g
@@ -629,6 +647,7 @@ _with_output(::Val{true}, g, rest, y, t, k) = merge(g, (; out = _output_at(rest,
 _output_at(::Tuple{}, y, t, k) = y
 _output_at(rest::Tuple{Any, Vararg}, y, t, k) = @inbounds first(rest).V[k, t]
 _output_at(rest::Tuple{Any, Vararg}, y, t, ::Colon) = view(first(rest).V, :, t)
+_step_grads(m̄, v̄, s̄, ::Nothing, ::Nothing, t) = (; piece = m̄, v = v̄, s = s̄)
 function _step_grads(m̄, v̄, s̄, A, b, t)
     return (; piece = m̄, v = v̄, s = s̄, after = _column(A, t), pass = _column(b, t))
 end
@@ -903,4 +922,91 @@ function _shared_shadow(y::Vector{E}, c, H::Matrix{E}, D) where {E <: _IEEEFloat
     H̄ = Base.wrap(Array, m, size(H))
     ȳ = Base.wrap(Array, memoryref(m, D + 1), (length(y),))
     return ȳ, merge(c, (; H̄, ȳ))
+end
+
+# == The one-lag scan's reverse pass ==
+
+# With `u_t` the cotangent of `y_t`, `u_t = ȳ_t + d_{t+1} u_{t+1}`; it is the
+# add input's, `e_t = u_t y_{t-1}` is the step coefficient's, and `d_1 u_1`
+# the seed's. The kernel and the coupling scale share `Σ_t γ_t e_t`.
+function pullback!(grads, op::_Scan, ::Run, cache)
+    _count_pullback()
+    (; y, gain, h, τ0) = cache
+    ḡain, ādd, h̄ = grads.args
+    k̄ = cotangent(grads.piece, :kernel)
+    λ̄ = cotangent(cotangent(grads.piece, :coupling), :λ)
+    λ, g = op.coupling.λ, only(op.kernel)
+    Tp = eltype(y)
+    S = _nstrata(h)
+    c̄ = ḡ = ā = zero(Tp)
+    for k in 1:S
+        sums = _scan_back!(
+            _array_slots(ḡain), _array_slots(ādd), grads.y, y, λ * g, gain,
+            _scan_seed(h, Tp, k), τ0, k, S
+        )
+        c̄, ḡ, ā = c̄ + sums.c̄, ḡ + sums.ḡ, ā + sums.ā
+        _scan_seed_back!(h̄, sums.v̄, k)
+    end
+    k̄ === nothing || (k̄[1] += λ * c̄)
+    λ̄ === nothing || (λ̄[] += g * c̄)
+    ḡain isa Base.RefValue && (ḡain[] += ḡ)
+    ādd isa Base.RefValue && (ādd[] += ā)
+    return nothing
+end
+
+# Stratum `k`'s reverse scan, two steps at a time as the forward one, so the
+# carry `w = d_t u_t` has one multiply-add per two steps on its chain. It
+# adds into the array cotangents of the gain and add input (or skips
+# `nothing`), and returns the sums a scalar of each takes, `Σ_t γ_t e_t` and
+# the seed's cotangent.
+function _scan_back!(ḡain, ādd, ȳ, y, c, gain, v, τ0, k, S)
+    Tp = eltype(y)
+    n = length(y) ÷ S
+    c̄ = ḡ = ā = w = zero(Tp)
+    j = n
+    @inbounds while j > 1
+        t = τ0 + j - 1
+        γ₁, γ₂ = _at(gain, k, t - 1), _at(gain, k, t)
+        d₁, d₂ = c * γ₁, c * γ₂
+        ȳ₁, ȳ₂ = ȳ[(j - 2) * S + k], ȳ[(j - 1) * S + k]
+        u₂ = w + ȳ₂
+        u₁ = muladd(d₂, u₂, ȳ₁)
+        e₂ = u₂ * y[(j - 2) * S + k]
+        e₁ = u₁ * (j == 2 ? v : y[(j - 3) * S + k])
+        _add_slot!(ādd, u₂, k, t)
+        _add_slot!(ādd, u₁, k, t - 1)
+        _add_slot!(ḡain, c * e₂, k, t)
+        _add_slot!(ḡain, c * e₁, k, t - 1)
+        # Each sum takes one add per pair, so its chain is no longer than
+        # the carry's.
+        c̄ += muladd(γ₂, e₂, γ₁ * e₁)
+        ḡ += e₁ + e₂
+        ā += u₁ + u₂
+        w = muladd(d₁ * d₂, w, muladd(d₁, ȳ₁, d₁ * d₂ * ȳ₂))
+        j -= 2
+    end
+    @inbounds if j == 1
+        γ = _at(gain, k, τ0)
+        u = w + ȳ[k]
+        e = u * v
+        _add_slot!(ādd, u, k, τ0)
+        _add_slot!(ḡain, c * e, k, τ0)
+        c̄ += γ * e
+        ḡ += e
+        ā += u
+        w = c * γ * u
+    end
+    return (; c̄, ḡ = c * ḡ, ā, v̄ = w)
+end
+# A scalar's cotangent takes the returned sum, not a slot per step.
+_array_slots(x̄::Base.RefValue) = nothing
+_array_slots(x̄) = _slots(x̄)
+_scan_seed_back!(::Nothing, u, k) = nothing
+function _scan_seed_back!(h̄::AbstractVector, u, k)
+    isempty(h̄) || (h̄[end] += u)
+    return nothing
+end
+function _scan_seed_back!(h̄::AbstractMatrix, u, k)
+    size(h̄, 2) == 0 || (h̄[k, end] += u)
+    return nothing
 end

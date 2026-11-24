@@ -4,7 +4,7 @@
 #
 # The reproduction number on each day can be read back from the infections a renewal run returns.
 # A renewal's infections on a day are the reproduction number times the pressure, a weighted sum of earlier infections.
-# A call with `record = (:trace,)` returns the pressure of each day with the infections, so dividing the infections by it gives the reproduction number.
+# A call with `record = (:pressure,)` returns the pressure of each day with the infections, so dividing the infections by it gives the reproduction number.
 
 # ## Packages used
 
@@ -37,7 +37,7 @@ T = 75
 R = [1.8 - clamp((t - 50) / 6, 0, 1) for t in 1:T]
 seed = fill(10.0, 6)
 renewal = Recurrence(gi)
-infections, trace = renewal(R; history = seed, record = (:trace,))
+infections, trace = renewal(R; history = seed, record = (:pressure,))
 R_hat = infections ./ trace.pressure
 
 @chain DataFrame(day = 1:T, value = R, series = "Gain") begin
@@ -71,7 +71,7 @@ end
 # \hat R_t = \frac{I_t}{q_t} = R_t \, \frac{S_{t-1}}{N} \, \frac{1 - e^{-\lambda_t}}{\lambda_t}.
 # ```
 #
-# The call's trace also holds each modifier's [`Trace`](@ref ComposableRecurrences.Trace).
+# With `record = (:trace,)` the call's trace also holds each modifier's [`Trace`](@ref ComposableRecurrences.Trace).
 # For a `Depletion` its first row is the pool after each day, which gives ``S_{t-1}`` to check the formula.
 
 N = 60_000.0

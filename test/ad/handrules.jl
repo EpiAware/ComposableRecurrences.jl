@@ -191,7 +191,7 @@ end
     )
     backend = AutoMooncake(; config = nothing)
     for (name, S) in (
-                ("bvd_window_weights", 1), ("bvd_window_reports", 5),
+                ("window_weights_construction", 1), ("bvd_window_reports", 5),
                 ("bvd_window_reports", 11),
             ), (T, L) in ((161, 45), (202, 50), (60, 10))
         c = only(x for x in MC.CASES if x.name == name)

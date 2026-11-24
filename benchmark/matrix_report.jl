@@ -572,6 +572,25 @@ const DOCS_BLOCKS = [
         ],
     ),
     (
+        "backend onset anchor", "bvd_onset_anchor", "ComposableRecurrences",
+        [
+            ("bvd_onset_anchor", "rule") => "ComposableRecurrences",
+            ("bvd_onset_anchor", "NoAdjoint") => "plain AD",
+            ("bvd_onset_anchor", "loop") => "hand loop",
+            ("bvd_onset_anchor", "handrule") => "hand rules",
+        ],
+    ),
+    (
+        "backend onset anchor, shared table", "bvd_onset_anchor_table",
+        "ComposableRecurrences",
+        [
+            ("bvd_onset_anchor_table", "rule") => "ComposableRecurrences",
+            ("bvd_onset_anchor_table", "NoAdjoint") => "plain AD",
+            ("bvd_onset_anchor_table", "loop") => "hand loop",
+            ("bvd_onset_anchor_table", "handrule") => "hand rules",
+        ],
+    ),
+    (
         "backend bins", "bvd_bins", "ComposableRecurrences",
         [
             ("bvd_bins", "rule") => "ComposableRecurrences",
@@ -591,12 +610,13 @@ const DOCS_BLOCKS = [
         ],
     ),
     (
-        "backend window weights", "bvd_window_weights", "ComposableRecurrences",
+        "window weights construction", "window_weights_construction",
+        "ComposableRecurrences",
         [
-            ("bvd_window_weights", "rule") => "ComposableRecurrences",
-            ("bvd_window_weights", "NoAdjoint") => "plain AD",
-            ("bvd_window_weights", "loop") => "hand loop",
-            ("bvd_window_weights", "handrule") => "hand rules",
+            ("window_weights_construction", "rule") => "ComposableRecurrences",
+            ("window_weights_construction", "NoAdjoint") => "plain AD",
+            ("window_weights_construction", "loop") => "hand loop",
+            ("window_weights_construction", "handrule") => "hand rules",
         ],
     ),
     (
