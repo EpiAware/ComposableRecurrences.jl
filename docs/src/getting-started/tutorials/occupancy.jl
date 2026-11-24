@@ -138,8 +138,10 @@ end
 # ```
 #
 # where ``A_t`` is the demand for beds, ``x_t`` the admissions and ``h_t`` the beds still held by earlier admissions.
-# The held beds ``h_t`` are a weighted sum of the recurrence's own past outputs, which [`Recent`](@ref ComposableRecurrences.Recent) reads, so the cap is `Transform(min, (B - Recent(S[2:end])) / S[1])` on a recurrence with a zero kernel and the demand as `add`.
-# Of the day's admissions a share ``\bar F_0`` is still in a bed at the end of the day, so the cap divides the free beds by ``\bar F_0``, and ``O_t = B`` on the days it binds.
+# The held beds ``h_t`` are a weighted sum of the recurrence's own past outputs, which [`Recent`](@ref ComposableRecurrences.Recent) reads.
+# The cap is `Transform(min, (B - Recent(S[2:end])) / S[1])` on a recurrence with a zero kernel and the demand as `add`.
+# Of the day's admissions a share ``\bar F_0`` is still in a bed at the end of the day.
+# The cap therefore divides the free beds by ``\bar F_0``, and ``O_t = B`` on the days it binds.
 # The survival is non-increasing, so ``h_t \le O_{t-1} \le B`` and the bound is never negative.
 
 function admit(survival, beds, demand)

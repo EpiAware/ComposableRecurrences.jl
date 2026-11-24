@@ -1,4 +1,4 @@
-# [GPUArrays + KernelAbstractions extension](@id extension-gpuarrays)
+# [Running on GPU arrays](@id extension-gpuarrays)
 
 Loading a GPU array package, with KernelAbstractions, runs operator calls on its arrays as kernels on the device.
 Every GPU array package loads GPUArrays, so `using CUDA, KernelAbstractions` is enough.
@@ -25,7 +25,7 @@ round.(Array(y); digits = 3)
 ```
 
 Mooncake and Enzyme fail on JLArrays and are untested on a GPU ([#835](https://github.com/EpiAware/ComposableRecurrences.jl/issues/835)), so take forward-mode derivatives with dual numbers built on the device.
-Here, the gradient of the total over the two kernel weights:
+The gradient of the total over the two kernel weights:
 
 ```jldoctest gpu
 using ForwardDiff: Dual, partials
@@ -45,5 +45,3 @@ round.(Tuple(partials(sum(rg(R; history = h)))); digits = 3)
 | `ForwardDiff.gradient` errors with scalar indexing | Build the duals directly, as above |
 
 What runs on a device, and which rules cover it, is in [GPU arrays](@ref gpu-arrays).
-
-All extensions are listed in the [overview](@ref extensions-overview).

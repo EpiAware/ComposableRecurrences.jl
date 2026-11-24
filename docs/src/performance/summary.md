@@ -1,7 +1,6 @@
 # [Performance summary](@id performance-summary)
 
-This page shows, for each documented example, how the package's runtime compares with the alternatives.
-Each example is timed against up to three alternatives:
+Each documented example is timed against up to three alternatives:
 
 - the package with its rules turned off by `NoAdjoint`, so the backend differentiates the forward loop;
 - a hand-written loop of the same model, differentiated by the same backend;

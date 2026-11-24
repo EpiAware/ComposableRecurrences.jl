@@ -1,4 +1,4 @@
-# [Distributions extension](@id extension-distributions)
+# [Discrete delay distributions](@id extension-distributions)
 
 Loading Distributions lets [`Recurrence`](@ref) and [`Convolution`](@ref) take a discrete distribution as a [kernel of delays](@ref overview-delays), with the number of lags.
 Each lag's mass sums the masses of the `step` whole units in it, through [`delay_masses`](@ref ComposableRecurrences.delay_masses).
@@ -19,5 +19,3 @@ round.(delay([10.0, 20.0, 40.0, 80.0]); digits = 3)
  18.129
  37.514
 ```
-
-All extensions are listed in the [overview](@ref extensions-overview).

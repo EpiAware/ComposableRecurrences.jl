@@ -137,6 +137,8 @@ end
     return @inbounds _value(x, nothing, k, i, τ, l, 1)
 end
 @inline _walk_value(x::Survival, st, k, i, τ, l) = st[1]
+@inline _walk_value(x::Increments, st, k, i, τ, l) = st[3]
+@inline _walk_value(x::Normalised, st, k, i, τ, l) = st[1]
 @inline function _walk_value(x::Derived, st, k, i, τ, l)
     return x.f(_walk_values(x.args, st, k, i, τ, l)...)
 end
@@ -157,6 +159,9 @@ end
 # the type. Without one, every stratum shares each cohort's walk.
 _walks_strata_type(::Type) = false
 _walks_strata_type(::Type{<:Survival{H}}) where {H} = _stratified_type(H)
+# A lag map keeps the values of one stratum's walk.
+_walks_strata_type(::Type{<:Increments{X}}) where {X} = _stratified_type(X)
+_walks_strata_type(::Type{<:Normalised{X}}) where {X} = _stratified_type(X)
 function _walks_strata_type(::Type{<:Derived{F, A}}) where {F, A}
     return any(_walks_strata_type, fieldtypes(A))
 end
@@ -166,6 +171,63 @@ end
 # has strata, else one walk per stratum.
 _walk_groups(x, ks) = _walks_strata(x) ? ks : (first(ks):first(ks))
 _walk_strata(x, ks, k0) = _walks_strata(x) ? (k0:k0) : ks
+
+# == Lag maps ==
+
+# A lag map's walk keeps the values `U` of the kernel inside for the cohort,
+# the map's `W`, and `W̄` their cotangents; its kernel inside records only
+# where the walk does, then with a costly hazard map's partials, as each
+# cohort is walked back straight after it is walked.
+struct _LagWalk{C, V <: AbstractVector}
+    inner::C
+    U::V
+    W::V
+    W̄::V
+end
+function _walk_scratch(x::_LagMap, ::Type{Tp}, dims, keep) where {Tp}
+    L = first(dims)
+    inner = _walk_scratch(x.x, Tp, (L,), Val(true))
+    return _LagWalk(inner, zeros(Tp, L), zeros(Tp, L), zeros(Tp, L))
+end
+_no_record(sc::_LagWalk) = _LagWalk(_no_record(sc.inner), sc.U, sc.W, sc.W̄)
+_walk_kept(sc::_LagWalk) = false
+
+# Increments stream along the lags: the state holds the last value inside,
+# the walk inside and the weight.
+function _walk_state(x::Increments, ::Type{T}) where {T}
+    return (zero(T), _walk_state(x.x, T), zero(T))
+end
+@inline function _walk(x::Increments, sc, st, k, i, τ, l)
+    inner = _walk(x.x, sc.inner, st[2], k, i, τ, l)
+    u = _walk_value(x.x, inner, k, i, τ, l)
+    w = u - st[1]
+    @inbounds sc.W[i] = w
+    return (u, inner, w)
+end
+# A total needs every lag, so the first lag walks the kernel inside through
+# all of them; the state holds the weight.
+_walk_state(x::Normalised, ::Type{T}) where {T} = (zero(T),)
+@inline function _walk(x::Normalised, sc, st, k, i, τ, l)
+    i == 1 && _walk_total!(x, sc, k, τ, l, typeof(first(st)))
+    return (@inbounds(sc.W[i]),)
+end
+function _walk_total!(x::Normalised, sc, k, τ, o, ::Type{T}) where {T}
+    (; U, W) = sc
+    L = length(U)
+    ist = _walk_state(x.x, T)
+    for j in 1:L
+        lj = j - 1 + o
+        ist = _walk(x.x, sc.inner, ist, k, j, τ, lj)
+        @inbounds U[j] = _walk_value(x.x, ist, k, j, τ, lj)
+    end
+    _lag_map!(W, x, U, L)
+    return nothing
+end
+Base.@propagate_inbounds function _value(
+        x::_LagMap, sc::_LagWalk, k, i, τ, l, b
+    )
+    return sc.W[i]
+end
 
 # == Reverse ==
 
@@ -183,6 +245,19 @@ Base.@propagate_inbounds function _add_value!(
     return nothing
 end
 
+# A lag map keeps the cotangents of its weights for its step back.
+function _add_value!(
+        ::Nothing, x::_LagMap, sc::_LagWalk, v, k, i, τ, l, b
+    )
+    return nothing
+end
+Base.@propagate_inbounds function _add_value!(
+        x̄, x::_LagMap, sc::_LagWalk, v, k, i, τ, l, b
+    )
+    sc.W̄[i] += v
+    return nothing
+end
+
 # The cotangents carried back: each `Survival`'s, of its survival from the
 # current lag on, and its hazard's, in the shape of the walk's state.
 _walk_cotangent(x, ::Type) = nothing
@@ -192,6 +267,12 @@ end
 function _walk_cotangent(x::Survival, ::Type{T}) where {T}
     return (zero(T), _walk_cotangent(x.hazard, T))
 end
+# Increments carry the cotangent of the next lag's weight; a total is taken
+# back whole at the last lag walked, after which nothing is carried.
+function _walk_cotangent(x::Increments, ::Type{T}) where {T}
+    return (zero(T), _walk_cotangent(x.x, T))
+end
+_walk_cotangent(x::Normalised, ::Type) = (true,)
 
 # Back along cohort `τ`'s lags from `imax`, once the cotangents of its
 # weights are added.
@@ -237,6 +318,38 @@ _first_mirror(::Nothing) = nothing
 _first_mirror(ā::Tuple) = first(ā)
 _tail_mirrors(::Nothing) = nothing
 _tail_mirrors(ā::Tuple) = Base.tail(ā)
+# The weight `w_i = u_i - u_{i-1}` sends `w̄_i - w̄_{i+1}` to the value
+# inside at lag `i`.
+@inline _walk_back(::Nothing, x::Increments, sc, a, k, i, τ, l) = a
+@inline _walk_back(::Nothing, x::Normalised, sc, a, k, i, τ, l) = a
+@inline function _walk_back(x̄, x::Increments, sc, a, k, i, τ, l)
+    x̄x = cotangent(x̄, :x)
+    w̄ = @inbounds sc.W̄[i]
+    @inbounds sc.W̄[i] = zero(w̄)
+    _add_value!(x̄x, x.x, sc.inner, w̄ - a[1], k, i, τ, l, 1)
+    return (w̄, _walk_back(x̄x, x.x, sc.inner, a[2], k, i, τ, l))
+end
+@inline function _walk_back(x̄, x::Normalised, sc, a, k, i, τ, l)
+    first(a) && _walk_total_back!(x̄, x, sc, k, τ, l - i + 1)
+    return (false,)
+end
+function _walk_total_back!(x̄, x::Normalised, sc, k, τ, o)
+    x̄x = cotangent(x̄, :x)
+    (; U, W̄) = sc
+    L = length(U)
+    T = eltype(U)
+    _lag_map_back!(W̄, x, W̄, U, L)
+    ia = _walk_cotangent(x.x, T)
+    for j in L:-1:1
+        lj = j - 1 + o
+        v = @inbounds W̄[j]
+        @inbounds W̄[j] = zero(T)
+        _add_value!(x̄x, x.x, sc.inner, v, k, j, τ, lj, 1)
+        ia = _walk_back(x̄x, x.x, sc.inner, ia, k, j, τ, lj)
+    end
+    return nothing
+end
+
 # `a` is the cotangent of the survival from the current lag on; its parent
 # reads it once per lag, so it is whole once the parent's share is added.
 @inline _walk_back(::Nothing, x::Survival, sc, a, k, i, τ, l) = a

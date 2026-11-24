@@ -54,7 +54,8 @@ end
 # ```
 #
 # where ``I_t`` is the number of infections and ``C_t`` the reports on day ``t``.
-# With the default [`Secondary()`](@ref ComposableRecurrences.Secondary), column ``t`` holds the delays of the reports on day ``t``, and with [`Primary()`](@ref ComposableRecurrences.Primary), column ``\tau`` holds the delays of the infections on day ``\tau``.
+# With the default [`Secondary()`](@ref ComposableRecurrences.Secondary), column ``t`` holds the delays of the reports on day ``t``.
+# With [`Primary()`](@ref ComposableRecurrences.Primary), column ``\tau`` holds the delays of the infections on day ``\tau``.
 # A constant delay, the first column ``P_l(1)``, is a reference.
 
 infections = [100 * exp(-((t - 35) / 12)^2) for t in 1:T]

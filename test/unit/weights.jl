@@ -489,6 +489,105 @@ end
     check(r, (fill(1.1, T), nothing, [1.0], nothing, 2, T), sin.(1:(T - 1)))
 end
 
+@testitem "Computed kernels: increments and weights over their total" tags = [:threads] setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
+    using ComposableRecurrences, JLArrays
+    using ComposableRecurrences: Derived
+    CR = ComposableRecurrences
+    (; p, P, h, A, AS, primary) = WeightsChecks
+    (; rule_vjp, reference_vjp) = PullbackChecks
+    W = WeightsChecks
+    computed(x) = TimeVarying(x, CR.Primary())
+    # Naive maps of each cohort's column of a weights array.
+    increments(K) = cat(selectdim(K, ndims(K) - 1, 1:1), diff(K; dims = ndims(K) - 1); dims = ndims(K) - 1)
+    normalised(K) = K ./ sum(K; dims = ndims(K) - 1)
+    n = 30
+    kw(x, m = n) = CR.kernel_weights(computed(x), m)
+    cdf = 1 - CR.Survival(Derived(*, 0.5 * p, TimeVarying(h)))
+    stratified = PerStratum(P) * CR.Survival(TimeVarying(h); from = 1)
+    for x in (cdf, W.confirmed(p, h), stratified)
+        K = kw(x)
+        @test kw(CR.Increments(x)) ≈ increments(K)
+        @test kw(CR.Normalised(x)) ≈ normalised(K)
+        @test kw(CR.Normalised(CR.Increments(x))) ≈ normalised(increments(K))
+        @test kw(CR.Increments(CR.Normalised(x))) ≈ increments(normalised(K))
+    end
+    # A total of zero keeps zero weights.
+    @test iszero(kw(CR.Normalised(Derived(*, 0.0, p))))
+    # Arithmetic lowers to Derived, and the maps show as their formula.
+    pmf = CR.Normalised(CR.Increments(cdf))
+    @test 2.0 * pmf isa Derived && pmf * CR.Survival(p) isa Derived
+    @test CR.Survival(p) - CR.Increments(cdf) isa Derived
+    @test kw(2.0 * pmf) ≈ 2 .* kw(pmf)
+    @test startswith(CR._formula(pmf), "Normalised(Increments(1 - Survival(")
+    @test_throws "lag map takes a computed kernel" CR.Increments(p)
+    # The operators against the dense kernel of the same weights, with the
+    # input held at its last value past its end in the transpose.
+    for (x, input) in ((pmf, A), (CR.Normalised(CR.Increments(stratified)), AS))
+        computed_conv = Convolution(computed(x))
+        dense = Convolution(primary(kw(x, size(input, ndims(input)))))
+        @test computed_conv(input) ≈ dense(input)
+        @test computed_conv(input; start = 7) ≈ dense(input; start = 7)
+        tail = collect(selectdim(input, ndims(input), fill(lastindex(input, ndims(input)), 5)))
+        @test computed_conv'(input; tail) ≈ dense'(input; tail)
+        @test computed_conv'(input; stop = 20) ≈ dense'(input; stop = 20)
+    end
+    # Each rule's pullback against a Jacobian, on small inputs.
+    T, L = 8, 5
+    q, hs, Ps = p[1:L], h[1:(T + L + 1)], P[:, 1:L]
+    x, xs = [1.0 + 0.1 * t for t in 1:T], [1.0 + 0.1 * k * t for k in 1:2, t in 1:T]
+    check(op, args, ȳ) = @test rule_vjp(op, args, ȳ) ≈ reference_vjp(ReferenceAD.jacobian, op, args, ȳ)
+    conv(k) = Convolution(computed(k))
+    tr(k) = CR._TransposedConvolution(conv(k))
+    small = CR.Normalised(CR.Increments(1 - CR.Survival(Derived(*, 0.5 * q, TimeVarying(hs)))))
+    perstratum = CR.Normalised(CR.Increments(PerStratum(Ps) * CR.Survival(TimeVarying(hs); from = 1)))
+    inc = CR.Increments(q * CR.Survival(TimeVarying(hs); from = 1))
+    for k in (small, inc)
+        check(conv(k), (x, true, nothing, nothing, 1, T), sin.(1:T))
+        check(conv(k), (x, 0.7, nothing, nothing, 3, T), sin.(1:(T - 2)))
+        check(tr(k), (x, nothing, 1, T), sin.(1:T))
+        check(tr(k), (x, fill(x[end], L - 1), 1, T), sin.(1:T))
+        check(CR._KernelWeights(computed(k)), (T,), reshape(sin.(1:(L * T)), L, T))
+    end
+    # With a tail the transpose reads past its last output, but not a
+    # cohort's coefficient there: one covering the outputs alone serves.
+    cohort = CR.Normalised(CR.Increments(1 - CR.Survival(Derived(*, 0.5 * q, TimeVarying(fill(0.4, T), CR.Primary())))))
+    check(tr(cohort), (x, fill(x[end], L - 1), 1, T), sin.(1:T))
+    dense = Convolution(primary(CR.kernel_weights(computed(cohort), T)))
+    @test conv(cohort)'(x; tail = fill(x[end], L - 1)) ≈ dense'(x; tail = fill(x[end], L - 1))
+    args = (xs, true, nothing, nothing, 1, T)
+    check(conv(perstratum), args, sin.(xs))
+    check(tr(perstratum), (xs, nothing, 1, T), sin.(xs))
+    # Another executor fills the dense kernel in blocks, forward, transposed
+    # and in reverse.
+    dsmall = Convolution(primary(CR.kernel_weights(computed(small), T)))
+    held = fill(x[end], L - 1)
+    threaded = CR.Threaded(; min_work = 0, ntasks = 2)
+    Base.ScopedValues.with(CR.EXECUTOR => threaded) do
+        @test conv(small)(x) ≈ dsmall(x)
+        @test conv(small)'(x; tail = held) ≈ dsmall'(x; tail = held)
+        check(conv(small), (x, true, nothing, nothing, 1, T), sin.(1:T))
+        check(tr(small), (x, held, 1, T), sin.(1:T))
+        check(conv(perstratum), args, sin.(xs))
+    end
+    # At a total of zero the floor has no slope.
+    check(conv(CR.Normalised(Derived(*, 0.0, q))), (x, true, nothing, nothing, 1, T), sin.(1:T))
+    # A total reads every lag of each cohort: a hazard read at the time a
+    # weight lands needs the times up to `T + L - 1` in a convolution and
+    # `T + L` in a recurrence.
+    landed(h) = CR.Normalised(1 - CR.Survival(Derived(*, 0.5 * q, TimeVarying(h))))
+    @test length(conv(landed(hs[1:(T + L - 1)]))(x)) == T
+    @test_throws DimensionMismatch conv(landed(hs[1:(T + L - 2)]))(x)
+    rec(h) = Recurrence(computed(0.3 * landed(h)))(fill(1.1, T); history = [1.0], start = 2)
+    @test length(rec(hs[1:(T + L)])) == T - 1
+    @test_throws DimensionMismatch rec(hs[1:(T + L - 1)])
+    # A lag map fills on the host only.
+    device = computed(CR.Increments(Derived(*, JLArray(q), 2.0)))
+    @test_throws "fills on the host" CR.kernel_weights(device, T)
+    # A recurrence with a lag-mapped kernel, its lags from 1.
+    r = Recurrence(computed(0.3 * small))
+    check(r, (fill(1.1, T), nothing, [1.0], nothing, 2, T), sin.(1:(T - 1)))
+end
+
 @testitem "Computed kernels: a transposed call with a tail reads only what its outputs need" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
     using ComposableRecurrences
     using ComposableRecurrences: Derived
