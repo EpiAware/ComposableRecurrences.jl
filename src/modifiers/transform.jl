@@ -129,12 +129,13 @@ struct Transform{F, P, D}
 end
 
 function Transform(f, θ = nothing; derivative = nothing)
+    p = _as_params(θ)
     d = _output_form(derivative)
-    return Transform{typeof(f), typeof(θ), typeof(d)}(f, θ, d)
+    return Transform{typeof(f), typeof(p), typeof(d)}(f, p, d)
 end
 # The bounds are held as `θ = (lo, hi)`, and passed only as `lo, hi`.
 function Transform(::typeof(clamp), lo, hi)
-    θ = (_check_param(:lo, lo), _check_param(:hi, hi))
+    θ = (_check_param(:lo, _as_param(lo)), _check_param(:hi, _as_param(hi)))
     return Transform{typeof(clamp), typeof(θ), Nothing}(clamp, θ, nothing)
 end
 @noinline function Transform(::typeof(clamp), θ = nothing; derivative = nothing)

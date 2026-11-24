@@ -207,9 +207,10 @@ end
     # Read at the absolute time.
     y = r(TimeVarying(PerStratum(b)))(1.1; history = h, start = 3, stop = 4)
     @test y ≈ Recurrence(g)(1.1; history = h, add = b, start = 3)
-    # A plain array is not a parameter, and the values must cover stop.
+    # A plain vector is not a parameter, a plain matrix is strata × time,
+    # and the values must cover stop.
     @test_throws ArgumentError CR.Transform(+, b[1, :])
-    @test_throws ArgumentError CR.Transform(+, b)
+    @test r(b)(1.1; history = h, stop = 4) ≈ base(b)
     @test_throws ArgumentError CR.Transform(+, TimeVarying(b[1, :], CR.Primary()))
     @test_throws "only meaningful for a kernel; got TimeVarying(" CR.Transform(
         +,
@@ -1291,4 +1292,35 @@ end
     m = Scale(PerStratum([0.5, 0.8, 1.1]))
     CR._check_modifier_params(m, 3)
     @test (@allocated CR._check_modifier_params(m, 3)) == 0
+end
+
+@testitem "Shapes with one reading need no wrapper; shapes with two name both" begin
+    using ComposableRecurrences, Test
+    CR = ComposableRecurrences
+    R, h = fill(1.1, 2, 6), ones(2, 2)
+    # A modifier parameter's matrix is strata × time.
+    rate = [0.1 * k + 0.01 * t for k in 1:2, t in 1:6]
+    bare = CR.Transform(+, rate)
+    wrapped = CR.Transform(+, TimeVarying(PerStratum(rate)))
+    @test typeof(bare) == typeof(wrapped)
+    @test all(CR.param(bare.θ, k, t) == rate[k, t] for k in 1:2, t in 1:6)
+    @test Recurrence([0.5]; modifiers = (bare,))(R; history = h) ==
+        Recurrence([0.5]; modifiers = (wrapped,))(R; history = h)
+    # As are the matrices in a tuple of parameters and in clamp's bounds.
+    pair = CR.Transform((v, θ...) -> v + θ[1] * θ[2], (rate, 2.0))
+    @test pair.θ[1] isa TimeVarying
+    bounds = CR.Transform(clamp, 0.0, fill(2.0, 2, 6))
+    @test bounds.θ[2] isa TimeVarying
+    # A coupling's third axis is time.
+    C2 = cat([0.9 0.1; 0.2 0.8], [0.8 0.2; 0.3 0.7]; dims = 3)
+    C = C2[:, :, [1, 2, 1, 2, 1, 2]]
+    @test Recurrence([0.5]; coupling = C)(R; history = h) ==
+        Recurrence([0.5]; coupling = TimeVarying(C))(R; history = h)
+    # A vector parameter, a kernel matrix and a three-dimensional kernel
+    # have two readings, and the error names both.
+    @test_throws "one value per stratum or one per time" CR.Transform(
+        +, [0.1, 0.2]
+    )
+    @test_throws "lags × time" Recurrence(ones(2, 3))
+    @test_throws "strata × strata × lags" Convolution(ones(2, 3, 4))
 end

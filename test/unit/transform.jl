@@ -63,9 +63,11 @@ end
 @testitem "Transform: argument validation" begin
     using ComposableRecurrences
     CR = ComposableRecurrences
-    # Per stratum is PerStratum, strata × time is TimeVarying(PerStratum(x)).
+    # Per stratum is PerStratum, and a plain matrix is strata × time.
     @test_throws ArgumentError CR.Transform(*, [1.0, 2.0])
-    @test_throws ArgumentError CR.Transform(*, ones(2, 3))
+    θ = CR.Transform(*, ones(2, 3)).θ
+    @test θ isa TimeVarying{CR.Secondary, <:PerStratum{<:Matrix}}
+    @test θ.x.x == ones(2, 3)
     @test_throws ArgumentError CR.Transform(*, (; a = [1.0, 2.0]))
     # Entries are flat.
     @test_throws ArgumentError CR.Transform(*, (; a = (1.0, 2.0)))

@@ -54,6 +54,8 @@ routes that have a cheaper equivalent form.
 The coupling is `I` (or a scaled `λ * I`), any `S × S` matrix (dense,
 sparse, `Diagonal`), a [`TimeVarying`](@ref) `S × S × T` array, or any
 struct with `forward!` on [`ComposableRecurrences.Pressure`](@ref).
+A bare `S × S × T` array is read as `TimeVarying`: its third axis is time,
+not lags.
 Modifiers are structs with `forward!` on [`ComposableRecurrences.Step`](@ref)
 and, for an initial state, [`ComposableRecurrences.Init`](@ref).
 
@@ -185,9 +187,13 @@ function Recurrence(
     )
     _check_no_step(step)
     _check_no_delays(kernel)
-    k, C = _fold(kernel, coupling)
+    k, C = _fold(kernel, _as_coupling(coupling))
     return Recurrence(k, C, Tuple(modifiers), _modifier_names(modifiers))
 end
+
+# A coupling is strata × strata, so a bare third axis can only be time.
+_as_coupling(C) = C
+_as_coupling(C::AbstractArray{<:Real, 3}) = TimeVarying(C)
 
 # The modifiers' names, the keys of a named tuple of modifiers; a tuple
 # names none. A name cannot be one that `record` reads for another part.
@@ -353,9 +359,11 @@ end
 function _check_kernel_shape(k::AbstractArray)
     throw(
         ArgumentError(
-            "a kernel array is a vector of lag weights; wrap a strata × " *
-                "lags matrix as PerStratum(G) and a strata × strata × lags " *
-                "array as Pairwise(A); got $(_describe(k))"
+            "a kernel array is a vector of lag weights; a matrix could be " *
+                "strata × lags, PerStratum(G), or lags × time, " *
+                "TimeVarying(G), and a 3-dimensional array strata × lags × " *
+                "time, TimeVarying(PerStratum(G)), or strata × strata × " *
+                "lags, Pairwise(A), so wrap it as one; got $(_describe(k))"
         )
     )
 end

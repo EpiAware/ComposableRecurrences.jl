@@ -52,8 +52,8 @@ Each slot accepts its own set of wrappers.
 |---|---|---|---|---|---|---|---|
 | `Recurrence` kernel | lags | yes | yes | yes | yes | in `TimeVarying(d, Primary())` | no |
 | `Convolution` kernel | lags | yes | yes | no | no | in `TimeVarying(d, Primary())` | no |
-| coupling | `S × S` or `λI` | no | yes | no | no | no | no |
-| modifier parameter | one value | yes | yes | no | no | yes | yes |
+| coupling | `S × S` or `λI`; `S × S × T` read as `TimeVarying` | no | yes | no | no | no | no |
+| modifier parameter | one value; `S × T` read as `TimeVarying(PerStratum(x))` | yes | yes | no | no | yes | yes |
 
 [`Primary`](@ref ComposableRecurrences.Primary) indexing is for kernels only; anywhere else it is an `ArgumentError`.
 
@@ -77,7 +77,21 @@ Inside a differentiated function, build them as [`TimeVarying`](@ref) says.
   For a recurrence, the value at ``\tau`` is its own output.
 
 Most wrappers hold the stored array without copying it.
-A bare vector where a single value is expected is an error that names the wrapper to use.
+Where a bare array's shape has one reading, the wrapper can be left out: a coupling's third axis can only be time, and a modifier parameter's matrix can only be strata × time.
+Where it has two, the wrapper names the reading, and a bare array is an error that names both.
+These shapes have two readings:
+
+- a modifier parameter's vector: one value per stratum, or one per time;
+- a kernel matrix: strata × lags, or lags × time;
+- a three-dimensional kernel: strata × lags × time, or strata × strata × lags.
+
+A `Derived` argument always takes its wrapper, as it can feed a kernel or a modifier.
+
+```@example shapes
+rate = fill(0.1, 2, 10)
+imports = ComposableRecurrences.Transform(+, rate)
+imports.θ isa TimeVarying
+```
 
 ## [Data shapes](@id explanation-data-shapes)
 
