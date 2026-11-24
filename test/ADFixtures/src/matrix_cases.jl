@@ -1005,6 +1005,7 @@ pending_cases() = Tuple{String, String}[]
 # `ADFixtures._REQUIRES` for the scenarios. A case not listed needs none.
 const REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "bvd_patch" => (:_kernel_movement,),
+    "bvd_bins" => (:window_sums,),
     "bvd_bin_rows" => (:window_sums,),
     "bvd_window_reports" => (:window_sums,),
     "bvd_patches_call" => (:_kernel_movement, :_WithTrace),
@@ -1608,11 +1609,11 @@ if isfile(BVD_HANDRULE)
 
     # BVD's `bin_increments`: sums of a positive daily series over the
     # windows between report days, `L` days apart, the last window cut at the
-    # series' end. The package arm is the running-total recipe of the
-    # window-aggregation use case: a unit lag-1 `Recurrence`, differenced at
-    # the window ends. Only the registered sizes check the arms agree; there
-    # the last window is always cut, and an empty window gives zero in all
-    # three, as each reads the days clamped to the series.
+    # series' end. The package arm is BVD's spelling, `window_sums` at the
+    # report days, as its operator so `wrap` can turn its rule off too. Only
+    # the registered sizes check the arms agree; there the last window is
+    # always cut, and an empty window gives zero in all three, as each reads
+    # the days clamped to the series.
     function _bvd_bins(run)
         return function (wrap, z::Size)
             (; T, L) = z
@@ -1625,13 +1626,7 @@ if isfile(BVD_HANDRULE)
         end
     end
     function _bvd_bins_rule(wrap, daily, days)
-        total = vcat(
-            zero(eltype(daily)),
-            wrap(Recurrence([1.0]))(1.0; history = [0.0], add = daily)
-        )
-        hi = min.(days, length(daily))
-        lo = vcat(0, hi[1:(end - 1)])
-        return total[hi .+ 1] .- total[lo .+ 1]
+        return wrap(CR._WindowSums(days, length(daily), 1))(daily)
     end
     _bvd_bins_hand(kernel) = (wrap, daily, days) -> kernel(daily, days)
 
@@ -1834,7 +1829,7 @@ if isfile(BVD_HANDRULE)
                 ), [1],
             ),
             (
-                "bvd_bins", "BVD bin_increments: window sums as a running total",
+                "bvd_bins", "BVD bin_increments: window sums at report days",
                 _bvd_bins, _bvd_bins_rule, _bvd_bins_hand,
                 (BVD.bin_loop, BVD.bin_increments), [1],
             ),
