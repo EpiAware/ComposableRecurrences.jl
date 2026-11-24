@@ -1516,8 +1516,9 @@ end
 # Whether a vector modifier's pullback reads its state after each step,
 # so the forward pass records it (see `_pass_buffer`).
 _keeps_after(m) = false
-# Whether a modifier's step, pullback or trace reads its incoming state;
-# `false` lets its record share the starting state.
+# Whether a modifier's step, pullback or trace reads its incoming state.
+# `false` is a promise that none does: `_state_record` then shares the
+# starting state, so a step that read it would see the wrong one.
 _reads_state(m) = true
 function _state_record(h, ::Type{Tp}, m, s, T) where {Tp}
     # `s` is the cache's copy of the starting state, which nothing writes,

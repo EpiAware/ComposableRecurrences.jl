@@ -709,7 +709,8 @@ end
 end
 
 # Its cotangents `(b̄, w̄, ȳ)` from those `m̄` of what each source loses,
-# with the parts `c, u, W` and demands `d` the forward step computed.
+# given the step's parts `c, u, W` and demands `d`, which the caller
+# computes once.
 @inline function _split_back(b, w::NTuple{n}, y::NTuple{n}, m̄, c, u, W, d) where {n}
     r̄s = map(_removal_pullback, d, y, m̄)
     d̄ = map(first, r̄s)
