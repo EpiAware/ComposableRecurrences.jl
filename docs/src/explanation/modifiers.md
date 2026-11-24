@@ -169,7 +169,7 @@ round.(y; digits = 3)
  2.0
 ```
 
-Its trace names its rows ([`trace_rows`](@ref ComposableRecurrences.trace_rows)): `spilled` and `pattern`, its state after each step, and `imports`, the part of each stratum's value the pattern placed.
+Its trace names its rows ([`trace_rows`](@ref ComposableRecurrences.trace_rows)): `spilled` and `pattern`, its state after each step, and `imports`, the part of each stratum's value the import term placed.
 Named in the modifiers, it is read by name:
 
 ```jldoctest
@@ -193,8 +193,13 @@ round.(out.trace.modifiers.split.imports; digits = 3)
  0.0
 ```
 
-The imports are the share ``\phi_{t,p} r_p T_{t,p}`` the step placed by the pattern.
-While a group's pattern sums to less than ``\epsilon`` that share is ``r_p < 1`` of ``\phi_{t,p} T_{t,p}``, and the rest of the total goes by the spilled values.
+A group's imports sum to ``\phi_{t,p} T_{t,p}``.
+The pattern places ``r_p`` of them and, while the pattern sums to less than ``\epsilon``, the spilled values place the rest:
+
+```math
+\text{imports}_i = \phi_{t,p} T_{t,p} \Big(\frac{h_i}{\sigma^h_p}
+    + (1 - r_p) \frac{u_i}{\sigma^u_p}\Big), \quad i \in G_p .
+```
 
 ## [Choosing a modifier](@id explanation-choosing-modifier)
 

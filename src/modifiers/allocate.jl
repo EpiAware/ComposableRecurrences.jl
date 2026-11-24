@@ -292,53 +292,104 @@ end
 # With imports the state holds the import pattern, after the spilled values
 # when there is a spill.
 nstate(m::Allocate{<:Any, <:_AllocateImports}, S) = _nslots(m) * S
-# Its trace is its state after each step (the default): the spilled values
-# when there is a spill, then the pattern. A call names those rows and adds
-# the imports built from the pattern (`_derived_rows`), so the run and its
-# reverse pass are unchanged.
-_trace_is_state(::Allocate) = true
+# With imports its trace is its state after each step, the spilled values
+# when there is a spill and then the pattern, followed by the imports: the
+# part of each stratum's value placed by the import term, all of `φ T`,
+# whether by the pattern or, below the floor, by the spilled values. A call
+# names the rows (`trace_rows`).
+_trace_is_state(::Allocate{<:Any, Nothing}) = true
+ntrace(m::Allocate{<:Any, <:_AllocateImports}, S) = nstate(m, S) + S
 function trace_rows(m::Allocate{<:Any, <:_AllocateImports}, S)
-    m.imports.spill === nothing && return (; pattern = S)
-    return (; spilled = S, pattern = S)
+    m.imports.spill === nothing && return (; pattern = S, imports = S)
+    return (; spilled = S, pattern = S, imports = S)
 end
-function _derived_rows(m::Allocate{<:Any, <:_AllocateImports}, parts, τ0)
-    return (; imports = _import_rows(m, parts.pattern, τ0))
+function forward!(
+        m::Allocate{<:Any, <:_AllocateImports}, ::Trace, r, v, s, v′, s′, t
+    )
+    S, n = length(v), length(s′)
+    copyto!(view(r, 1:n), s′)
+    u = m.imports.spill === nothing ? v : view(s′, 1:S)
+    h = view(s′, (n - S + 1):n)
+    strata, offsets = _like(v, m.strata), _like(v, m.offsets)
+    _each!(
+        _imports_trace_body!, Serial(), v, _ngroups(m), S,
+        view(r, (n + 1):(n + S)), u, h, strata, offsets, m.total,
+        m.imports.fraction, t
+    )
+    return nothing
 end
-
-# The share of each stratum's value placed by the pattern at each step,
-# `ch * h_i` of the step (`_import_weights`): with `G` the groups' membership,
-# `c = T ⊙ φ ./ max.(G h, ε)` per group and step, and the imports `(G' c) ⊙ h`.
-# Built from arrays rather than a loop, so every backend differentiates it and
-# it runs on a device.
-function _import_rows(m::Allocate, h, τ0)
-    size(h, 1) == 0 && return h[1:0, :]
-    P, (S, T) = _ngroups(m), size(h)
-    τs = τ0:(τ0 + T - 1)
-    G = _membership(m, h, P, S)
-    tot = _group_steps(m.total, P, τs)
-    φ = _group_steps(m.imports.fraction, P, τs)
-    c = tot .* φ ./ max.(G * h, eps(eltype(h)))
-    return (transpose(G) * c) .* h
-end
-# Row `p` marks group `p`'s strata, on the device of `h`.
-function _membership(m::Allocate, h, P, S)
-    G = zeros(eltype(h), P, S)
-    for p in 1:P, k in _group(m, p)
-        G[p, k] = one(eltype(h))
+# Group `p`'s imports, `a (h_k / max(Σh, ε) + (1 - r) u_k / max(Σu, ε))`
+# with `a = T φ` and `r = Σh / max(Σh, ε)`: the pattern's term of the step,
+# and the share of `a` the step gave the spilled values below the floor.
+function _imports_trace_body!(p, imp, u, h, strata, offsets, total, fraction, t)
+    ε = eps(eltype(imp))
+    zs = view(strata, (offsets[p] + 1):offsets[p + 1])
+    su = zero(eltype(imp))
+    sh = zero(eltype(imp))
+    for k in zs
+        su += u[k]
+        sh += h[k]
     end
-    return copyto!(similar(h, P, S), G)
+    a = param(total, p, t) * param(fraction, p, t)
+    mh = max(sh, ε)
+    ch, cu = a / mh, a * (1 - sh / mh) / max(su, ε)
+    for k in zs
+        imp[k] = ch * h[k] + cu * u[k]
+    end
+    return nothing
 end
-# A parameter over groups at the times `τs`, shaped to broadcast against
-# groups × steps.
-_group_steps(x::Real, P, τs) = x
-_group_steps(x::PerStratum{<:AbstractVector}, P, τs) = x.x
-function _group_steps(x::TimeVarying{<:Any, <:AbstractVector}, P, τs)
-    return reshape(view(x.x, τs), 1, length(τs))
+# The state rows' cotangents go to the state after the step; the imports'
+# to the spilled values (the step's input without a spill), the pattern and
+# the parameters. With `A = Σ ī_k h_k` and `B = Σ ī_k u_k` per group, the
+# pattern's cotangent is `a (ī_k / m_h - A / Σh²)` above the floor and
+# `a (ī_k / ε - B / (ε m_u))` below it, the spilled values' is
+# `a (1 - r)(ī_k / m_u - B / m_u²)`, and `a`'s is `A / m_h + (1 - r) B / m_u`.
+function pullback!(
+        grads, m::Allocate{<:Any, <:_AllocateImports}, ::Trace, v, s, t
+    )
+    _on_gpu(v) && throw(
+        ArgumentError(
+            "the trace of an Allocate with imports has no pullback on a " *
+                "device; read it on the host"
+        )
+    )
+    (; fraction, pattern, spill) = m.imports
+    S, s̄′, r̄ = length(v), grads.s′, grads.trace
+    n = length(s̄′)
+    _add_trace!(s̄′, view(r̄, 1:n))
+    ī = view(r̄, (n + 1):(n + S))
+    u, h = _spilled_and_pattern(nothing, spill, pattern, v, t)
+    ū = spill === nothing ? grads.v : view(s̄′, 1:S)
+    h̄ = view(s̄′, (n - S + 1):n)
+    T̄ = cotangent(grads.piece, :total)
+    φ̄ = cotangent(cotangent(grads.piece, :imports), :fraction)
+    ε = eps(eltype(u))
+    for p in 1:_ngroups(m)
+        zs = _group(m, p)
+        su, sh = zero(eltype(u)), zero(eltype(u))
+        A, B = zero(eltype(ī)), zero(eltype(ī))
+        for k in zs
+            su += u[k]
+            sh += h[k]
+            A += ī[k] * h[k]
+            B += ī[k] * u[k]
+        end
+        T, φ = param(m.total, p, t), param(fraction, p, t)
+        a = T * φ
+        mh, mu = max(sh, ε), max(su, ε)
+        c = 1 - sh / mh
+        ā = A / mh + c * B / mu
+        add_param!(T̄, m.total, φ * ā, p, t)
+        add_param!(φ̄, fraction, T * ā, p, t)
+        dh = sh >= ε ? A / sh^2 : B / (mh * mu)
+        du = su >= ε ? B / mu^2 : zero(B)
+        for k in zs
+            h̄[k] += a * (ī[k] / mh - dh)
+            ū[k] += a * c * (ī[k] / mu - du)
+        end
+    end
+    return nothing
 end
-function _group_steps(x::TimeVarying{<:Any, <:PerStratum}, P, τs)
-    return view(x.x.x, :, τs)
-end
-_group_steps(x, P, τs) = [param(x, p, τ) for p in 1:P, τ in τs]
 
 function forward!(m::Allocate, ::Init, s, history)
     _check_imports(m.imports, _check_partition(m, length(s) ÷ _nslots(m)))

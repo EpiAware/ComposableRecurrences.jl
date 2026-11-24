@@ -575,7 +575,7 @@ end
     @test eltype(y) == Float32
 end
 
-@testitem "Allocate: a trace's rows are named and add the imports" begin
+@testitem "Allocate: a trace's rows are named, with the imports" begin
     using ComposableRecurrences, ForwardDiff, LinearAlgebra, Mooncake, Test
     CR = ComposableRecurrences
     S, T = 5, 12
@@ -589,12 +589,19 @@ end
     tot = [10.0 + t for p in 1:2, t in 1:(T + 2)]
     fr = [0.2 + 0.01p for p in 1:2, t in 1:(T + 2)]
     R, h = fill(1.2, S, T + 2), ones(S, 2)
-    # The share each stratum takes by the pattern, `ch * h_i` of the step.
-    function naive(H, tot, fr)
+    # All of `φ T` placed by the import term: by the pattern `H`, and below
+    # the floor partly by the spilled values `U`.
+    function naive(U, H, tot, fr)
         out = similar(H)
         for t in axes(H, 2), (p, zs) in enumerate(groups)
-            c = tot[p, t + 2] * fr[p, t + 2] / max(sum(H[zs, t]), eps())
-            out[zs, t] .= c .* H[zs, t]
+            a = tot[p, t + 2] * fr[p, t + 2]
+            sh, su = sum(H[zs, t]), sum(U[zs, t])
+            r = sh / max(sh, eps())
+            out[zs, t] .= a .* (
+                H[zs, t] ./ max(sh, eps()) .+
+                    (1 - r) .* U[zs, t] ./ max(su, eps())
+            )
+            @assert sum(out[zs, t]) ≈ a
         end
         return out
     end
@@ -603,51 +610,62 @@ end
         imports = (TimeVarying(PerStratum(f)), P), spill
     )
     for spill in (nothing, CR.Redistribute(M, 0.3))
-        names = spill === nothing ? (:pattern,) : (:spilled, :pattern)
+        names = spill === nothing ? (:pattern, :imports) :
+            (:spilled, :pattern, :imports)
         @test keys(CR.trace_rows(split(fr, spill), S)) == names
         r = Recurrence([0.5, 0.3]; modifiers = (; split = split(fr, spill)))
         call = (r, R, h, stop) -> r(
-            R; history = h, start = 3, stop, record = (:split,)
+            R; history = h, start = 3, stop, record = (:split, :pressure)
         )
         out = @inferred call(r, R, h, T + 2)
         a = out.trace.modifiers.split
-        @test keys(a) == (names..., :imports)
-        # The rows are the state's, in order, and the imports read the
-        # pattern at the call's times.
+        @test keys(a) == names
+        # The rows are the trace's, in order; without a spill the values
+        # the split reads are the gain times the pressure.
         whole = CR.forward(
             r, CR.Run(), R;
             history = h, start = 3, stop = T + 2, record = (:trace,)
         )
-        @test vcat(map(n -> a[n], names)...) == only(last(first(whole)).modifiers)
-        @test a.imports ≈ naive(a.pattern, tot, fr)
+        @test vcat(values(a)...) == only(last(first(whole)).modifiers)
+        U = spill === nothing ? R[:, 3:end] .* out.trace.pressure : a.spilled
+        @test a.imports ≈ naive(U, a.pattern, tot, fr)
         # A part not built is empty, as are its named rows.
         empty = r(R; history = h, start = 3, stop = T + 2, record = (:pressure,))
         @test all(x -> size(x) == (0, 0), empty.trace.modifiers.split)
         @test typeof(empty.trace) == typeof(out.trace)
-        # The imports' gradient through the rule, against ForwardDiff of
-        # plain AD.
+        # Gradients through every row, against ForwardDiff of plain AD.
         W = [sin(k + t) for k in 1:S, t in 1:T]
         function loss(op, x)
-            q = Recurrence([0.5, 0.3]; modifiers = (; split = split(reshape(x, 2, T + 2), spill)))
-            o = op(q)(R; history = h, start = 3, stop = T + 2, record = (:split,))
-            return sum(W .* o.trace.modifiers.split.imports) + sum(o.y)
+            f, g = reshape(x[1:(2T + 4)], 2, T + 2), reshape(x[(2T + 5):end], S, T + 2)
+            q = Recurrence([0.5, 0.3]; modifiers = (; split = split(f, spill)))
+            o = op(q)(g; history = h, start = 3, stop = T + 2, record = (:split,))
+            return sum(sum(W .* x) for x in o.trace.modifiers.split) + sum(o.y)
         end
-        x = vec(fr)
+        x = vcat(vec(fr), vec(R))
         expected = ForwardDiff.gradient(z -> loss(CR.NoAdjoint, z), x)
         f = z -> loss(identity, z)
+        n0 = CR._PULLBACK_CALLS[]
         rule = Mooncake.build_rrule(f, x)
         @test Mooncake.value_and_gradient!!(rule, f, x)[2][2] ≈ expected
+        @test CR._PULLBACK_CALLS[] > n0
     end
-    # Below the floor the pattern places `φ r T` with `r = Σ h / ε`, and the
-    # imports are that share; the rest goes by the values.
-    m = CR.Allocate([1:2], 100.0; imports = (0.3, [1.0e-17 0.0; 0.0 2.0e-17]))
-    q = Recurrence(Float64[]; modifiers = (; m))
-    o = q(zeros(2, 1); history = zeros(2, 0), add = reshape([4.0, 6.0], 2, 1), record = (:m,))
-    (; pattern, imports) = o.trace.modifiers.m
-    @test sum(pattern) < eps()
-    @test sum(imports) ≈ 30 * sum(pattern) / eps()
-    @test sum(imports) < 30
-    @test sum(o.y) ≈ 100
+    # Below the floor the pattern places `φ r T` with `r = Σ h / ε` and the
+    # spilled values the rest of `φ T`; with no pattern at all they place
+    # all of it.
+    for Pd in ([1.0e-17 0.0; 0.0 2.0e-17], zeros(2, 2))
+        m = CR.Allocate([1:2], 100.0; imports = (0.3, Pd))
+        q = Recurrence(Float64[]; modifiers = (; m))
+        o = q(
+            zeros(2, 1); history = zeros(2, 0),
+            add = reshape([4.0, 6.0], 2, 1), record = (:m,)
+        )
+        (; pattern, imports) = o.trace.modifiers.m
+        r = sum(pattern) / eps()
+        @test r < 1
+        @test sum(imports) ≈ 30
+        @test imports ≈ 30 .* (pattern ./ eps() .+ (1 - r) .* [0.4, 0.6])
+        @test sum(o.y) ≈ 100
+    end
     # Without imports the trace stays one matrix.
     @test CR.trace_rows(CR.Allocate(groups, 5.0), S) === nothing
 end

@@ -94,14 +94,19 @@ ntrace(m, S) = isstateless(m) ? 0 : nstate(m, S)
 @doc raw"""
 Return the names of a modifier's trace rows for `S` strata, or `nothing`.
 
-A named tuple of row counts, in row order and summing to
-[`ComposableRecurrences.ntrace`](@ref), makes a call return the
-modifier's trace as a named tuple of matrices, one per name, each with a
-column per step.
+A named tuple of row counts ``n_1, \dots, n_J``, in row order and
+summing to [`ComposableRecurrences.ntrace`](@ref),
+
+```math
+\sum_{j=1}^{J} n_j = n_r ,
+```
+
+makes a call return the modifier's trace as a named tuple of matrices,
+the ``j``th holding rows ``\sum_{i<j} n_i + 1`` to ``\sum_{i \le j} n_i``,
+each with a column per step.
 The default, `nothing`, returns the trace as one matrix.
-[`ComposableRecurrences.Allocate`](@ref) with imports names its rows, and
-adds `imports`, the share of each stratum's value placed by the import
-pattern, built after the run from its `pattern` rows.
+[`ComposableRecurrences.Allocate`](@ref) with imports names its rows,
+with `imports` the part of each stratum's value its import term placed.
 
 # Arguments
 - `m`: the modifier.
@@ -116,25 +121,22 @@ CR.trace_rows(CR.Allocate([1:2, 3:3], 10.0; imports = (0.2, P)), 3)
 
 # output
 
-(pattern = 3,)
+(pattern = 3, imports = 3)
 ```
 """
 trace_rows(m, S) = nothing
 
 # A modifier's trace as a call returns it: one matrix, or a named tuple of
-# its rows (`trace_rows`) and the rows a built-in adds from them
-# (`_derived_rows`), read from absolute time `τ0`. A trace not built has no
-# rows, so each named part is empty too.
-_named_rows(m, x, S, τ0) = _named_rows(trace_rows(m, S), m, x, S, τ0)
-_named_rows(::Nothing, m, x, S, τ0) = x
-function _named_rows(rows::NamedTuple{N}, m, x, S, τ0) where {N}
+# its rows (`trace_rows`). A trace not built has no rows, so each named part
+# is empty too.
+_named_rows(m, x, S) = _named_rows(trace_rows(m, S), x)
+_named_rows(::Nothing, x) = x
+function _named_rows(rows::NamedTuple{N}, x) where {N}
     stops = accumulate(+, values(rows))
     starts = map((n, b) -> b - n + 1, values(rows), stops)
-    parts = NamedTuple{N}(map((a, b) -> _rows(x, a, b), starts, stops))
-    return merge(parts, _derived_rows(m, parts, τ0))
+    return NamedTuple{N}(map((a, b) -> _rows(x, a, b), starts, stops))
 end
 _rows(x, a, b) = size(x, 1) == 0 ? x[1:0, :] : x[a:b, :]
-_derived_rows(m, parts, τ0) = (;)
 
 # By default the trace is the state after the step.
 function forward!(m, ::Trace, r, v, s, v′, s′, t)
