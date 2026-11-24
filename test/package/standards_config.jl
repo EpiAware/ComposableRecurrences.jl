@@ -31,7 +31,6 @@ const MAX_CODE_CHARS = 80
 # the form of `PENDING_WORDING`.
 const PENDING_SENTENCE_LENGTH = (
     "docs/src/developer/testing.md",
-    "docs/src/explanation/adjoints-and-backends.md",
 )
 const PENDING_CODE_LENGTH = (
     "README.md",
