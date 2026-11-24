@@ -527,7 +527,7 @@ end
         return [values[j(t)] for t in 1:n]
     end
     starts = [1, 3, 4, 8]
-    v = [0.10, 0.25, 0.05, 0.30]
+    v = [0.1, 0.25, 0.05, 0.3]
     n = T + L
     pw(I = CR.Secondary()) = TimeVarying{typeof(I)}(Pair.(starts, v))
     tv(I = CR.Secondary()) = TimeVarying{typeof(I)}(dense(starts, v, n))
