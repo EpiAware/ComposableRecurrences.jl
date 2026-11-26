@@ -4,9 +4,10 @@
 
 # == _WithTrace ==
 
-# `sel` holds the parts of the trace it builds, a flag for each modifier and
-# one for the pressure (see `_selection`); a part it does not build is an
-# empty array of the same type, so it costs nothing in the cotangent.
+# `sel` holds the parts of the trace it builds, a flag for each modifier, one
+# for the pressure and one for the force (see `_selection`); a part it does
+# not build is an empty array of the same type, so it costs nothing in the
+# cotangent.
 struct _WithTrace{O <: AbstractOperator, P} <: AbstractOperator
     op::O
     sel::P
@@ -25,7 +26,8 @@ _long_kernel(w::_WithTrace, args...) = _long_kernel(w.op, args...)
 
 function _run_forward(w::_WithTrace, gain, add, h, s0, τ0, stop)
     y, cache = _run_forward(w.op, gain, add, h, s0, τ0, stop, Val(:traced))
-    return (y, _traces(_traced_recurrence(w.op), cache, w.sel)), cache
+    tr = _traces(_traced_recurrence(w.op), cache, w.sel)
+    return (y, _with_force(tr, w.sel, gain, add, τ0)), cache
 end
 # The modifiers are read from the operator, not the cache: plain reverse AD
 # on Julia 1.11 can lose a scalar field's cotangent read back from the cache.
@@ -36,7 +38,7 @@ _traced_recurrence(w::_WithState) = w.r
 _primal(w::_WithTrace, args...) = first(_run_forward(w, args...))
 function _primal(w::_WithTrace, gain, add, h::_CPUArray, s0, τ0, stop)
     y, tr = _traced_primal(w.op, gain, add, h, s0, τ0, stop)
-    return y, _selected_trace(tr, w.sel)
+    return y, _with_force(_selected_trace(tr, w.sel), w.sel, gain, add, τ0)
 end
 function _traced_primal(r::Recurrence, gain, add, h, s0, τ0, stop)
     Y, _, _, tr = _recur(r, gain, add, h, s0, τ0, stop, Val(:trace))
@@ -128,10 +130,12 @@ end
 function _traces(r, c, sel)
     (; H, rec, D, S, T, τ0) = c
     ms = _bind(r.modifiers, H, nothing, D - τ0 + 1)
-    modifiers = _traces(ms, rec, c.states, first(sel), H, D, S, T, τ0)
-    pressure = _pressure_trace(last(sel), r, c)
+    modifiers = _traces(ms, rec, c.states, sel.modifiers, H, D, S, T, τ0)
+    pressure = _pressure_trace(_builds_pressure(sel), r, c)
     return (; modifiers, pressure)
 end
+# The force is built from the pressure, so either needs it.
+_builds_pressure(sel) = sel.pressure | sel.force
 # A pressure not built comes from records with no steps, so it has the type
 # of one that is.
 function _pressure_trace(keep, r, c)
@@ -175,12 +179,38 @@ end
 # A trace written in the run's steps, with the parts a selection does not
 # name dropped.
 function _selected_trace(tr, sel)
-    modifiers = map(tr.modifiers, first(sel)) do x, keep
+    modifiers = map(tr.modifiers, sel.modifiers) do x, keep
         keep ? x : _no_parts(x)
     end
-    pressure = last(sel) ? tr.pressure : _no_times(tr.pressure)
+    pressure = _builds_pressure(sel) ? tr.pressure : _no_times(tr.pressure)
     return (; modifiers, pressure)
 end
+
+# == The force ==
+
+# The trace with its force, `γ_t ⊙ q_t + a_t`, from the pressure `q_t`. A
+# pressure the selection does not name was built only for the force, so it
+# is dropped here.
+function _with_force(tr, sel, gain, add, τ0)
+    Q = tr.pressure
+    force = sel.force ? _force(Q, gain, add, τ0) : _no_times(Q)
+    pressure = sel.pressure ? Q : _no_times(Q)
+    return (; tr.modifiers, pressure, force)
+end
+function _force(Q, gain, add, τ0)
+    F = similar(Q)
+    q = _strata_rows(Q)
+    T = size(q, 2)
+    _strata_rows(F) .=
+        muladd.(_over_steps(gain, τ0, T), q, _over_steps(add, τ0, T))
+    return F
+end
+# A gain or add input over the steps from absolute time `τ0`, shaped to
+# broadcast against strata × steps.
+_over_steps(x::Real, τ0, T) = x
+_over_steps(::Nothing, τ0, T) = false
+_over_steps(x::AbstractVector, τ0, T) = reshape(view(x, τ0:(τ0 + T - 1)), 1, T)
+_over_steps(x::AbstractMatrix, τ0, T) = view(x, :, τ0:(τ0 + T - 1))
 function _trace_at!(out, m, R, rest, s′, H, D, t, τ0)
     v, s = view(R.V, :, t), _states_at(R.S, t)
     v′ = _outputs_at(rest, H, D, t)

@@ -75,8 +75,9 @@ The keyword `stop` defaults to the common length of the time-indexed inputs, and
 An operator can be built inside a model, once for each draw of its parameters: its constructor's checks read only types, so building it adds no measurable cost to a call or a gradient.
 Without a gain, a recurrence takes a gain of 1.
 A `trace` holds one matrix per modifier in `trace.modifiers`, with a column per step, and the pressure of each step in `trace.pressure`, shaped like `y`.
+With `:force` in `record` it also holds `trace.force`, the value of each step before the modifiers, ``\gamma_t \odot K_t p_t + a_t`` for gain ``\gamma_t`` and added input ``a_t``, shaped like `y`; `:trace` alone leaves it empty.
 Pass the modifiers as a named tuple, as `modifiers = (; pool, imports)`, and `trace.modifiers` is keyed by those names, as `trace.modifiers.pool`.
-`record` can also name a part of the trace alone, `:pressure` or a modifier's name.
+`record` can also name a part of the trace alone, `:pressure`, `:force` or a modifier's name.
 The parts it does not name are not built and come back empty, so the call's return type stays that of a whole trace.
 
 ```@example operators

@@ -827,7 +827,7 @@ end
     next = r(R; state = st, record = (:state,))
     @test next.y == y[4:end] && next.state.t == 7
     @test_throws "a tuple of the names" r(R; history = h, record = :state)
-    @test_throws "record names :state, :trace or :pressure; got :pools" r(
+    @test_throws ":pressure or :force; got :pools" r(
         R; history = h, record = (:pools,)
     )
     @test_throws "trace.pressure" r(R; history = h, record = (:pressures,))
@@ -862,7 +862,7 @@ end
     @test first(@inferred deep_forward(r, R, Val(()))) == first(forward(r, Run(), R))
     @test_throws "records :trace only" deep_forward(r, R, Val((:state,)))
     @test_throws "or such a tuple in a Val" deep(r, R, h, Val(:state))
-    @test_throws "record names :state, :trace or :pressure; got :pools" deep(
+    @test_throws ":pressure or :force; got :pools" deep(
         r, R, h, Val((:pools,))
     )
     @test_throws "once, got (:state, :state)" deep(r, R, h, Val((:state, :state)))

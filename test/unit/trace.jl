@@ -41,7 +41,7 @@ end
     y = r(R; history = [5.0])
     y2, tr = r(R; history = [5.0], record = (:trace,))
     @test y2 == y
-    @test keys(tr) == (:modifiers, :pressure)
+    @test keys(tr) == (:modifiers, :pressure, :force)
     @test length(tr.modifiers) == 1
     @test size(only(tr.modifiers)) == (3, 8)
     y3, st, tr3 = r(R; history = [5.0], record = (:state, :trace))
@@ -659,7 +659,10 @@ end
     R, h = fill(1.1, 2, 6), ones(2, 2)
     named = Recurrence([0.6, 0.3]; coupling = K, modifiers = (; pool, imports))
     plain = Recurrence([0.6, 0.3]; coupling = K, modifiers = (pool, imports))
-    full = named(R; history = h, record = (:trace,))
+    full = named(R; history = h, record = (:trace, :force))
+    # The force is built only when named: `:trace` alone leaves it empty.
+    @test named(R; history = h, record = (:trace,)).trace.force == zeros(2, 0)
+    @test size(full.trace.force) == (2, 6)
     ref = plain(R; history = h, record = (:trace,))
     # A tuple of modifiers keeps a tuple of traces; names key them.
     @test ref.trace.modifiers isa Tuple
@@ -672,6 +675,7 @@ end
     # trace, the others are empty, and the type is the full trace's.
     for record in (
             (:pressure,), (:pool,), (:imports, :pressure), (:state, :pool),
+            (:force,), (:force, :pool), (:pressure, :force),
         )
         out = named(R; history = h, record)
         @test out.y == full.y
@@ -683,6 +687,8 @@ end
         end
         @test out.trace.pressure ==
             (:pressure in record ? full.trace.pressure : zeros(2, 0))
+        @test out.trace.force ==
+            (:force in record ? full.trace.force : zeros(2, 0))
         # It infers from a literal in a function and from a `Val`.
         call = @eval (r, R, h) -> r(R; history = h, record = $record)
         @test typeof(@inferred call(named, R, h)) == typeof(out)
@@ -700,7 +706,7 @@ end
     @test_throws ArgumentError named(R; history = h, record = (:nope,))
     @test_throws ArgumentError named(R; history = h, record = (:pool, :pool))
     # A name `record` reads for another part is refused.
-    for name in (:pressure, :state, :trace)
+    for name in (:pressure, :force, :state, :trace)
         @test_throws ArgumentError Recurrence(
             [0.5]; modifiers = NamedTuple{(name,)}((imports,))
         )
@@ -746,4 +752,39 @@ end
         @test keys(out.trace.modifiers) == (:pool,)
         @test out.trace.modifiers.pool == ref.trace.modifiers[1]
     end
+end
+
+@testitem "Trace: the force is each step's value before the modifiers" begin
+    using ComposableRecurrences, LinearAlgebra, Test
+    CR = ComposableRecurrences
+    g, K = [0.6, 0.3, 0.1], [0.9 0.1; 0.2 0.8]
+    h, T = ones(2, 3), 8
+    cap = CR.Transform(clamp, 0.0, 1.5)
+    # Each gain and add shape, read at absolute time, from a later start.
+    gains = (1.2, fill(1.1, T + 2), fill(1.3, 2, T + 2))
+    adds = (nothing, 0.2, fill(0.1, T + 2), fill(0.3, 2, T + 2))
+    for C in (K, I), gain in gains, add in adds
+        r = Recurrence(g; coupling = C, modifiers = (; cap))
+        out = r(
+            gain; history = h, add, start = 3, stop = T + 2,
+            record = (:force, :pressure)
+        )
+        q = out.trace.pressure
+        γ = gain isa Real ? gain : gain isa AbstractVector ?
+            permutedims(gain[3:end]) : gain[:, 3:end]
+        a = add === nothing ? 0 : add isa Real ? add :
+            add isa AbstractVector ? permutedims(add[3:end]) : add[:, 3:end]
+        @test out.trace.force ≈ γ .* q .+ a
+        @test q ≈ CR.pressure(r, out.y; history = h, start = 3)
+        # The modifier caps the output, not the force.
+        @test out.y ≈ clamp.(out.trace.force, 0.0, 1.5)
+    end
+    # Without modifiers the force is the output; one series is a vector.
+    r = Recurrence(g)
+    out = r(fill(1.1, T); history = ones(3), add = 0.1, record = (:force,))
+    @test out.trace.force ≈ out.y
+    @test out.trace.force isa Vector{Float64}
+    @test out.trace.pressure == zeros(0)
+    call = (r, R, h) -> r(R; history = h, record = (:force,))
+    @test typeof(@inferred call(r, fill(1.1, T), ones(3))) == typeof(out)
 end
