@@ -2060,8 +2060,36 @@ function _computed_recurrence(w, θ)
     return sum(WS[:, (L + 1):end] .* log.(y))
 end
 
+# The same hazard read a day late and held past the grid, given by a change
+# point at every time; and a recurrence's survival against a hazard that
+# changes on days 4 and 9.
+function _computed_held(w, θ)
+    p, z, X = _unpack(θ, (L,), (T,), (S, T))
+    h = _logistic.(vcat(z[1], z))
+    held = TimeVarying(Pair.([1; 2:(T + 1)], h))
+    confirmed = p * (1 - _Survival(held; from = 1))
+    return sum(WS .* w(Convolution(TimeVarying(confirmed, CR_P)))(X))
+end
+function _computed_segments(w, θ)
+    g, z, logh, logR = _unpack(θ, (L,), (3,), (S, L), (S, T))
+    surv = _Survival(TimeVarying(Pair.([1, 4, 9], _logistic.(z))))
+    r = Recurrence(TimeVarying(g * surv, CR_P); coupling = K0)
+    y = w(r)(exp.(logR); history = exp.(logh), start = L + 1)
+    return sum(WS[:, (L + 1):end] .* log.(y))
+end
+
 push!(
     _SCENARIOS,
+    (
+        "Convolution kernel from a held hazard given by change points",
+        _computed_held,
+        () -> _flat(reverse(G0), -1 .+ 0.3 .* W1, 1 .+ LOGR),
+    ),
+    (
+        "Recurrence kernel shortened by a survival on change points",
+        _computed_segments,
+        () -> _flat(G0, [-2.0, -1.5, -2.5], fill(log(5.0), S, L), LOGR),
+    ),
     (
         "Convolution kernel from a hazard and a survival", _computed_confirmed,
         () -> _flat(reverse(G0), -1 .+ 0.3 .* W1, 1 .+ LOGR),
@@ -2312,6 +2340,11 @@ const _REQUIRES = Dict{String, Tuple{Vararg{Symbol}}}(
     "Recurrence coupling from change points" => (:_Piecewise,),
     "Recurrence parameters from change points" => (:_Piecewise,),
     "Convolution kernel from a hazard and a survival" => (:Survival,),
+    # Change points in a computed kernel came with `_densified`.
+    "Convolution kernel from a held hazard given by change points" =>
+        (:Survival, :_densified),
+    "Recurrence kernel shortened by a survival on change points" =>
+        (:Survival, :_densified),
     # One series per stratum came with `_StackRows`.
     "Convolution of one series per stratum as a tuple" => (:_StackRows,),
     "Kernel weights of a survival against a delay and calendar hazard" =>
@@ -3142,6 +3175,13 @@ const REACTANT_BROKEN = Dict(
         "Recurrence routes in a buffer deeper than the kernels",
         "Recurrence trace through a sparse coupling",
         "Recurrence sparse user coupling declared linear",
+    ],
+    # A traced value cannot be broadcast into a `Pair`, and change points
+    # given one by one stack their values into a plain vector of traced
+    # numbers, which a computed kernel does not read.
+    "change points from traced values" => [
+        "Convolution kernel from a held hazard given by change points",
+        "Recurrence kernel shortened by a survival on change points",
     ],
     # A distribution's constructor takes only real parameters.
     "Distributions from traced parameters" => [

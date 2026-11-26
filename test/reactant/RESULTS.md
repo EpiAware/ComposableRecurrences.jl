@@ -109,6 +109,8 @@ Total run time 26.3 min, timeout 600 s a case.
 | Recurrence negative binomial generation interval per stratum | error: MethodError | error: MethodError |
 | Recurrence negative binomial generation interval per pair of strata | error: MethodError | error: MethodError |
 | Convolution of one series per stratum as a tuple | works (53.7 s / 11.6 µs) | works (3.4 s / 32.7 µs) |
+| Convolution kernel from a held hazard given by change points | error: MethodError | error: MethodError |
+| Recurrence kernel shortened by a survival on change points | error: MethodError | error: MethodError |
 | Convolution kernel from a hazard and a survival | works (3.6 s / 10.2 µs) | works (1.7 s / 50.5 µs) |
 | Kernel weights of a survival against a delay and calendar hazard | works (2.6 s / 9.7 µs) | works (1.7 s / 32.6 µs) |
 | Recurrence kernel shortened by a survival | works (2.6 s / 9.3 µs) | works (2.2 s / 71.0 µs) |
@@ -337,6 +339,10 @@ Plain Julia is the call (forward) or `ForwardDiff.gradient` (reverse), on the CP
 | registry | Recurrence negative binomial generation interval per pair of strata | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching Distributions.NegativeBinomial(::Reactant.TracedRNumber{Float64}, ::Reactant.TracedRNumber{Float64}) The type `Distributions.Neg |
 | registry | Convolution of one series per stratum as a tuple | forward | cpu | 12 | works | 4.4e-16 | 53.7 | 11.6 | 1.3 |  |  |
 | registry | Convolution of one series per stratum as a tuple | reverse | cpu | 12 | works | 1.8e-14 | 3.4 | 32.7 | 21.4 |  |  |
+| registry | Convolution kernel from a held hazard given by change points | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching similar(::Base.Broadcast.Broadcasted{Reactant.TracedRArrayOverrides.AbstractReactantArrayStyle{1}, Tuple{Base.OneTo{Int64}}, Typ |
+| registry | Convolution kernel from a held hazard given by change points | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching similar(::Base.Broadcast.Broadcasted{Reactant.TracedRArrayOverrides.AbstractReactantArrayStyle{1}, Tuple{Base.OneTo{Int64}}, Typ |
+| registry | Recurrence kernel shortened by a survival on change points | forward | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching similar(::Base.Broadcast.Broadcasted{Reactant.TracedRArrayOverrides.AbstractReactantArrayStyle{1}, Tuple{Base.OneTo{Int64}}, Typ |
+| registry | Recurrence kernel shortened by a survival on change points | reverse | cpu | 12 | error | NaN | NaN | NaN | NaN | - | MethodError: no method matching similar(::Base.Broadcast.Broadcasted{Reactant.TracedRArrayOverrides.AbstractReactantArrayStyle{1}, Tuple{Base.OneTo{Int64}}, Typ |
 | registry | Convolution kernel from a hazard and a survival | forward | cpu | 12 | works | 1.4e-16 | 3.6 | 10.2 | 1.4 |  |  |
 | registry | Convolution kernel from a hazard and a survival | reverse | cpu | 12 | works | 1.4e-14 | 1.7 | 50.5 | 44.3 |  |  |
 | registry | Kernel weights of a survival against a delay and calendar hazard | forward | cpu | 12 | works | 2.5e-15 | 2.6 | 9.7 | 0.8 |  |  |

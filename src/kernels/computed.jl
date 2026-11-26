@@ -21,10 +21,10 @@ function _convolve_dense!(ex, Y, c::_ComputedKernel, X, m, start)
 end
 function _convolve!(ex::Serial, Y, c::_ComputedKernel, X, m, start)
     _on_gpu(Y) && return _convolve_dense!(ex, Y, c, X, m, start)
-    x = c.x
+    stop = start + size(Y, 1) - 1
+    x = _densified(c, stop).x
     L = _nlags(c)
     T = eltype(Y)
-    stop = start + size(Y, 1) - 1
     sc = _walk_scratch(x, T, (L,), Val(false))
     cohorts = _cohorts(X, m, stop)
     xr = _lags_contiguous(x)
@@ -106,9 +106,9 @@ end
 
 function _convolve!(ex::Serial, Y, c::_NormalisedKernel, X, m, start)
     _on_gpu(Y) && return _convolve_dense!(ex, Y, c, X, m, start)
-    x = c.x
-    T = eltype(Y)
     stop = start + size(Y, 1) - 1
+    x = _densified(c, stop).x
+    T = eltype(Y)
     sc = _walk_scratch(x, T, (_nlags(c),), Val(false))
     inner, U = _no_record(sc.inner), sc.U
     ks = axes(Y, 2)
@@ -147,10 +147,21 @@ end
 # `τ + i - start`, and the weights' cotangents `Ȳ X[m + τ]` go back through
 # the normalisation to the kernel inside, mirror `x̄`.
 function _normalised_back!(X̄, Y, x̄, c::_NormalisedKernel, X, Ȳ, m, start)
-    x = c.x
+    stop = start + size(Ȳ, 1) - 1
+    x = _densified(c, stop).x
+    x̄d = _inner_dense_mirror(x̄, c, stop)
+    _normalised_walk_back!(X̄, Y, x̄d, x, c, X, Ȳ, m, start, stop)
+    x̄d === x̄ || _fold!(x̄, c.x.x, x̄d)
+    return nothing
+end
+# The mirror of the kernel inside made dense, as `_densified_mirror`.
+function _inner_dense_mirror(x̄, c::_NormalisedKernel, stop)
+    (x̄ === nothing || !_has_pieces(c.x)) && return x̄
+    return _dense_mirror_of(x̄, c.x.x, _inner_span(c.x, stop))
+end
+function _normalised_walk_back!(X̄, Y, x̄, x, c, X, Ȳ, m, start, stop)
     T = eltype(Ȳ)
     L = _nlags(c)
-    stop = start + size(Ȳ, 1) - 1
     sc = _walk_scratch(x, T, (L,), Val(false))
     inner = x̄ === nothing ? _no_record(sc.inner) : sc.inner
     U, W̄ = sc.U, sc.W̄
@@ -236,11 +247,11 @@ function _convolve_back!(
     )
     _on_gpu(Ȳ) &&
         return _convolve_back_dense!(ex, X̄, c̄, c, X, Ȳ, m, start)
-    x = c.x
-    x̄ = cotangent(c̄, :x)
+    stop = start + size(Ȳ, 1) - 1
+    x = _densified(c, stop).x
+    x̄ = _densified_mirror(cotangent(c̄, :x), c, stop)
     L = _nlags(c)
     T = eltype(X̄)
-    stop = start + size(Ȳ, 1) - 1
     sc = _walk_scratch(x, T, (L,), Val(false))
     cohorts = _cohorts(X̄, m, stop)
     ks = axes(Ȳ, 2)
@@ -262,6 +273,7 @@ function _convolve_back!(
         end
         x̄ === nothing || _walk_cohort_back!(x̄, x, sc, k0, τ, 0, imax, T)
     end
+    _fold_dense!(cotangent(c̄, :x), c, x̄)
     return nothing
 end
 
