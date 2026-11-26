@@ -11,7 +11,7 @@ using ComposableRecurrences: PerStratum, Pressure, Serial, pullback!, _ADLeaves,
     _growth_root, _check_parts, _check_secondary,
     _convolve_masses!, _convolve_masses_back!, _current, _fft_convolve!,
     _fft_convolve_back!, _fft_convolve_terms!, _flat_groups, _is_leaf,
-    _keep_inputs, _leaf_paths, _note_missing_duals, _plain_hook, _probe_step_reads, _rebuild_leaves,
+    _keep_inputs, _leaf_paths, _note_missing_duals, _offset, _plain_hook, _probe_step_reads, _rebuild_leaves,
     _route_forward!, _run_forward, _run_pullback!, _scan!, _scan_back!,
     _shared_shadow,
     _spawn_blocks, _spawn_chunks, _untraced, _wide_rule
@@ -488,16 +488,20 @@ const _ScanOut = Annotation{<:Array{<:_IEEEFloat}}
 function EnzymeRules.augmented_primal(
         config::EnzymeRules.RevConfig, ::Const{typeof(_scan!)},
         ::Type{<:Const}, y::_ScanOut, c::Annotation, gain::Annotation,
-        add::Annotation, v::Annotation, τ0::Const, k::Const, S::Const
+        add::Annotation, v::Annotation, τ0::Const, k::Const, S::Const,
+        o::Const
     )
-    _scan!(y.val, c.val, gain.val, add.val, v.val, τ0.val, k.val, S.val)
+    _scan!(
+        y.val, c.val, gain.val, add.val, v.val, τ0.val, k.val, S.val, o.val
+    )
     tape = EnzymeRules.overwritten(config)[2] ? copy(y.val) : nothing
     return EnzymeRules.AugmentedReturn(nothing, nothing, tape)
 end
 function EnzymeRules.reverse(
         config::EnzymeRules.RevConfig, ::Const{typeof(_scan!)},
         ::Type{<:Const}, tape, y::_ScanOut, c::Annotation, gain::Annotation,
-        add::Annotation, v::Annotation, τ0::Const, k::Const, S::Const
+        add::Annotation, v::Annotation, τ0::Const, k::Const, S::Const,
+        o::Const
     )
     _count_pullback()
     yv = something(tape, y.val)
@@ -507,15 +511,15 @@ function EnzymeRules.reverse(
         ȳ === nothing && return nothing
         out = _scan_back!(
             _scan_slots(gain, i), _scan_slots(add, i), ȳ, yv, c.val,
-            gain.val, v.val, τ0.val, k.val, S.val
+            gain.val, v.val, τ0.val, k.val, S.val, o.val
         )
-        _scan_zero!(ȳ, k.val, S.val)
+        _scan_zero!(ȳ, k.val, S.val, o.val)
         return out
     end
     return (
         nothing, _scan_active(c, sums, :c̄), _scan_active(gain, sums, :ḡ),
         _scan_active(add, sums, :ā), _scan_active(v, sums, :v̄),
-        nothing, nothing, nothing,
+        nothing, nothing, nothing, nothing,
     )
 end
 # An array input's cotangent lane, or `nothing` for a scalar or a constant.
@@ -529,9 +533,11 @@ function _scan_active(x::Active, sums::Tuple, name)
 end
 _scan_sum(x, ::Nothing, name) = zero(x.val)
 _scan_sum(x, s, name) = convert(typeof(x.val), getfield(s, name))
-# The overwritten outputs of stratum `k` pass no cotangent on.
-function _scan_zero!(ȳ, k, S)
-    @inbounds for j in k:S:length(ȳ)
+# The overwritten outputs of stratum `k`, after a joined history's `o`
+# times, pass no cotangent on.
+function _scan_zero!(ȳ, k, S, o′)
+    o = _offset(o′)
+    @inbounds for j in (o * S + k):S:length(ȳ)
         ȳ[j] = zero(eltype(ȳ))
     end
     return nothing

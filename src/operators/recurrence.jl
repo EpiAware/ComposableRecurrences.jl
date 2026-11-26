@@ -101,6 +101,11 @@ the call covers the absolute times `start:stop`:
     `record = Val((:trace,))`, where it reaches the call as a variable or
     the call is compiled from its argument types alone; the return type
     then infers from the argument types.
+  - `include_history`: when `true`, `y` is the history followed by the
+    run, and each trace has zero columns over the history, so the output
+    and the trace share their times; `false` by default.
+    The state is unchanged.
+    It needs `history`, not `state`.
 
 Every time-indexed array, kernels, couplings and modifier parameters
 included, must cover `stop`.
@@ -136,17 +141,18 @@ R = fill(1.1, 2, 10)
 r = Recurrence(g; coupling = K)
 y = r(R; history = ones(2, 3))
 
-# The seed followed by the run, with the seed at times 1 to 3.
+# The seed followed by the run, with the seed at times 1 to 3: the seed's
+# 3 columns, then the run's 10.
 h = ones(2, 3)
-hcat(h, r(hcat(h, R); history = h, start = 4))
+whole = r(hcat(h, R); history = h, start = 4, include_history = true)
 
 # Resume from the returned state over the same inputs.
 fit = r(R; history = ones(2, 3), stop = 5, record = (:state,))
-y ≈ hcat(fit.y, r(R; state = fit.state))
+size(whole), y ≈ hcat(fit.y, r(R; state = fit.state))
 
 # output
 
-true
+((2, 13), true)
 ```
 """
 struct Recurrence{K, C, M <: Tuple, B, N} <: AbstractOperator
@@ -784,26 +790,100 @@ end
 # and routes them through the native rules; `route` is `r` or `NoAdjoint(r)`.
 Base.@constprop :aggressive @inline function _invoke(
         r::Recurrence, route, gain = true; history = nothing, state = nothing,
-        add = nothing, start = _start(state), stop = nothing, record = nothing
+        add = nothing, start = _start(state), stop = nothing, record = nothing,
+        include_history::Bool = false
     )
+    include_history && _check_joinable(state)
     args = _run_args(r, gain, history, state, add, start)
     names = _names(r)
     rec = _record(record, names)
     traced, stated = _tracing(rec, names), _recording(rec, Val(:state))
     sel = _selection(rec, names, Val(length(r.modifiers)))
-    return _routed(traced, stated, rec, r, route, args, stop, sel)
+    return _routed(
+        traced, stated, rec, r, route, args, stop, sel, include_history
+    )
 end
 # One call over both flags, so that a rule derived from types alone splits.
 # Inlined, as `_run_args` is, so a backend that differentiates the call
-# builds no shadow of the argument tuple.
-@inline function _routed(traced, stated, rec, r, route, args, stop, sel)
+# builds no shadow of the argument tuple. With `joined` the history is
+# joined in front of the output, which the scan writes there itself.
+@inline function _routed(traced, stated, rec, r, route, args, stop, sel, joined)
     if _scans(traced, stated, r, args)
-        y = _scan_call(route, r, args, stop)
+        y = _scan_call(route, r, args, stop, joined)
         return _recorded(rec, traced, stated, y, _names(r))
     end
     op = _call_op(traced, stated, _linear_parts(route, r, args[3]), sel)
     out = adjoint_call(_reroute(route, op), args..., stop)
-    return _recorded(rec, traced, stated, out, _names(r))
+    joined || return _recorded(rec, traced, stated, out, _names(r))
+    y = _joined(traced, stated, out, args[3])
+    return _recorded(rec, traced, stated, y, _names(r))
+end
+
+# == The history in front of the output ==
+
+# A resumed call starts from a state, so it has no seed to join.
+_check_joinable(::Nothing) = nothing
+@noinline function _check_joinable(state)
+    throw(
+        ArgumentError(
+            "include_history joins the seed passed as history, and a call " *
+                "resumed from a state has none; join state.history yourself"
+        )
+    )
+end
+
+# The output with the history `h` in front, and each trace with zero columns
+# over the history, so the trace and the output share their times.
+_joined(::Val{false}, ::Val{false}, y, h) = _join_history(h, y)
+_joined(::Val{false}, ::Val{true}, (y, state), h) = (_join_history(h, y), state)
+function _joined(::Val{true}, ::Val{false}, (y, trace), h)
+    return _join_history(h, y), _pad_trace(trace, h)
+end
+function _joined(::Val{true}, ::Val{true}, ((y, state), trace), h)
+    return (_join_history(h, y), state), _pad_trace(trace, h)
+end
+# A part the call did not build stays empty.
+function _pad_trace(trace, h)
+    m = size(h, ndims(h))
+    pressure = _pad_part(trace.pressure, m)
+    return (; modifiers = map(x -> _pad_part(x, m), trace.modifiers), pressure)
+end
+_pad_part(x, m) = size(x, ndims(x)) == 0 ? x : _pad_front(x, m)
+
+# `x` followed by `y` along time, the last axis. A host output is filled
+# by a loop, which every backend differentiates, a view `x` included;
+# other arrays are joined with `cat`.
+_join_history(x, y) = cat(x, y; dims = ndims(y))
+function _join_history(x::AbstractVecOrMat, y::Array)
+    m = size(x, ndims(x))
+    out = similar(y, _with_times(y, m + size(y, ndims(y)))...)
+    _copy_times!(out, x, 0)
+    _copy_times!(out, y, m)
+    return out
+end
+# Zeros over the first `m` times, then `x`.
+function _pad_front(x::Array, m)
+    out = similar(x, _with_times(x, m + size(x, ndims(x)))...)
+    fill!(selectdim(out, ndims(out), 1:m), zero(eltype(x)))
+    _copy_times!(out, x, m)
+    return out
+end
+function _pad_front(x, m)
+    z = fill!(similar(x, _with_times(x, m)...), zero(eltype(x)))
+    return cat(z, x; dims = ndims(x))
+end
+# `x` into the times after the first `o` of `out`, entry by entry.
+function _copy_times!(out::AbstractVector, x::AbstractVector, o)
+    for (j, v) in enumerate(x)
+        out[o + j] = v
+    end
+    return out
+end
+function _copy_times!(out::AbstractMatrix, x::AbstractMatrix, o)
+    for (j, jx) in enumerate(axes(x, 2)), (k, i) in enumerate(axes(x, 1))
+        out[k, o + j] = x[i, jx]
+    end
+    return out
 end
 
 # What a call records beside `y`, checked once: `nothing` unless `record`
@@ -2148,10 +2228,13 @@ _one_stratum(h::AbstractMatrix) = size(h, 1) == 1
 _one_stratum(h) = false
 
 # The call through the scan, with the same checks and output as the buffer
-# run.
-@inline function _scan_call(route, r, (gain, add, h, s0, τ0), stop)
+# run. With `joined` the history fills the output's first `o` times.
+@inline function _scan_call(route, r, (gain, add, h, s0, τ0), stop, joined)
     (; stop) = _checked_call(r, gain, add, h, s0, τ0, stop)
-    return _scan_route(route, r.kernel, r.coupling, gain, add, h, τ0, stop)
+    k, C = r.kernel, r.coupling
+    o = size(h, ndims(h))
+    joined && return _scan_route(route, k, C, gain, add, h, τ0, stop, o)
+    return _scan_route(route, k, C, gain, add, h, τ0, stop, nothing)
 end
 # One reverse-mode extension makes `_scan_rule` a rule primitive, the
 # operator's pullback; the other puts its rule on each stratum's `_scan!`.
@@ -2169,9 +2252,9 @@ function _scan_rule(kernel, C, args::Vararg{Any, N}) where {N}
     return _scan(_scan_coef(kernel, C), args...)
 end
 
-function _run_forward(op::_Scan, gain, add, h, τ0, stop)
-    y = _scan(_scan_coef(op), gain, add, h, τ0, stop)
-    return y, (; y = copy(y), gain = _tape(gain), h, τ0)
+function _run_forward(op::_Scan, gain, add, h, τ0, stop, o)
+    y = _scan(_scan_coef(op), gain, add, h, τ0, stop, o)
+    return y, (; y = copy(y), gain = _tape(gain), h, τ0, o)
 end
 function _primal(op::_Scan, args::Vararg{Any, N}) where {N}
     return _scan(_scan_coef(op), args...)
@@ -2192,18 +2275,28 @@ function _scan_seed(h::AbstractMatrix, ::Type{Tp}, k) where {Tp}
     return size(h, 2) == 0 ? zero(Tp) : zero(Tp) + Tp(h[k, end])
 end
 
-function _scan(c, gain, add, h::AbstractVector, τ0, stop, step! = _scan!)
+# The scan's output, with the history in its first `o` times when the call
+# joins it (`o` is then the history's length). Without a join `o` is
+# `nothing`, a zero known from the type, so the default call compiles as if
+# the offset were not there.
+_offset(::Nothing) = 0
+_offset(o::Integer) = o
+function _scan(c, gain, add, h::AbstractVector, τ0, stop, o′, step! = _scan!)
+    o = _offset(o′)
     Tp = _scan_eltype(c, gain, add, h)
-    y = Vector{Tp}(undef, stop - τ0 + 1)
-    step!(y, c, gain, add, _scan_seed(h, Tp, 1), τ0, 1, 1)
+    y = Vector{Tp}(undef, o + stop - τ0 + 1)
+    o > 0 && _copy_times!(y, h, 0)
+    step!(y, c, gain, add, _scan_seed(h, Tp, 1), τ0, 1, 1, o′)
     return y
 end
-function _scan(c, gain, add, h::AbstractMatrix, τ0, stop, step! = _scan!)
+function _scan(c, gain, add, h::AbstractMatrix, τ0, stop, o′, step! = _scan!)
+    o = _offset(o′)
     Tp = _scan_eltype(c, gain, add, h)
     S = size(h, 1)
-    y = Matrix{Tp}(undef, S, stop - τ0 + 1)
+    y = Matrix{Tp}(undef, S, o + stop - τ0 + 1)
+    o > 0 && _copy_times!(y, h, 0)
     for k in 1:S
-        step!(y, c, gain, add, _scan_seed(h, Tp, k), τ0, k, S)
+        step!(y, c, gain, add, _scan_seed(h, Tp, k), τ0, k, S, o′)
     end
     return y
 end
@@ -2214,24 +2307,28 @@ end
 # `d_t = c γ_t`, so the chain from one value to the next has one
 # multiply-add per two steps and the rest runs beside it. A backend
 # extension's rule is on `_scan!`; `_scan_steps!` is the loop itself.
-function _scan!(y, c, gain, add, v, τ0, k, S)
-    return _scan_steps!(y, c, gain, add, v, τ0, k, S)
+# Step `j` is at linear position `(o + j - 1) S + k`, after the `o` times
+# of a joined history.
+function _scan!(y, c, gain, add, v, τ0, k, S, o)
+    return _scan_steps!(y, c, gain, add, v, τ0, k, S, o)
 end
-function _scan_steps!(y, c, gain, add, v, τ0, k, S)
-    n = length(y) ÷ S
+function _scan_steps!(y, c, gain, add, v, τ0, k, S, o′)
+    o = _offset(o′)
+    n = length(y) ÷ S - o
     j = 1
     @inbounds while j < n
         t = τ0 + j - 1
         d₁, d₂ = c * _at(gain, k, t), c * _at(gain, k, t + 1)
         a₁ = _at(add, k, t)
-        y[(j - 1) * S + k] = muladd(d₁, v, a₁)
+        y[(o + j - 1) * S + k] = muladd(d₁, v, a₁)
         v = muladd(d₂ * d₁, v, muladd(d₂, a₁, _at(add, k, t + 1)))
-        y[j * S + k] = v
+        y[(o + j) * S + k] = v
         j += 2
     end
     @inbounds if j == n
         t = τ0 + j - 1
-        y[(j - 1) * S + k] = muladd(c * _at(gain, k, t), v, _at(add, k, t))
+        y[(o + j - 1) * S + k] =
+            muladd(c * _at(gain, k, t), v, _at(add, k, t))
     end
     return nothing
 end

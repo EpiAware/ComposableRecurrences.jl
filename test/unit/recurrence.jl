@@ -1241,31 +1241,34 @@ end
     using ComposableRecurrences, ForwardDiff, LinearAlgebra
     CR = ComposableRecurrences
     T = 7
-    w = cos.(1:(2 * T))
+    w = cos.(1:(3 * T))
     # Kernel, coupling scale, gain, seed and add input, through the rule's
-    # pullback against ForwardDiff of the buffer run.
+    # pullback against ForwardDiff of the buffer run, with and without the
+    # history joined in front.
     function args(θ, S)
         k, λ, n = θ[1], θ[2], S * T
         g, h, a = θ[3:(2 + n)], θ[(3 + n):(2 + n + S)], θ[(3 + n + S):end]
         S == 1 && return k, λ, g, h, a
         return k, λ, reshape(g, S, T), reshape(h, S, 1), reshape(a, S, T)
     end
-    for S in (1, 2)
+    for S in (1, 2), joined in (false, true)
         n = S * T
         θ = vcat(0.8, 1.2, 1 .+ 0.1 .* sin.(1:n), 0.3 .* (1:S), cos.(1:n))
         loss(y) = sum(w[1:length(y)] .* vec(y))
         function ref(θ)
             k, λ, g, h, a = args(θ, S)
             r = CR.NoAdjoint(Recurrence([k, 0.0]; coupling = λ * I))
-            return loss(r(g; history = h, add = a))
+            return loss(r(g; history = h, add = a, include_history = joined))
         end
         k, λ, g, h, a = args(θ, S)
         op = CR._Scan([k], λ * I)
-        y, cache = CR._run_forward(op, g, a, h, 1, T)
+        o = joined ? size(h, ndims(h)) : 0
+        y, cache = CR._run_forward(op, g, a, h, 1, T, o)
+        @test size(y, ndims(y)) == T + o
         ȳ = reshape(w[1:length(y)], size(y))
         grads = (;
             y = ȳ, piece = (; kernel = [0.0], coupling = (; λ = Ref(0.0))),
-            args = (zero(g), zero(a), zero(h), nothing, nothing),
+            args = (zero(g), zero(a), zero(h), nothing, nothing, nothing),
         )
         CR.pullback!(grads, op, CR.Run(), cache)
         J = ForwardDiff.gradient(ref, θ)
@@ -1278,10 +1281,10 @@ end
     # A scalar gain and add input take the sums of their slots.
     op = CR._Scan([0.9], 1.0I)
     h = [0.4]
-    y, cache = CR._run_forward(op, 1.1, 0.3, h, 1, T)
+    y, cache = CR._run_forward(op, 1.1, 0.3, h, 1, T, 0)
     grads = (;
         y = ones(T), piece = (; kernel = nothing, coupling = nothing),
-        args = (Ref(0.0), Ref(0.0), zero(h), nothing, nothing),
+        args = (Ref(0.0), Ref(0.0), zero(h), nothing, nothing, nothing),
     )
     CR.pullback!(grads, op, CR.Run(), cache)
     r = CR.NoAdjoint(Recurrence([0.9, 0.0]))
@@ -1290,4 +1293,68 @@ end
     @test grads.args[1][] ≈ J[1]
     @test grads.args[3][1] ≈ J[2]
     @test grads.args[2][] ≈ J[3]
+end
+
+@testitem "Recurrence: include_history joins the history to the output" begin
+    using ComposableRecurrences, LinearAlgebra
+    CR = ComposableRecurrences
+    T = 8
+    R = [1.0 + 0.1 * sin(t) for t in 1:T]
+    RS = [1.0 + 0.1 * sin(k + t) for k in 1:2, t in 1:T]
+    pool = CR.Depletion(50.0)
+    # The buffer run and the scan, a series and strata, a view history.
+    θ = [0.4, 0.2, 0.3, 0.1]
+    cases = (
+        (Recurrence([0.6, 0.3]), R, [0.2, 0.4]),
+        (Recurrence([0.6, 0.3]; modifiers = (pool,)), R, view(θ, 1:2)),
+        (Recurrence([0.9]), R, [0.5]),
+        (Recurrence([0.9]), R, view(θ, 2:4)),
+        (Recurrence([0.6, 0.3]), RS, [0.2 0.4; 0.1 0.3]),
+        (Recurrence([0.9]), RS, reshape(view(θ, 1:4), 2, 2)),
+        (Recurrence([0.9]), R, Float64[]),
+    )
+    for (r, gain, h) in cases
+        y = r(gain; history = h)
+        yh = r(gain; history = h, include_history = true)
+        @test yh == cat(h, y; dims = ndims(y))
+        @test typeof(yh) == typeof(y)
+        @test CR.NoAdjoint(r)(gain; history = h, include_history = true) ≈ yh
+        # It infers, as the flag does not change the return type.
+        @test (@inferred r(gain; history = h, include_history = true)) isa
+            typeof(y)
+    end
+    # A traced and stated call: the trace takes zero columns over the
+    # history, and the state is unchanged.
+    r = Recurrence([0.6, 0.3]; modifiers = (pool,))
+    h = [0.2, 0.4]
+    out = r(R; history = h, record = (:state, :trace))
+    j = r(R; history = h, record = (:state, :trace), include_history = true)
+    @test j.y == vcat(h, out.y)
+    @test j.state.history == out.state.history
+    @test j.state.t == out.state.t
+    for (a, b) in zip(j.trace.modifiers, out.trace.modifiers)
+        @test a == hcat(zeros(size(b, 1), 2), b)
+    end
+    @test j.trace.pressure == vcat(zeros(2), out.trace.pressure)
+    # A later start joins the history as given, and no history joins
+    # nothing.
+    @test r(R; history = h, start = 3, include_history = true) ==
+        vcat(h, r(R; history = h, start = 3))
+    for q in (r, Recurrence([0.9]))
+        @test q(R; include_history = true) == q(R)
+    end
+    # A resumed call has no seed to join.
+    @test_throws ArgumentError r(R; state = out.state, include_history = true)
+    # A stated call without a trace joins the history to `y` alone.
+    s = r(R; history = h, record = (:state,), include_history = true)
+    @test s.y == vcat(h, out.y)
+    @test s.state.history == out.state.history
+    # Arrays other than `Array`, such as tracked or traced ones, are joined
+    # and padded with `cat`.
+    v = view([3.0, 4.0, 5.0], 2:3)
+    @test CR._join_history([1.0, 2.0], v) == [1.0, 2.0, 4.0, 5.0]
+    M = view([1.0 2.0; 3.0 4.0], :, 1:2)
+    @test CR._join_history(zeros(2, 1), M) == [0.0 1.0 2.0; 0.0 3.0 4.0]
+    @test CR._pad_front(v, 2) == [0.0, 0.0, 4.0, 5.0]
+    @test CR._pad_front(M, 1) == [0.0 1.0 2.0; 0.0 3.0 4.0]
 end

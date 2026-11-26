@@ -2545,6 +2545,66 @@ end
     end
 end
 
+@testitem "include_history: Mooncake and Enzyme gradients against the joined run" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
+    using ComposableRecurrences, ForwardDiff, Mooncake, Enzyme
+    using DifferentiationInterface, ADTypes
+    CR = ComposableRecurrences
+    T = 9
+    backends = (
+        AutoMooncake(; config = nothing),
+        AutoEnzyme(; mode = set_runtime_activity(Reverse)),
+        AutoEnzyme(; mode = Reverse),
+    )
+    # The scan and the buffer run, each with a history that is a view of
+    # the parameters, as a sampled vector hands it over. The operator and
+    # weights are built inside each loss, so Enzyme sees no captured array.
+    weighted(y) = sum(cos.(1:length(y)) .* y)
+    for n in (1, 2)
+        function joined(θ)
+            r = Recurrence(n == 1 ? [0.9] : [0.6, 0.3])
+            h = view(θ, 1:n)
+            add = view(θ, (n + 1):length(θ))
+            return weighted(r(1.0; history = h, add, include_history = true))
+        end
+        function by_hand(θ)
+            r = Recurrence(n == 1 ? [0.9] : [0.6, 0.3])
+            h = θ[1:n]
+            return weighted(vcat(h, r(1.0; history = h, add = θ[(n + 1):end])))
+        end
+        θ = vcat(0.3 .* (1:n), 0.2 .* sin.(1:T))
+        ref = ForwardDiff.gradient(by_hand, θ)
+        @test ForwardDiff.gradient(joined, θ) ≈ ref
+        for b in backends
+            @test DifferentiationInterface.gradient(joined, b, θ) ≈ ref
+        end
+    end
+    # Strata, with a history of two times that is a reshaped view, so the
+    # history's columns and the strata's offsets are differentiated. One
+    # stratum takes the scan, three the buffer run.
+    for S in (1, 3), n in (1, 2)
+        function joined_strata(θ)
+            r = Recurrence(n == 1 ? [0.9] : [0.6, 0.3])
+            h = reshape(view(θ, 1:(2 * S)), S, 2)
+            add = reshape(view(θ, (2 * S + 1):length(θ)), S, T)
+            y = r(1.0; history = h, add, include_history = true)
+            return weighted(vec(y))
+        end
+        function by_hand_strata(θ)
+            r = Recurrence(n == 1 ? [0.9] : [0.6, 0.3])
+            h = reshape(θ[1:(2 * S)], S, 2)
+            add = reshape(θ[(2 * S + 1):end], S, T)
+            return weighted(vec(cat(h, r(1.0; history = h, add); dims = 2)))
+        end
+        θ = vcat(0.1 .* (1:(2 * S)), 0.2 .* sin.(1:(S * T)))
+        ref = ForwardDiff.gradient(by_hand_strata, θ)
+        @test ForwardDiff.gradient(joined_strata, θ) ≈ ref
+        for b in backends
+            g = DifferentiationInterface.gradient(joined_strata, b, θ)
+            @test g ≈ ref
+        end
+    end
+end
+
 @testitem "Ragged PerStratum rows: reverse gradients come back to each row as given" tags = [:ad, :mooncake, :mooncake_reverse, :enzyme, :enzyme_reverse] begin
     using ComposableRecurrences, ForwardDiff, Mooncake, Enzyme, ReverseDiff
     R = [1.1 + 0.1 * k * t for k in 1:2, t in 1:8]

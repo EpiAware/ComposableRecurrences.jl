@@ -76,6 +76,6 @@ Within one step a hazard flow acts before a count flow, so waning comes before t
 
 | Model feature | Maths | Code | Tutorial |
 |---|---|---|---|
-| Seed days returned with the run | ``I_1, \dots, I_m`` then the renewal | `vcat(history, r(R; history))` | [What a call returns](@ref explanation-returns) |
+| Seed days returned with the run | ``I_1, \dots, I_m`` then the renewal | `r(R; history, include_history = true)` | [What a call returns](@ref explanation-returns) |
 | Seed on an exponential growth path | ``h_l = I_0 e^{r (l - L)}``, at a given rate ``r`` per step | [`exponential_history(I0, r, L)`](@ref ComposableRecurrences.exponential_history) | [Renewal then delay](@ref tutorial-renewal-delay) |
 | Forecast after a fit | continue ``I_t`` from the fitted days | [`r(R; history, record = (:state,))`](@ref Recurrence), then `r(R; state)` | [Forecasting](@ref tutorial-forecasting) |
