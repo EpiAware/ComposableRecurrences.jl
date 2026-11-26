@@ -171,6 +171,41 @@ round.(y; digits = 3)
  2.0
 ```
 
+Its trace is its state after each step.
+With `trace_imports = Val(true)` it also holds `imports`, the part of each stratum's value the import term placed, and names its rows ([`trace_rows`](@ref ComposableRecurrences.trace_rows)): `spilled`, `pattern` and `imports`.
+The imports cost a little more to record, so they are built only when asked for.
+Named in the modifiers, it is read by name:
+
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+P = [0.0 0.0 0.2; 0.0 0.0 0.8; 0.0 0.0 0.0]
+within = CR.Redistribute([0.9 0.1 0.0; 0.1 0.9 0.0; 0.0 0.0 1.0])
+split = CR.Allocate(
+    [1:2, 3:3], PerStratum([10.0, 2.0]);
+    imports = (PerStratum([0.2, 0.0]), P), spill = within,
+    trace_imports = Val(true)
+)
+r = Recurrence([1.0]; modifiers = (; split))
+out = r(ones(3, 1); history = [3.0; 1.0; 1.0;;], record = (:split,))
+round.(out.trace.modifiers.split.imports; digits = 3)
+
+# output
+
+3×1 Matrix{Float64}:
+ 0.4
+ 1.6
+ 0.0
+```
+
+A group's imports sum to ``\phi_{t,p} T_{t,p}``.
+The pattern places ``r_p`` of them and, while the pattern sums to less than ``\epsilon``, the spilled values place the rest:
+
+```math
+\text{imports}_i = \phi_{t,p} T_{t,p} \Big(\frac{h_i}{\sigma^h_p}
+    + (1 - r_p) \frac{u_i}{\sigma^u_p}\Big), \quad i \in G_p .
+```
+
 ## [Choosing a modifier](@id explanation-choosing-modifier)
 
 - To bound values, `Transform(clamp, lo, hi)` cuts them, and a `Depletion` filled up to a capacity keeps account of what is cut.

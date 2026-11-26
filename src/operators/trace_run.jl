@@ -35,15 +35,17 @@ _traced_recurrence(w::_WithState) = w.r
 # (`_TraceSink`); elsewhere it runs the traced rule's forward pass.
 _primal(w::_WithTrace, args...) = first(_run_forward(w, args...))
 function _primal(w::_WithTrace, gain, add, h::_CPUArray, s0, τ0, stop)
-    y, tr = _traced_primal(w.op, gain, add, h, s0, τ0, stop)
+    y, tr = _traced_primal(w.op, gain, add, h, s0, τ0, stop, first(w.sel))
     return y, _selected_trace(tr, w.sel)
 end
-function _traced_primal(r::Recurrence, gain, add, h, s0, τ0, stop)
-    Y, _, _, tr = _recur(r, gain, add, h, s0, τ0, stop, Val(:trace))
+function _traced_primal(r::Recurrence, gain, add, h, s0, τ0, stop, picks)
+    Y, _, _, tr = _recur(r, gain, add, h, s0, τ0, stop, Val(:trace); picks)
     return Y, tr
 end
-function _traced_primal(w::_WithState, gain, add, h, s0, τ0, stop)
-    Y, H, states, tr = _recur(w.r, gain, add, h, s0, τ0, stop, Val(:trace))
+function _traced_primal(w::_WithState, gain, add, h, s0, τ0, stop, picks)
+    Y, H, states, tr = _recur(
+        w.r, gain, add, h, s0, τ0, stop, Val(:trace); picks
+    )
     return (Y, _state(Y, H, states, h, τ0)), tr
 end
 
@@ -51,25 +53,34 @@ end
 
 # A modifier's trace as the run writes it, with copies `v` and `s` of the
 # step's inputs for a step on the whole vectors that is not pointwise.
-# `out` starts unset, as each step writes its column.
+# `out` starts unset, as each step writes its column. A sink that is not
+# `on`, for a trace the call does not record, has no columns and writes
+# nothing, so its modifier's trace costs nothing; it keeps the type of one
+# that is on.
 struct _TraceSink{O, V, W}
     out::O
     v::V
     s::W
     S::Int
+    on::Bool
 end
 # A modifier whose state never changes writes no trace: its trace is zeros.
 struct _NoTrace{O}
     out::O
 end
-_sinks(::Val{false}, h, ::Type{Tp}, ms, states, S, T) where {Tp} = nothing
-function _sinks(::Val{:trace}, h, ::Type{Tp}, ms, states, S, T) where {Tp}
-    return map(ms, states) do m, s
+function _sinks(::Val{false}, h, ::Type{Tp}, ms, states, S, T, picks) where {Tp}
+    return nothing
+end
+function _sinks(
+        ::Val{:trace}, h, ::Type{Tp}, ms, states, S, T, picks
+    ) where {Tp}
+    ons = picks === nothing ? map(_ -> true, ms) : picks
+    return map(ms, states, ons) do m, s, on
         n = ntrace(m, S)
         isstateless(m) && return _NoTrace(_zeros(h, Tp, n, T))
-        out = _unset(h, Tp, n, T)
-        _strata_loop(m) && return _TraceSink(out, nothing, nothing, S)
-        return _TraceSink(out, _zeros(h, Tp, S), similar(s), S)
+        out = _unset(h, Tp, n, on ? T : 0)
+        _strata_loop(m) && return _TraceSink(out, nothing, nothing, S, on)
+        return _TraceSink(out, _zeros(h, Tp, S), similar(s), S, on)
     end
 end
 _sink_traces(::Nothing) = nothing
@@ -82,6 +93,7 @@ _stage_rec!(::_NoTrace, m, v, s, τ, t) = _stage!(m, v, s, τ)
 # Stratum `k`'s trace of a pointwise modifier at step `t`, on one-entry
 # views as `_step` runs the step; inlined so the slots stay off the heap.
 @inline function _trace_step!(R::_TraceSink, m, v, s, v′, s′, τ, t, k)
+    R.on || return nothing
     at = x -> _At(x, k)
     r = map(at, _trace_series(view(R.out, :, t), Val(ntrace(m, 1)), R.S))
     foreach(x -> x[] = zero(eltype(x)), r)
@@ -107,6 +119,7 @@ function _stage_trace!(::Val{true}, R, m, v, s, τ, t)
     return nothing
 end
 function _stage_trace!(::Val{false}, R, m, v, s, τ, t)
+    R.on || return _stage!(m, v, s, τ)
     _copy_trace!(R.v, v)
     _copy_trace!(R.s, s)
     _stage!(m, v, s, τ)
@@ -247,6 +260,24 @@ function _trace_out!(R::_TracedRecord, m, m̄, v̄, s̄, v, s, τ, t)
     (isstateless(m) || !R.live) && return nothing
     _trace_is_state(m) && return _add_trace_column!(s̄, R.T̄, t)
     _trace_back!(_blocks(m), R, m, m̄, v̄, s̄, view(R.T̄, :, t), v, s, τ)
+    return nothing
+end
+# An `Allocate` with imports records its state, then the imports. While a
+# step's imports have no cotangent its trace folds into the state's
+# cotangent, as a state trace does, and its buffers stay zero for
+# `_trace_in!`.
+function _trace_out!(
+        R::_TracedRecord, m::_TracedImports, m̄, v̄, s̄, v, s, τ, t
+    )
+    R.live || return nothing
+    n, col = length(s̄), view(R.T̄, :, t)
+    if iszero(view(col, (n + 1):length(col)))
+        s̄ .+= view(col, 1:n)
+        R.V̄ .= zero(eltype(R.V̄))
+        R.S̄ .= zero(eltype(R.S̄))
+        return nothing
+    end
+    _trace_back!(_blocks(m), R, m, m̄, v̄, s̄, col, v, s, τ)
     return nothing
 end
 _trace_in!(R, m, v̄, s̄) = nothing

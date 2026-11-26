@@ -300,23 +300,25 @@ end
 # A recurrence fills the weights of cohorts up to its last time, then runs
 # with them as its kernel; its cache keeps the computed kernel.
 function _recur(
-        r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop, cache::Val
+        r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop,
+        cache::Val;
+        picks = nothing
     )
     n = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
     K, sc = _fill_kernel(r.kernel, 1, n, n, cache)
     rk = _with_kernel(r, K)
-    Y, H, states, inner = _recur(rk, gain, add, h, s0, τ0, stop, cache)
+    Y, H, states, inner = _recur(rk, gain, add, h, s0, τ0, stop, cache; picks)
     return Y, H, states, _with_computed(inner, r.kernel, n, sc)
 end
 # A plain call keeps nothing: the weights are filled in blocks and the run
 # returns only its output, or with `:trace` the trace its steps write.
 function _recur(
         r::Recurrence{<:_ComputedKernel}, gain, add, h, s0, τ0, stop,
-        cache::Union{Val{:primal}, Val{:trace}}
+        cache::Union{Val{:primal}, Val{:trace}}; picks = nothing
     )
     n = _stop(stop, (:gain => _extent(gain), :add => _extent(add)))
     K, _ = _fill_kernel(r.kernel, 1, n, n, Val(false))
-    return _recur(_with_kernel(r, K), gain, add, h, s0, τ0, stop, cache)
+    return _recur(_with_kernel(r, K), gain, add, h, s0, τ0, stop, cache; picks)
 end
 _with_computed(::Nothing, kernel, n, sc) = nothing
 function _with_computed(cache, kernel, n, sc)

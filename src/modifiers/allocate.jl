@@ -108,6 +108,19 @@ sum is below ``\epsilon``, then
 - `spill`: `nothing` (the default), or a
   [`ComposableRecurrences.Redistribute`](@ref) applied after the pattern
   reads the values; it needs `imports`.
+- `trace_imports`: `Val(false)` (the default), or `Val(true)` for the
+  trace to hold the imports, the part of each stratum's value the import
+  term placed, after the state, with its rows named `spilled`, `pattern`
+  and `imports` (see [`ComposableRecurrences.trace_rows`](@ref)); it needs
+  `imports`.
+  Without it the trace is the state after each step, which costs less to
+  record.
+  It is a `Val`, not a `Bool`, so the choice is part of the type: a
+  reverse-mode backend that compiles its own pass need not carry a
+  `Bool`'s value through to the type when the model is built inside the
+  gradient.
+  In one such backend a `Bool` passed for it made the gradient about 1.1
+  times as slow, with the imports traced or without them.
 
 # Examples
 ```jldoctest
@@ -139,12 +152,13 @@ struct Allocate{T, I}
     "The import fraction, pattern and spill, or `nothing`."
     imports::I
     function Allocate(
-            groups::AbstractVector, total; imports = nothing, spill = nothing
+            groups::AbstractVector, total;
+            imports = nothing, spill = nothing, trace_imports = Val(false)
         )
         strata, offsets = _flat_groups(groups)
         p = _as_param(total)
         _check_group_param(:total, p, length(groups))
-        im = _imports(imports, spill, length(groups))
+        im = _imports(imports, spill, length(groups), trace_imports)
         return new{typeof(p), typeof(im)}(strata, offsets, p, im)
     end
     function Allocate(
@@ -155,12 +169,29 @@ struct Allocate{T, I}
 end
 
 # The import fraction over groups, the pattern, a coupling read before the
-# spill, and the spill, a `Redistribute` or `nothing`.
-struct _AllocateImports{F, P, R}
+# spill, and the spill, a `Redistribute` or `nothing`. `W` is whether the
+# trace holds the imports as well as the state.
+struct _AllocateImports{F, P, R, W}
     fraction::F
     pattern::P
     spill::R
+    function _AllocateImports{W}(fraction::F, pattern::P, spill::R) where {
+            W, F, P, R,
+        }
+        return new{F, P, R, W}(fraction, pattern, spill)
+    end
 end
+_AllocateImports(fraction, pattern, spill) =
+    _AllocateImports{false}(fraction, pattern, spill)
+function ConstructionBase.constructorof(
+        ::Type{<:_AllocateImports{<:Any, <:Any, <:Any, W}}
+    ) where {W}
+    return _AllocateImports{W}
+end
+# An `Allocate` whose trace holds the imports.
+const _TracedImports = Allocate{
+    <:Any, <:_AllocateImports{<:Any, <:Any, <:Any, true},
+}
 
 # An `Allocate` rebuilt from its fields, for the local derivatives and the
 # adjoint tests.
@@ -183,7 +214,10 @@ function _check_group_param(name, x, P)
     return nothing
 end
 
-function _imports(::Nothing, spill, P)
+function _imports(::Nothing, spill, P, traced)
+    _traced(traced) && throw(
+        ArgumentError("trace_imports needs imports, got imports = nothing")
+    )
     spill === nothing || throw(
         ArgumentError(
             "spill needs imports; without them use " *
@@ -193,7 +227,7 @@ function _imports(::Nothing, spill, P)
     )
     return nothing
 end
-function _imports(imports, spill, P)
+function _imports(imports, spill, P, traced)
     imports isa Tuple{Any, Any} || throw(
         ArgumentError(
             "imports is (fraction, pattern), got $(_describe(imports))"
@@ -207,7 +241,17 @@ function _imports(imports, spill, P)
             "spill is a Redistribute or nothing, got $(_describe(spill))"
         )
     )
-    return _AllocateImports(fraction, pattern, spill)
+    return _AllocateImports{_traced(traced)}(fraction, pattern, spill)
+end
+# The choice is a `Val`, so the type follows from the type of the keyword
+# and not its value, which an AD backend need not propagate.
+_traced(::Val{W}) where {W} = W::Bool
+@noinline function _traced(x)
+    throw(
+        ArgumentError(
+            "trace_imports is Val(true) or Val(false), got $(_describe(x))"
+        )
+    )
 end
 
 # The pattern is a coupling of the strata at the step's time.
@@ -316,8 +360,106 @@ end
 # With imports the state holds the import pattern, after the spilled values
 # when there is a spill.
 nstate(m::Allocate{<:Any, <:_AllocateImports}, S) = _nslots(m) * S
-# Its trace is its state after each step (the default).
+# Its trace is its state after each step. With `trace_imports` the imports
+# follow: the part of each stratum's value placed by the import term, all
+# of `φ T`, whether by the pattern or, below the floor, by the spilled
+# values. A call then names the rows (`trace_rows`).
 _trace_is_state(::Allocate) = true
+_trace_is_state(::_TracedImports) = false
+ntrace(m::_TracedImports, S) = nstate(m, S) + S
+function trace_rows(m::_TracedImports, S)
+    m.imports.spill === nothing && return (; pattern = S, imports = S)
+    return (; spilled = S, pattern = S, imports = S)
+end
+function forward!(
+        m::_TracedImports, ::Trace, r, v, s, v′, s′, t
+    )
+    S, n = length(v), length(s′)
+    copyto!(view(r, 1:n), s′)
+    u = m.imports.spill === nothing ? v : view(s′, 1:S)
+    h = view(s′, (n - S + 1):n)
+    strata, offsets = _like(v, m.strata), _like(v, m.offsets)
+    _each!(
+        _imports_trace_body!, Serial(), v, _ngroups(m), S,
+        view(r, (n + 1):(n + S)), u, h, strata, offsets, m.total,
+        m.imports.fraction, t
+    )
+    return nothing
+end
+# Group `p`'s imports, `a (h_k / max(Σh, ε) + (1 - r) u_k / max(Σu, ε))`
+# with `a = T φ` and `r = Σh / max(Σh, ε)`: the pattern's term of the step,
+# and the share of `a` the step gave the spilled values below the floor.
+function _imports_trace_body!(p, imp, u, h, strata, offsets, total, fraction, t)
+    ε = eps(eltype(imp))
+    zs = view(strata, (offsets[p] + 1):offsets[p + 1])
+    su = zero(eltype(imp))
+    sh = zero(eltype(imp))
+    for k in zs
+        su += u[k]
+        sh += h[k]
+    end
+    a = param(total, p, t) * param(fraction, p, t)
+    mh = max(sh, ε)
+    ch, cu = a / mh, a * (1 - sh / mh) / max(su, ε)
+    for k in zs
+        imp[k] = ch * h[k] + cu * u[k]
+    end
+    return nothing
+end
+# The state rows' cotangents go to the state after the step; the imports'
+# to the spilled values (the step's input without a spill), the pattern and
+# the parameters. With `A = Σ ī_k h_k` and `B = Σ ī_k u_k` per group, the
+# pattern's cotangent is `a (ī_k / m_h - A / Σh²)` above the floor and
+# `a (ī_k / ε - B / (ε m_u))` below it, the spilled values' is
+# `a (1 - r)(ī_k / m_u - B / m_u²)`, and `a`'s is `A / m_h + (1 - r) B / m_u`.
+function pullback!(
+        grads, m::_TracedImports, ::Trace, v, s, t
+    )
+    (; fraction, pattern, spill) = m.imports
+    S, s̄′, r̄ = length(v), grads.s′, grads.trace
+    n = length(s̄′)
+    _add_trace!(s̄′, view(r̄, 1:n))
+    ī = view(r̄, (n + 1):(n + S))
+    # A loss that reads only the state's rows sends the imports nothing.
+    iszero(ī) && return nothing
+    _on_gpu(v) && throw(
+        ArgumentError(
+            "the imports in the trace of an Allocate have no pullback on a " *
+                "device; read them on the host"
+        )
+    )
+    u, h = _spilled_and_pattern(nothing, spill, pattern, v, t)
+    ū = spill === nothing ? grads.v : view(s̄′, 1:S)
+    h̄ = view(s̄′, (n - S + 1):n)
+    T̄ = cotangent(grads.piece, :total)
+    φ̄ = cotangent(cotangent(grads.piece, :imports), :fraction)
+    ε = eps(eltype(u))
+    for p in 1:_ngroups(m)
+        zs = _group(m, p)
+        su, sh = zero(eltype(u)), zero(eltype(u))
+        A, B = zero(eltype(ī)), zero(eltype(ī))
+        for k in zs
+            su += u[k]
+            sh += h[k]
+            A += ī[k] * h[k]
+            B += ī[k] * u[k]
+        end
+        T, φ = param(m.total, p, t), param(fraction, p, t)
+        a = T * φ
+        mh, mu = max(sh, ε), max(su, ε)
+        c = 1 - sh / mh
+        ā = A / mh + c * B / mu
+        add_param!(T̄, m.total, φ * ā, p, t)
+        add_param!(φ̄, fraction, T * ā, p, t)
+        dh = sh >= ε ? A / sh^2 : B / (mh * mu)
+        du = su >= ε ? B / mu^2 : zero(B)
+        for k in zs
+            h̄[k] += a * (ī[k] / mh - dh)
+            ū[k] += a * c * (ī[k] / mu - du)
+        end
+    end
+    return nothing
+end
 
 function forward!(m::Allocate, ::Init, s, history)
     _check_imports(m.imports, _check_partition(m, length(s) ÷ _nslots(m)))

@@ -799,11 +799,11 @@ end
 @inline function _routed(traced, stated, rec, r, route, args, stop, sel)
     if _scans(traced, stated, r, args)
         y = _scan_call(route, r, args, stop)
-        return _recorded(rec, traced, stated, y, _names(r))
+        return _recorded(rec, traced, stated, y, r)
     end
     op = _call_op(traced, stated, _linear_parts(route, r, args[3]), sel)
     out = adjoint_call(_reroute(route, op), args..., stop)
-    return _recorded(rec, traced, stated, out, _names(r))
+    return _recorded(rec, traced, stated, out, r)
 end
 
 # What a call records beside `y`, checked once: `nothing` unless `record`
@@ -900,31 +900,33 @@ _call_op(::Val{false}, ::Val{true}, r, sel) = _WithState(r)
 _call_op(::Val{true}, ::Val{true}, r, sel) = _WithTrace(_WithState(r), sel)
 # Without `record` the call returns `y`; with it, a named tuple of `y` and
 # what it names, in the order `y`, `state`, `trace`.
-_recorded(::Nothing, traced, stated, y, names) = y
-function _recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{false}, y, names)
+_recorded(::Nothing, traced, stated, y, r) = y
+function _recorded(::Union{Tuple, Val}, ::Val{false}, ::Val{false}, y, r)
     return (; y)
 end
 function _recorded(
-        ::Union{Tuple, Val}, ::Val{false}, ::Val{true}, (y, state), names
+        ::Union{Tuple, Val}, ::Val{false}, ::Val{true}, (y, state), r
     )
     return (; y, state)
 end
 function _recorded(
-        ::Union{Tuple, Val}, ::Val{true}, ::Val{false}, (y, trace), names
+        ::Union{Tuple, Val}, ::Val{true}, ::Val{false}, (y, trace), r
     )
-    return (; y, trace = _user_trace(trace, names))
+    return (; y, trace = _user_trace(trace, y, r))
 end
 function _recorded(
-        ::Union{Tuple, Val}, ::Val{true}, ::Val{true}, ((y, state), trace),
-        names
+        ::Union{Tuple, Val}, ::Val{true}, ::Val{true}, ((y, state), trace), r
     )
-    return (; y, state, trace = _user_trace(trace, names))
+    return (; y, state, trace = _user_trace(trace, y, r))
 end
 
-# The trace as a call returns it: the modifiers keyed by their names when
-# they have them. A part the call did not build is empty.
-function _user_trace(trace, names)
-    return (; modifiers = _named(trace.modifiers, names), trace.pressure)
+# The trace as a call returns it: each modifier's trace with its rows named
+# (`trace_rows`), and the modifiers keyed by their names when they have
+# them. A part the call did not build is empty.
+function _user_trace(trace, y, r)
+    S = _nstrata(y)
+    rows = map((m, x) -> _named_rows(m, x, S), r.modifiers, trace.modifiers)
+    return (; modifiers = _named(rows, _names(r)), trace.pressure)
 end
 _named(modifiers, ::Val{nothing}) = modifiers
 _named(modifiers, ::Val{N}) where {N} = NamedTuple{N}(modifiers)
@@ -1444,11 +1446,11 @@ end
 
 # Checks the call, then runs the buffer loop at the promoted eltype.
 function _recur(
-        r::Recurrence, gain, add, h, s0, τ0, stop, cache::Val
+        r::Recurrence, gain, add, h, s0, τ0, stop, cache::Val; picks = nothing
     )
     (; L, D, S, T) = _checked_call(r, gain, add, h, s0, τ0, stop)
     Tp = _buffer_eltype(param_eltype((r, gain, add, h, s0)), r.modifiers)
-    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache)
+    return _run(Tp, r, gain, add, h, s0, τ0, L, D, S, T, cache; picks)
 end
 # The checks of a call against its recurrence, which the buffer run and the
 # scan share, and the sizes they settle.
@@ -1891,10 +1893,11 @@ end
 # `Val(:trace)` traces only, `Val(false)` nothing. Row `D + t` holds time
 # `τ0 + t - 1`; a threaded run splits independent strata once per call.
 function _run(
-        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, cache::Val
+        ::Type{Tp}, r, gain, add, h, s0, τ0, L, D, S, T, cache::Val;
+        picks = nothing
     ) where {Tp}
     return _with_executor() do ex
-        _run(Tp, ex, r, gain, add, h, s0, τ0, L, D, S, T, cache)
+        _run(Tp, ex, r, gain, add, h, s0, τ0, L, D, S, T, cache; picks)
     end
 end
 
@@ -1903,7 +1906,8 @@ end
 # A plain call returns only the output. Independent strata may run
 # strata-major (`_strata_major`); AD never does (see `_untraced`).
 function _run(
-        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{:primal}
+        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{:primal};
+        picks = nothing
     ) where {Tp}
     if _strata_major(Tp, ex, r, gain, add, h, s0, L, S) && _untraced()
         return (_strata_major_run(Tp, r, gain, add, h, τ0, L, D, S, T),)
@@ -1974,7 +1978,8 @@ function _strata_major_run(
 end
 
 function _run(
-        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{C}
+        ::Type{Tp}, ex, r, gain, add, h, s0, τ0, L, D, S, T, ::Val{C};
+        picks = nothing
     ) where {Tp, C}
     keep = C === true || C === :traced
     coupling = r.coupling
@@ -1997,7 +2002,7 @@ function _run(
         C === :trace ? _trace_pressures(h, Tp, S, T) : nothing
     end
     rec = keep ? map((m, s) -> _records(h, Tp, m, s, S, T), modifiers, init) :
-        _sinks(Val(C), h, Tp, modifiers, states, S, T)
+        _sinks(Val(C), h, Tp, modifiers, states, S, T, picks)
     work = S * _kwork(kernel, S, L)
     if _independent(coupling, kernel, modifiers, rec, H)
         # A stratum on its own reads only its kernel convolution, so the run
