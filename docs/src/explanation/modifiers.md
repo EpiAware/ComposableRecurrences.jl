@@ -27,7 +27,7 @@ total(depleted)
 - [`Transform(f, θ)`](@ref ComposableRecurrences.Transform) maps each value through ``f(v, \theta)``, such as `Transform(+, b)` or `Transform(clamp, lo, hi)`.
 
 Each modifier here has its own [hand-written gradient](@ref adjoint-routing).
-A `Transform` has one when it is given a `derivative`, or when `f` holds no numbers of its own.
+A `Transform` has one when `f` holds no numbers of its own: from `f`'s [local rule](@ref extending-local-rules) when it has one, or else from a local forward-mode derivative.
 
 ## [Depletion forms](@id explanation-depletion-forms)
 

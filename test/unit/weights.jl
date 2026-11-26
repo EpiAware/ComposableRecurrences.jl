@@ -685,3 +685,109 @@ end
     @test Convolution(computed(landed(h)))'(x; tail) ≈ dense'(x; tail)
     @test_throws DimensionMismatch Convolution(computed(landed(h[1:T])))'(x; tail)
 end
+
+@testitem "Computed kernels: a map's local rule" setup = [WeightsChecks, PullbackChecks, ReferenceAD] begin
+    using ComposableRecurrences, ForwardDiff, LogExpFunctions
+    using ComposableRecurrences: Derived
+    CR = ComposableRecurrences
+    (; rule_vjp, reference_vjp) = PullbackChecks
+    # The package's rules and the extension's match the forward-mode
+    # partials, value and all.
+    for (f, xs) in (
+            (+, (0.3, -1.2)), (-, (0.3, -1.2)), (-, (0.7,)), (*, (0.3, -1.2)),
+            (/, (0.3, -1.2)), (identity, (0.4,)), (exp, (0.4,)), (log, (0.4,)),
+            (logistic, (-0.8,)), (log1pexp, (-0.8,)), (logit, (0.3,)),
+        )
+        @test CR._has_local(f, xs)
+        y, ∂ = CR._value_and_partials(f, xs)
+        y0, ∂0 = CR._forward_value_and_derivative(f, xs)
+        @test y ≈ y0 && all(∂ .≈ ∂0)
+    end
+    # A user's rule for a type they own, read from the map's value; a closure
+    # has none and keeps the forward-mode derivative.
+    struct LogisticSum end
+    (::LogisticSum)(a, b) = logistic(a + b)
+    function CR.pullback!(grads, ::LogisticSum, ::CR.Local, y, a, b)
+        d = y * (1 - y)
+        return d, d
+    end
+    @test CR._has_local(LogisticSum(), (0.3, -1.2))
+    @test !CR._has_local((a, b) -> logistic(a + b), (0.3, -1.2))
+    # The check folds to a constant also for a map that does not infer.
+    scale = Ref{Any}(2.0)
+    struct Untyped end
+    (::Untyped)(a) = scale[] * a
+    CR.pullback!(grads, ::Untyped, ::CR.Local, y, a) = (2.0,)
+    @test CR._has_local(Untyped(), (1.0,))
+    ci = only(code_typed(CR._has_local, Tuple{Untyped, Tuple{Float64}}))[1]
+    # Coverage runs add markers, which are not calls.
+    body = filter(s -> !Meta.isexpr(s, :code_coverage_effect), ci.code)
+    @test body == Any[Core.ReturnNode(true)]
+    # A rule that may fall back to `nothing` at the inferred types is not
+    # taken: the forward-mode derivative is used instead.
+    struct TypedOutput end
+    (::TypedOutput)(a) = scale[] * a
+    CR.pullback!(grads, ::TypedOutput, ::CR.Local, y::Float64, a) = (2.0,)
+    @test !CR._has_local(TypedOutput(), (1.0,))
+    @test CR._value_and_partials(TypedOutput(), (1.5,)) == (3.0, (2.0,))
+    # A parameter holding a map asks for dual numbers only when the map has
+    # no local rule, including a rule defined after the package.
+    γ0 = TimeVarying([0.1, 0.2])
+    @test !CR._derived_duals(Derived(LogisticSum(), -1.0, γ0))
+    @test !CR._derived_duals(Derived(logistic, Derived(+, -1.0, γ0)))
+    @test CR._derived_duals(Derived((a, b) -> logistic(a + b), -1.0, γ0))
+    # The link functions' rules against forward mode inside the range, and
+    # against their closed forms in the tails, where an older forward-mode
+    # rule can round to zero.
+    using LogExpFunctions: log1pexp, logit
+    dlogistic(x) = exp(-abs(x)) / (1 + exp(-abs(x)))^2
+    for (f, df) in (
+            (logistic, dlogistic), (log1pexp, logistic),
+            (logit, x -> inv(x * (1 - x))),
+        )
+        x = 0.3
+        local_d = CR.pullback!((;), f, CR.Local(), f(x), x)[1]
+        dual_d = CR._forward_value_and_derivative(f, (x,))[2][1]
+        @test local_d ≈ dual_d rtol = 1.0e-10
+        tails = f === logit ? (1.0e-12, 1 - 1.0e-12) : (-40.0, 40.0)
+        for t in tails
+            @test CR.pullback!((;), f, CR.Local(), f(t), t)[1] ≈ df(t) rtol = 1.0e-10
+        end
+    end
+    args = (0.3, -1.2)
+    local_dy = CR._value_and_partials(LogisticSum(), args)[2]
+    dual_dy = CR._forward_value_and_derivative(LogisticSum(), args)[2]
+    @test all(local_dy .≈ dual_dy)
+    # A parameter's value is the forward pass's, never a forward-mode
+    # evaluation's, which can differ in the last bits.
+    struct Nudged end
+    (::Nudged)(a) = a isa Float64 ? a : a * (1 + eps())
+    @test CR._value_and_partials(Nudged(), (1.0,))[1] != 1.0
+    @test CR._primal_and_partials(Nudged(), (1.0,))[1] === 1.0
+    @test CR._primal_and_partials(LogisticSum(), args)[1] ===
+        LogisticSum()(args...)
+    # Each rule's pullback against a Jacobian, through the walk and the
+    # blocks of a computed kernel.
+    T, L = 8, 5
+    z0, γ = [-2.0 + 0.2 * l for l in 1:L], [0.1 * sin(t) for t in 1:(T + L)]
+    x = [1.0 + 0.1 * t for t in 1:T]
+    check(op, args, ȳ) = @test rule_vjp(op, args, ȳ) ≈ reference_vjp(ReferenceAD.jacobian, op, args, ȳ)
+    computed(k) = TimeVarying(k, CR.Primary())
+    hazards = (
+        Derived(LogisticSum(), z0, TimeVarying(γ)),
+        Derived(logistic, Derived(+, z0, TimeVarying(γ))),
+    )
+    for h in hazards
+        pmf = CR.Normalised(CR.Increments(1 - CR.Survival(h)))
+        conv = Convolution(computed(pmf))
+        check(conv, (x, true, nothing, nothing, 1, T), sin.(1:T))
+        tconv = CR._TransposedConvolution(conv)
+        check(tconv, (x, fill(x[end], L - 1), 1, T), sin.(1:T))
+        cdf = CR._KernelWeights(computed(1 - CR.Survival(h)))
+        check(cdf, (T,), reshape(sin.(1:(L * T)), L, T))
+    end
+    # A modifier parameter through the map's rule.
+    β = Derived(LogisticSum(), TimeVarying([0.1 * t for t in 1:T]), -0.5)
+    r = Recurrence([0.5, 0.5]; modifiers = (CR.Transform(*, β),))
+    check(r, (fill(1.1, T), nothing, [1.0, 1.0], nothing, 3, T), sin.(1:(T - 2)))
+end

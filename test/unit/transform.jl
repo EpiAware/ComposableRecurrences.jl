@@ -121,40 +121,42 @@ end
     end
 end
 
-@testitem "Transform: a supplied derivative replaces the local one" setup = [ModifierChecks] begin
+@testitem "Transform: a local rule replaces the forward-mode derivative" setup = [ModifierChecks] begin
     using ComposableRecurrences
     CR = ComposableRecurrences
     v, s = [0.3, 0.6, 0.9], [0.1, 0.2, 0.3]
-    calls = Ref(0)
-    f(v, θ) = θ.a * exp(θ.b * v)
-    function df(v, θ)
+    const calls = Ref(0)
+    struct ScaledExp end
+    (::ScaledExp)(v, θ) = θ.a * exp(θ.b * v)
+    function CR.pullback!(grads, ::ScaledExp, ::CR.Local, y, v, θ)
         calls[] += 1
         e = exp(θ.b * v)
         return θ.a * θ.b * e, (; a = e, b = θ.a * v * e)
     end
     c = ModifierChecks.check_pullback(
-        θ -> CR.Transform(f, (; a = θ[1], b = θ[2]); derivative = df),
-        [1.5, 0.7], v, s, 1
+        θ -> CR.Transform(ScaledExp(), (; a = θ[1], b = θ[2])), [1.5, 0.7], v, s, 1
     )
     @test c.v && c.s && c.θ
     @test calls[] == length(v)
-    # Without a parameter the derivative takes the value alone.
+    # Without a parameter the rule takes the value alone, and returns one
+    # partial.
     calls[] = 0
-    dexp(v) = (calls[] += 1; exp(v))
-    c = ModifierChecks.check_pullback(
-        θ -> CR.Transform(exp; derivative = dexp), Float64[], v, s, 1
-    )
+    struct Exp1 end
+    (::Exp1)(v) = exp(v)
+    CR.pullback!(grads, ::Exp1, ::CR.Local, y, v) = (calls[] += 1; (y,))
+    c = ModifierChecks.check_pullback(θ -> CR.Transform(Exp1()), Float64[], v, s, 1)
     @test c.v && c.s && c.θ
     @test calls[] == length(v)
 end
 
-@testitem "Transform: a derivative of the step's output skips recomputing it" setup = [AdjointCheck] begin
+@testitem "Transform: a local rule reads the step's output rather than recomputing it" setup = [AdjointCheck] begin
     using ComposableRecurrences, LinearAlgebra
-    calls, wrong = Ref(0), Ref(0)
+    const calls, wrong = Ref(0), Ref(0)
     nb(v, θ) = (θ.p / (1 - (1 - θ.p) * v))^θ.r
-    f(v, θ) = (calls[] += 1; nb(v, θ))
+    struct CountedNB end
+    (::CountedNB)(v, θ) = (calls[] += 1; nb(v, θ))
     # The output `y` replaces the power in both partial derivatives.
-    function df(v, θ, y)
+    function CR.pullback!(grads, ::CountedNB, ::CR.Local, y, v, θ)
         y == nb(v, θ) || (wrong[] += 1)
         D = 1 - (1 - θ.p) * v
         return y * θ.r * (1 - θ.p) / D,
@@ -162,7 +164,7 @@ end
     end
     S = 3
     θ = (; r = PerStratum([0.5, 0.7, 0.9]), p = PerStratum([0.3, 0.4, 0.5]))
-    m = CR.Transform(f, θ; derivative = df)
+    m = CR.Transform(CountedNB(), θ)
     g = [0.5, 0.3, 0.2]
     R = [0.8 + 0.1 * sin(k + t) for k in 1:S, t in 1:12]
     h = fill(0.1, S, 3)
@@ -187,10 +189,7 @@ end
     end
     # Without a step output, as in a single step's pullback, it is
     # recomputed, giving the local derivative's cotangents.
-    mirror() = (;
-        f = (;), θ = (; r = (; x = zeros(S)), p = (; x = zeros(S))),
-        derivative = nothing,
-    )
+    mirror() = (; f = (;), θ = (; r = (; x = zeros(S)), p = (; x = zeros(S))))
     m̄, m̄0 = mirror(), mirror()
     calls[] = 0
     out = CR._step_back((; piece = m̄, v = 1.0, s = 0.0), m, 0.3, 0.0, 1, 2)
@@ -199,8 +198,6 @@ end
     m0 = CR.Transform(nb, θ)
     @test all(out .≈ CR._step_back((; piece = m̄0, v = 1.0, s = 0.0), m0, 0.3, 0.0, 1, 2))
     @test m̄.θ.r.x ≈ m̄0.θ.r.x && m̄.θ.p.x ≈ m̄0.θ.p.x
-    # It shows the derivative it was given.
-    @test occursin("derivative df", repr(MIME"text/plain"(), m))
 end
 
 @testitem "Transform: Float32 and no allocation in the pullback" begin
@@ -210,7 +207,7 @@ end
     m = CR.Transform(nb, (; r = 0.5f0, p = 0.4f0))
     y = Recurrence([1.0f0]; modifiers = (m,))(; history = [0.0f0], stop = 5)
     @test eltype(y) == Float32
-    m̄ = (; f = (;), θ = (; r = Ref(0.0f0), p = Ref(0.0f0)), derivative = nothing)
+    m̄ = (; f = (;), θ = (; r = Ref(0.0f0), p = Ref(0.0f0)))
     grads = (; piece = m̄, v = 1.0f0, s = 0.0f0)
     out = CR._step_back(grads, m, 0.3f0, 0.0f0, 1, 1)
     @test out isa Tuple{Float32, Float32}
@@ -226,10 +223,7 @@ end
     coverage = Base.JLOptions().code_coverage != 0
     @test alloc(grads, m) == 0 skip = coverage
     m = CR.Transform(nb, (; r = PerStratum([0.5f0, 0.7f0]), p = 0.4f0))
-    m̄ = (;
-        f = (;), θ = (; r = (; x = zeros(Float32, 2)), p = Ref(0.0f0)),
-        derivative = nothing,
-    )
+    m̄ = (; f = (;), θ = (; r = (; x = zeros(Float32, 2)), p = Ref(0.0f0)))
     @test alloc((; piece = m̄, v = 1.0f0, s = 0.0f0), m) == 0 skip = coverage
 end
 
@@ -248,7 +242,6 @@ end
     @test !CR._local_derivative(CR.Transform(Scale(2.0)))
     scaled(b) = v -> b * v
     @test !CR._local_derivative(CR.Transform(scaled(0.3)))
-    @test CR._local_derivative(CR.Transform(Scale(2.0); derivative = v -> 2.0))
     w = range(0.5, 2.0; length = 6)
     loss(a) = sum(
         w .* Recurrence([0.5, 0.5]; modifiers = (CR.Transform(Scale(a)),))(
@@ -367,12 +360,10 @@ end
         @test rule(m)
     end
     @test rule(CR.Transform(log1p))
-    # A map with float fields is left to plain AD, with or without θ arrays,
-    # unless a derivative is supplied.
+    # A map with float fields is left to plain AD, with or without θ arrays.
     @test !CR.uses_adjoint(CR.Transform(Shift(0.1), 2.0), CR.Step())
     @test !rule(CR.Transform(Shift(0.1), 2.0))
     @test !rule(CR.Transform(Shift(0.1), PerStratum([1.0, 2.0])))
-    @test rule(CR.Transform(Shift(0.1), 2.0; derivative = (v, θ) -> (θ, v)))
 end
 
 @testitem "Transform: maps with their own pullbacks need no dual numbers" begin
@@ -384,11 +375,28 @@ end
     @test isempty(whys(CR.Transform(clamp, 0.0, 2.0)))
     @test isempty(whys(CR.Transform(clamp, 0.0, TimeVarying([1.0, 2.0]))))
     @test isempty(whys(CR.Transform(+)))
+    # A map without a local rule takes the forward-mode derivative, which
+    # needs `ForwardDiff`.
+    @test length(whys(CR.Transform(^, 0.5))) == 1
+    @test length(whys(CR.Transform((v, θ) -> θ * v, 0.5))) == 1
+    # A map with a local rule needs none: the package's own for `*` and `+`,
+    # and a user's for a type they own.
     @test isempty(whys(CR.Transform(*, 0.5)))
-    # Other maps take the local derivative, which needs `ForwardDiff`.
-    @test length(whys(CR.Transform(-, 0.5))) == 1
-    @test length(whys(CR.Transform(+, 0.5))) == 1
-    @test isempty(whys(CR.Transform(-, 0.5; derivative = (v, θ) -> (1, -1))))
+    @test isempty(whys(CR.Transform(+, 0.5)))
+    struct Times end
+    (::Times)(v, θ) = θ * v
+    CR.pullback!(grads, ::Times, ::CR.Local, y, v, θ) = (θ, v)
+    @test isempty(whys(CR.Transform(Times(), 0.5)))
+    @test CR._wants_output(CR.Transform(Times(), 0.5))
+    @test !CR._wants_output(CR.Transform((v, θ) -> θ * v, 0.5))
+    # The reasons infer concretely when no modifier needs dual numbers, so a
+    # trimmed build resolves the call.
+    gain = CR.Transform(*, CR.Derived(exp, -0.01 * CR.Recent(7)))
+    ms = (gain, CR.Depletion(10.0))
+    @test isempty(whys(gain))
+    @test Base.return_types(
+        CR._dual_whys, (Vector{Float64}, typeof(CR.I), typeof(ms))
+    ) == [Vector{String}]
 end
 
 @testitem "Transform implements the role interface" begin

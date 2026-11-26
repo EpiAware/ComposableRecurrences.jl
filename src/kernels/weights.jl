@@ -465,15 +465,6 @@ end
     end
 end
 
-# The partial derivatives of `f` at `xs`: closed forms for the arithmetic,
-# and a local forward-mode derivative otherwise.
-_partials(f, xs::Tuple) = _forward_derivative(f, xs)
-_partials(::typeof(identity), (a,)::Tuple{Real}) = (one(a),)
-_partials(::typeof(+), (a, b)::Tuple{Real, Real}) = (one(a), one(b))
-_partials(::typeof(-), (a, b)::Tuple{Real, Real}) = (one(a), -one(b))
-_partials(::typeof(-), (a,)::Tuple{Real}) = (-one(a),)
-_partials(::typeof(*), (a, b)::Tuple{Real, Real}) = (b, a)
-_partials(::typeof(/), (a, b)::Tuple{Real, Real}) = (inv(b), -a / b^2)
 
 # `η̄_i = -s_{i-1} a_i`, with `a` the survival's cotangent carried back along
 # the lags. Cotangents are cleared for the next block.

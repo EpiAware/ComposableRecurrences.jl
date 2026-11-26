@@ -171,7 +171,7 @@ end
 # Its one modifier ``M_1`` is a [`Transform`](@ref ComposableRecurrences.Transform) that applies ``G`` with parameters ``\theta = (R, \kappa)``.
 # Here ``R = 1.5``, and the history is ``q_0 = 0``.
 #
-# The `Transform` is also given the partial derivatives of ``G`` in ``s`` and in ``\theta`` as `derivative`.
+# ``G`` is written as a callable struct, so it can carry its partial derivatives in ``s`` and in ``\theta`` as a local rule: a [`pullback!`](@ref ComposableRecurrences.pullback!) method in the [`Local`](@ref ComposableRecurrences.Local) role.
 # With ``u = 1 + R (1 - s) / \kappa``, they are
 #
 # ```math
@@ -182,16 +182,21 @@ end
 #
 # A gradient's reverse pass uses these.
 # Without them it would evaluate ``G`` on dual numbers at every step, which costs more than the closed form.
-# Each partial derivative contains ``G`` itself, so `dG` takes the step's output ``y = G(s)`` as its third argument.
-# The reverse pass then passes the value from the forward pass instead of recomputing the power.
+# Each partial derivative contains ``G`` itself, so the rule takes the step's output ``y = G(s)`` as an argument.
+# The reverse pass passes the value from the forward pass instead of recomputing the power.
 
-G(s, θ) = (1 + θ.R / θ.κ * (1 - s))^(-θ.κ)
-function dG(s, θ, y)
+struct OffspringPGF end
+(::OffspringPGF)(s, θ) = (1 + θ.R / θ.κ * (1 - s))^(-θ.κ)
+function ComposableRecurrences.pullback!(
+        grads, ::OffspringPGF, ::ComposableRecurrences.Local, y, s, θ
+    )
     u = 1 + θ.R / θ.κ * (1 - s)
-    return θ.R * y / u, (; R = -(1 - s) * y / u, κ = y * (θ.R * (1 - s) / (θ.κ * u) - log(u)))
+    ∂R = -(1 - s) * y / u
+    ∂κ = y * (θ.R * (1 - s) / (θ.κ * u) - log(u))
+    return θ.R * y / u, (; R = ∂R, κ = ∂κ)
 end
 function extinction(θ, n)
-    m = Transform(G, θ; derivative = dG)
+    m = Transform(OffspringPGF(), θ)
     return Recurrence([1.0]; modifiers = (m,))(; history = [0.0], stop = n)
 end
 

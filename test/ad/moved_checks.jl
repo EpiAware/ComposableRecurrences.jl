@@ -93,7 +93,7 @@ end
             occursin("add `using ForwardDiff`", m)
     end
     println(CR._PULLBACK_CALLS[] == n0, " ", isapprox(g0, fd(h, x); rtol = 1.0e-5), " ", noted)
-    # So does a `Transform` without a `derivative`.
+    # So does a `Transform` without a local rule.
     tr = Recurrence(
         [0.3, 0.2];
         modifiers = (CR.Transform((v, p) -> p.a * v / (p.a + v), (; a = 5.0)),)
@@ -101,7 +101,7 @@ end
     th(x) = sum(tr(x; history = [1.0, 2.0]))
     @test_logs th(x)
     transform_ok = isapprox(gradient(th, backend, x), fd(th, x); rtol = 1.0e-5)
-    transform_noted = any(m -> occursin("`Transform` without a `derivative`", m), CR._PLAIN_NOTED)
+    transform_noted = any(m -> occursin("`Transform` without a local rule", m), CR._PLAIN_NOTED)
     # A traced call reaches the hook as a wrapper, and still says why.
     empty!(CR._PLAIN_NOTED)
     traced(x) = sum(r(x; history = [1.0, 2.0], record = (:trace,)).y)

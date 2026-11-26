@@ -318,6 +318,116 @@ grads.v, grads.piece.θ[2][]
 """
 function pullback! end
 
+@doc raw"""
+The role of a map's local derivative at one entry: the partial derivatives
+of a [`Derived`](@ref) map or a [`ComposableRecurrences.Transform`](@ref)
+map at its arguments, given its value there.
+
+For a map ``y = f(x_1, \dots, x_n)`` of scalars,
+`pullback!(grads, f, Local(), y, x...)` returns the partial derivatives
+```math
+\left(\frac{\partial f}{\partial x_1}, \dots,
+\frac{\partial f}{\partial x_n}\right),
+```
+one per argument and shaped as it is: a `Transform` map `f(v, θ)` with a
+tuple or NamedTuple `θ` returns `(∂f/∂v, ∂f/∂θ)`, the second shaped as
+`θ`.
+`y` is the map's value there, from the forward pass.
+`grads` holds no cotangents for this role.
+The operators look for the method with `Float64` arguments, so it should
+accept any `Real` arguments.
+Without one the partials come from a local forward-mode derivative, which
+needs `ForwardDiff` loaded.
+
+# Examples
+```jldoctest
+using ComposableRecurrences
+CR = ComposableRecurrences
+# A logistic hazard of the sum of its arguments, whose derivative reads its
+# value.
+struct LogisticSum end
+(::LogisticSum)(a, b) = inv(1 + exp(-(a + b)))
+function CR.pullback!(grads, ::LogisticSum, ::CR.Local, y, a, b)
+    d = y * (1 - y)
+    return d, d
+end
+h = CR.Derived(LogisticSum(), [-2.0, -1.0], 0.5)
+cdf = TimeVarying(1 - CR.Survival(h), CR.Primary())
+round.(CR.kernel_weights(cdf, 1); digits = 3)
+
+# output
+
+2×1 Matrix{Float64}:
+ 0.182
+ 0.491
+```
+"""
+struct Local end
+
+# Without a method for `f`, a map has no local rule, and the operators take
+# the forward-mode derivative.
+pullback!(grads, f, ::Local, y, xs...) = nothing
+
+# Whether `f` has a local rule at arguments of the types of `xs`: decided
+# from the inferred type of its `pullback!`, so it folds at compile time,
+# also when `f` itself does not infer. A rule counts only when it cannot
+# return `nothing`, so an inferred union with the fallback, or a rule whose
+# result does not infer, takes the forward-mode derivative instead.
+function _has_local(f::F, xs::X) where {F, X <: Tuple}
+    Y = Core.Compiler.return_type(f, X)
+    return _is_rule(Core.Compiler.return_type(pullback!, _local_sig(F, Y, X)))
+end
+# The same check from a map's type and argument count, with `Float64`
+# arguments, for a type that holds the map.
+function _has_local_type(::Type{F}, ::Val{N}) where {F, N}
+    sig = _local_sig(F, Float64, NTuple{N, Float64})
+    return _is_rule(Core.Compiler.return_type(pullback!, sig))
+end
+_is_rule(R) = R !== Union{} && !(Nothing <: R)
+# The signature as a constant, so the check folds without building the type
+# at run time.
+@generated function _local_sig(::Type{F}, ::Type{Y}, ::Type{X}) where {F, Y, X}
+    return Tuple{typeof((;)), F, Local, Y, fieldtypes(X)...}
+end
+
+# The value of `f` at `xs` and its partial derivatives there: from its local
+# rule when it has one, or from one local forward-mode evaluation.
+@inline function _value_and_partials(f, xs::Tuple)
+    return _value_and_partials(Val(_has_local(f, xs)), f, xs)
+end
+@inline function _value_and_partials(::Val{true}, f, xs::Tuple)
+    y = f(xs...)
+    return y, _local_partials(f, y, xs)
+end
+@inline function _value_and_partials(::Val{false}, f, xs::Tuple)
+    return _forward_value_and_derivative(f, xs)
+end
+# The same with the value the forward pass computes, `f(xs...)` on the plain
+# arguments, where a caller reads it: a forward-mode evaluation's value can
+# differ from it in the last bits.
+@inline function _primal_and_partials(f, xs::Tuple)
+    return _primal_and_partials(Val(_has_local(f, xs)), f, xs)
+end
+@inline function _primal_and_partials(::Val{true}, f, xs::Tuple)
+    return _value_and_partials(Val(true), f, xs)
+end
+@inline function _primal_and_partials(::Val{false}, f, xs::Tuple)
+    return f(xs...), last(_forward_value_and_derivative(f, xs))
+end
+# The partials at `xs`, given the value `y` there.
+@inline _local_partials(f, y, xs::Tuple) = pullback!((;), f, Local(), y, xs...)
+@inline _partials(f, xs::Tuple) = last(_value_and_partials(f, xs))
+
+# The package's own local rules.
+pullback!(grads, ::typeof(identity), ::Local, y, a::Real) = (one(a),)
+pullback!(grads, ::typeof(+), ::Local, y, a::Real, b::Real) = (one(a), one(b))
+pullback!(grads, ::typeof(-), ::Local, y, a::Real, b::Real) = (one(a), -one(b))
+pullback!(grads, ::typeof(-), ::Local, y, a::Real) = (-one(a),)
+pullback!(grads, ::typeof(*), ::Local, y, a::Real, b::Real) = (b, a)
+pullback!(grads, ::typeof(/), ::Local, y, a::Real, b::Real) = (inv(b), -a / b^2)
+pullback!(grads, ::typeof(exp), ::Local, y, a::Real) = (y,)
+pullback!(grads, ::typeof(log), ::Local, y, a::Real) = (inv(a),)
+
 # == Modifier traits ==
 
 @doc raw"""

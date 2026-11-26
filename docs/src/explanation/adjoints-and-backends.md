@@ -56,7 +56,7 @@ A component without one is differentiated inside the rule with a local ForwardDi
 | coupling with a `Diagonal`, sparse or other structured float array | plain AD |
 | coupling, or whole-step modifier with no state of its own, declared linear with [`islinear`](@ref ComposableRecurrences.islinear) | rule, the matrix its `forward!` gives, built once per call outside the rule |
 | [`Pairwise`](@ref) route coupling | as a coupling, the widest route coupling setting whether the call takes the rule |
-| [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats, with no `derivative` | plain AD |
+| [`Transform`](@ref ComposableRecurrences.Transform) whose map holds floats | plain AD |
 | component that the local step cannot rebuild from its parameters | plain AD |
 
 A modifier with a [`Derived`](@ref ComposableRecurrences.Derived) parameter whose map holds floats takes plain AD even with a `pullback!`, as neither reaches those floats.
@@ -106,7 +106,7 @@ So the step must read it at its own `k` and `t`, as `param(m.κ, k, t)`:
 
 #### Ties and kinks
 
-The local step's dual numbers, and those of a `Transform` without a `derivative`, compare by value only, as plain floats do.
+The local step's dual numbers, and those of a `Transform` whose map has no [local rule](@ref extending-local-rules), compare by value only, as plain floats do.
 So at a tie, such as `x > 0 ? y / x : zero(x)` at `x = 0`, the local step takes the branch the step takes.
 
 ForwardDiff and the backends have derivative rules of their own for some functions, and such a rule picks the side of the function's kink.

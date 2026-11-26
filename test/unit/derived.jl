@@ -182,7 +182,7 @@ end
     @test CR._needs_duals(m)
     @test occursin("Transform holds a Derived map", CR._dual_why(m))
     plain = CR.Transform((v, p) -> p * v, 0.5)
-    @test occursin("`Transform` without a `derivative`", CR._dual_why(plain))
+    @test occursin("`Transform` without a local rule", CR._dual_why(plain))
     flow = CR.Flow(:S => :V, CR.Derived((b, c) -> b * exp(c), 0.5, 0.1))
     pool = CR.Depletion(
         100.0, CR.Hazard(0.02; weights = (S = 1, V = 0.3)), flow;

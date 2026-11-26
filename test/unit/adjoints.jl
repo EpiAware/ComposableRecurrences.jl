@@ -1458,7 +1458,7 @@ end
         c::T
     end
     @test_throws msg("Rate") invoke(CR._local_form_pullback, two_args, nothing, Rate(0.7))
-    @test_throws r"^ArgumentError: the local derivative of a `Transform` without a `derivative`, or of a `Derived` map, needs `ForwardDiff`" invoke(
+    @test_throws r"^ArgumentError: the local derivative of a `Transform` without a local rule, or of a `Derived` map, needs `ForwardDiff`" invoke(
         CR._transform_seeds, Tuple{Vararg{Any}}, 1.0, 2.0
     )
     # The checks and buffers that need dual numbers say nothing, so the
@@ -2960,7 +2960,7 @@ end
         @test p̄ ≈ ref[1:3] atol = 1.0e-8
         @test mirror_vec(C̄, C) ≈ ref[4:end] atol = 1.0e-8
     end
-    # A `Transform` without a `derivative`, through its own local
+    # A `Transform` without a local rule, through its own local
     # derivative, and a guard written with `iszero`.
     f(v, a) = v > 0 ? a * v^2 / v : 2 * a * v
     @test collect(CR._forward_derivative(f, 0.0, 0.4)) == [0.8, 0.0]

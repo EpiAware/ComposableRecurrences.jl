@@ -657,12 +657,26 @@ end
 # generation interval and a mixing matrix.
 _nb_pgf(q, θ) = (θ.p / (1 - (1 - θ.p) * q))^θ.r
 # The partial derivatives of `_nb_pgf` in `q` and in `θ`, in closed form, as
-# the transform tutorial passes them to its `Transform`: from the step's
-# output `y`, so the reverse pass does not recompute the power.
+# the transform tutorial's local rule gives them: from the step's output
+# `y`, so the reverse pass does not recompute the power.
 function _nb_pgf_derivative(q, θ, y)
     D = 1 - (1 - θ.p) * q
     ∂θ = (; r = y * log(θ.p / D), p = y * θ.r * (1 - q) / (θ.p * D))
     return y * θ.r * (1 - θ.p) / D, ∂θ
+end
+# The same map as a callable struct with its local rule, on a release with
+# the `Local` role; earlier ones take the derivative as a keyword.
+struct _NBPGF end
+(::_NBPGF)(q, θ) = _nb_pgf(q, θ)
+const LOCAL_RULES = isdefined(ComposableRecurrences, :Local)
+@static if LOCAL_RULES
+    function CR.pullback!(grads, ::_NBPGF, ::CR.Local, y, q, θ)
+        return _nb_pgf_derivative(q, θ, y)
+    end
+end
+function _nb_pgf_transform(θ)
+    LOCAL_RULES && return CR.Transform(_NBPGF(), θ)
+    return CR.Transform(_nb_pgf, θ; derivative = _nb_pgf_derivative)
 end
 function transform(wrap, z::Size)
     (; T, L, S) = z
@@ -670,10 +684,7 @@ function transform(wrap, z::Size)
     K = S == 1 ? ones(1, 1) : fill(0.2 / (S - 1), S, S) + (0.8 - 0.2 / (S - 1)) * I
     f = function (θ)
         g, r, p = _unpack(θ, (L,), (S,), (S,))
-        m = CR.Transform(
-            _nb_pgf, (; r = PerStratum(r), p = PerStratum(p));
-            derivative = _nb_pgf_derivative
-        )
+        m = _nb_pgf_transform((; r = PerStratum(r), p = PerStratum(p)))
         y = wrap(Recurrence(g; coupling = K, modifiers = (m,)))(
             ; history = zeros(S, L), stop = T
         )
